@@ -3,6 +3,7 @@ import tsParser from '@typescript-eslint/parser';
 import { ALLOWLIST, DENYLIST } from './scripts/compat-gate.mjs';
 
 const entryByKind = new Map(DENYLIST.map((entry) => [entry.kind, entry]));
+const callOptions = DENYLIST.filter((entry) => entry.kind === 'call-option');
 const polyfilled = new Set(
   ALLOWLIST.filter((entry) => entry.reason === 'polyfilled').map((entry) => entry.name),
 );
@@ -37,11 +38,10 @@ const unsupportedPatterns = {
       },
       CallExpression(node) {
         const name = expressionName(node.callee);
-        if (name === 'postMessage' && objectProperty(node.arguments[1], 'transfer')) {
-          context.report({ node, message: entryByKind.get('postmessage-option').message });
-        }
-        if (name === 'addEventListener' && objectProperty(node.arguments[2], 'signal')) {
-          context.report({ node, message: entryByKind.get('listener-option').message });
+        for (const option of callOptions) {
+          if (name === option.call && objectProperty(node.arguments[option.arg], option.property)) {
+            context.report({ node, message: option.message });
+          }
         }
       },
     };

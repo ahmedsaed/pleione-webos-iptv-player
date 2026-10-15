@@ -1,5 +1,5 @@
 import type { Action, AudioTrackOption, Channel, SubtitleTrackOption } from '../types';
-import { $, html, raw } from '../utils/dom';
+import { $, html, onceTransitionEnd, raw } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { AUDIO_ICON, SPEED_ICON, SUBTITLE_ICON } from './icons';
 import { t } from '../i18n';
@@ -58,6 +58,7 @@ export class PlayerMenu {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private focusIdx = 0;
   private mode: 'main' | 'audio' | 'subtitles' | 'speed' = 'main';
+  private cancelHide: (() => void) | null = null;
 
   constructor(
     container: HTMLElement,
@@ -93,6 +94,8 @@ export class PlayerMenu {
   show(): void {
     if (this.isVisible) return;
     this.isVisible = true;
+    this.cancelHide?.();
+    this.cancelHide = null;
     this.mode = 'main';
     this.focusIdx = 0;
     this.render();
@@ -110,9 +113,10 @@ export class PlayerMenu {
     const el = this.el;
     if (el) {
       el.classList.remove('visible');
-      el.addEventListener('transitionend', () => {
+      this.cancelHide = onceTransitionEnd(el, () => {
+        this.cancelHide = null;
         if (!this.isVisible) el.classList.add('hidden');
-      }, { once: true });
+      });
     }
     if (this.timer) {
       clearTimeout(this.timer);

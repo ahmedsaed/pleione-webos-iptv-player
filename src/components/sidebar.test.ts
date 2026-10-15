@@ -195,6 +195,43 @@ describe('Sidebar', () => {
       expect(el.classList.contains('visible')).toBe(false);
     });
 
+    it('adds the hidden class once the slide-out ends', () => {
+      sidebar.show();
+      sidebar.hide();
+      expect(el.classList.contains('hidden')).toBe(false);
+      el.dispatchEvent(new Event('transitionend'));
+      expect(el.classList.contains('hidden')).toBe(true);
+    });
+
+    // Chromium 53 predates `once`: it ignores `once` in an options object
+    // and keeps the listener attached after it fires.
+    it('keeps no hide listener behind on an engine without `once`', () => {
+      const attached = new Set<EventListenerOrEventListenerObject>();
+      const add = el.addEventListener.bind(el);
+      const remove = el.removeEventListener.bind(el);
+      el.addEventListener = (type: string, fn: EventListenerOrEventListenerObject | null,
+        options?: boolean | AddEventListenerOptions) => {
+        if (type === 'transitionend' && fn) attached.add(fn);
+        add(type, fn, typeof options === 'object' ? !!options.capture : options);
+      };
+      el.removeEventListener = (type: string, fn: EventListenerOrEventListenerObject | null,
+        options?: boolean | EventListenerOptions) => {
+        if (type === 'transitionend' && fn) attached.delete(fn);
+        remove(type, fn, options);
+      };
+      const before = attached.size;
+      for (let i = 0; i < 3; i++) {
+        sidebar.show();
+        sidebar.hide();
+        el.dispatchEvent(new Event('transitionend'));
+      }
+      sidebar.show();
+      sidebar.hide();
+      sidebar.show();
+      expect(attached.size).toBe(before);
+    });
+
+
     it('show() is idempotent', () => {
       sidebar.show();
       const first = items()[1];

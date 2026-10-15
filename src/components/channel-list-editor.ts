@@ -1,6 +1,6 @@
 import type { Action, Channel, ChannelGroupId } from '../types';
 import type { SpatialNav } from '../navigation/spatial-nav';
-import { html, raw, type Safe } from '../utils/dom';
+import { focusWithoutScroll, html, raw, type Safe } from '../utils/dom';
 import { channelKey, groupDisplayLabel } from '../utils/channel';
 import { PlaylistService } from '../services/playlist-service';
 import { ChannelCustomizationService, groupKeyOf } from '../services/channel-customization';
@@ -407,7 +407,7 @@ export class ChannelListEditor {
       const option = this.container.querySelector<HTMLElement>(
         `[data-epg-position="${String(this.epgFocusPosition)}"]`,
       );
-      if (option && document.activeElement !== option) option.focus({ preventScroll: true });
+      if (option && document.activeElement !== option) focusWithoutScroll(option);
       return;
     }
     const input = this.container.querySelector<HTMLInputElement>(

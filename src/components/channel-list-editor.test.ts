@@ -915,6 +915,42 @@ describe('ChannelList edit mode', () => {
       expect(container.querySelector('.epg-mapping-list')?.scrollTop).toBeGreaterThan(0);
     });
 
+  it('keeps the EPG list where the app scrolled it when D-pad focus lands on an option',
+    async () => {
+      epgMock.getLocalMappingCandidates.mockReturnValue(Array.from({ length: 120 }, (_, index) => ({
+        id: `source::guide-${String(index)}`,
+        channelId: `guide-${String(index)}`,
+        name: `Guide ${String(index).padStart(3, '0')}`,
+        sourceName: 'Guide',
+      })));
+      enterEdit();
+      hover(channelItems()[0]);
+      list.handleAction('select');
+      hover(container.querySelector<HTMLElement>('[data-epg-action]')!);
+      list.handleAction('select');
+      await waitForEpgSearch();
+      container.querySelector<HTMLInputElement>('.epg-mapping-search')!
+        .dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+
+      // An engine without `preventScroll` (Chromium 53) scrolls on focus.
+      const nativeFocus = HTMLElement.prototype.focus;
+      const focus = vi.spyOn(HTMLElement.prototype, 'focus')
+        .mockImplementation(function (this: HTMLElement) {
+          nativeFocus.call(this);
+          const mapping = this.closest<HTMLElement>('.epg-mapping-list');
+          if (mapping) mapping.scrollTop += 500;
+        });
+      try {
+        for (let index = 0; index < 3; index++) list.handleAction('down');
+        expect(document.activeElement).toBe(
+          container.querySelector('[data-epg-position="3"]'),
+        );
+        expect(container.querySelector('.epg-mapping-list')?.scrollTop).toBe(0);
+      } finally {
+        focus.mockRestore();
+      }
+    });
+
   it('blue renames the focused channel and an empty value restores the source name', () => {
     enterEdit();
     hover(channelItems()[0]);

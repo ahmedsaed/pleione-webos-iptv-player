@@ -27,7 +27,8 @@ Procedural workflows live in `.agents/skills/` (open Agent Skills format;
 - Render with `morph()` + the `html` template — never `innerHTML =`.
   Interpolate untrusted M3U/XMLTV text only through `html`.
 - Every bug fix ships with a regression test that fails without the fix.
-- Every feature or bug fix adds the `tv.sh diag` events a bug report needs.
+- Add a `tv.sh diag` event only when a bug report could not show the
+  failure without it; no event beats a noisy one.
 - Tests and docs use synthetic identifiers only.
 - Never hand-edit the version in `appinfo.json` (it syncs from
   `package.json`), and never hand-edit the generated
@@ -211,11 +212,16 @@ build constant; `scripts/sync-version.mjs` runs on `npm version`.
   a review, the user, or anywhere else. Add the narrowest test that covers
   it (unit where possible, E2E for UI or focus behavior), and confirm it
   fails without the fix and passes with it.
-- **Every feature or bug fix adds the `tv.sh diag` events it needs**, so a
-  user's bug report captures the failure next time. Log through
-  `createLogger` with `event=<area>.<what>` plus `key=value` fields
-  (counts, reasons, modes; never URLs, credentials, or M3U/XMLTV text),
-  and assert the event in a test.
+- **Add `tv.sh diag` events only where a bug report needs them.** Log a
+  state the report could not otherwise reveal: a failure or its reason, a
+  fallback taken, a detected engine capability, or a decision the code
+  made (mode, outcome, count). Don't log routine UI activity (show/hide,
+  focus moves, key presses already in the input timeline) or a success
+  that later events imply; a fix that leaves no failure state to observe
+  needs no event. Log once per occurrence that matters, never per frame
+  or per interaction. Use `createLogger` with `event=<area>.<what>` plus
+  `key=value` fields (never URLs, credentials, or M3U/XMLTV text), and
+  assert each event in a test.
 - **Done** means `npm run typecheck`, `npm run lint`, and the relevant tests
   pass. Then run the `feature-review` skill for any finished feature.
 - **Git:** commit directly to `main`, only when asked, via the `commit`

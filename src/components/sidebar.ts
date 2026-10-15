@@ -11,7 +11,7 @@ import { CONFIG } from '../config';
 import { PlaylistService } from '../services/playlist-service';
 import { EpgService } from '../services/epg-service';
 import { RecentlyWatchedService, type RecentlyWatchedItem } from '../services/recently-watched';
-import { $, html, raw, type Safe } from '../utils/dom';
+import { $, html, onceTransitionEnd, raw, type Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { rankChannels } from '../utils/channel-search';
 import { groupDisplayLabel } from '../utils/channel';
@@ -68,6 +68,7 @@ export class Sidebar {
   private getCurrentCatchupStart: () => number | null;
   private isVisible = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private cancelHide: (() => void) | null = null;
   private activePane: SidebarPane = 'channels';
   private groupsExpanded = false;
   private channelFocusIdx = -1; // -1 here means the search box is focused
@@ -196,6 +197,8 @@ export class Sidebar {
   show(): void {
     if (this.isVisible) return;
     this.isVisible = true;
+    this.cancelHide?.();
+    this.cancelHide = null;
     this.keyboardOn = false;
     this.opening = true;
     this.activePane = 'channels';
@@ -240,9 +243,10 @@ export class Sidebar {
     if (el) {
       el.querySelector<HTMLInputElement>('.sidebar-search-input')?.blur(); // dismiss keyboard
       el.classList.remove('visible');
-      el.addEventListener('transitionend', () => {
+      this.cancelHide = onceTransitionEnd(el, () => {
+        this.cancelHide = null;
         if (!this.isVisible) el.classList.add('hidden');
-      }, { once: true });
+      });
     }
     if (this.timer) {
       clearTimeout(this.timer);

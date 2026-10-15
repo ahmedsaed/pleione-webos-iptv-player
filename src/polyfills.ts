@@ -168,7 +168,7 @@ function installAbortController(): void {
     }
     return new Promise<Response>((resolve, reject) => {
       const onAbort = () => reject(abortError());
-      signal.addEventListener('abort', onAbort, { once: true });
+      signal.addEventListener('abort', onAbort);
       nativeFetch(input, rest).then(
         response => {
           signal.removeEventListener('abort', onAbort);

@@ -171,6 +171,62 @@ describe('PlayerMenu', () => {
     });
   });
 
+  describe('hide transition', () => {
+    // Chromium 53 predates `once`: it ignores `once` in an options object
+    // and keeps the listener attached after it fires.
+    function ignoreListenerOptions(): { attached: () => number } {
+      const listeners = new Set<EventListenerOrEventListenerObject>();
+      const add = el.addEventListener.bind(el);
+      const remove = el.removeEventListener.bind(el);
+      el.addEventListener = (type: string, fn: EventListenerOrEventListenerObject | null,
+        options?: boolean | AddEventListenerOptions) => {
+        if (type === 'transitionend' && fn) listeners.add(fn);
+        add(type, fn, typeof options === 'object' ? !!options.capture : options);
+      };
+      el.removeEventListener = (type: string, fn: EventListenerOrEventListenerObject | null,
+        options?: boolean | EventListenerOptions) => {
+        if (type === 'transitionend' && fn) listeners.delete(fn);
+        remove(type, fn, options);
+      };
+      return { attached: () => listeners.size };
+    }
+
+    function transitionEnd(): void {
+      el.dispatchEvent(new Event('transitionend'));
+    }
+
+    it('adds the hidden class once the fade-out ends', () => {
+      menu.show();
+      menu.hide();
+      expect(el.classList.contains('hidden')).toBe(false);
+      transitionEnd();
+      expect(el.classList.contains('hidden')).toBe(true);
+    });
+
+    it('keeps no listener behind on an engine without `once`', () => {
+      const engine = ignoreListenerOptions();
+      for (let i = 0; i < 5; i++) {
+        menu.show();
+        menu.hide();
+        transitionEnd();
+      }
+      expect(engine.attached()).toBe(0);
+    });
+
+    it('drops an unfinished fade-out when the menu reopens', () => {
+      const engine = ignoreListenerOptions();
+      menu.show();
+      menu.hide();
+      menu.show();
+      // The fix under test; the class checks below held before it too.
+      expect(engine.attached()).toBe(0);
+      transitionEnd();
+      expect(el.classList.contains('hidden')).toBe(false);
+      expect(menu.visible).toBe(true);
+    });
+
+  });
+
   it('hides itself after the idle timeout', () => {
     menu.show();
     vi.advanceTimersByTime(5000);
