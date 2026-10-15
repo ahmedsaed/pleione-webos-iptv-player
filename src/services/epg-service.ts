@@ -23,6 +23,21 @@ interface SourceState {
   timestamp: number;
   needsRefresh: boolean;
   mappingIndex?: PreparedEpgMappingSearchEntry[];
+  /** Timestamp of the epg-cache record holding `data`'s programme arrays. */
+  cacheTimestamp?: number;
+}
+
+/** Where a channel's programmes live in the epg-cache store. */
+export interface ProgrammeCacheOrigin {
+  url: string;
+  id: string;
+  timestamp: number;
+}
+
+interface ProgrammeOrigin {
+  url: string;
+  id: string;
+  state: SourceState;
 }
 
 /** The playlist channels a source is parsed down to. */
@@ -68,6 +83,7 @@ class EpgServiceImpl {
   private timeIndexes = new Map<string, { source: Programme[]; index: EpgTimeIndex }>();
   private sourceOffsets = new Map<string, number>();
   private derivedOffsets = new Map<string, { id: string; baseId: string; minutes: number }>();
+  private programmeOrigins = new Map<string, ProgrammeOrigin>();
   private mappedChannelIds: string[] = [];
   private playlistChannels: Channel[] | null = null;
   /** The per-source filter the last completed load was built from. */
@@ -109,6 +125,7 @@ class EpgServiceImpl {
     this.timeIndexes.clear();
     this.sourceOffsets.clear();
     this.derivedOffsets.clear();
+    this.programmeOrigins.clear();
     this.mappedChannelIds = [];
     this.playlistChannels = null;
     this.appliedFilters.clear();
@@ -277,6 +294,25 @@ class EpgServiceImpl {
     return baseId ? this.applyChannelOffset(channel, baseId, override) : null;
   }
 
+  // A time shift copies programmes without touching their text, so a shifted
+  // or per-channel-offset list still matches its cached source list.
+  programmeCacheOrigin(channelId: string): ProgrammeCacheOrigin | null {
+    const origin = this.programmeOrigins.get(channelId);
+    const timestamp = origin?.state.cacheTimestamp;
+    if (!origin || timestamp === undefined) return null;
+    return { url: origin.url, id: origin.id, timestamp };
+  }
+
+  /** The epg-cache records the loaded guide came from, for the Search index prewarm. */
+  getProgrammeCacheRecords(): Array<{ url: string; timestamp: number }> {
+    const records: Array<{ url: string; timestamp: number }> = [];
+    for (const source of this.sources) {
+      const timestamp = this.states.get(source.url)?.cacheTimestamp;
+      if (timestamp !== undefined) records.push({ url: source.url, timestamp });
+    }
+    return records;
+  }
+
   getSourceOffsetMinutes(channel: Channel): number {
     const override = ChannelCustomizationService.overrideFor(channelKey(channel));
     const baseId = this.findBaseChannelId(channel, override);
@@ -344,6 +380,8 @@ class EpgServiceImpl {
     }));
     this.channels[id] = this.channels[baseId];
     this.programmes[id] = shifted;
+    const origin = this.programmeOrigins.get(baseId);
+    if (origin) this.programmeOrigins.set(id, origin);
     this.timeIndexes.set(id, { source: shifted, index: new EpgTimeIndex(shifted) });
     this.derivedOffsets.set(key, { id, baseId, minutes });
     return id;
@@ -356,6 +394,7 @@ class EpgServiceImpl {
     if (!derived) return;
     delete this.channels[derived.id];
     delete this.programmes[derived.id];
+    this.programmeOrigins.delete(derived.id);
     this.timeIndexes.delete(derived.id);
     this.derivedOffsets.delete(key);
   }
@@ -512,10 +551,12 @@ class EpgServiceImpl {
       || cached.data.channelCatalogComplete === true;
     const covered = covers(cached.filter, filter);
     const filtered = filterParsedEpg(cached.data, filter);
+    // A filtered rewrite below keeps the timestamp and the kept id arrays.
     this.setState(source.url, {
       data: filtered.data,
       timestamp: cached.timestamp,
       needsRefresh: !hasTzField || !hasChannelCatalog || !covered,
+      cacheTimestamp: cached.timestamp,
     });
     const fresh = (refreshIntervalMs === null || age < refreshIntervalMs)
       && hasTzField
@@ -582,11 +623,12 @@ class EpgServiceImpl {
       // A truncated parse is usable for this session, but it is not the
       // guide the filter asked for — so it must not settle as the answer.
       const truncated = stats.droppedBudget > 0;
-      this.setState(source.url, {
+      const state: SourceState = {
         data: result,
         timestamp: Date.now(),
         needsRefresh: truncated,
-      });
+      };
+      this.setState(source.url, state);
       if (onDataPublished) this.publish(revision, onDataPublished);
       log.info('Loaded', source.url, '|', Object.keys(result.channels).length, 'channels,',
         programmeCount, 'programmes', filter ? `(of ${String(stats.programmesSeen)} seen)` : '');
@@ -601,13 +643,18 @@ class EpgServiceImpl {
           'hint=hide the channels you do not watch',
         );
       } else if (programmeCount > 0) {
-        await setCachedEpg(
+        const cachedAt = Date.now();
+        const stored = await setCachedEpg(
           source.url,
           result,
           serializeFilter(filter),
-          Date.now(),
+          cachedAt,
           StorageService.getEpgRefreshIntervalMs(),
         );
+        if (stored) {
+          state.cacheTimestamp = cachedAt;
+          for (const listener of epgWriteListeners) listener(source.url);
+        }
       } else {
         log.warn('EPG has 0 programmes — not caching:', source.url);
       }
@@ -703,10 +750,12 @@ class EpgServiceImpl {
     this.timeIndexes.clear();
     this.sourceOffsets.clear();
     this.derivedOffsets.clear();
+    this.programmeOrigins.clear();
     this.tzOffsetMinutes = null;
     for (const source of this.sources) {
-      const data = this.states.get(source.url)?.data;
-      if (!data) continue;
+      const state = this.states.get(source.url);
+      const data = state?.data;
+      if (!state || !data) continue;
       if (this.tzOffsetMinutes === null && data.tzOffsetMinutes != null) {
         this.tzOffsetMinutes = data.tzOffsetMinutes;
       }
@@ -725,6 +774,7 @@ class EpgServiceImpl {
               stop: new Date(program.stop.getTime() + offsetMs),
             }));
         this.programmes[key] = shiftedPrograms;
+        this.programmeOrigins.set(key, { url: source.url, id, state });
         this.sourceOffsets.set(key, offsetMinutes);
         this.timeIndexes.set(key, {
           source: shiftedPrograms,
@@ -779,6 +829,17 @@ class EpgServiceImpl {
     }
     return null;
   }
+}
+
+const epgWriteListeners: Array<(url: string) => void> = [];
+
+/** Called once a fetched guide is stored, after its cache record is known. */
+export function onEpgCacheWritten(listener: (url: string) => void): () => void {
+  epgWriteListeners.push(listener);
+  return () => {
+    const index = epgWriteListeners.indexOf(listener);
+    if (index >= 0) epgWriteListeners.splice(index, 1);
+  };
 }
 
 export const EpgService = new EpgServiceImpl();

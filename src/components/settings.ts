@@ -1618,6 +1618,7 @@ export class Settings {
         <span>${t('settings.moviesSeriesMediaData')} <strong>${formatBytes(usage.categories.catalog.bytes)}</strong></span>
         <span>${t('settings.onlineSubtitles')} <strong>${formatBytes(usage.categories.subtitle.bytes)}</strong></span>
         <span>${t('settings.channelHealth')} <strong>${formatBytes(usage.categories.health.bytes)}</strong></span>
+        <span>${t('settings.searchIndex')} <strong>${formatBytes(usage.categories.search.bytes)}</strong></span>
       </div>
     `);
   }

@@ -335,6 +335,14 @@ export function extractDiagnosticTimeline(logs) {
     const elapsedMs = Number(fields.match(/\belapsedMs=(\d+)/)?.[1] ?? NaN);
     const delayMs = Number(fields.match(/\bdelayMs=(\d+)/)?.[1] ?? NaN);
     const timeoutMs = Number(fields.match(/\btimeoutMs=(\d+)/)?.[1] ?? NaN);
+    const persisted = Number(fields.match(/\bpersisted=(\d+)/)?.[1] ?? NaN);
+    const built = Number(fields.match(/\bbuilt=(\d+)/)?.[1] ?? NaN);
+    const posted = Number(fields.match(/\bposted=(\d+)/)?.[1] ?? NaN);
+    const evicted = Number(fields.match(/\bevicted=(\d+)/)?.[1] ?? NaN);
+    const skipped = Number(fields.match(/\bskipped=(\d+)/)?.[1] ?? NaN);
+    const sources = Number(fields.match(/\bsources=(\d+)/)?.[1] ?? NaN);
+    const hintMs = Number(fields.match(/\bhintMs=(\d+)/)?.[1] ?? NaN);
+    const roomBytes = Number(fields.match(/\broomBytes=(\d+)/)?.[1] ?? NaN);
     const rate = Number(fields.match(/\brate=(\d+(?:\.\d+)?)/)?.[1] ?? NaN);
     const observed = Number(fields.match(/\bobserved=(\d+(?:\.\d+)?)/)?.[1] ?? NaN);
     const errorCode = Number(fields.match(/\berrorCode=(-?\d+)/)?.[1] ?? NaN);
@@ -381,6 +389,14 @@ export function extractDiagnosticTimeline(logs) {
       elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : null,
       delayMs: Number.isFinite(delayMs) ? delayMs : null,
       timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : null,
+      persisted: Number.isFinite(persisted) ? persisted : null,
+      built: Number.isFinite(built) ? built : null,
+      posted: Number.isFinite(posted) ? posted : null,
+      evicted: Number.isFinite(evicted) ? evicted : null,
+      skipped: Number.isFinite(skipped) ? skipped : null,
+      sources: Number.isFinite(sources) ? sources : null,
+      hintMs: Number.isFinite(hintMs) ? hintMs : null,
+      roomBytes: Number.isFinite(roomBytes) ? roomBytes : null,
       rate: Number.isFinite(rate) ? rate : null,
       observed: Number.isFinite(observed) ? observed : null,
       errorCode: Number.isFinite(errorCode) ? errorCode : null,
@@ -735,6 +751,14 @@ export function formatDiagnosticSummary(report) {
     if (event.elapsedMs != null) fields.push(`elapsedMs=${String(event.elapsedMs)}`);
     if (event.delayMs != null) fields.push(`delayMs=${String(event.delayMs)}`);
     if (event.timeoutMs != null) fields.push(`timeoutMs=${String(event.timeoutMs)}`);
+    if (event.persisted != null) fields.push(`persisted=${String(event.persisted)}`);
+    if (event.built != null) fields.push(`built=${String(event.built)}`);
+    if (event.posted != null) fields.push(`posted=${String(event.posted)}`);
+    if (event.evicted != null) fields.push(`evicted=${String(event.evicted)}`);
+    if (event.skipped != null) fields.push(`skipped=${String(event.skipped)}`);
+    if (event.sources != null) fields.push(`sources=${String(event.sources)}`);
+    if (event.hintMs != null) fields.push(`hintMs=${String(event.hintMs)}`);
+    if (event.roomBytes != null) fields.push(`roomBytes=${String(event.roomBytes)}`);
     if (event.engine) fields.push(`engine=${event.engine}`);
     if (event.rate != null) fields.push(`rate=${String(event.rate)}`);
     if (event.observed != null) fields.push(`observed=${String(event.observed)}`);

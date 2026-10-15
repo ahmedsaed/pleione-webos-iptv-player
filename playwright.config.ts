@@ -1,8 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 import { LEGACY_HEADER } from './scripts/chromium-53-simulation.mjs';
 
-// The preview server (scripts/serve.mjs) listens on port 3000.
-const baseURL = 'http://localhost:3000';
+// The preview server (scripts/serve.mjs) listens on port 3000 unless PREVIEW_PORT is set.
+const baseURL = `http://localhost:${process.env.PREVIEW_PORT || 3000}`;
 
 // End-to-end tests drive the real app in headless Chromium (close to the
 // legacy webOS Chromium engine). The preview harness builds the app and serves

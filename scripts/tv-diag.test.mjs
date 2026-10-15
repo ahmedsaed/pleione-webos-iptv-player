@@ -780,6 +780,70 @@ exit 23
     expect(summary).toContain('- engine.quirks.measured scrollEndPadding=1 noFlexGap=0');
   });
 
+  it('parses and formats Search index fields', () => {
+    const diagnostics = extractDiagnosticTimeline([
+      {
+        observedAt: '2026-01-01T00:00:00.000Z',
+        source: 'console',
+        level: 'log',
+        text: '[Search] Search index ready event=search.index.ready session=3 mode=fallback'
+          + ' channels=40 programmes=900 items=12 persisted=1 built=2 posted=1'
+          + ' elapsedMs=640 hintMs=410',
+      },
+      {
+        observedAt: '2026-01-01T00:00:01.000Z',
+        source: 'console',
+        level: 'log',
+        text: '[SearchIndexStore] Search indexes saved event=search.index.persist.completed'
+          + ' count=2 bytes=5000 evicted=1',
+      },
+      {
+        observedAt: '2026-01-01T00:00:02.000Z',
+        source: 'console',
+        level: 'log',
+        text: '[SearchIndexStore] Search index prewarm finished'
+          + ' event=search.index.prewarm.completed reason=startup sources=4 built=2'
+          + ' skipped=1 elapsedMs=300',
+      },
+      {
+        observedAt: '2026-01-01T00:00:03.000Z',
+        source: 'console',
+        level: 'log',
+        text: '[IdbCache] Search index not saved event=search.index.persist.skipped'
+          + ' reason=budget bytes=9000 roomBytes=4000',
+      },
+    ]);
+    expect(diagnostics[0]).toMatchObject({
+      code: 'search.index.ready', session: 3, mode: 'fallback', channels: 40,
+      programmes: 900, items: 12, persisted: 1, built: 2, posted: 1,
+      elapsedMs: 640, hintMs: 410,
+    });
+    expect(diagnostics[1]).toMatchObject({ count: 2, bytes: 5000, evicted: 1 });
+    expect(diagnostics[2]).toMatchObject({ reason: 'startup', sources: 4, built: 2, skipped: 1 });
+    expect(diagnostics[3]).toMatchObject({ reason: 'budget', bytes: 9000, roomBytes: 4000 });
+
+    const summary = formatDiagnosticSummary({
+      capturedAt: '2026-01-01T00:00:04.000Z',
+      app: {},
+      environment: {},
+      state: {},
+      playlists: [],
+      diagnostics,
+      input: [],
+      xtream: [],
+      logs: [],
+      network: [],
+    });
+    expect(summary).toContain(
+      'search.index.ready session=3 channels=40 items=12 programmes=900 mode=fallback'
+        + ' elapsedMs=640 persisted=1 built=2 posted=1 hintMs=410',
+    );
+    expect(summary).toContain('search.index.persist.completed count=2 bytes=5000 evicted=1');
+    expect(summary).toContain('search.index.prewarm.completed reason=startup'
+      + ' elapsedMs=300 built=2 skipped=1 sources=4');
+    expect(summary).toContain('search.index.persist.skipped reason=budget bytes=9000 roomBytes=4000');
+  });
+
   it('ignores diagnostic fields inside JSON-quoted error text', () => {
     const errorText = JSON.stringify(
       'e1 "quoted" \\ errorCode=401 observed=9 engine=html rate=0.5'

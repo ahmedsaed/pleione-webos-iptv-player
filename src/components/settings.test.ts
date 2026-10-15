@@ -68,6 +68,7 @@ const {
           catalog: { bytes: 286 * 1024 * 1024, entries: 7 },
           subtitle: { bytes: 41 * 1024 * 1024, entries: 2 },
           health: { bytes: 0, entries: 0 },
+          search: { bytes: 3 * 1024 * 1024, entries: 2 },
         },
         budgetBytes: 1024 * 1024 * 1024,
         originUsageBytes: null,
@@ -929,7 +930,8 @@ describe('Settings.render', () => {
       ?.getAttribute('transform')).toBe('rotate(-90 60 60)');
     const breakdown = container.querySelector('.cache-usage-breakdown')!;
     expect(breakdown.previousElementSibling?.classList.contains('cache-usage-total')).toBe(true);
-    expect(breakdown.children).toHaveLength(5);
+    expect(breakdown.children).toHaveLength(6);
+    expect(breakdown.lastElementChild?.textContent).toBe('Search Index 3.00 MiB');
     expect(breakdown.textContent).toContain('286 MiB');
     expect(breakdown.textContent).toContain('92.0 MiB');
     expect(breakdown.textContent).toContain('Channel Health');

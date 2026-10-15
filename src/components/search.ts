@@ -8,10 +8,12 @@ import { EpgService } from '../services/epg-service';
 import { ReminderService } from '../services/reminder-service';
 import { StorageService } from '../services/storage-service';
 import { XtreamArchiveService } from '../services/xtream-archive';
+import { persistSearchIndexes } from '../services/search-index-store';
 import {
   getSearchCatalogExpiresAt,
   loadAllSeries,
   loadAllVodStreams,
+  onCatalogListRefreshed,
 } from '../services/xtream-catalog';
 import {
   prepareNameSearchItems,
@@ -41,7 +43,21 @@ import {
   liveParentalRequest,
   ParentalControlService,
 } from '../services/parental-control';
-import type { SearchIndexRequest, SearchQueryResponse } from '../workers/tasks';
+import type {
+  SearchCachedNames,
+  SearchIndexChunk,
+  SearchIndexRequest,
+  SearchIndexSource,
+  SearchQueryResponse,
+} from '../workers/tasks';
+import {
+  cachedChannelsRequest,
+  cachedNamesRequest,
+  channelDocument,
+  ProgrammeRuns,
+  sampleDocuments,
+  selectCatalogItems,
+} from './search-cache-source';
 
 const log = createLogger('Search');
 const SEARCH_LIST_VIEWPORT = 420;
@@ -65,9 +81,42 @@ interface ProgramResult {
   programme: Programme;
 }
 
+function programDocument(result: ProgramResult): string[] {
+  return [
+    result.programme.title,
+    result.programme.category,
+    result.programme.description,
+    result.channel.name,
+    result.channel.group,
+  ];
+}
+
 type CatalogLoadResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: unknown };
+
+interface CatalogSources {
+  movies: boolean;
+  series: boolean;
+}
+
+// Sources still on their way to the worker in this session.
+interface PendingIndex {
+  channels: boolean;
+  programmes: boolean;
+  catalog: boolean;
+}
+
+interface SourcePost {
+  id: number;
+  // Settles once this post stops sending chunks.
+  sent: Promise<void>;
+  result: Promise<boolean>;
+}
+
+function nextFrame(): Promise<void> {
+  return new Promise(resolve => requestAnimationFrame(() => resolve()));
+}
 
 function captureCatalogLoad<T>(promise: Promise<T>): Promise<CatalogLoadResult<T>> {
   return promise.then(
@@ -89,6 +138,12 @@ export class Search {
   private allVod: VodItem[] = [];
   private allSeries: SeriesItem[] = [];
   private programIndex: ProgramResult[] = [];
+  private programRuns = new ProgrammeRuns();
+  // The catalog-cache selections behind allVod / allSeries, when available.
+  private vodCache: SearchCachedNames | null = null;
+  private seriesCache: SearchCachedNames | null = null;
+  // The channel list whose documents the worker holds in this session.
+  private workerChannels: Channel[] | null = null;
   private indexedChannels: Channel[] | null = null;
   private indexedProgrammes: Record<string, Programme[]> | null = null;
   private loadedFor: string | null = null;
@@ -111,13 +166,31 @@ export class Search {
   private focusPending = false;
   private focusWaitingInBox = false;
   private catalogController: AbortController | null = null;
+  // Shared by a reopen, so closing Search does not restart the load.
+  private catalogLoad: { accountId: string; promise: Promise<CatalogSources> } | null = null;
   private catalogLoading = false;
+  // Until every source is indexed, queries wait and the results show a hint.
+  private pendingIndex: PendingIndex | null = null;
   private active = false;
   private programIndexGeneration = 0;
-  private resultLimit: number = CONFIG.XTREAM.SEARCH_INITIAL_RESULTS;
+  private resultLimit: number = CONFIG.SEARCH.INITIAL_RESULTS;
   private hasMoreResults = false;
   private workerSession = 0;
   private workerIndexReady = false;
+  // A post failed, so the worker may hold a partial index; the next query rebuilds it.
+  private workerIndexLost = false;
+  private lostEpoch = 0;
+  // One rebuild of a lost index per session; queries meanwhile wait for it.
+  private recovery: { sessionId: number; done: Promise<boolean> } | null = null;
+  // The catalog lists the worker ranks, which can trail allVod/allSeries
+  // while a refresh is posted; worker indices map onto these.
+  private indexedVod: VodItem[] = [];
+  private indexedSeries: SeriesItem[] = [];
+  // How this session's index reached the worker, for its diagnostic event.
+  private indexStats = { startedAt: 0, hintAt: 0, persisted: 0, built: 0, posted: 0 };
+  // The latest chunked post of each source; a source posts one sequence at a time.
+  private sourcePosts: Partial<Record<SearchIndexSource, SourcePost>> = {};
+  private sourcePostId = 0;
   private workerIndexedChannels: Channel[] | null = null;
   private workerIndexedProgrammes: Record<string, Programme[]> | null = null;
   private workerIndexedAccountId: string | null = null;
@@ -135,6 +208,7 @@ export class Search {
     this.container.setAttribute('data-self-activate', '');
     this.container.addEventListener('click', (e: MouseEvent) => this.onPointerRelease(e.clientX, e.clientY));
     this.container.addEventListener('scroll', (e: Event) => this.onVirtualScroll(e), true);
+    onCatalogListRefreshed(key => this.onCatalogRefreshed(key));
   }
 
   private onPointerRelease(x: number, y: number): void {
@@ -150,23 +224,34 @@ export class Search {
     const reuseWorkerIndex = this.canReuseWorkerIndex(account);
     if (!this.releaseWorker) this.releaseWorker = retainAppWorker();
     this.cancelScheduledQuery();
-    this.catalogController?.abort();
-    this.catalogController = null;
-    this.catalogLoading = false;
+    if (this.catalogLoad && this.catalogLoad.accountId !== account?.id) this.abortCatalogLoad();
     if (this.loadedFor !== account?.id) {
       this.allVod = [];
       this.allSeries = [];
+      this.vodCache = null;
+      this.seriesCache = null;
       this.loadedFor = null;
       this.catalogExpiresAt = 0;
     }
     this.account = account;
     this.query = query;
-    this.resultLimit = CONFIG.XTREAM.SEARCH_INITIAL_RESULTS;
+    this.resultLimit = CONFIG.SEARCH.INITIAL_RESULTS;
+    if (!reuseWorkerIndex) {
+      this.pendingIndex = { channels: true, programmes: true, catalog: !!account };
+      this.clearResults();
+    }
     this.render();
-    if (reuseWorkerIndex) return;
+    if (reuseWorkerIndex) {
+      this.logIndexReady('reused');
+      return;
+    }
 
     const sessionId = ++this.workerSession;
     this.invalidateWorkerIndex();
+    this.workerIndexLost = false;
+    const now = Date.now();
+    this.indexStats = { startedAt: now, hintAt: query.trim() ? now : 0, persisted: 0, built: 0, posted: 0 };
+    this.workerChannels = null;
     const workerReset = new Promise<boolean>((resolve, reject) => {
       requestAnimationFrame(() => {
         if (!this.active || sessionId !== this.workerSession) {
@@ -176,43 +261,61 @@ export class Search {
         this.indexWorker({ sessionId, reset: true }).then(resolve, reject);
       });
     });
-    let catalogLoad: Promise<void> | null = null;
     if (account) {
-      this.catalogController = new AbortController();
       this.catalogLoading = true;
-      catalogLoad = this.loadCatalog(
-        account,
-        this.catalogController.signal,
-        sessionId,
-        workerReset,
-      );
-      const settled = (): void => {
+      const catalogIndexed = this.loadCatalog(account).then(async (sources) => {
+        if (!await workerReset || sessionId !== this.workerSession) return false;
+        return this.indexCatalog(sessionId, sources.movies, sources.series);
+      });
+      const settled = (indexed: boolean): void => {
         if (sessionId !== this.workerSession) return;
         this.catalogLoading = false;
+        if (indexed) this.indexSettled(sessionId, 'catalog');
+        else this.indexLost(sessionId, 'rejected', 'catalog');
         this.applyPendingFocus();
       };
-      catalogLoad.then(settled, settled);
+      catalogIndexed.then(settled, () => {
+        if (sessionId !== this.workerSession) return;
+        this.catalogLoading = false;
+        this.indexLost(sessionId, 'error', 'catalog');
+        this.applyPendingFocus();
+      });
     }
+    try {
+      await this.indexChannelsAndProgrammes(sessionId, workerReset);
+    } catch (error) {
+      if (sessionId !== this.workerSession) return;
+      // Queries rebuild a lost index themselves; don't leave the hint up.
+      log.error('Search index build failed', 'event=search.worker.index.failed', error);
+      this.indexLost(sessionId, 'error', 'channels', 'programmes');
+    }
+  }
+
+  private async indexChannelsAndProgrammes(
+    sessionId: number,
+    workerReset: Promise<boolean>,
+  ): Promise<void> {
     const reset = await workerReset;
     if (!reset || !this.active || sessionId !== this.workerSession) return;
-    const channelsIndexed = await this.indexWorker({
+    const channels = PlaylistService.channels;
+    const postChannels = (): Promise<boolean> => this.postSource(
       sessionId,
-      channels: PlaylistService.channels.map(channel => [
-        channel.name,
-        channel.group,
-        channel.sourceName ?? '',
-      ]),
-    });
-    if (!channelsIndexed || !this.active || sessionId !== this.workerSession) return;
-    await this.buildProgramIndex(false, sessionId);
-    if (!this.active) return;
-    const completedProgramGeneration = this.programIndexGeneration;
-    if (this.query.trim()) await this.startQuery(++this.queryGeneration);
-    await catalogLoad;
-    if (!this.active
-        || sessionId !== this.workerSession
-        || completedProgramGeneration !== this.programIndexGeneration) return;
-    if (!account || this.loadedFor === account.id) this.markWorkerIndexReady(account);
+      'channels',
+      channels.length,
+      index => channelDocument(channels[index]),
+    );
+    const cachedChannels = cachedChannelsRequest(channels, PlaylistService.getChannelCacheSource());
+    const channelsIndexed = cachedChannels
+      ? await this.indexWorkerFromCache({ sessionId, cachedChannels }, postChannels)
+      : await postChannels();
+    if (!channelsIndexed) {
+      this.indexLost(sessionId, 'rejected', 'channels', 'programmes');
+      return;
+    }
+    if (!this.active || sessionId !== this.workerSession) return;
+    this.workerChannels = channels;
+    this.indexSettled(sessionId, 'channels');
+    this.programIndexDone(sessionId, await this.buildProgramIndex(false, sessionId));
   }
 
   /** The tab bar's search box drives the query; re-render the results for it. */
@@ -220,7 +323,7 @@ export class Search {
     this.focusPending = false;
     this.cancelScheduledQuery();
     this.query = query;
-    this.resultLimit = CONFIG.XTREAM.SEARCH_INITIAL_RESULTS;
+    this.resultLimit = CONFIG.SEARCH.INITIAL_RESULTS;
     if (!query.trim()) {
       this.clearResults();
       this.render();
@@ -232,7 +335,7 @@ export class Search {
   scheduleQuery(query: string): void {
     this.focusPending = false;
     this.query = query;
-    this.resultLimit = CONFIG.XTREAM.SEARCH_INITIAL_RESULTS;
+    this.resultLimit = CONFIG.SEARCH.INITIAL_RESULTS;
     const generation = ++this.queryGeneration;
     if (this.queryFrame !== null) cancelAnimationFrame(this.queryFrame);
     if (!query.trim()) {
@@ -253,8 +356,16 @@ export class Search {
     this.indexedChannels = null;
     this.indexedProgrammes = null;
     if (!this.active) return;
-    await this.buildProgramIndex(true, this.workerSession);
-    if (this.active && this.query.trim()) {
+    const sessionId = this.workerSession;
+    // While sources are pending, the last one to settle runs the query.
+    const wasPending = !!this.pendingIndex;
+    try {
+      this.programIndexDone(sessionId, await this.buildProgramIndex(true, sessionId));
+    } catch (error) {
+      log.error('Search program index failed', 'event=search.worker.index.failed', 'scope=programmes', error);
+      this.indexLost(sessionId, 'error', 'programmes');
+    }
+    if (!wasPending && this.active && !this.pendingIndex && this.query.trim()) {
       await this.startQuery(++this.queryGeneration);
     }
   }
@@ -273,12 +384,13 @@ export class Search {
   }
 
   invalidateCatalog(): void {
-    this.catalogController?.abort();
-    this.catalogController = null;
-    this.catalogLoading = false;
+    this.abortCatalogLoad();
+    this.pendingIndex = null;
     this.workerSession++;
     this.allVod = [];
     this.allSeries = [];
+    this.vodCache = null;
+    this.seriesCache = null;
     this.loadedFor = null;
     this.clearResults();
     this.invalidateWorkerIndex();
@@ -292,9 +404,6 @@ export class Search {
     this.active = false;
     this.focusPending = false;
     this.programIndexGeneration++;
-    this.catalogController?.abort();
-    this.catalogController = null;
-    this.catalogLoading = false;
     this.releaseWorker?.();
     this.releaseWorker = null;
     this.queryPending = false;
@@ -327,33 +436,38 @@ export class Search {
     }
   }
 
-  // Load the whole catalogs once per account (cached in IndexedDB), guarding
-  // against account-switch races so a stale in-flight load can't clobber the
-  // current account's catalog. Non-blocking: open() already rendered the box.
-  private async loadCatalog(
-    account: PlaylistEntry,
-    signal: AbortSignal,
-    sessionId: number,
-    workerReset: Promise<boolean>,
-  ): Promise<void> {
+  // Load the whole catalogs once per account (cached in IndexedDB). A reopen
+  // shares the load in flight; only an account switch or a concealment change
+  // aborts it, so a stale load can't clobber the current account's catalog.
+  private loadCatalog(account: PlaylistEntry): Promise<CatalogSources> {
     if (this.loadedFor === account.id && Date.now() < this.catalogExpiresAt) {
-      if (!await workerReset) return;
-      await this.indexWorker({
-        sessionId,
-        movies: this.allVod.map(item => item.name),
-        series: this.allSeries.map(item => item.name),
-      });
-      return;
+      return Promise.resolve({ movies: true, series: true });
     }
+    if (this.catalogLoad?.accountId === account.id) return this.catalogLoad.promise;
+    const controller = new AbortController();
+    this.catalogController = controller;
+    const promise = this.fetchCatalog(account, controller.signal);
+    const load = { accountId: account.id, promise };
+    this.catalogLoad = load;
+    const done = (): void => {
+      if (this.catalogLoad === load) this.catalogLoad = null;
+      if (this.catalogController === controller) this.catalogController = null;
+    };
+    promise.then(done, done);
+    return promise;
+  }
+
+  private async fetchCatalog(account: PlaylistEntry, signal: AbortSignal): Promise<CatalogSources> {
     const [vod, series] = await Promise.all([
       captureCatalogLoad(loadAllVodStreams(account, signal)),
       captureCatalogLoad(loadAllSeries(account, signal)),
     ]);
-    // A newer open() (account switch) superseded this load — discard the stale
-    // result instead of clobbering the current account's catalog.
-    if (signal.aborted || this.account?.id !== account.id) return;
+    if (signal.aborted || this.account?.id !== account.id) return { movies: false, series: false };
+    const concealing = ParentalControlService.concealing;
     if (vod.ok) {
-      this.allVod = vod.data.filter(item => !isVodConcealed(item));
+      const visible = selectCatalogItems(vod.data, concealing, isVodConcealed);
+      this.allVod = visible.items;
+      this.vodCache = cachedNamesRequest(vod.data, visible.items, visible.selection);
     } else {
       log.error(
         'Movie search catalog load failed',
@@ -363,7 +477,9 @@ export class Search {
       );
     }
     if (series.ok) {
-      this.allSeries = series.data.filter(item => !isSeriesConcealed(item));
+      const visible = selectCatalogItems(series.data, concealing, isSeriesConcealed);
+      this.allSeries = visible.items;
+      this.seriesCache = cachedNamesRequest(series.data, visible.items, visible.selection);
     } else {
       log.error(
         'Series search catalog load failed',
@@ -373,8 +489,10 @@ export class Search {
       );
     }
     if (vod.ok && series.ok) {
+      const expiresAt = await getSearchCatalogExpiresAt(account.id) ?? 0;
+      if (signal.aborted || this.account?.id !== account.id) return { movies: false, series: false };
       this.loadedFor = account.id;
-      this.catalogExpiresAt = await getSearchCatalogExpiresAt(account.id) ?? 0;
+      this.catalogExpiresAt = expiresAt;
       log.debug(
         'catalog loaded',
         vod.data.length,
@@ -383,14 +501,109 @@ export class Search {
         'series',
       );
     }
-    if (!await workerReset) return;
-    const indexed = await this.indexWorker({
-      sessionId,
-      ...(vod.ok ? { movies: this.allVod.map(item => item.name) } : {}),
-      ...(series.ok ? { series: this.allSeries.map(item => item.name) } : {}),
+    return { movies: vod.ok, series: series.ok };
+  }
+
+  private abortCatalogLoad(): void {
+    this.catalogController?.abort();
+    this.catalogController = null;
+    this.catalogLoad = null;
+    this.catalogLoading = false;
+  }
+
+  // A stale catalog was served at once and has now been re-fetched: index the
+  // new copy for an open Search, or leave it for the next open.
+  private onCatalogRefreshed(key: string): void {
+    const account = this.account;
+    if (!account || this.loadedFor !== account.id) return;
+    if (key !== `${account.id}|vod_all` && key !== `${account.id}|series_all`) return;
+    this.loadedFor = null;
+    this.catalogExpiresAt = 0;
+    if (this.catalogLoad?.accountId === account.id) this.catalogLoad = null;
+    if (!this.active || this.pendingIndex) return;
+    const sessionId = this.workerSession;
+    const refreshed = async (indexed: boolean, reason = 'rejected'): Promise<void> => {
+      if (!this.active || sessionId !== this.workerSession || this.account?.id !== account.id) return;
+      if (!indexed) this.indexLost(sessionId, reason, 'catalog');
+      else if (this.workerIndexReady) this.markWorkerIndexReady(account);
+      if (this.query.trim()) await this.startQuery(++this.queryGeneration);
+    };
+    void this.loadCatalog(account).then(async (sources) => {
+      if (!this.active || sessionId !== this.workerSession || this.account?.id !== account.id) return;
+      await refreshed(await this.indexCatalog(sessionId, sources.movies, sources.series));
+    }).catch(async (error: unknown) => {
+      log.error('Search catalog refresh failed', 'event=search.worker.index.failed', 'scope=catalog', error);
+      await refreshed(false, 'error');
     });
-    if (!indexed || signal.aborted || this.account?.id !== account.id) return;
-    if (this.query.trim()) await this.startQuery(++this.queryGeneration);
+  }
+
+  // null: a newer program index build took over and settles instead.
+  private programIndexDone(sessionId: number, indexed: boolean | null): void {
+    if (indexed) this.indexSettled(sessionId, 'programmes');
+    else if (indexed === false) this.indexLost(sessionId, 'rejected', 'programmes');
+  }
+
+  // The sources are settled but the worker may hold a partial index: the
+  // first query after the last pending source rebuilds it whole.
+  private indexLost(sessionId: number, reason: string, ...sources: Array<keyof PendingIndex>): void {
+    if (sessionId !== this.workerSession) return;
+    for (const source of sources) {
+      log.warn(
+        'Search index incomplete; the next query rebuilds it',
+        'event=search.index.lost',
+        `session=${String(sessionId)}`,
+        `source=${source}`,
+        `reason=${reason}`,
+      );
+    }
+    this.workerIndexLost = true;
+    this.lostEpoch++;
+    this.indexSettled(sessionId, ...sources);
+  }
+
+  private logIndexReady(mode: string): void {
+    const stats = this.indexStats;
+    const now = Date.now();
+    const fields = mode === 'reused'
+      ? []
+      : [
+        `persisted=${String(stats.persisted)}`,
+        `built=${String(stats.built)}`,
+        `posted=${String(stats.posted)}`,
+        `elapsedMs=${String(now - stats.startedAt)}`,
+        `hintMs=${String(stats.hintAt ? now - stats.hintAt : 0)}`,
+      ];
+    log.info(
+      'Search index ready',
+      'event=search.index.ready',
+      `session=${String(this.workerSession)}`,
+      `mode=${mode}`,
+      `channels=${String(PlaylistService.channels.length)}`,
+      `programmes=${String(this.programIndex.length)}`,
+      `items=${String(this.allVod.length + this.allSeries.length)}`,
+      ...fields,
+    );
+  }
+
+  private indexMode(): string {
+    const stats = this.indexStats;
+    if (this.workerIndexLost) return 'lost';
+    if (stats.posted) return 'fallback';
+    if (stats.built) return 'cache';
+    return 'persisted';
+  }
+
+  private indexSettled(sessionId: number, ...sources: Array<keyof PendingIndex>): void {
+    const pending = this.pendingIndex;
+    if (!pending || sessionId !== this.workerSession) return;
+    for (const source of sources) pending[source] = false;
+    if (pending.channels || pending.programmes || pending.catalog) return;
+    this.pendingIndex = null;
+    this.logIndexReady(this.indexMode());
+    if (!this.workerIndexLost) this.markWorkerIndexReady(this.account);
+    if (!this.active) return;
+    if (this.query.trim()) void this.startQuery(++this.queryGeneration);
+    else this.render();
   }
 
   private onSelect(): void {
@@ -442,7 +655,7 @@ export class Search {
   private applyPendingFocus(): void {
     if (!this.focusPending || !this.active || this.queryPending) return;
     const first = this.container.querySelector<HTMLElement>('.search-results [data-focusable]');
-    if (!first && this.catalogLoading) {
+    if (!first && (this.catalogLoading || this.pendingIndex)) {
       // Wait in the search box, not on a blank screen, for the catalog.
       if (!this.focusWaitingInBox) {
         this.focusWaitingInBox = true;
@@ -592,17 +805,17 @@ export class Search {
     `;
   }
 
-  private async buildProgramIndex(force: boolean, sessionId: number): Promise<void> {
+  private async buildProgramIndex(force: boolean, sessionId: number): Promise<boolean | null> {
     if (!force
         && this.indexedChannels === PlaylistService.channels
         && this.indexedProgrammes === EpgService.programmes) {
-      await this.indexProgrammes(sessionId);
-      return;
+      return this.indexProgrammes(sessionId);
     }
     const generation = ++this.programIndexGeneration;
     const channels = PlaylistService.channels;
     const programmesByChannel = EpgService.programmes;
     const programs: ProgramResult[] = [];
+    const runs = new ProgrammeRuns();
     let channelIndex = 0;
     let channelPrograms: Programme[] = [];
     let programmeIndex = 0;
@@ -622,32 +835,181 @@ export class Search {
       const epgId = EpgService.findChannelId(channel);
       channelPrograms = epgId ? programmesByChannel[epgId] ?? [] : [];
       programmeIndex = 0;
+      if (epgId && channelPrograms.length) {
+        runs.add(channelIndex - 1, EpgService.programmeCacheOrigin(epgId), channelPrograms.length);
+      }
       return false;
     }, { shouldContinue });
-    if (!collected) return;
+    if (!collected) return null;
 
     this.programIndex = programs;
+    this.programRuns = runs;
     this.indexedChannels = channels;
     this.indexedProgrammes = programmesByChannel;
-    await this.indexProgrammes(sessionId);
+    return this.indexProgrammes(sessionId);
   }
 
   private indexProgrammes(sessionId: number): Promise<boolean> {
-    return this.indexWorker({
+    const programs = this.programIndex;
+    const postProgrammes = (): Promise<boolean> => this.postSource(
       sessionId,
-      programmes: this.programIndex.map(result => [
-        result.programme.title,
-        result.programme.category,
-        result.programme.description,
-        result.channel.name,
-        result.channel.group,
-      ]),
-    });
+      'programmes',
+      programs.length,
+      index => programDocument(programs[index]),
+    );
+    // Cached programme documents join the worker's channel documents, so
+    // they must come from the very channel list the program index walked.
+    const cachedProgrammes = this.workerChannels === this.indexedChannels
+      && sessionId === this.workerSession
+      ? this.programRuns.request(
+        sampleDocuments(programs.length, index => programDocument(programs[index])),
+      )
+      : null;
+    return cachedProgrammes
+      ? this.indexWorkerFromCache({ sessionId, cachedProgrammes }, postProgrammes)
+      : postProgrammes();
+  }
+
+  private async indexCatalog(sessionId: number, movies: boolean, series: boolean): Promise<boolean> {
+    const vod = this.allVod;
+    const allSeries = this.allSeries;
+    const adopt = (sources: SearchIndexSource[]): void => {
+      if (sessionId !== this.workerSession) return;
+      if (sources.indexOf('movies') >= 0) this.indexedVod = vod;
+      if (sources.indexOf('series') >= 0) this.indexedSeries = allSeries;
+    };
+    const post = async (sources: SearchIndexSource[]): Promise<boolean> => {
+      for (const source of sources) {
+        const items = source === 'movies' ? vod : allSeries;
+        if (!await this.postSource(sessionId, source, items.length, index => items[index].name)) {
+          return false;
+        }
+        adopt([source]);
+      }
+      return true;
+    };
+    const request: SearchIndexRequest = { sessionId };
+    const posted: SearchIndexSource[] = [];
+    if (movies && this.vodCache) request.cachedMovies = this.vodCache;
+    else if (movies) posted.push('movies');
+    if (series && this.seriesCache) request.cachedSeries = this.seriesCache;
+    else if (series) posted.push('series');
+    if (!request.cachedMovies && !request.cachedSeries) return post(posted);
+    const cached = await this.indexWorkerFromCache(request, post, adopt);
+    return cached && post(posted);
   }
 
   private async indexWorker(request: SearchIndexRequest): Promise<boolean> {
     const response = await runAppWorkerTask('search.index', request);
-    return response.accepted && request.sessionId === this.workerSession;
+    const accepted = response.accepted && request.sessionId === this.workerSession;
+    if (accepted && request.reset) {
+      this.indexedVod = [];
+      this.indexedSeries = [];
+    }
+    return accepted;
+  }
+
+  // The worker reads the documents from IndexedDB; whatever it could not
+  // read or verify is posted as plain arrays instead.
+  private async indexWorkerFromCache(
+    request: SearchIndexRequest,
+    post: (sources: SearchIndexSource[]) => Promise<boolean>,
+    loaded?: (sources: SearchIndexSource[]) => void,
+  ): Promise<boolean> {
+    const response = await runAppWorkerTask('search.index', request);
+    void persistSearchIndexes(response.persist);
+    if (!response.accepted || request.sessionId !== this.workerSession) return false;
+    if (loaded) {
+      const unresolved = (response.unresolved ?? []).map(entry => entry.source);
+      const sources: SearchIndexSource[] = [];
+      if (request.cachedMovies && unresolved.indexOf('movies') < 0) sources.push('movies');
+      if (request.cachedSeries && unresolved.indexOf('series') < 0) sources.push('series');
+      loaded(sources);
+    }
+    if (response.loaded) {
+      this.indexStats.persisted += response.loaded.persisted;
+      this.indexStats.built += response.loaded.built;
+    }
+    const unresolved = response.unresolved;
+    if (!unresolved?.length) return true;
+    for (const entry of unresolved) {
+      log.info(
+        'Search index cache unavailable; posting documents',
+        'event=search.worker.cache.fallback',
+        `session=${String(request.sessionId)}`,
+        `source=${entry.source}`,
+        `reason=${entry.reason}`,
+      );
+    }
+    return post(unresolved.map(entry => entry.source));
+  }
+
+  // The worker stages one sequence per source, so posts of a source take
+  // turns; one replaced by a newer post ends early and shares its outcome.
+  private postSource(
+    sessionId: number,
+    source: SearchIndexSource,
+    total: number,
+    documentAt: (index: number) => string[] | string,
+  ): Promise<boolean> {
+    const previous = this.sourcePosts[source];
+    if (total && this.pendingIndex && sessionId === this.workerSession) this.indexStats.posted++;
+    let sent = (): void => undefined;
+    const post: SourcePost = {
+      id: ++this.sourcePostId,
+      sent: new Promise<void>(resolve => { sent = resolve; }),
+      result: Promise.resolve(false),
+    };
+    this.sourcePosts[source] = post;
+    post.result = (async (): Promise<boolean> => {
+      let posts: Promise<boolean>[] | null;
+      try {
+        if (previous) await previous.sent;
+        posts = await this.postChunks(post.id, sessionId, source, total, documentAt);
+      } finally {
+        sent();
+      }
+      if (!posts) return this.sourcePosts[source]!.result;
+      const accepted = await Promise.all(posts);
+      return accepted.length > 0 && accepted.every(Boolean) && sessionId === this.workerSession;
+    })();
+    return post.result;
+  }
+
+  // Post a source in slices, one per frame, so no single message clones
+  // enough text to stall an animation. null: a newer post replaced this one.
+  private async postChunks(
+    id: number,
+    sessionId: number,
+    source: SearchIndexSource,
+    total: number,
+    documentAt: (index: number) => string[] | string,
+  ): Promise<Promise<boolean>[] | null> {
+    const size = CONFIG.SEARCH.INDEX_CHUNK_SIZE;
+    const posts: Promise<boolean>[] = [];
+    let start = 0;
+    do {
+      if (start > 0) await nextFrame();
+      if (this.sourcePosts[source]?.id !== id) {
+        void Promise.all(posts).catch(() => undefined);
+        return null;
+      }
+      if (sessionId !== this.workerSession) break;
+      const end = Math.min(total, start + size);
+      const chunk: SearchIndexChunk = { source, start, total };
+      if (source === 'movies' || source === 'series') {
+        const names: string[] = [];
+        for (let index = start; index < end; index++) names.push(documentAt(index) as string);
+        chunk.names = names;
+      } else {
+        const documents: string[][] = [];
+        for (let index = start; index < end; index++) documents.push(documentAt(index) as string[]);
+        chunk.documents = documents;
+      }
+      posts.push(this.indexWorker({ sessionId, chunk }));
+      start = end;
+    } while (start < total);
+    return posts;
   }
 
   private startQuery(generation: number, preserveOffsets = false): Promise<void> {
@@ -664,19 +1026,32 @@ export class Search {
     const query = this.query;
     const sessionId = this.workerSession;
     if (!query.trim()) return;
+    if (this.pendingIndex) {
+      // The ready index runs this query; until then the hint stands in.
+      if (!this.indexStats.hintAt) this.indexStats.hintAt = Date.now();
+      this.render();
+      this.applyPendingFocus();
+      return;
+    }
     if (!preserveOffsets) {
       this.queryPending = true;
       this.render();
     }
-    let response: SearchQueryResponse | null;
+    let response: SearchQueryResponse | null = null;
     let recoveryAttempted = false;
+    const lists = this.indexedLists();
     try {
-      response = await runAppWorkerTask('search.query', {
-        sessionId,
-        query,
-        limit: this.resultLimit,
-        includeCatalog: !!this.account,
-      });
+      if (this.workerIndexLost) {
+        recoveryAttempted = true;
+        response = await this.recoverWorkerQuery(sessionId, query, 'lost');
+      } else {
+        response = await runAppWorkerTask('search.query', {
+          sessionId,
+          query,
+          limit: this.resultLimit,
+          includeCatalog: !!this.account,
+        });
+      }
     } catch (error) {
       if (generation !== this.queryGeneration || !this.active) return;
       log.error(
@@ -687,7 +1062,7 @@ export class Search {
         error,
       );
       recoveryAttempted = true;
-      response = await this.recoverWorkerQuery(sessionId, query);
+      response = await this.recoverWorkerQuery(sessionId, query, 'query_failed');
     }
     if (generation !== this.queryGeneration || sessionId !== this.workerSession || !this.active) {
       return;
@@ -699,18 +1074,23 @@ export class Search {
         'scope=unified',
         `session=${String(sessionId)}`,
       );
-      response = await this.recoverWorkerQuery(sessionId, query);
+      response = await this.recoverWorkerQuery(sessionId, query, 'missing');
     }
-    if (!response) {
+    if (response && !sameLists(lists, this.indexedLists())) {
+      // The lists changed under the reply, so its indices may not map onto them.
+      return this.runWorkerQuery(generation, preserveOffsets);
+    }
+    if (response) {
+      this.applyQueryResponse(response, this.indexedVod, this.indexedSeries);
+    } else {
       log.warn(
         'Worker search failed; using main-thread fallback',
         'event=search.worker.fallback.used',
         'scope=unified',
         `session=${String(sessionId)}`,
       );
-      response = this.queryLocally(query);
+      this.applyQueryResponse(this.queryLocally(query), this.allVod, this.allSeries);
     }
-    this.applyQueryResponse(response);
     this.queryPending = false;
     if (!preserveOffsets) this.resetVirtualOffsets();
     this.render();
@@ -720,13 +1100,7 @@ export class Search {
   private queryLocally(query: string): SearchQueryResponse {
     const channels = PlaylistService.searchLocalRanked(query, this.resultLimit);
     const programmes = rankPreparedTopK(
-      prepareSearchItems(this.programIndex, result => [
-        result.programme.title,
-        result.programme.category,
-        result.programme.description,
-        result.channel.name,
-        result.channel.group,
-      ]),
+      prepareSearchItems(this.programIndex, programDocument),
       query,
       this.resultLimit,
     );
@@ -756,43 +1130,43 @@ export class Search {
     };
   }
 
+  private indexedLists(): unknown[] {
+    return [PlaylistService.channels, this.programIndex, this.indexedVod, this.indexedSeries];
+  }
+
   private async recoverWorkerQuery(
     sessionId: number,
     query: string,
+    reason: string,
   ): Promise<SearchQueryResponse | null> {
+    const startedAt = Date.now();
     try {
-      const indexed = await this.indexWorker({
-        sessionId,
-        reset: true,
-        channels: PlaylistService.channels.map(channel => [
-          channel.name,
-          channel.group,
-          channel.sourceName ?? '',
-        ]),
-        programmes: this.programIndex.map(result => [
-          result.programme.title,
-          result.programme.category,
-          result.programme.description,
-          result.channel.name,
-          result.channel.group,
-        ]),
-        movies: this.allVod.map(item => item.name),
-        series: this.allSeries.map(item => item.name),
-      });
-      if (!indexed) return null;
-      this.markWorkerIndexReady(this.account);
+      let recovery = this.recovery;
+      const owner = !recovery || recovery.sessionId !== sessionId;
+      if (!recovery || owner) {
+        const current = { sessionId, done: this.rebuildWorkerIndex(sessionId) };
+        const clear = (): void => {
+          if (this.recovery === current) this.recovery = null;
+        };
+        current.done.then(clear, clear);
+        this.recovery = current;
+        recovery = current;
+      }
+      if (!await recovery.done) return null;
       const response = await runAppWorkerTask('search.query', {
         sessionId,
         query,
         limit: this.resultLimit,
         includeCatalog: !!this.account,
       });
-      if (response) {
+      if (response && owner) {
         log.info(
           'Search worker recovery completed',
           'event=search.worker.recovery.completed',
           'scope=unified',
           `session=${String(sessionId)}`,
+          `reason=${reason}`,
+          `elapsedMs=${String(Date.now() - startedAt)}`,
         );
       }
       return response;
@@ -802,17 +1176,48 @@ export class Search {
         'event=search.worker.recovery.failed',
         'scope=unified',
         `session=${String(sessionId)}`,
+        `reason=${reason}`,
         error,
       );
       return null;
     }
   }
 
-  private applyQueryResponse(response: SearchQueryResponse): void {
+  private async rebuildWorkerIndex(sessionId: number): Promise<boolean> {
+    const epoch = this.lostEpoch;
+    const channels = PlaylistService.channels;
+    const programs = this.programIndex;
+    const vod = this.allVod;
+    const allSeries = this.allSeries;
+    const indexed = await this.indexWorker({ sessionId, reset: true })
+      && await this.postSource(sessionId, 'channels', channels.length, index => channelDocument(channels[index]))
+      && await this.postSource(sessionId, 'programmes', programs.length, index => programDocument(programs[index]));
+    if (!indexed || !await this.postSource(sessionId, 'movies', vod.length, index => vod[index].name)) {
+      return false;
+    }
+    if (sessionId === this.workerSession) this.indexedVod = vod;
+    if (!await this.postSource(sessionId, 'series', allSeries.length, index => allSeries[index].name)) {
+      return false;
+    }
+    if (sessionId !== this.workerSession) return false;
+    this.indexedSeries = allSeries;
+    // Another source was lost meanwhile, so this index may be partial too.
+    if (epoch !== this.lostEpoch) return false;
+    this.workerIndexLost = false;
+    this.workerChannels = channels;
+    this.markWorkerIndexReady(this.account);
+    return true;
+  }
+
+  private applyQueryResponse(
+    response: SearchQueryResponse,
+    vod: VodItem[],
+    series: SeriesItem[],
+  ): void {
     this.visibleChannels = itemsAt(PlaylistService.channels, response.channels.indices);
     this.visiblePrograms = itemsAt(this.programIndex, response.programmes.indices);
-    this.visibleMovies = itemsAt(this.allVod, response.movies.indices);
-    this.visibleSeries = itemsAt(this.allSeries, response.series.indices);
+    this.visibleMovies = itemsAt(vod, response.movies.indices);
+    this.visibleSeries = itemsAt(series, response.series.indices);
     this.hasMoreResults = response.channels.hasMore || response.programmes.hasMore
       || response.movies.hasMore || response.series.hasMore;
   }
@@ -829,6 +1234,7 @@ export class Search {
 
   private canReuseWorkerIndex(account: PlaylistEntry | null): boolean {
     return this.workerIndexReady
+      && !this.workerIndexLost
       && this.workerIndexedChannels === PlaylistService.channels
       && this.workerIndexedProgrammes === EpgService.programmes
       && this.workerIndexedAccountId === (account?.id ?? null)
@@ -1012,6 +1418,8 @@ export class Search {
     // EPG programs use compact rows so their metadata remains readable.
     const resultsBody = !q
       ? html``
+      : this.pendingIndex
+        ? html`<p class="catalog-hint search-empty">${t('search.preparing')}</p>`
       : this.queryPending
         ? html``
         : !hasResults
@@ -1191,12 +1599,12 @@ export class Search {
   }
 
   private expandResults(): boolean {
-    if (!this.hasMoreResults || this.resultLimit >= CONFIG.XTREAM.SEARCH_RESULT_CAP) {
+    if (!this.hasMoreResults || this.resultLimit >= CONFIG.SEARCH.RESULT_CAP) {
       return false;
     }
     this.resultLimit = Math.min(
-      CONFIG.XTREAM.SEARCH_RESULT_CAP,
-      this.resultLimit * CONFIG.XTREAM.SEARCH_EXPANSION_FACTOR,
+      CONFIG.SEARCH.RESULT_CAP,
+      this.resultLimit * CONFIG.SEARCH.EXPANSION_FACTOR,
     );
     void this.startQuery(++this.queryGeneration, true);
     return true;
@@ -1207,6 +1615,10 @@ export class Search {
     if (this.queryFrame !== null) cancelAnimationFrame(this.queryFrame);
     this.queryFrame = null;
   }
+}
+
+function sameLists(before: unknown[], after: unknown[]): boolean {
+  return before.every((list, index) => list === after[index]);
 }
 
 function itemsAt<T>(items: T[], indices: number[]): T[] {

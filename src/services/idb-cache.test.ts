@@ -4,9 +4,11 @@ import { beforeEach, describe, it, expect, vi } from 'vitest';
 import type { Channel } from '../types';
 import { CONFIG } from '../config';
 import {
+  cacheRecordRef,
   catalogCacheGeneration,
   clearAllCachedData,
   clearCachedCatalog,
+  clearCachedEpg,
   clearCachedPlaylist,
   clearCachedStreamMimes,
   clearCachedChannelHealth,
@@ -19,6 +21,9 @@ import {
   getCachedChannelHealth,
   getCachedSubtitle,
   migrateLegacyStreamMimeCache,
+  onPlaylistCacheWritten,
+  reserveSearchIndex,
+  settleSearchIndex,
   playlistCacheToken,
   scheduleCachedPlaylist,
   setCachedCatalog,
@@ -34,10 +39,14 @@ import {
   CHANNEL_HEALTH_STORE,
   openPersistenceDb,
   requestResult,
+  SEARCH_INDEX_STORE,
   STREAM_MIME_STORE,
   SUBTITLE_STORE,
   transactionDone,
 } from './idb-database';
+import { cachedNameDocuments } from '../workers/search-cache-documents';
+import { buildSourceIndex } from '../workers/search-source-index';
+import { IdbSearchCacheReader } from '../workers/search-cache-reader';
 
 const channel = (id: string): Channel => ({
   id,
@@ -60,8 +69,9 @@ describe('idb-cache', () => {
 
   it('uses the next schema version after the published v3 database', async () => {
     const db = await openPersistenceDb();
-    expect(db?.version).toBe(6);
+    expect(db?.version).toBe(7);
     expect(db?.objectStoreNames.contains(STREAM_MIME_STORE)).toBe(true);
+    expect(db?.objectStoreNames.contains('search-index-cache')).toBe(true);
   });
 
   it('stores channel health records separately and accounts for them', async () => {
@@ -231,6 +241,46 @@ describe('idb-cache', () => {
       timestamp: expect.any(Number),
     });
     expect(localStorage.getItem('iptv_cached_playlist')).toBeNull();
+  });
+
+  it('remembers which record a cached playlist or catalog came from', async () => {
+    const channels = [channel('ch1')];
+    expect(cacheRecordRef(channels)).toBeNull();
+    await setCachedPlaylist(channels, [], 1234);
+    expect(cacheRecordRef(channels)).toEqual({
+      store: 'playlist-cache',
+      key: 'combined-v3',
+      timestamp: 1234,
+    });
+    const read = await getCachedPlaylist(null);
+    expect(read?.channels).not.toBe(channels);
+    expect(cacheRecordRef(read?.channels)).toEqual({
+      store: 'playlist-cache',
+      key: 'combined-v3',
+      timestamp: 1234,
+    });
+
+    const items = [{ name: 'Alpha' }];
+    await setCachedCatalog('x1|vod_all', items);
+    const stored = cacheRecordRef(items);
+    expect(stored).toMatchObject({ store: 'catalog-cache', key: 'x1|vod_all' });
+    const catalog = await getCachedCatalog('x1|vod_all');
+    expect(cacheRecordRef(catalog?.data)).toEqual({ ...stored, timestamp: catalog?.timestamp });
+  });
+
+  it('lets the search worker read the catalog records written here', async () => {
+    const items = [{ name: 'Alpha' }, { name: 'Bravo' }];
+    await setCachedCatalog('x1|vod_all', items);
+    await flushCacheWrites();
+    const record = cacheRecordRef(items)!;
+
+    const raw = await new IdbSearchCacheReader(indexedDB).read(record, 1200);
+    expect(cachedNameDocuments(buildSourceIndex(record, raw), {
+      record,
+      length: 2,
+      selection: null,
+      samples: { indices: [1], documents: [['Bravo']] },
+    })).toEqual(['alpha', 'bravo']);
   });
 
   it('evaluates playlist freshness against the current refresh interval', async () => {
@@ -532,5 +582,235 @@ describe('idb-cache', () => {
     const usage = await getCacheUsage();
     expect(usage.categories.subtitle.entries).toBe(1);
     expect(usage.total.entries).toBe(1);
+  });
+
+  describe('search index records', () => {
+    const MiB = 1024 * 1024;
+    const candidate = (key: string, bytes: number, timestamp = 1) => ({
+      key: `catalog-cache|${key}|${String(timestamp)}|v1`,
+      prefix: `catalog-cache|${key}|`,
+      bytes,
+    });
+
+    async function seedSource(key: string, timestamp = 1): Promise<void> {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(timestamp);
+      try {
+        await setCachedCatalog(key, [key], null);
+      } finally {
+        now.mockRestore();
+      }
+    }
+
+    let sourceBytes = 0;
+    beforeEach(async () => {
+      await seedSource('x1|vod_all');
+      await seedSource('x1|series_all');
+      sourceBytes = (await getCacheUsage()).total.bytes;
+    });
+
+    async function withQuota<T>(quota: number, usage: number, run: () => Promise<T>): Promise<T> {
+      const descriptor = Object.getOwnPropertyDescriptor(navigator, 'storage');
+      Object.defineProperty(navigator, 'storage', {
+        configurable: true,
+        value: { estimate: async () => ({ usage, quota }) },
+      });
+      try {
+        return await run();
+      } finally {
+        if (descriptor) Object.defineProperty(navigator, 'storage', descriptor);
+        else delete (navigator as Navigator & { storage?: StorageManager }).storage;
+      }
+    }
+
+    async function writeIndex(key: string, extra: Record<string, unknown> = {}): Promise<void> {
+      const db = (await openPersistenceDb())!;
+      const tx = db.transaction(SEARCH_INDEX_STORE, 'readwrite');
+      tx.objectStore(SEARCH_INDEX_STORE).put({ key, text: 'alpha', ...extra });
+      await transactionDone(tx);
+    }
+
+    async function storedIndexKeys(): Promise<string[]> {
+      const db = (await openPersistenceDb())!;
+      const tx = db.transaction(SEARCH_INDEX_STORE, 'readonly');
+      return await requestResult(tx.objectStore(SEARCH_INDEX_STORE).getAllKeys()) as string[];
+    }
+
+    it('accounts for a reserved index in its own category', async () => {
+      const reservation = await reserveSearchIndex(candidate('x1|vod_all', MiB));
+      expect(reservation?.fields).toMatchObject({ cacheCategory: 'search', byteSize: MiB });
+      await writeIndex(candidate('x1|vod_all', MiB).key, reservation!.fields);
+      await settleSearchIndex(candidate('x1|vod_all', MiB).key, reservation!, true);
+
+      const usage = await getCacheUsage();
+      expect(usage.categories.search).toEqual({ bytes: MiB, entries: 1 });
+      expect(usage.total).toEqual({ bytes: sourceBytes + MiB, entries: 3 });
+      expect(await storedIndexKeys()).toEqual([candidate('x1|vod_all', MiB).key]);
+    });
+
+    it('skips an index larger than its share of the room left', async () => {
+      // FALLBACK budget 384 MiB: 10% is 38.4 MiB.
+      const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      expect(await reserveSearchIndex(candidate('x1|vod_all', 39 * MiB))).toBeNull();
+      expect(info.mock.calls.map(call => call.join(' '))).toContainEqual(expect.stringContaining(
+        `event=search.index.persist.skipped reason=budget bytes=${String(39 * MiB)} roomBytes=${String(384 * MiB - sourceBytes)}`,
+      ));
+      info.mockRestore();
+      expect(await reserveSearchIndex(candidate('x1|vod_all', 38 * MiB))).not.toBeNull();
+      // Reserved bytes shrink the room for the next index.
+      expect(await reserveSearchIndex(candidate('x1|series_all', 35 * MiB))).toBeNull();
+      expect((await getCacheUsage()).categories.search.entries).toBe(1);
+    });
+
+    it('measures the room against the origin quota as well', async () => {
+      await withQuota(100 * MiB, 75 * MiB, async () => {
+        // 80% of quota leaves 5 MiB; 10% of that is 0.5 MiB.
+        expect(await reserveSearchIndex(candidate('x1|vod_all', MiB))).toBeNull();
+        expect(await reserveSearchIndex(candidate('x1|vod_all', MiB / 4))).not.toBeNull();
+      });
+    });
+
+    it('replaces the older index of the same source', async () => {
+      const old = candidate('x1|vod_all', MiB);
+      const reservation = await reserveSearchIndex(old);
+      expect(reservation?.evicted).toBe(0);
+      await writeIndex(old.key, reservation!.fields);
+      await writeIndex('catalog-cache|x1|vod_all|untracked|v1');
+      await writeIndex('catalog-cache|x1|series_all|0|v1');
+      await seedSource('x1|vod_all', 2);
+
+      expect((await reserveSearchIndex(candidate('x1|vod_all', 2 * MiB, 2)))?.evicted).toBe(1);
+
+      // The older index is gone even when the new one does not fit.
+      const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      expect(await reserveSearchIndex(candidate('x1|vod_all', 39 * MiB, 2))).toBeNull();
+      expect(info.mock.calls.map(call => call.join(' '))).toContainEqual(expect.stringMatching(
+        /event=search\.index\.persist\.skipped reason=budget bytes=\d+ roomBytes=\d+ evicted=1$/,
+      ));
+      info.mockRestore();
+      expect(await storedIndexKeys()).toEqual(['catalog-cache|x1|series_all|0|v1']);
+      expect((await getCacheUsage()).categories.search).toEqual({ bytes: 0, entries: 0 });
+    });
+
+    it('evicts index records before any source data', async () => {
+      const reservation = await reserveSearchIndex(candidate('x1|vod_all', 8 * MiB));
+      await writeIndex(candidate('x1|vod_all', 0).key, reservation!.fields);
+      await setCachedStreamMime('http://host/live', 'video/mp2t');
+      await setCachedSubtitle('subdl:1', 'WEBVTT\n\nkept');
+      const used = (await getCacheUsage()).total.bytes;
+
+      // A budget (half the quota) that fits everything but the index, with
+      // room for the pruning margin.
+      await withQuota(2 * (used - 2 * MiB), 0, async () => {
+        await setCachedCatalog('x1|vod_categories', ['a']);
+      });
+
+      expect(await storedIndexKeys()).toEqual([]);
+      expect((await getCacheUsage()).categories.search.entries).toBe(0);
+      expect(await getCachedSubtitle('subdl:1')).toBe('WEBVTT\n\nkept');
+      expect(await getCachedCatalog('x1|vod_categories')).not.toBeNull();
+    });
+
+    it('gives the room back when the write failed', async () => {
+      const reservation = await reserveSearchIndex(candidate('x1|vod_all', MiB));
+      await settleSearchIndex(candidate('x1|vod_all', MiB).key, reservation!, false);
+      expect((await getCacheUsage()).categories.search).toEqual({ bytes: 0, entries: 0 });
+    });
+
+    it('removes an index whose write raced a cache clear', async () => {
+      const reservation = await reserveSearchIndex(candidate('x1|vod_all', MiB));
+      await clearAllCachedData();
+      await writeIndex(candidate('x1|vod_all', MiB).key, reservation!.fields);
+      await settleSearchIndex(candidate('x1|vod_all', MiB).key, reservation!, true);
+
+      expect(await storedIndexKeys()).toEqual([]);
+      expect((await getCacheUsage()).categories.search).toEqual({ bytes: 0, entries: 0 });
+    });
+
+    it('reserves nothing once a clear started after the request', async () => {
+      const pending = reserveSearchIndex(candidate('x1|vod_all', MiB));
+      const cleared = clearAllCachedData();
+      // The reservation was queued first, so it lands before the clear wipes it.
+      await pending;
+      await cleared;
+      expect((await getCacheUsage()).categories.search.entries).toBe(0);
+      expect(await storedIndexKeys()).toEqual([]);
+    });
+
+    it('goes with its source store when that store is cleared', async () => {
+      await setCachedEpg('http://host/e', { channels: {}, programmes: {} } as never, null, 1, null);
+      const epg = {
+        key: 'epg-cache|http://host/e|1|v1',
+        prefix: 'epg-cache|http://host/e|',
+        bytes: 2 * MiB,
+      };
+      for (const entry of [candidate('x1|vod_all', MiB), candidate('x1|series_all', MiB), epg]) {
+        const reservation = await reserveSearchIndex(entry);
+        await writeIndex(entry.key, reservation!.fields);
+        await settleSearchIndex(entry.key, reservation!, true);
+      }
+
+      await clearCachedCatalog();
+      expect(await storedIndexKeys()).toEqual([epg.key]);
+      let usage = await getCacheUsage();
+      expect(usage.categories.search).toEqual({ bytes: 2 * MiB, entries: 1 });
+      expect(usage.categories.catalog.entries).toBe(0);
+      expect(usage.total.entries).toBe(2);
+
+      await clearCachedEpg();
+      expect(await storedIndexKeys()).toEqual([]);
+      usage = await getCacheUsage();
+      expect(usage.categories.search).toEqual({ bytes: 0, entries: 0 });
+      expect(usage.total).toEqual({ bytes: 0, entries: 0 });
+    });
+
+    it('removes an index whose write raced a clear of its source', async () => {
+      const reservation = await reserveSearchIndex(candidate('x1|vod_all', MiB));
+      await clearCachedCatalog();
+      await writeIndex(candidate('x1|vod_all', MiB).key, reservation!.fields);
+      await settleSearchIndex(candidate('x1|vod_all', MiB).key, reservation!, true);
+
+      expect(await storedIndexKeys()).toEqual([]);
+      expect((await getCacheUsage()).categories.search).toEqual({ bytes: 0, entries: 0 });
+    });
+
+    it('skips an index built from a record that was cleared or replaced', async () => {
+      const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      await seedSource('x1|vod_all', 2);
+      expect(await reserveSearchIndex(candidate('x1|vod_all', MiB, 1))).toBeNull();
+      await clearCachedCatalog();
+      expect(await reserveSearchIndex(candidate('x1|series_all', MiB))).toBeNull();
+      expect(info.mock.calls.map(call => call.join(' ')).filter(line =>
+        line.includes('event=search.index.persist.skipped '))).toEqual([
+        expect.stringMatching(/reason=source_changed bytes=\d+$/),
+        expect.stringMatching(/reason=source_changed bytes=\d+$/),
+      ]);
+      info.mockRestore();
+      expect((await getCacheUsage()).categories.search.entries).toBe(0);
+    });
+
+    it('is emptied by a full cache clear', async () => {
+      const reservation = await reserveSearchIndex(candidate('x1|vod_all', MiB));
+      await writeIndex(candidate('x1|vod_all', MiB).key, reservation!.fields);
+      await clearAllCachedData();
+      expect(await storedIndexKeys()).toEqual([]);
+    });
+
+    it('notifies listeners once a scheduled playlist write lands', async () => {
+      const listener = vi.fn();
+      const stop = onPlaylistCacheWritten(listener);
+      try {
+        await setCachedPlaylist([channel('ch1')], [], Date.now(), null);
+        expect(listener).not.toHaveBeenCalled();
+        vi.useFakeTimers();
+        scheduleCachedPlaylist([channel('ch1')], [], Date.now(), null, playlistCacheToken());
+        await vi.runAllTimersAsync();
+        vi.useRealTimers();
+        await flushCacheWrites();
+        await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(1));
+      } finally {
+        vi.useRealTimers();
+        stop();
+      }
+    });
   });
 });

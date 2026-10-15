@@ -71,6 +71,31 @@ function pumpRefreshQueue(): void {
   }
 }
 
+const refreshListeners: Array<(key: string) => void> = [];
+const writeListeners: Array<(key: string) => void> = [];
+
+/** Called with the cache key whenever a fetched or refreshed list is stored. */
+export function onCatalogListWritten(listener: (key: string) => void): () => void {
+  writeListeners.push(listener);
+  return () => {
+    const index = writeListeners.indexOf(listener);
+    if (index >= 0) writeListeners.splice(index, 1);
+  };
+}
+
+function notifyListWritten(key: string): void {
+  for (const listener of writeListeners) listener(key);
+}
+
+/** Called with the cache key whenever a background refresh replaces a list. */
+export function onCatalogListRefreshed(listener: (key: string) => void): () => void {
+  refreshListeners.push(listener);
+  return () => {
+    const index = refreshListeners.indexOf(listener);
+    if (index >= 0) refreshListeners.splice(index, 1);
+  };
+}
+
 // Re-fetch an expired list without the caller's signal, so leaving the view
 // does not cancel it. A non-empty result replaces the cache for the next open;
 // an empty or failed one keeps the old copy. Concurrent callers share one task.
@@ -99,6 +124,9 @@ function refreshListInBackground<T>(
       }
       await setCachedCatalog(key, data, StorageService.getXtreamCatalogRefreshIntervalMs());
       log.debug('refreshed', key, `(${data.length})`);
+      if (generation !== catalogCacheGeneration()) return;
+      notifyListWritten(key);
+      for (const listener of refreshListeners) listener(key);
     } catch (err) {
       log.warn(
         'Catalog refresh failed; keeping stale data',
@@ -135,6 +163,7 @@ async function cachedList<T>(
   if (data.length) {
     await setCachedCatalog(key, data, StorageService.getXtreamCatalogRefreshIntervalMs());
     log.debug('fetched', key, `(${data.length})`);
+    notifyListWritten(key);
     return data;
   }
   log.warn(

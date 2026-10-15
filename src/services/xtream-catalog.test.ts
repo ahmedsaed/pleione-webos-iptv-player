@@ -41,6 +41,8 @@ import {
   loadSeriesInfo,
   loadVodCategories,
   loadVodInfo,
+  onCatalogListRefreshed,
+  onCatalogListWritten,
   loadVodStreams,
 } from './xtream-catalog';
 import { getCachedCatalog, setCachedCatalog } from './idb-cache';
@@ -135,6 +137,40 @@ describe('xtream-catalog', () => {
     );
     expect(await loadVodCategories(account)).toEqual([{ id: '1', name: 'Cat A' }]);
     expect(clientMock.getVodCategories).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies refresh listeners once a background refresh replaces a list', async () => {
+    const stale = Date.now() - CONFIG.XTREAM.DEFAULT_CATALOG_REFRESH_INTERVAL_MS - 1;
+    cacheStore.set('x1|vod_categories', { key: 'x1|vod_categories', timestamp: stale, data: [{ id: 'old', name: 'Old' }] });
+    clientMock.getVodCategories.mockResolvedValue([{ id: '1', name: 'Cat A' }]);
+    const listener = vi.fn();
+    const stop = onCatalogListRefreshed(listener);
+
+    await loadVodCategories(account);
+    await settle();
+    stop();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith('x1|vod_categories');
+  });
+
+  it('notifies write listeners for a cold fetch and a background refresh, not a cache hit', async () => {
+    const listener = vi.fn();
+    const stop = onCatalogListWritten(listener);
+    clientMock.getVodStreams.mockResolvedValue([{ accountId: 'x1', streamId: '10', name: 'Movie One' }]);
+    await loadAllVodStreams(account);
+    expect(listener.mock.calls).toEqual([['x1|vod_all']]);
+
+    await loadAllVodStreams(account);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    const stale = Date.now() - CONFIG.XTREAM.DEFAULT_CATALOG_REFRESH_INTERVAL_MS - 1;
+    cacheStore.set('x1|series_all', { key: 'x1|series_all', timestamp: stale, data: [{ id: 'old' }] });
+    clientMock.getSeries.mockResolvedValue([{ accountId: 'x1', seriesId: '20', name: 'Series One' }]);
+    await loadAllSeries(account);
+    await settle();
+    stop();
+    expect(listener.mock.calls).toEqual([['x1|vod_all'], ['x1|series_all']]);
   });
 
   it('shares one background refresh per key and detaches it from the caller signal', async () => {

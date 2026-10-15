@@ -13,6 +13,9 @@ import {
   flushCacheWrites,
 } from './services/idb-cache';
 import { SetupClient } from './services/setup-client';
+import { SearchIndexPrewarmer } from './services/search-index-store';
+import { CATALOG_STORE, EPG_STORE } from './services/idb-schema';
+import type { SearchPrewarmSource } from './workers/tasks';
 import { setServicePort } from './services/service-http';
 import { isLunaAvailable, lunaRequest, type LunaRequestHandle } from './services/luna';
 import { ChannelList } from './components/channel-list';
@@ -102,6 +105,7 @@ class App {
   private epgRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private epgRefreshIntervalMs: number | null | undefined;
   private epgChannelReloadTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly searchPrewarm = new SearchIndexPrewarmer(() => this.searchPrewarmSources());
 
   async init(): Promise<void> {
     const done = log.time('init');
@@ -113,6 +117,7 @@ class App {
     ParentalControlService.setChallengeHandler(request =>
       this.parentalPinPrompt.showChallenge(request));
     StorageService.setWriteFailureHandler(() => showToast(t('app.saveFailed')));
+    this.searchPrewarm.watchSourceWrites();
     initLocale(StorageService.getLocalePreference());
     applyAnimationMode(StorageService.getAnimationMode());
     const initialLoadingText = $('#loading-text');
@@ -978,6 +983,7 @@ class App {
         }
       }
       this.schedulePlaylistRefresh(true);
+      this.searchPrewarm.schedule('startup');
     } catch (err) {
       log.error('loadData failed:', err);
       this.showView('settings');
@@ -1229,6 +1235,7 @@ class App {
     this.channelList.render();
     this.livePreview.refresh();
     void this.search.refreshPrograms();
+    this.searchPrewarm.schedule('epg');
   }
 
   private openReminderManager(origin: 'settings' | 'epg'): void {
@@ -1291,6 +1298,26 @@ class App {
     this.channelList.render();
   }
 
+  // Sources the next Search open will read; an open Search stores its own.
+  private searchPrewarmSources(): SearchPrewarmSource[] {
+    const current = this.viewStack[this.viewStack.length - 1];
+    if (current === 'search' || this.tabBar.searchOpen) return [];
+    const sources: SearchPrewarmSource[] = [];
+    const playlist = PlaylistService.getChannelCacheSource()?.record;
+    if (playlist) sources.push({ ...playlist });
+    for (const record of EpgService.getProgrammeCacheRecords()) {
+      sources.push({ store: EPG_STORE, key: record.url, timestamp: record.timestamp });
+    }
+    const account = this.activeXtreamAccount();
+    if (account) {
+      sources.push(
+        { store: CATALOG_STORE, key: `${account.id}|vod_all` },
+        { store: CATALOG_STORE, key: `${account.id}|series_all` },
+      );
+    }
+    return sources;
+  }
+
   private activeXtreamAccount(): PlaylistEntry | null {
     const accounts = StorageService.getPlaylists()
       .filter((p) => p.source === 'xtream' && p.xtream && isSourceEnabled(p));
@@ -1306,6 +1333,7 @@ class App {
     const account = this.activeXtreamAccount();
     if (!account) return;
     log.info('Xtream account switched to', account.name);
+    this.searchPrewarm.schedule('account');
     this.tabBar.setAccounts(
       StorageService.getPlaylists()
         .filter((p) => p.source === 'xtream' && p.xtream && isSourceEnabled(p)),

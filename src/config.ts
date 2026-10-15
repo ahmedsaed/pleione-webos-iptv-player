@@ -98,9 +98,6 @@ export const CONFIG = {
     RAIL_ITEMS: 20,                      // posters shown per rail before the "all categories" drill-in
     RESUME_MIN_SECS: 15,                 // below this, treat as "start over" (don't store a resume point)
     RESUME_FINISH_PAD: 30,               // within this of the end = finished (clear the resume point)
-    SEARCH_INITIAL_RESULTS: 200,         // first ranked results published per Search group
-    SEARCH_EXPANSION_FACTOR: 5,          // grow retained results near a virtual window boundary
-    SEARCH_RESULT_CAP: 50_000,           // final per-group cap after progressive expansion
     ARCHIVE_TTL_MS: 10 * 60 * 1000,      // per-channel get_simple_data_table freshness
     WATCHLIST_MAX_ITEMS: 200,            // per account and content type
   },
@@ -119,8 +116,22 @@ export const CONFIG = {
     MAX_VISIBLE_ITEMS: 50,
   },
 
-  SEARCH_HISTORY: {
-    MAX_ENTRIES: 10,
+  SEARCH: {
+    // Budget for the worker's IndexedDB reads before the page posts the index instead.
+    CACHE_READ_TIMEOUT_MS: 1200,
+    // Documents per index message when the page posts a source itself, one per frame.
+    INDEX_CHUNK_SIZE: 2000,
+    // Largest share of the free cache room one stored index may take.
+    INDEX_BUDGET_SHARE: 0.1,
+    INDEX_WRITE_TIMEOUT_MS: 5000,
+    // Background index builds are not latency-bound, so their reads may run longer.
+    PREWARM_READ_TIMEOUT_MS: 10_000,
+    // Latest the background index build waits for an idle period.
+    PREWARM_IDLE_TIMEOUT_MS: 5000,
+    INITIAL_RESULTS: 200,       // first ranked results published per group
+    EXPANSION_FACTOR: 5,        // grow retained results near a virtual window boundary
+    RESULT_CAP: 50_000,         // final per-group cap after progressive expansion
+    HISTORY_MAX_ENTRIES: 10,    // recent searches kept
   },
 
   CHANNEL_HEALTH: {

@@ -12,22 +12,28 @@ const {
   archiveMock,
   toastMock,
   workerMock,
+  cacheMock,
+  persistMock,
 } = vi.hoisted(() => ({
+  persistMock: vi.fn(async () => undefined),
   catalogMock: {
     getSearchCatalogExpiresAt: vi.fn(),
     loadAllVodStreams: vi.fn(),
     loadAllSeries: vi.fn(),
+    onCatalogListRefreshed: vi.fn(),
   },
   playlistMock: {
     channels: [] as unknown[],
     search: vi.fn(() => [] as unknown[]),
     searchRanked: vi.fn(),
     indexOf: vi.fn(() => 0),
+    getChannelCacheSource: vi.fn((): unknown => null),
   },
   epgMock: {
     programmes: {} as Record<string, Programme[]>,
     findChannelId: vi.fn((channel: { id: string }) => channel.id),
     getSourceUrl: vi.fn(() => 'http://host/epg.xml'),
+    programmeCacheOrigin: vi.fn((): unknown => null),
   },
   reminderMock: { has: vi.fn(() => false), add: vi.fn(), remove: vi.fn() },
   storageMock: {
@@ -45,6 +51,10 @@ const {
     retain: vi.fn(() => vi.fn()),
     running: false,
   },
+  cacheMock: {
+    records: new Map<string, Record<string, unknown>>(),
+    refs: new WeakMap<object, unknown>(),
+  },
 }));
 vi.mock('../services/xtream-catalog', () => catalogMock);
 vi.mock('../services/playlist-service', () => ({ PlaylistService: playlistMock }));
@@ -53,9 +63,20 @@ vi.mock('../services/reminder-service', () => ({ ReminderService: reminderMock }
 vi.mock('../services/storage-service', () => ({ StorageService: storageMock }));
 vi.mock('../services/xtream-archive', () => ({ XtreamArchiveService: archiveMock }));
 vi.mock('./toast', () => ({ showToast: toastMock }));
+vi.mock('../services/search-index-store', () => ({ persistSearchIndexes: persistMock }));
+vi.mock('../services/idb-cache', async importOriginal => ({
+  ...await importOriginal<typeof import('../services/idb-cache')>(),
+  cacheRecordRef: (value: object) => cacheMock.refs.get(value) ?? null,
+}));
 vi.mock('../workers/app-worker-client', async () => {
   const { SearchWorkerIndex } = await import('../workers/search-index');
-  const index = new SearchWorkerIndex();
+  const index = new SearchWorkerIndex({
+    read: async ref => cacheMock.records.get(`${ref.store}|${ref.key}`) ?? null,
+    count: async ref => cacheMock.records.has(`${ref.store}|${ref.key}`) ? 1 : 0,
+    write: async (store, value) => {
+      cacheMock.records.set(`${store}|${String(value.key)}`, value);
+    },
+  });
   workerMock.run.mockImplementation(async (task: string, payload: unknown) => {
     workerMock.running = true;
     if (task === 'search.index') return index.index(payload as SearchIndexRequest);
@@ -99,6 +120,9 @@ beforeEach(() => {
     return { items: items.slice(0, limit), hasMore: items.length > limit };
   });
   playlistMock.indexOf.mockReturnValue(0);
+  playlistMock.getChannelCacheSource.mockReturnValue(null);
+  epgMock.programmeCacheOrigin.mockReturnValue(null);
+  cacheMock.records.clear();
   epgMock.programmes = {};
   epgMock.findChannelId.mockImplementation((channel: { id: string }) => channel.id);
   reminderMock.has.mockReturnValue(false);
@@ -123,12 +147,26 @@ function mkHandlers() {
   };
 }
 
+// Every source has reached the worker, so a query runs at once.
+async function indexReady(view: Search): Promise<void> {
+  await vi.waitFor(() => {
+    expect((view as unknown as { pendingIndex: unknown }).pendingIndex).toBeNull();
+  }, { timeout: 3000 });
+}
+
+function diagEvents(spy: { mock: { calls: unknown[][] } }, event: string): string[] {
+  return spy.mock.calls
+    .map(call => call.filter(part => typeof part === 'string').join(' '))
+    .filter(line => line.includes(`event=${event} `));
+}
+
 async function openWith(opts: { vod?: unknown[]; series?: unknown[] } = {}) {
   catalogMock.loadAllVodStreams.mockResolvedValue(opts.vod ?? []);
   catalogMock.loadAllSeries.mockResolvedValue(opts.series ?? []);
   const handlers = mkHandlers();
   const view = new Search(container, handlers);
   await view.open(account);
+  await indexReady(view);
   return { view, handlers };
 }
 
@@ -148,6 +186,7 @@ describe('Search', () => {
       ([task, payload]) => task === 'search.index' && (payload as SearchIndexRequest).reset,
     ).length;
 
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     view.deactivate();
     await view.open(account);
     await view.setQuery('alpha');
@@ -155,6 +194,9 @@ describe('Search', () => {
     expect(workerMock.run.mock.calls.filter(
       ([task, payload]) => task === 'search.index' && (payload as SearchIndexRequest).reset,
     )).toHaveLength(initialResets);
+    expect(diagEvents(info, 'search.index.ready'))
+      .toEqual([expect.stringContaining('mode=reused channels=1 programmes=0 items=1')]);
+    info.mockRestore();
     expect(catalogMock.loadAllVodStreams).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain('Alpha Movie');
   });
@@ -167,6 +209,7 @@ describe('Search', () => {
     catalogMock.loadAllSeries.mockResolvedValue([]);
 
     await view.open(account);
+    await indexReady(view);
     await view.setQuery('movie');
 
     expect(catalogMock.loadAllVodStreams).toHaveBeenCalledTimes(2);
@@ -182,6 +225,7 @@ describe('Search', () => {
     catalogMock.loadAllSeries.mockResolvedValue([]);
 
     await view.open(account);
+    await indexReady(view);
     await view.setQuery('movie');
 
     expect(catalogMock.loadAllVodStreams).toHaveBeenCalledTimes(2);
@@ -225,9 +269,9 @@ describe('Search', () => {
   });
 
   it('publishes a bounded first batch from 50,000 ranked results', async () => {
-    const initial = CONFIG.XTREAM.SEARCH_INITIAL_RESULTS;
+    const initial = CONFIG.SEARCH.INITIAL_RESULTS;
     const many = Array.from(
-      { length: CONFIG.XTREAM.SEARCH_RESULT_CAP + 5 },
+      { length: CONFIG.SEARCH.RESULT_CAP + 5 },
       (_, i) => vod(String(i), `Movie ${i}`),
     );
     const { view } = await openWith({ vod: many });
@@ -247,14 +291,14 @@ describe('Search', () => {
     const { view } = await openWith({ vod: many });
     await view.setQuery('movie');
     const rail = container.querySelector<HTMLElement>('[data-search-virtual="movies"]')!;
-    rail.scrollLeft = CONFIG.XTREAM.SEARCH_INITIAL_RESULTS * 240;
+    rail.scrollLeft = CONFIG.SEARCH.INITIAL_RESULTS * 240;
     rail.dispatchEvent(new Event('scroll', { bubbles: true }));
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     expect(container.querySelector<HTMLElement>(
       '[data-search-virtual="movies"] .search-virtual-rail-spacer',
     )?.style.width).toBe(
-      `${String(CONFIG.XTREAM.SEARCH_INITIAL_RESULTS
-        * CONFIG.XTREAM.SEARCH_EXPANSION_FACTOR * 240)}px`,
+      `${String(CONFIG.SEARCH.INITIAL_RESULTS
+        * CONFIG.SEARCH.EXPANSION_FACTOR * 240)}px`,
     );
   });
 
@@ -308,10 +352,14 @@ describe('Search', () => {
       return originalRun(task, payload);
     });
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
     await view.setQuery('alpha');
 
     expect(container.textContent).toContain('Alpha');
+    expect(diagEvents(info, 'search.worker.recovery.completed'))
+      .toEqual([expect.stringMatching(/reason=query_failed elapsedMs=\d+$/)]);
+    info.mockRestore();
     expect(workerMock.run).toHaveBeenCalledWith(
       'search.index',
       expect.objectContaining({ reset: true }),
@@ -342,6 +390,267 @@ describe('Search', () => {
     series.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(handlers.onOpenSeries).toHaveBeenCalledWith(account, expect.objectContaining({ seriesId: 's1' }));
+  });
+
+  it('shows the preparing hint instead of results or No results until the index is ready', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    let finishVod!: (items: unknown[]) => void;
+    catalogMock.loadAllVodStreams.mockReturnValue(new Promise((resolve) => { finishVod = resolve; }));
+    catalogMock.loadAllSeries.mockResolvedValue([]);
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const view = new Search(container, mkHandlers());
+    await view.open(account, 'alpha');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const hint = container.querySelector('.search-results .catalog-hint.search-empty');
+    expect(hint?.textContent).toBe('Preparing search…');
+    expect(container.textContent).not.toContain('No results');
+    // No partial results: the channel already indexed stays hidden.
+    expect(container.querySelector('.catalog-tile')).toBeNull();
+    expect(workerMock.run.mock.calls.some(([task]) => task === 'search.query')).toBe(false);
+    await view.setQuery('zzz');
+    expect(container.textContent).toContain('Preparing search…');
+    expect(container.textContent).not.toContain('No results');
+
+    view.scheduleQuery('alpha');
+    finishVod([vod('10', 'Alpha Movie')]);
+    await vi.waitFor(() => expect(container.textContent).toContain('Alpha Movie'));
+    expect(container.textContent).not.toContain('Preparing search…');
+    expect(container.querySelector('.catalog-tile[data-channel-index="0"]')).not.toBeNull();
+    const [ready] = diagEvents(info, 'search.index.ready');
+    expect(ready).toMatch(/mode=fallback channels=1 programmes=0 items=1 persisted=0 built=0 posted=2/);
+    expect(Number(ready.match(/hintMs=(\d+)/)?.[1])).toBeGreaterThanOrEqual(40);
+    info.mockRestore();
+  });
+
+  it('waits in the search box while the index prepares, then focuses the first result', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    let finishVod!: (items: unknown[]) => void;
+    catalogMock.loadAllVodStreams.mockReturnValue(new Promise((resolve) => { finishVod = resolve; }));
+    catalogMock.loadAllSeries.mockResolvedValue([]);
+    const box = document.createElement('input');
+    box.className = 'tab-bar-search-input';
+    document.body.appendChild(box);
+    const handlers = mkHandlers();
+    handlers.onRevealTabBar.mockImplementation(() => box.focus());
+    handlers.onReleaseTabBar.mockImplementation(() => box.blur());
+    const view = new Search(container, handlers);
+    await view.open(account, 'alpha');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    view.focusFirstResult();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.activeElement).toBe(box);
+    expect(container.querySelector('.focused')).toBeNull();
+
+    finishVod([vod('10', 'Movie Two')]);
+    await vi.waitFor(() => expect(handlers.onReleaseTabBar).toHaveBeenCalledTimes(1));
+    expect(container.querySelector('.catalog-tile[data-channel-index="0"]')?.classList.contains('focused'))
+      .toBe(true);
+    box.remove();
+  });
+
+  it('marks the index ready when the catalog fails to load', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    playlistMock.channels = [chan('Alpha')];
+    catalogMock.loadAllVodStreams.mockRejectedValue(new Error('offline'));
+    catalogMock.loadAllSeries.mockRejectedValue(new Error('offline'));
+    const view = new Search(container, mkHandlers());
+    await view.open(account, 'alpha');
+
+    await vi.waitFor(() => expect(container.querySelector('.catalog-tile[data-channel-index="0"]')).not.toBeNull());
+    expect(container.textContent).not.toContain('Preparing search…');
+    error.mockRestore();
+  });
+
+  it('posts a source the worker cannot read in frame-sized chunks', async () => {
+    const total = CONFIG.SEARCH.INDEX_CHUNK_SIZE * 2 + 5;
+    playlistMock.channels = Array.from({ length: total }, (_, i) => chan(`Channel ${i}`));
+    const view = new Search(container, mkHandlers());
+    await view.open(null);
+    await indexReady(view);
+
+    const chunks = workerMock.run.mock.calls
+      .map(([, payload]) => (payload as SearchIndexRequest).chunk)
+      .filter(chunk => chunk?.source === 'channels');
+    expect(chunks.map(chunk => [chunk!.start, chunk!.documents!.length, chunk!.total])).toEqual([
+      [0, CONFIG.SEARCH.INDEX_CHUNK_SIZE, total],
+      [CONFIG.SEARCH.INDEX_CHUNK_SIZE, CONFIG.SEARCH.INDEX_CHUNK_SIZE, total],
+      [CONFIG.SEARCH.INDEX_CHUNK_SIZE * 2, 5, total],
+    ]);
+    await view.setQuery(`channel ${total - 1}`);
+    expect(container.querySelector('.search-channel-row, [data-channel-index]')).not.toBeNull();
+  });
+
+  it('re-indexes a stale catalog once its background refresh lands', async () => {
+    const view = new Search(container, mkHandlers());
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(Date.now() - 1);
+    catalogMock.loadAllVodStreams.mockResolvedValue([vod('10', 'Old Movie')]);
+    catalogMock.loadAllSeries.mockResolvedValue([]);
+    await view.open(account, 'movie');
+    await vi.waitFor(() => expect(container.textContent).toContain('Old Movie'));
+
+    catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(Date.now() + 60000);
+    catalogMock.loadAllVodStreams.mockResolvedValue([vod('11', 'New Movie')]);
+    refreshed('x1|vod_all');
+
+    await vi.waitFor(() => expect(container.textContent).toContain('New Movie'));
+    expect(container.textContent).not.toContain('Old Movie');
+  });
+
+  it('rebuilds the index when a background catalog refresh fails to reach the worker', async () => {
+    const view = new Search(container, mkHandlers());
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(Date.now() - 1);
+    catalogMock.loadAllVodStreams.mockResolvedValue([vod('10', 'Old Movie')]);
+    catalogMock.loadAllSeries.mockResolvedValue([]);
+    await view.open(account, 'movie');
+    await vi.waitFor(() => expect(container.textContent).toContain('Old Movie'));
+
+    const run = workerMock.run.getMockImplementation()!;
+    let rejected = false;
+    workerMock.run.mockImplementation(async (task: string, payload: unknown) => {
+      if (!rejected && (payload as SearchIndexRequest).chunk?.source === 'movies') {
+        rejected = true;
+        return { accepted: false };
+      }
+      return run(task, payload);
+    });
+    try {
+      catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(Date.now() + 60000);
+      catalogMock.loadAllVodStreams.mockResolvedValue([vod('11', 'New Movie')]);
+      refreshed('x1|vod_all');
+
+      await vi.waitFor(() => expect(container.textContent).toContain('New Movie'));
+      expect(rejected).toBe(true);
+    } finally {
+      workerMock.run.mockImplementation(run);
+    }
+  });
+
+  it('maps a query answered mid-refresh onto the catalog the worker ranked', async () => {
+    const handlers = mkHandlers();
+    const view = new Search(container, handlers);
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(Date.now() - 1);
+    catalogMock.loadAllVodStreams.mockResolvedValue([vod('10', 'Alpha Movie')]);
+    catalogMock.loadAllSeries.mockResolvedValue([]);
+    await view.open(account);
+    await indexReady(view);
+
+    let expire: (value: number) => void = () => undefined;
+    catalogMock.getSearchCatalogExpiresAt.mockReturnValue(new Promise(resolve => { expire = resolve; }));
+    catalogMock.loadAllVodStreams.mockResolvedValue([vod('11', 'Bravo Movie'), vod('10', 'Alpha Movie')]);
+    const asked = catalogMock.getSearchCatalogExpiresAt.mock.calls.length;
+    refreshed('x1|vod_all');
+    await vi.waitFor(() => expect(catalogMock.getSearchCatalogExpiresAt.mock.calls.length).toBe(asked + 1));
+
+    // The page holds the new list; the worker still ranks the old one.
+    await view.setQuery('alpha');
+    expect(container.textContent).toContain('Alpha Movie');
+    expect(container.textContent).not.toContain('Bravo Movie');
+    const tile = container.querySelector('.catalog-tile[data-stream-id]') as HTMLElement;
+    expect(tile.dataset.streamId).toBe('10');
+    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    expect(handlers.onOpenMovie).toHaveBeenCalledWith(account, expect.objectContaining({ streamId: '10' }));
+
+    expire(Date.now() + 60000);
+    await vi.waitFor(() => expect(catalogMock.loadAllVodStreams).toHaveBeenCalledTimes(2));
+    await view.setQuery('movie');
+    await vi.waitFor(() => expect(container.textContent).toContain('Bravo Movie'));
+    expect(container.querySelectorAll('.catalog-tile[data-stream-id]')).toHaveLength(2);
+  });
+
+  it('logs each source a rejected channel post leaves incomplete', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const run = workerMock.run.getMockImplementation()!;
+    let rejected = false;
+    workerMock.run.mockImplementation(async (task: string, payload: unknown) => {
+      if (!rejected && (payload as SearchIndexRequest).chunk?.source === 'channels') {
+        rejected = true;
+        return { accepted: false };
+      }
+      return run(task, payload);
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const view = new Search(container, mkHandlers());
+      await view.open(null);
+      await indexReady(view);
+      expect(diagEvents(warn, 'search.index.lost')).toEqual([
+        expect.stringMatching(/source=channels reason=rejected$/),
+        expect.stringMatching(/source=programmes reason=rejected$/),
+      ]);
+    } finally {
+      warn.mockRestore();
+      workerMock.run.mockImplementation(run);
+    }
+  });
+
+  it('runs one rebuild of a lost index for queries typed while it runs', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    epgMock.programmes = { Alpha: [prog('Evening Report', Date.now() + 3600000, Date.now() + 7200000)] };
+    const run = workerMock.run.getMockImplementation()!;
+    let rejected = false;
+    const held: Array<() => void> = [];
+    let resets = 0;
+    workerMock.run.mockImplementation(async (task: string, payload: unknown) => {
+      const request = payload as SearchIndexRequest;
+      if (!rejected && request.chunk?.source === 'programmes') {
+        rejected = true;
+        return { accepted: false };
+      }
+      if (rejected && request.reset) {
+        resets++;
+        await new Promise<void>(resolve => held.push(resolve));
+      }
+      return run(task, payload);
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const view = new Search(container, mkHandlers());
+      await view.open(null, 'report');
+      await vi.waitFor(() => expect(held).toHaveLength(1));
+      void view.setQuery('evening');
+      void view.setQuery('evening report');
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(resets).toBe(1);
+      expect((view as unknown as { workerIndexReady: boolean }).workerIndexReady).toBe(false);
+
+      held.splice(0).forEach(release => release());
+      await vi.waitFor(() => expect(container.querySelector('.search-program-row')?.textContent)
+        .toContain('Evening Report'));
+      expect(resets).toBe(1);
+      expect((view as unknown as { workerIndexReady: boolean }).workerIndexReady).toBe(true);
+      await view.setQuery('alpha');
+      expect(container.textContent).toContain('Alpha');
+      expect(resets).toBe(1);
+    } finally {
+      held.splice(0).forEach(release => release());
+      warn.mockRestore();
+      workerMock.run.mockImplementation(run);
+    }
+  });
+
+  it('runs one recovery when a program refresh settles the last pending source', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith();
+    await view.setQuery('report');
+    const internals = view as unknown as { pendingIndex: unknown; workerIndexLost: boolean };
+    internals.pendingIndex = { channels: false, programmes: true, catalog: false };
+    internals.workerIndexLost = true;
+    epgMock.programmes = { Alpha: [prog('Late Report', Date.now() + 3600000, Date.now() + 7200000)] };
+    workerMock.run.mockClear();
+
+    await view.refreshPrograms();
+    await vi.waitFor(() => expect(container.querySelector('.search-program-row')?.textContent)
+      .toContain('Late Report'));
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const calls = workerMock.run.mock.calls;
+    expect(calls.filter(([task, payload]) => task === 'search.index'
+      && (payload as SearchIndexRequest).reset)).toHaveLength(1);
+    expect(calls.filter(([task]) => task === 'search.query')).toHaveLength(1);
   });
 
   it('focuses a result that appears only once the catalog loads', async () => {
@@ -412,6 +721,109 @@ describe('Search', () => {
     expect(storageMock.addSearchHistory).toHaveBeenCalledWith('  one ');
   });
 
+  it('indexes channels, programmes, and the catalog from IndexedDB records', async () => {
+    const source = [chan('Bravo'), chan('Alpha')];
+    const alpha = { ...source[1], name: 'Alpha Prime', sourceName: 'Alpha' };
+    playlistMock.channels = [alpha];
+    const programmes = [prog('Evening Report', Date.now() + 3600000, Date.now() + 7200000)];
+    epgMock.programmes = { Alpha: programmes };
+    const movies = [vod('10', 'Alpha Movie'), vod('11', 'Bravo Movie')];
+    const playlistRef = { store: 'playlist-cache', key: 'k', timestamp: 1 };
+    const epgRef = { url: 'http://host/epg.xml', id: 'Alpha', timestamp: 2 };
+    const vodRef = { store: 'catalog-cache', key: 'x1|vod_all', timestamp: 3 };
+    cacheMock.records.set('playlist-cache|k', { timestamp: 1, data: { channels: source } });
+    cacheMock.records.set('epg-cache|http://host/epg.xml', {
+      timestamp: 2,
+      data: { programmes: { Alpha: programmes } },
+    });
+    cacheMock.records.set('catalog-cache|x1|vod_all', { timestamp: 3, data: movies });
+    cacheMock.refs.set(movies, vodRef);
+    playlistMock.getChannelCacheSource.mockReturnValue({
+      record: playlistRef,
+      length: 2,
+      selection: new Uint32Array([1]),
+    });
+    epgMock.programmeCacheOrigin.mockReturnValue(epgRef);
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const { view } = await openWith({ vod: movies });
+    expect(diagEvents(info, 'search.index.ready')).toEqual([expect.stringMatching(
+      /mode=cache channels=1 programmes=1 items=2 persisted=0 built=3 posted=0 elapsedMs=\d+ hintMs=0$/,
+    )]);
+    const requests = workerMock.run.mock.calls
+      .filter(([task]) => task === 'search.index')
+      .map(([, payload]) => payload as SearchIndexRequest);
+    expect(requests.some(request => request.chunk && request.chunk.source !== 'series')).toBe(false);
+    expect(requests.some(request => request.cachedChannels)).toBe(true);
+    expect(requests.some(request => request.cachedProgrammes)).toBe(true);
+    expect(requests.some(request => request.cachedMovies)).toBe(true);
+
+    await view.setQuery('prime');
+    expect(container.textContent).toContain('Alpha Prime');
+    await view.setQuery('report');
+    expect(container.querySelector('.search-program-row')?.textContent).toContain('Alpha Prime');
+    await view.setQuery('bravo');
+    expect(container.textContent).toContain('Bravo Movie');
+
+    view.deactivate();
+    workerMock.running = false;
+    await view.open(account);
+    await indexReady(view);
+    expect(diagEvents(info, 'search.index.ready')[1])
+      .toContain('mode=persisted channels=1 programmes=1 items=2 persisted=3 built=0 posted=0');
+    info.mockRestore();
+  });
+
+  it('offers the indexes the worker built from IndexedDB records for storing', async () => {
+    const source = [chan('Bravo'), chan('Alpha')];
+    playlistMock.channels = [source[1]];
+    cacheMock.records.set('playlist-cache|offer', { timestamp: 4, data: { channels: source } });
+    playlistMock.getChannelCacheSource.mockReturnValue({
+      record: { store: 'playlist-cache', key: 'offer', timestamp: 4 },
+      length: 2,
+      selection: new Uint32Array([1]),
+    });
+
+    await openWith();
+    expect(persistMock).toHaveBeenCalledWith([
+      expect.objectContaining({ key: 'playlist-cache|offer|4|v1', prefix: 'playlist-cache|offer|' }),
+    ]);
+  });
+
+  it('posts the documents a stale IndexedDB record cannot provide', async () => {
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const channel = chan('Alpha');
+    playlistMock.channels = [channel];
+    epgMock.programmes = {
+      Alpha: [prog('Evening Report', Date.now() + 3600000, Date.now() + 7200000)],
+    };
+    cacheMock.records.set('playlist-cache|stale', { timestamp: 9, data: { channels: [channel] } });
+    playlistMock.getChannelCacheSource.mockReturnValue({
+      record: { store: 'playlist-cache', key: 'stale', timestamp: 1 },
+      length: 1,
+      selection: new Uint32Array([0]),
+    });
+    epgMock.programmeCacheOrigin.mockReturnValue({ url: 'http://host/stale.xml', id: 'Alpha', timestamp: 2 });
+
+    const { view } = await openWith();
+    const posted = workerMock.run.mock.calls
+      .filter(([task]) => task === 'search.index')
+      .map(([, payload]) => payload as SearchIndexRequest);
+    expect(posted.some(request => request.chunk?.source === 'channels'
+      && request.chunk.documents?.length === 1)).toBe(true);
+    expect(posted.some(request => request.chunk?.source === 'programmes'
+      && request.chunk.documents?.length === 1)).toBe(true);
+    expect(diagEvents(info, 'search.worker.cache.fallback')).toEqual([
+      expect.stringMatching(/source=channels reason=record_changed$/),
+      expect.stringMatching(/source=programmes reason=\w+$/),
+    ]);
+    expect(diagEvents(info, 'search.index.ready')[0]).toContain('mode=fallback');
+
+    await view.setQuery('report');
+    expect(container.querySelector('.search-program-row')?.textContent).toContain('Evening Report');
+    info.mockRestore();
+  });
+
   it('searches EPG program metadata and shows its channel and airtime', async () => {
     const channel = chan('Alpha');
     playlistMock.channels = [channel];
@@ -422,6 +834,164 @@ describe('Search', () => {
     expect(row?.textContent).toContain('Evening Report');
     expect(row?.textContent).toContain('Alpha');
     expect(row?.textContent).toContain('Set reminder');
+  });
+
+  it('lets overlapping chunked program posts take turns instead of colliding', async () => {
+    const total = CONFIG.SEARCH.INDEX_CHUNK_SIZE * 2 + 5;
+    const start = Date.now() + 3600000;
+    playlistMock.channels = [chan('Alpha')];
+    epgMock.programmes = {
+      Alpha: Array.from({ length: total }, (_, i) => prog(`Show ${i}`, start + i * 60000, start + (i + 1) * 60000)),
+    };
+    const view = new Search(container, mkHandlers());
+    await view.open(null);
+    await indexReady(view);
+    const internals = view as unknown as {
+      workerSession: number;
+      postSource(sessionId: number, source: string, total: number, at: (i: number) => string[]): Promise<boolean>;
+    };
+    const sessionId = internals.workerSession;
+    const older = internals.postSource(sessionId, 'programmes', total, i => [`Old ${i}`]);
+    const newer = internals.postSource(sessionId, 'programmes', total, i => [`Show ${i}`]);
+
+    expect(await Promise.all([older, newer])).toEqual([true, true]);
+    await view.setQuery(`show ${total - 1}`);
+    expect(container.querySelector('.search-program-row')?.textContent).toContain(`Show ${total - 1}`);
+  });
+
+  it('runs a query typed while preparing once a program post is rejected', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    epgMock.programmes = { Alpha: [prog('Evening Report', Date.now() + 3600000, Date.now() + 7200000)] };
+    const run = workerMock.run.getMockImplementation()!;
+    let rejected = false;
+    workerMock.run.mockImplementation(async (task: string, payload: unknown) => {
+      if (!rejected && (payload as SearchIndexRequest).chunk?.source === 'programmes') {
+        rejected = true;
+        return { accepted: false };
+      }
+      return run(task, payload);
+    });
+    try {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      const view = new Search(container, mkHandlers());
+      await view.open(null, 'report');
+      await vi.waitFor(() => expect(container.querySelector('.search-program-row')?.textContent)
+        .toContain('Evening Report'));
+      expect(container.textContent).not.toContain('Preparing search…');
+      expect(diagEvents(warn, 'search.index.lost'))
+        .toEqual([expect.stringMatching(/source=programmes reason=rejected$/)]);
+      expect(diagEvents(info, 'search.index.ready')).toEqual([expect.stringContaining('mode=lost')]);
+      expect(diagEvents(info, 'search.worker.recovery.completed'))
+        .toEqual([expect.stringContaining('reason=lost')]);
+      warn.mockRestore();
+      info.mockRestore();
+    } finally {
+      workerMock.run.mockImplementation(run);
+    }
+  });
+
+  it('rebuilds an index whose catalog post failed and never reuses it', async () => {
+    const run = workerMock.run.getMockImplementation()!;
+    let rejected = false;
+    workerMock.run.mockImplementation(async (task: string, payload: unknown) => {
+      if (!rejected && (payload as SearchIndexRequest).chunk?.source === 'movies') {
+        rejected = true;
+        return { accepted: false };
+      }
+      return run(task, payload);
+    });
+    try {
+      const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+      const resets = (): number => workerMock.run.mock.calls.filter(
+        ([task, payload]) => task === 'search.index' && (payload as SearchIndexRequest).reset,
+      ).length;
+      const before = resets();
+      view.deactivate();
+      await view.open(account);
+      await indexReady(view);
+      expect(resets()).toBeGreaterThan(before);
+
+      await view.setQuery('alpha movie');
+      expect(container.textContent).toContain('Alpha Movie');
+    } finally {
+      workerMock.run.mockImplementation(run);
+    }
+  });
+
+  it('recovers movies when the catalog post fails during open', async () => {
+    const run = workerMock.run.getMockImplementation()!;
+    let rejected = false;
+    workerMock.run.mockImplementation(async (task: string, payload: unknown) => {
+      if (!rejected && (payload as SearchIndexRequest).chunk?.source === 'movies') {
+        rejected = true;
+        return { accepted: false };
+      }
+      return run(task, payload);
+    });
+    try {
+      const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+      await view.setQuery('alpha movie');
+      expect(container.textContent).toContain('Alpha Movie');
+    } finally {
+      workerMock.run.mockImplementation(run);
+    }
+  });
+
+  it('keeps preparing for a pending catalog after a program post fails, then shows it', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    epgMock.programmes = { Alpha: [prog('Evening Report', Date.now() + 3600000, Date.now() + 7200000)] };
+    let finishVod: (value: unknown[]) => void = () => undefined;
+    catalogMock.loadAllVodStreams.mockReturnValue(new Promise(resolve => { finishVod = resolve; }));
+    catalogMock.loadAllSeries.mockResolvedValue([]);
+    const run = workerMock.run.getMockImplementation()!;
+    let rejected = false;
+    workerMock.run.mockImplementation(async (task: string, payload: unknown) => {
+      if (!rejected && (payload as SearchIndexRequest).chunk?.source === 'programmes') {
+        rejected = true;
+        return { accepted: false };
+      }
+      return run(task, payload);
+    });
+    try {
+      const view = new Search(container, mkHandlers());
+      void view.open(account, 'alpha');
+      await vi.waitFor(() => expect(rejected).toBe(true));
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(container.textContent).toContain('Preparing search…');
+      expect(container.textContent).not.toContain('No results found.');
+
+      finishVod([vod('10', 'Alpha Movie')]);
+      await vi.waitFor(() => expect(container.textContent).toContain('Alpha Movie'));
+      expect(container.textContent).toContain('Evening Report');
+    } finally {
+      workerMock.run.mockImplementation(run);
+    }
+  });
+
+  it('recovers program results when a refresh loses its worker post', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith();
+    await view.setQuery('report');
+    epgMock.programmes = { Alpha: [prog('Late Report', Date.now() + 3600000, Date.now() + 7200000)] };
+    const run = workerMock.run.getMockImplementation()!;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let crashed = false;
+    workerMock.run.mockImplementation(async (task: string, payload: unknown) => {
+      if (!crashed && (payload as SearchIndexRequest).chunk?.source === 'programmes') {
+        crashed = true;
+        throw new Error('worker crashed');
+      }
+      return run(task, payload);
+    });
+    try {
+      await view.refreshPrograms();
+      await vi.waitFor(() => expect(container.querySelector('.search-program-row')?.textContent)
+        .toContain('Late Report'));
+    } finally {
+      workerMock.run.mockImplementation(run);
+      error.mockRestore();
+    }
   });
 
   it('refreshes program results when EPG finishes loading after Search opens', async () => {
@@ -599,11 +1169,33 @@ describe('Search', () => {
     expect(handlers.onBack).toHaveBeenCalled();
   });
 
-  it('cancels the catalog request session when deactivated', async () => {
-    const { view } = await openWith();
+  it('keeps a catalog load running across close and reopen', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    let finish!: (items: unknown[]) => void;
+    catalogMock.loadAllVodStreams.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    catalogMock.loadAllSeries.mockResolvedValue([]);
+    const view = new Search(container, mkHandlers());
+    await view.open(account);
     const signal = catalogMock.loadAllVodStreams.mock.calls[0][1] as AbortSignal;
 
     view.deactivate();
+    expect(signal.aborted).toBe(false);
+    await view.open(account, 'alpha');
+    finish([vod('10', 'Alpha Movie')]);
+
+    await vi.waitFor(() => expect(container.textContent).toContain('Alpha Movie'));
+    expect(catalogMock.loadAllVodStreams).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts a catalog load when Search reopens for another account', async () => {
+    catalogMock.loadAllVodStreams.mockReturnValue(new Promise(() => undefined));
+    catalogMock.loadAllSeries.mockReturnValue(new Promise(() => undefined));
+    const view = new Search(container, mkHandlers());
+    await view.open(account);
+    const signal = catalogMock.loadAllVodStreams.mock.calls[0][1] as AbortSignal;
+
+    view.deactivate();
+    await view.open({ ...account, id: 'x2' });
 
     expect(signal.aborted).toBe(true);
   });

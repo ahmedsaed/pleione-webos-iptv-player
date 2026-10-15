@@ -134,6 +134,32 @@ test('unified search matches channels, movies, and series; a channel result play
   await expect(page.locator('#view-player')).toBeVisible();
 });
 
+test('a query typed while the index prepares shows a hint, then its results', async ({ page }) => {
+  await seedSearch(page);
+  let releaseCatalog!: () => void;
+  const catalogHeld = new Promise<void>((resolve) => { releaseCatalog = resolve; });
+  await page.route(/get_vod_streams/, async (route) => {
+    await catalogHeld;
+    await route.fallback();
+  });
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterSearch(page);
+
+  await page.locator('.tab-bar-search-input').fill('one');
+  const hint = page.locator('#view-search .search-results .search-empty');
+  await expect(hint).toHaveText('Preparing search…');
+  await expect(page.locator('#view-search .catalog-tile')).toHaveCount(0);
+  await page.locator('.tab-bar-search-input').fill('zzz');
+  await expect(hint).toHaveText('Preparing search…');
+  await page.locator('.tab-bar-search-input').fill('one');
+
+  releaseCatalog();
+  await expect(page.locator('#view-search .catalog-tile[data-stream-id="10"]')).toContainText('Movie One');
+  await expect(page.locator('#view-search .catalog-tile[data-channel-index="0"]')).toContainText('Channel One');
+  await expect(page.locator('#view-search .search-empty')).toHaveCount(0);
+});
+
 test('a wide virtual search rail keeps its full scrollable width', async ({ page }) => {
   await seedSearch(page);
   await page.goto('/');

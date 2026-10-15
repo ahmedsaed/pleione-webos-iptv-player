@@ -1510,7 +1510,7 @@ export const StorageService = {
     if (!Array.isArray(stored)) return [];
     return stored
       .filter((q): q is string => typeof q === 'string' && q.trim() !== '')
-      .slice(0, CONFIG.SEARCH_HISTORY.MAX_ENTRIES);
+      .slice(0, CONFIG.SEARCH.HISTORY_MAX_ENTRIES);
   },
 
   // Newest first; a repeat moves to the front and the oldest falls off the end.
@@ -1520,7 +1520,7 @@ export const StorageService = {
     const key = q.toLowerCase();
     const prior = this.getSearchHistory();
     const rest = prior.filter(entry => entry.toLowerCase() !== key);
-    const next = [q, ...rest].slice(0, CONFIG.SEARCH_HISTORY.MAX_ENTRIES);
+    const next = [q, ...rest].slice(0, CONFIG.SEARCH.HISTORY_MAX_ENTRIES);
     set('search_history', next);
     log.debug(
       'Search history saved',

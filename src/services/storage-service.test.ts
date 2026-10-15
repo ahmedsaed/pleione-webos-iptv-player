@@ -510,7 +510,7 @@ describe('StorageService search history', () => {
   });
 
   it('evicts the oldest search past the cap', () => {
-    const max = CONFIG.SEARCH_HISTORY.MAX_ENTRIES;
+    const max = CONFIG.SEARCH.HISTORY_MAX_ENTRIES;
     for (let i = 0; i <= max; i++) StorageService.addSearchHistory(`q${i}`);
     const history = StorageService.getSearchHistory();
     expect(history).toHaveLength(max);
