@@ -1055,16 +1055,6 @@ test('relocking while recent searches are open keeps movies in the next search',
 
 test('a search that opened locked content stays out of recent searches', async ({ page }) => {
   await seedVodAccount(page);
-  // A live channel gives the guide something to fetch, so it settles.
-  await page.route('**/player_api.php*', (route) => {
-    const action = new URL(route.request().url()).searchParams.get('action');
-    if (action === 'get_live_streams') {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([
-        { stream_id: 1, name: 'Channel One', epg_channel_id: 'c1', category_id: '9' },
-      ]) });
-    }
-    return route.fallback();
-  });
   await page.goto('/');
   await createPinFromSettings(page);
   await page.locator('#parental-kind [data-value="vod"]').click();

@@ -972,6 +972,90 @@ describe('EpgService channel pre-filter', () => {
       .toBe(4 * 60 * 60 * 1000);
   });
 
+  it('waits a full interval when no source has eligible channels', async () => {
+    // A VOD-only account: the source exists, but no channel applies to it.
+    await EpgService.load([source('http://a', ['a'])], []);
+
+    expect(EpgService.getNextRefreshDelayMs(6 * 60 * 60 * 1000))
+      .toBe(6 * 60 * 60 * 1000);
+  });
+
+  it('schedules from eligible sources and skips one with no channels', async () => {
+    parseXMLTVMock.mockReturnValue(parsed('a', 'Alpha', 'Fresh'));
+    await EpgService.load(
+      [source('http://a', ['a']), source('http://b', ['b'])],
+      [channel({ id: 'a', name: 'Alpha', url: 'http://host/a', playlistIds: ['a'] })],
+    );
+    vi.setSystemTime(NOON + 2 * 60 * 60 * 1000);
+
+    expect(EpgService.getNextRefreshDelayMs(6 * 60 * 60 * 1000))
+      .toBe(4 * 60 * 60 * 1000);
+  });
+
+  it('skips a source with no eligible channels on refresh and logs it once', async () => {
+    const info = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await EpgService.load([source('http://a', ['a'])], []);
+    const mappingRevision = EpgService.mappingRevision;
+
+    await expect(EpgService.refresh(undefined, true)).resolves.toBe(true);
+    await EpgService.refresh(undefined, true);
+
+    expect(EpgService.mappingRevision).toBe(mappingRevision);
+    const idleLogs = info.mock.calls.filter(call => call.includes('event=epg.refresh.idle'));
+    expect(idleLogs).toEqual([[
+      '[EPG]',
+      'EPG sources with no eligible channels skipped',
+      'event=epg.refresh.idle',
+      'count=1',
+      'total=1',
+    ]]);
+  });
+
+  it('logs again when a different source becomes idle', async () => {
+    const info = vi.spyOn(console, 'log').mockImplementation(() => {});
+    parseXMLTVMock.mockReturnValue(parsed('a', 'Alpha', 'Fresh'));
+    const sources = [source('http://a', ['a']), source('http://b', ['b'])];
+    await EpgService.load(sources, [
+      channel({ id: 'a', name: 'Alpha', url: 'http://host/a', playlistIds: ['a'] }),
+    ]);
+    await EpgService.refresh();
+    await EpgService.load(sources, [
+      channel({ id: 'b', name: 'Bravo', url: 'http://host/b', playlistIds: ['b'] }),
+    ]);
+    await EpgService.refresh();
+
+    const idleLogs = info.mock.calls.filter(call => call.includes('event=epg.refresh.idle'));
+    expect(idleLogs).toHaveLength(2);
+  });
+
+  it('refreshes a source whose only link is a saved mapping', async () => {
+    parseXMLTVMock.mockReturnValue(parsed('x', 'Xray', 'Fresh'));
+    epgChannelIdsMock.mockReturnValue([`${encodeURIComponent('http://a')}::x`]);
+    await EpgService.load(
+      [source('http://a', ['a'])],
+      [channel({ id: 'b', name: 'Bravo', url: 'http://host/b', playlistIds: ['b'] })],
+    );
+    vi.mocked(fetchMaybeGzipText).mockClear();
+    vi.setSystemTime(NOON + 6 * 60 * 60 * 1000);
+
+    expect(EpgService.getNextRefreshDelayMs(6 * 60 * 60 * 1000)).toBe(0);
+    await expect(EpgService.refresh()).resolves.toBe(true);
+    expect(fetchMaybeGzipText).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-derive mappings on a refresh with nothing due', async () => {
+    parseXMLTVMock.mockReturnValue(parsed('a', 'Alpha', 'Fresh'));
+    await EpgService.load(
+      [source('http://a', ['a'])],
+      [channel({ id: 'a', name: 'Alpha', url: 'http://host/a', playlistIds: ['a'] })],
+    );
+    epgChannelIdsMock.mockClear();
+
+    await expect(EpgService.refresh()).resolves.toBe(true);
+
+    expect(epgChannelIdsMock).not.toHaveBeenCalled();
+  });
+
   it('reports an incomplete refresh when a due source still fails', async () => {
     parseXMLTVMock.mockReturnValue(parsed('a', 'Alpha', 'Initial'));
     await EpgService.load([source('http://a', ['a'])]);

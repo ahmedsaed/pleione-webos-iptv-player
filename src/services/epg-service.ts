@@ -91,6 +91,7 @@ class EpgServiceImpl {
   private pendingWork: Promise<unknown> | null = null;
   private revision = 0;
   private mappingRevisionValue = 0;
+  private lastIdleKey = '';
 
   get mappingRevision(): number {
     return this.mappingRevisionValue;
@@ -99,6 +100,8 @@ class EpgServiceImpl {
   getNextRefreshDelayMs(intervalMs: number): number {
     let nextDueAt = Number.POSITIVE_INFINITY;
     for (const source of this.sources) {
+      // An idle source keeps no state; counting it as due re-arms a 0ms timer forever.
+      if (this.isIdle(source)) continue;
       const state = this.states.get(source.url);
       if (!state || state.needsRefresh) return 0;
       nextDueAt = Math.min(nextDueAt, state.timestamp + intervalMs);
@@ -127,6 +130,7 @@ class EpgServiceImpl {
     this.derivedOffsets.clear();
     this.programmeOrigins.clear();
     this.mappedChannelIds = [];
+    this.lastIdleKey = '';
     this.playlistChannels = null;
     this.appliedFilters.clear();
   }
@@ -233,7 +237,26 @@ class EpgServiceImpl {
     force = false,
   ): Promise<boolean> {
     const refreshIntervalMs = StorageService.getEpgRefreshIntervalMs();
+    const idle = new Set<string>();
+    for (const source of this.sources) {
+      if (this.isIdle(source)) idle.add(source.url);
+    }
+    // Log each distinct idle set once; the source list is part of the key
+    // so an account switch reports its own idle sources.
+    const idleKey = idle.size
+      ? `${Array.from(idle).sort().join(' ')}|${this.sources.map(s => s.url).join(' ')}`
+      : '';
+    if (idleKey !== this.lastIdleKey) {
+      this.lastIdleKey = idleKey;
+      log.info(
+        'EPG sources with no eligible channels skipped',
+        'event=epg.refresh.idle',
+        `count=${String(idle.size)}`,
+        `total=${String(this.sources.length)}`,
+      );
+    }
     const sourcesToRefresh = this.sources.filter((source) => {
+      if (idle.has(source.url)) return false;
       const state = this.states.get(source.url);
       return force || !state || state.needsRefresh
         || (refreshIntervalMs !== null
@@ -742,6 +765,17 @@ class EpgServiceImpl {
       if (channel.sourceName) names.add(channel.sourceName.toLowerCase());
     }
     return { ids, names };
+  }
+
+  // Whether `filterFor(source)` would be empty, without building it: this runs
+  // on every refresh, including each time the guide opens.
+  private isIdle(source: EpgSource): boolean {
+    if (this.playlistChannels === null) return false;
+    for (const channel of this.playlistChannels) {
+      if ((channel.id || channel.name || channel.sourceName)
+        && sourceAppliesToChannel(source, channel)) return false;
+    }
+    return !this.mappedChannelIds.some(id => this.splitChannelKey(id)?.url === source.url);
   }
 
   private rebuildIndexes(): void {
