@@ -339,6 +339,8 @@ export function extractDiagnosticTimeline(logs) {
     const observed = Number(fields.match(/\bobserved=(\d+(?:\.\d+)?)/)?.[1] ?? NaN);
     const errorCode = Number(fields.match(/\berrorCode=(-?\d+)/)?.[1] ?? NaN);
     const engine = fields.match(/\bengine=([a-z0-9_-]+)/i)?.[1] ?? '';
+    const scrollEndPadding = Number(fields.match(/\bscrollEndPadding=([01])/)?.[1] ?? NaN);
+    const noFlexGap = Number(fields.match(/\bnoFlexGap=([01])/)?.[1] ?? NaN);
     timeline.push({
       observedAt: entry.observedAt,
       code,
@@ -383,6 +385,8 @@ export function extractDiagnosticTimeline(logs) {
       observed: Number.isFinite(observed) ? observed : null,
       errorCode: Number.isFinite(errorCode) ? errorCode : null,
       engine,
+      scrollEndPadding: Number.isFinite(scrollEndPadding) ? scrollEndPadding : null,
+      noFlexGap: Number.isFinite(noFlexGap) ? noFlexGap : null,
       level: entry.level,
       text: entry.text,
     });
@@ -735,6 +739,8 @@ export function formatDiagnosticSummary(report) {
     if (event.rate != null) fields.push(`rate=${String(event.rate)}`);
     if (event.observed != null) fields.push(`observed=${String(event.observed)}`);
     if (event.errorCode != null) fields.push(`errorCode=${String(event.errorCode)}`);
+    if (event.scrollEndPadding != null) fields.push(`scrollEndPadding=${String(event.scrollEndPadding)}`);
+    if (event.noFlexGap != null) fields.push(`noFlexGap=${String(event.noFlexGap)}`);
     lines.push(`- ${event.code}${fields.length ? ` ${fields.join(' ')}` : ''}`);
   }
   const input = report.input ?? [];

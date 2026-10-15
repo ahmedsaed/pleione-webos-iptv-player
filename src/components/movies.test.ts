@@ -42,6 +42,10 @@ const vod = (id: string, name: string, categoryId = '1') => ({
 });
 
 let container: HTMLElement;
+function eventLines(spy: { mock: { calls: unknown[][] } }, code: string): string[] {
+  return spy.mock.calls.map((args) => args.join(' ')).filter((l) => l.includes(`event=${code} `));
+}
+
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   vi.clearAllMocks();
@@ -257,7 +261,12 @@ describe('Movies browse + grid', () => {
     await Promise.resolve(); await Promise.resolve();
     // Not behind Search: only once the section is shown again.
     expect(catalogMock.loadVodCategories).toHaveBeenCalledTimes(1);
+    const logs = vi.spyOn(console, 'log');
     view.ensureLoaded(account);
+    expect(eventLines(logs, 'xtream.view.reload')).toEqual([
+      expect.stringMatching(/operation=browse mode=vod reason=stale$/),
+    ]);
+    logs.mockRestore();
     await vi.waitFor(() => expect(container.querySelector('.catalog-browse')).not.toBeNull());
     expect(catalogMock.loadVodCategories).toHaveBeenCalledTimes(2);
     expect(container.querySelector('.catalog-tile[data-item-id="10"]')).not.toBeNull();
@@ -282,11 +291,17 @@ describe('Movies browse + grid', () => {
 
   it('reopens browse on the active account when the section is shown again', async () => {
     const { view } = await openWith();
+    const logs = vi.spyOn(console, 'log');
     view.ensureLoaded(account);
     expect(catalogMock.loadVodCategories).toHaveBeenCalledTimes(1);
+    expect(eventLines(logs, 'xtream.view.reload')).toEqual([]);
 
     const other: PlaylistEntry = { ...account, id: 'x2' };
     view.ensureLoaded(other);
+    expect(eventLines(logs, 'xtream.view.reload')).toEqual([
+      expect.stringMatching(/operation=browse mode=vod reason=account$/),
+    ]);
+    logs.mockRestore();
     await vi.waitFor(() => expect(catalogMock.loadVodCategories).toHaveBeenCalledTimes(2));
     expect(catalogMock.loadVodCategories).toHaveBeenLastCalledWith(other, expect.anything());
   });
@@ -306,8 +321,13 @@ describe('Movies browse + grid', () => {
     view.handleAction('select');
     expect(catalogMock.loadVodStreams).toHaveBeenCalledTimes(loads);
     view.handleAction('back');
+    const logs = vi.spyOn(console, 'log');
     resolve([vod('20', 'Movie Two', '7')]);
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(eventLines(logs, 'xtream.view.load.superseded')).toEqual([
+      expect.stringMatching(/operation=category mode=vod reason=left$/),
+    ]);
+    logs.mockRestore();
 
     expect(container.querySelector('.catalog-grid')).toBeNull();
     expect(container.querySelector('.catalog-layer-browse')!.classList)

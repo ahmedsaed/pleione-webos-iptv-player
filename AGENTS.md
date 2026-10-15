@@ -27,6 +27,7 @@ Procedural workflows live in `.agents/skills/` (open Agent Skills format;
 - Render with `morph()` + the `html` template — never `innerHTML =`.
   Interpolate untrusted M3U/XMLTV text only through `html`.
 - Every bug fix ships with a regression test that fails without the fix.
+- Every feature or bug fix adds the `tv.sh diag` events a bug report needs.
 - Tests and docs use synthetic identifiers only.
 - Never hand-edit the version in `appinfo.json` (it syncs from
   `package.json`), and never hand-edit the generated
@@ -210,6 +211,12 @@ build constant; `scripts/sync-version.mjs` runs on `npm version`.
   a review, the user, or anywhere else. Add the narrowest test that covers
   it (unit where possible, E2E for UI or focus behavior), and confirm it
   fails without the fix and passes with it.
+- **Every feature or bug fix adds the `tv.sh diag` events it needs**, so a
+  user's bug report captures the failure next time. Log through
+  `createLogger` with `event=<area>.<what>` plus `key=value` fields
+  (counts, reasons, modes; never URLs, credentials, or M3U/XMLTV text),
+  teach `scripts/tv-diag.mjs` any new field, and assert the event in a
+  test.
 - **Done** means `npm run typecheck`, `npm run lint`, and the relevant tests
   pass. Then run the `feature-review` skill for any finished feature.
 - **Git:** commit directly to `main`, only when asked, via the `commit`

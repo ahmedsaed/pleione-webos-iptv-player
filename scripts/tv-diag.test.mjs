@@ -753,6 +753,33 @@ exit 23
     expect(summary).toContain('Media: playing | ready=4 network=2 time=9s rate=1.5');
   });
 
+  it('parses and formats measured engine quirks', () => {
+    const diagnostics = extractDiagnosticTimeline([{
+      observedAt: '2026-01-01T00:00:00.000Z',
+      source: 'console',
+      level: 'info',
+      text: '[Quirks] Engine quirks measured event=engine.quirks.measured'
+        + ' scrollEndPadding=1 noFlexGap=0',
+    }]);
+    expect(diagnostics[0]).toMatchObject({
+      code: 'engine.quirks.measured', scrollEndPadding: 1, noFlexGap: 0,
+    });
+
+    const summary = formatDiagnosticSummary({
+      capturedAt: '2026-01-01T00:00:01.000Z',
+      app: {},
+      environment: {},
+      state: {},
+      playlists: [],
+      diagnostics,
+      input: [],
+      xtream: [],
+      logs: [],
+      network: [],
+    });
+    expect(summary).toContain('- engine.quirks.measured scrollEndPadding=1 noFlexGap=0');
+  });
+
   it('ignores diagnostic fields inside JSON-quoted error text', () => {
     const errorText = JSON.stringify(
       'e1 "quoted" \\ errorCode=401 observed=9 engine=html rate=0.5'

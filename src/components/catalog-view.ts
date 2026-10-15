@@ -389,7 +389,15 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
   // an interrupted browse, or one left on an account no longer active.
   ensureLoaded(account: PlaylistEntry | null): void {
     if (!account) return;
-    if (this.browseStale || this.account?.id !== account.id) void this.open(account);
+    if (!this.browseStale && this.account?.id === account.id) return;
+    log.debug(
+      'Catalog browse reloading',
+      'event=xtream.view.reload',
+      'operation=browse',
+      `mode=${this.parentalKind}`,
+      `reason=${this.browseStale ? 'stale' : 'account'}`,
+    );
+    void this.open(account);
   }
 
   // Search is closing over this section: drop a deep-linked detail it left
@@ -585,9 +593,18 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
         );
         this.itemsByCategory[categoryId] = [];
       }
+      if (signal.aborted || this.account?.id !== account.id) return;
       // Back (or another category) may have superseded this grid meanwhile.
-      if (signal.aborted || this.account?.id !== account.id
-          || this.mode !== 'grid' || request !== this.gridRequest) return;
+      if (this.mode !== 'grid' || request !== this.gridRequest) {
+        log.debug(
+          'Catalog category load superseded',
+          'event=xtream.view.load.superseded',
+          'operation=category',
+          `mode=${this.parentalKind}`,
+          `reason=${this.mode !== 'grid' ? 'left' : 'replaced'}`,
+        );
+        return;
+      }
       this.clearLayer('grid');
     }
     this.gridFocusIndex = 0;
