@@ -231,8 +231,8 @@ scripts/tv.sh reboot                             # Reboot the TV through Luna
 TV_DEVICE=tv2 scripts/tv.sh logs                 # Select a non-default configured TV
 ```
 
-Run `scripts/tv.sh capt --help`, `scripts/tv.sh perf --help`, or
-`scripts/tv.sh diag --help` for options.
+Run `scripts/tv.sh logs --help` (or `eval`, `perf`, `diag`, `capt`) for
+options.
 
 ### Preview in Browser
 

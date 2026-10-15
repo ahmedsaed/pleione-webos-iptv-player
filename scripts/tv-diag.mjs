@@ -15,11 +15,100 @@ import {
   normalizeCdpLogEvent,
   subscribeCdpLogs,
 } from './cdp-logs.mjs';
+import { formatOptions, parseArgs } from './cli-args.mjs';
 
 const DEFAULT_APP_ID = 'com.lennylxx.iptv';
 const DEFAULT_PORT = 9998;
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_DURATION_MS = 15000;
+
+export const DIAGNOSTIC_SPEC = {
+  maxPositionals: 0,
+  options: {
+    app: {
+      type: 'string',
+      default: DEFAULT_APP_ID,
+      valueName: '<id>',
+      description: 'webOS app id',
+    },
+    device: {
+      type: 'string',
+      valueName: '<name>',
+      description: 'Configured TV device (default: default device)',
+    },
+    host: {
+      type: 'string',
+      default: '',
+      valueName: '<host>',
+      description: 'Existing CDP discovery host instead of ares-inspect',
+    },
+    port: {
+      type: 'integer',
+      min: 1,
+      max: 65535,
+      default: DEFAULT_PORT,
+      valueName: '<port>',
+      description: 'CDP discovery port with --host',
+    },
+    timeout: {
+      type: 'number',
+      positive: true,
+      default: DEFAULT_TIMEOUT_MS / 1000,
+      valueName: '<seconds>',
+      description: 'App/inspector startup timeout',
+    },
+    'play-channel': {
+      type: 'integer',
+      min: 0,
+      default: null,
+      valueName: '<index>',
+      description: 'Cold-start, then activate the rendered channel index',
+    },
+    attach: {
+      type: 'boolean',
+      default: false,
+      description: 'Observe the running app without close, reload, or input',
+    },
+    duration: {
+      type: 'number',
+      min: 1,
+      max: 3600,
+      default: DEFAULT_DURATION_MS / 1000,
+      valueName: '<seconds>',
+      description: 'Playback/native metric window',
+    },
+    output: {
+      type: 'string',
+      default: '',
+      valueName: '<path>',
+      description: 'JSON report path (default: timestamped filename)',
+    },
+    full: {
+      type: 'boolean',
+      default: false,
+      description: 'Disable redaction; the report may contain secrets',
+    },
+    summary: {
+      type: 'string',
+      default: '',
+      valueName: '<path>',
+      description: 'Print a readable summary of an existing JSON report',
+    },
+    help: { type: 'boolean', short: 'h', default: false, description: 'Show this help' },
+  },
+};
+
+export const DIAGNOSTIC_HELP = `Usage: scripts/tv.sh diag [options]
+
+Capture a redacted TV diagnostics report with CDP logs, network activity,
+playlist probes, diagnostic events, remote-control input, media state, and
+optional native metrics.
+
+${formatOptions(DIAGNOSTIC_SPEC)}
+
+--duration requires --attach or --play-channel. Those two modes cannot be
+combined. Reports stay local and are never uploaded.`;
+
 const PREVIEW_BYTES = 2048;
 const PLAYLIST_PROBE_TIMEOUT_MS = 5000;
 const SINGLE_CONNECTION_SKIP_REASON = 'xtream-max-connections-at-most-one';
@@ -54,81 +143,25 @@ const toErrorMessage = (value) => {
   return String(value);
 };
 
-const requiredValue = (argv, index, flag) => {
-  const value = argv[index + 1];
-  if (!value || value.startsWith('-')) throw new Error(`Missing value for ${flag}.`);
-  return value;
-};
-
 export function parseDiagnosticArgs(argv = []) {
+  const { values, seen } = parseArgs(argv, DIAGNOSTIC_SPEC);
   const options = {
-    appId: DEFAULT_APP_ID,
-    device: process.env.TV_DEVICE || '',
-    host: '',
-    port: DEFAULT_PORT,
-    timeoutMs: DEFAULT_TIMEOUT_MS,
-    durationMs: DEFAULT_DURATION_MS,
-    durationSpecified: false,
-    attach: false,
-    playChannel: null,
-    outputPath: '',
-    full: false,
-    summaryPath: '',
-    help: false,
+    appId: values.app,
+    device: values.device ?? (process.env.TV_DEVICE || ''),
+    host: values.host,
+    port: values.port,
+    timeoutMs: values.timeout * 1000,
+    durationMs: values.duration * 1000,
+    durationSpecified: seen.includes('duration'),
+    attach: values.attach,
+    playChannel: values['play-channel'],
+    outputPath: values.output,
+    full: values.full,
+    summaryPath: values.summary,
+    help: values.help,
   };
-  for (let i = 0; i < argv.length; i++) {
-    const token = argv[i];
-    if (token === '--app') {
-      options.appId = requiredValue(argv, i, token);
-      i++;
-    } else if (token === '--device') {
-      options.device = requiredValue(argv, i, token);
-      i++;
-    } else if (token === '--host') {
-      options.host = requiredValue(argv, i, token);
-      i++;
-    } else if (token === '--port') {
-      options.port = Number(requiredValue(argv, i, token));
-      i++;
-    } else if (token === '--timeout') {
-      options.timeoutMs = Number(requiredValue(argv, i, token)) * 1000;
-      i++;
-    } else if (token === '--attach') {
-      options.attach = true;
-    } else if (token === '--duration') {
-      options.durationMs = Number(requiredValue(argv, i, token)) * 1000;
-      options.durationSpecified = true;
-      i++;
-    } else if (token === '--play-channel') {
-      options.playChannel = Number(requiredValue(argv, i, token));
-      i++;
-    } else if (token === '--output') {
-      options.outputPath = requiredValue(argv, i, token);
-      i++;
-    } else if (token === '--summary') {
-      options.summaryPath = requiredValue(argv, i, token);
-      i++;
-    } else if (token === '--full') {
-      options.full = true;
-    } else if (token === '--help') {
-      options.help = true;
-    } else {
-      throw new Error(`Unknown option: ${token}`);
-    }
-  }
-  if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) {
-    throw new Error('Invalid value for --port.');
-  }
-  if (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0) {
-    throw new Error('Invalid value for --timeout.');
-  }
-  if (!Number.isInteger(options.durationMs)
-      || options.durationMs < 1000 || options.durationMs > 3600000) {
+  if (!Number.isInteger(options.durationMs)) {
     throw new Error('Invalid value for --duration.');
-  }
-  if (options.playChannel !== null
-      && (!Number.isInteger(options.playChannel) || options.playChannel < 0)) {
-    throw new Error('Invalid value for --play-channel.');
   }
   if (options.attach && options.playChannel !== null) {
     throw new Error('--attach cannot be combined with --play-channel.');
@@ -1640,34 +1673,11 @@ export async function captureDiagnostics(options, overrides = {}) {
   }
 }
 
-const HELP_TEXT = `Usage: scripts/tv.sh diag [options]
-
-Capture a redacted TV diagnostics report with CDP logs, network activity,
-playlist probes, diagnostic events, remote-control input, media state, and
-optional native metrics.
-
-Options:
-  --app <id>             webOS app id (default: ${DEFAULT_APP_ID})
-  --device <name>        Configured TV device (default: default device)
-  --host <host>          Existing CDP discovery host instead of ares-inspect
-  --port <port>          CDP discovery port with --host (default: ${String(DEFAULT_PORT)})
-  --timeout <seconds>    App/inspector startup timeout (default: 30)
-  --play-channel <index> Cold-start, then activate the rendered channel index
-  --attach               Observe the running app without close, reload, or input
-  --duration <seconds>   Playback/native metric window (default: 15; max: 3600)
-  --output <path>        JSON report path (default: timestamped filename)
-  --full                 Disable redaction; the report may contain secrets
-  --summary <path>       Print a readable summary of an existing JSON report
-  --help                 Show this help
-
---duration requires --attach or --play-channel. Those two modes cannot be
-combined. Reports stay local and are never uploaded.`;
-
 export async function main(argv = process.argv.slice(2), dependencies = {}) {
   try {
     const options = parseDiagnosticArgs(argv);
     if (options.help) {
-      console.log(HELP_TEXT);
+      console.log(DIAGNOSTIC_HELP);
       return 0;
     }
     if (options.summaryPath) {

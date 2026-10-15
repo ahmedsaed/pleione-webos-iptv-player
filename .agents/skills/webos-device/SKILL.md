@@ -24,7 +24,7 @@ load the new bundle. If you install another way, close and relaunch it.
 | Command | Use |
 | --- | --- |
 | `tv.sh logs [--app <id>]` | Tail the app's DevTools console headlessly over CDP. |
-| `tv.sh eval [--app <id>] '<js>'` | Evaluate JS in the app page (also `--file <path.js>`, or `-` for stdin) to probe live DOM or app state. |
+| `tv.sh eval [--app <id>] '<js>'` | Evaluate JS in the app page (also `--file <path.js>`, or `-` for stdin; put `--` before an expression that starts with `-`) to probe live DOM or app state. |
 | `tv.sh perf [--app <id>]` | CDP perf counters, recordings, GC, and heap snapshots. |
 | `tv.sh diag [--app <id>]` | Cold-start redacted diagnostics report. |
 | `tv.sh capt` | Screenshot or record the TV display. |
@@ -34,8 +34,8 @@ load the new bundle. If you install another way, close and relaunch it.
 | `tv.sh reboot` | Reboot the TV through Luna. |
 
 Pick a non-default device with `TV_DEVICE=<name>`; override the expect
-timeout with `TV_TIMEOUT=<seconds>` (default 120). `perf`, `diag`, and
-`capt` print their full options with `--help`.
+timeout with `TV_TIMEOUT=<seconds>` (default 120). `logs`, `eval`, `perf`,
+`diag`, and `capt` print their full options with `-h` or `--help`.
 
 Notes:
 

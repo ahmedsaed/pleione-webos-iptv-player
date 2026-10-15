@@ -230,8 +230,8 @@ scripts/tv.sh reboot                             # 通过 Luna 重启电视
 TV_DEVICE=tv2 scripts/tv.sh logs                 # 选择非默认的已配置电视
 ```
 
-运行 `scripts/tv.sh capt --help`、`scripts/tv.sh perf --help` 或
-`scripts/tv.sh diag --help` 可查看相关选项。
+运行 `scripts/tv.sh logs --help`（`eval`、`perf`、`diag`、`capt` 同理）
+可查看相关选项。
 
 ### 在浏览器中预览
 
