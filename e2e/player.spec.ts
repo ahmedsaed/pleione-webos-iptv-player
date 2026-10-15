@@ -742,9 +742,8 @@ test.describe('DVR', () => {
 
 // Direct channel entry from the player view (issue #40): the digits are
 // buffered by KeyHandler and delivered as a single `number` action.
-// The `[Key]`/`[App]` console lines are what `scripts/tv.sh diag` scrapes into
-// its input timeline, so these tests assert the emitted text too (the parsing
-// side is pinned in scripts/tv-diag.test.mjs and key-handler.test.ts).
+// The `[Key]`/`[App]` console lines are what `scripts/tv.sh diag` prints in
+// its input timeline, so these tests assert the emitted text too.
 function captureKeyLogs(page: Page): () => string[] {
   const lines: string[] = [];
   page.on('console', (message) => lines.push(message.text()));

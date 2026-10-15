@@ -215,8 +215,7 @@ build constant; `scripts/sync-version.mjs` runs on `npm version`.
   user's bug report captures the failure next time. Log through
   `createLogger` with `event=<area>.<what>` plus `key=value` fields
   (counts, reasons, modes; never URLs, credentials, or M3U/XMLTV text),
-  teach `scripts/tv-diag.mjs` any new field, and assert the event in a
-  test.
+  and assert the event in a test.
 - **Done** means `npm run typecheck`, `npm run lint`, and the relevant tests
   pass. Then run the `feature-review` skill for any finished feature.
 - **Git:** commit directly to `main`, only when asked, via the `commit`

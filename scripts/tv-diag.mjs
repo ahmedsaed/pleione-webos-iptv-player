@@ -288,121 +288,30 @@ export function normalizeNetworkRecords(events, redactor) {
   return [...records.values()];
 }
 
-export function extractDiagnosticTimeline(logs) {
+// JSON-quoted messages are evidence, not structured diagnostic fields.
+const QUOTED_TEXT = /"(?:\\[\s\S]|[^"\\])*(?:"|$)/g;
+const SUMMARY_FIELDS_MAX = 240;
+
+// Blank quoted text with spaces so match indexes still line up with the original.
+const unquoted = (text) => text.replace(QUOTED_TEXT, (quoted) => ' '.repeat(quoted.length));
+
+function findEvent(text) {
+  const match = unquoted(text).match(/\bevent=([a-z0-9_.-]+)/i);
+  if (!match) return null;
+  return { name: match[1], fields: text.slice(match.index + match[0].length).trim() };
+}
+
+export const eventField = (text, key) => unquoted(text ?? '')
+  .match(new RegExp(`\\b${key}=([a-z0-9_.-]+)`, 'i'))?.[1] ?? null;
+
+function extractEvents(logs, accept, nameKey) {
   const timeline = [];
   for (const entry of logs) {
-    // JSON-quoted messages are evidence, not structured diagnostic fields.
-    const fields = entry.text.replace(/"(?:\\[\s\S]|[^"\\])*(?:"|$)/g, ' ');
-    const code = fields.match(/\bevent=([a-z0-9_.-]+)/i)?.[1];
-    if (!code) continue;
-    // Input events get their own timeline: one line per press would bury the
-    // playback/EPG events this list exists for.
-    if (code.startsWith('key.')) continue;
-    const session = Number(fields.match(/\bsession=(\d+)/)?.[1] ?? NaN);
-    const load = Number(fields.match(/\bload=(\d+)/)?.[1] ?? NaN);
-    const count = Number(fields.match(/\bcount=(\d+)/)?.[1] ?? NaN);
-    const channels = Number(fields.match(/\bchannels=(\d+)/)?.[1] ?? NaN);
-    const failed = Number(fields.match(/\bfailed=(\d+)/)?.[1] ?? NaN);
-    const source = fields.match(/\bsource=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const generation = Number(fields.match(/\bgeneration=(\d+)/)?.[1] ?? NaN);
-    const active = Number(fields.match(/\bactive=(\d+)/)?.[1] ?? NaN);
-    const reason = fields.match(/\breason=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const task = fields.match(/\btask=([a-z0-9_.-]+)/i)?.[1] ?? '';
-    const stage = fields.match(/\bstage=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const transport = fields.match(/\btransport=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const filter = fields.match(/\bfilter=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const encoding = fields.match(/\bencoding=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const pass = fields.match(/\bpass=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const attempt = Number(fields.match(/\battempt=(\d+)/)?.[1] ?? NaN);
-    const attempts = Number(fields.match(/\battempts=(\d+)/)?.[1] ?? NaN);
-    const available = Number(fields.match(/\bavailable=([01])/)?.[1] ?? NaN);
-    const items = Number(fields.match(/\bitems=(\d+)/)?.[1] ?? NaN);
-    const bytes = Number(fields.match(/\bbytes=(\d+)/)?.[1] ?? NaN);
-    const chunks = Number(fields.match(/\bchunks=(\d+)/)?.[1] ?? NaN);
-    const kept = Number(fields.match(/\bkept=(\d+)/)?.[1] ?? NaN);
-    const emitted = Number(fields.match(/\bemitted=(\d+)/)?.[1] ?? NaN);
-    const added = Number(fields.match(/\badded=(\d+)/)?.[1] ?? NaN);
-    const dropped = Number(fields.match(/\bdropped=(\d+)/)?.[1] ?? NaN);
-    const duplicates = Number(fields.match(/\bduplicates=(\d+)/)?.[1] ?? NaN);
-    const batches = Number(fields.match(/\bbatches=(\d+)/)?.[1] ?? NaN);
-    const progress = Number(fields.match(/\bprogress=(\d+)/)?.[1] ?? NaN);
-    const programmes = Number(fields.match(/\bprogrammes=(\d+)/)?.[1] ?? NaN);
-    const streams = Number(fields.match(/\bstreams=(\d+)/)?.[1] ?? NaN);
-    const categories = Number(fields.match(/\bcategories=(\d+)/)?.[1] ?? NaN);
-    const total = Number(fields.match(/\btotal=(\d+)/)?.[1] ?? NaN);
-    const mode = fields.match(/\bmode=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const epg = Number(fields.match(/\bepg=(\d+)/)?.[1] ?? NaN);
-    const elapsedMs = Number(fields.match(/\belapsedMs=(\d+)/)?.[1] ?? NaN);
-    const delayMs = Number(fields.match(/\bdelayMs=(\d+)/)?.[1] ?? NaN);
-    const timeoutMs = Number(fields.match(/\btimeoutMs=(\d+)/)?.[1] ?? NaN);
-    const persisted = Number(fields.match(/\bpersisted=(\d+)/)?.[1] ?? NaN);
-    const built = Number(fields.match(/\bbuilt=(\d+)/)?.[1] ?? NaN);
-    const posted = Number(fields.match(/\bposted=(\d+)/)?.[1] ?? NaN);
-    const evicted = Number(fields.match(/\bevicted=(\d+)/)?.[1] ?? NaN);
-    const skipped = Number(fields.match(/\bskipped=(\d+)/)?.[1] ?? NaN);
-    const sources = Number(fields.match(/\bsources=(\d+)/)?.[1] ?? NaN);
-    const hintMs = Number(fields.match(/\bhintMs=(\d+)/)?.[1] ?? NaN);
-    const roomBytes = Number(fields.match(/\broomBytes=(\d+)/)?.[1] ?? NaN);
-    const rate = Number(fields.match(/\brate=(\d+(?:\.\d+)?)/)?.[1] ?? NaN);
-    const observed = Number(fields.match(/\bobserved=(\d+(?:\.\d+)?)/)?.[1] ?? NaN);
-    const errorCode = Number(fields.match(/\berrorCode=(-?\d+)/)?.[1] ?? NaN);
-    const engine = fields.match(/\bengine=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const scrollEndPadding = Number(fields.match(/\bscrollEndPadding=([01])/)?.[1] ?? NaN);
-    const noFlexGap = Number(fields.match(/\bnoFlexGap=([01])/)?.[1] ?? NaN);
+    const found = findEvent(entry.text);
+    if (!found || !accept(found.name)) continue;
     timeline.push({
       observedAt: entry.observedAt,
-      code,
-      session: Number.isFinite(session) ? session : null,
-      load: Number.isFinite(load) ? load : null,
-      count: Number.isFinite(count) ? count : null,
-      channels: Number.isFinite(channels) ? channels : null,
-      failed: Number.isFinite(failed) ? failed : null,
-      source,
-      generation: Number.isFinite(generation) ? generation : null,
-      active: Number.isFinite(active) ? active : null,
-      reason,
-      task,
-      stage,
-      transport,
-      filter,
-      encoding,
-      pass,
-      attempt: Number.isFinite(attempt) ? attempt : null,
-      attempts: Number.isFinite(attempts) ? attempts : null,
-      available: Number.isFinite(available) ? available : null,
-      items: Number.isFinite(items) ? items : null,
-      bytes: Number.isFinite(bytes) ? bytes : null,
-      chunks: Number.isFinite(chunks) ? chunks : null,
-      kept: Number.isFinite(kept) ? kept : null,
-      emitted: Number.isFinite(emitted) ? emitted : null,
-      added: Number.isFinite(added) ? added : null,
-      dropped: Number.isFinite(dropped) ? dropped : null,
-      duplicates: Number.isFinite(duplicates) ? duplicates : null,
-      batches: Number.isFinite(batches) ? batches : null,
-      progress: Number.isFinite(progress) ? progress : null,
-      programmes: Number.isFinite(programmes) ? programmes : null,
-      streams: Number.isFinite(streams) ? streams : null,
-      categories: Number.isFinite(categories) ? categories : null,
-      total: Number.isFinite(total) ? total : null,
-      mode,
-      epg: Number.isFinite(epg) ? epg : null,
-      elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : null,
-      delayMs: Number.isFinite(delayMs) ? delayMs : null,
-      timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : null,
-      persisted: Number.isFinite(persisted) ? persisted : null,
-      built: Number.isFinite(built) ? built : null,
-      posted: Number.isFinite(posted) ? posted : null,
-      evicted: Number.isFinite(evicted) ? evicted : null,
-      skipped: Number.isFinite(skipped) ? skipped : null,
-      sources: Number.isFinite(sources) ? sources : null,
-      hintMs: Number.isFinite(hintMs) ? hintMs : null,
-      roomBytes: Number.isFinite(roomBytes) ? roomBytes : null,
-      rate: Number.isFinite(rate) ? rate : null,
-      observed: Number.isFinite(observed) ? observed : null,
-      errorCode: Number.isFinite(errorCode) ? errorCode : null,
-      engine,
-      scrollEndPadding: Number.isFinite(scrollEndPadding) ? scrollEndPadding : null,
-      noFlexGap: Number.isFinite(noFlexGap) ? noFlexGap : null,
+      [nameKey]: found.name,
       level: entry.level,
       text: entry.text,
     });
@@ -410,80 +319,16 @@ export function extractDiagnosticTimeline(logs) {
   return timeline;
 }
 
-export function extractXtreamTimeline(logs) {
-  const timeline = [];
-  for (const entry of logs) {
-    const event = entry.text.match(/\bevent=(xtream\.[a-z0-9_.-]+)/i)?.[1];
-    if (!event) continue;
-    const endpoint = entry.text.match(/\bendpoint=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const code = entry.text.match(/\bcode=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const operation = entry.text.match(/\boperation=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const resource = entry.text.match(/\bresource=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const reason = entry.text.match(/\breason=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const items = Number(entry.text.match(/\bitems=(\d+)/)?.[1] ?? NaN);
-    const timeoutMs = Number(entry.text.match(/\btimeoutMs=(\d+)/)?.[1] ?? NaN);
-    const limitBytes = Number(entry.text.match(/\blimitBytes=(\d+)/)?.[1] ?? NaN);
-    const load = Number(entry.text.match(/\bload=(\d+)/)?.[1] ?? NaN);
-    const available = Number(entry.text.match(/\bavailable=([01])/)?.[1] ?? NaN);
-    const streams = Number(entry.text.match(/\bstreams=(\d+)/)?.[1] ?? NaN);
-    const categories = Number(entry.text.match(/\bcategories=(\d+)/)?.[1] ?? NaN);
-    const count = Number(entry.text.match(/\bcount=(\d+)/)?.[1] ?? NaN);
-    const kept = Number(entry.text.match(/\bkept=(\d+)/)?.[1] ?? NaN);
-    const total = Number(entry.text.match(/\btotal=(\d+)/)?.[1] ?? NaN);
-    const mode = entry.text.match(/\bmode=([a-z0-9_-]+)/i)?.[1] ?? '';
-    const elapsedMs = Number(entry.text.match(/\belapsedMs=(\d+)/)?.[1] ?? NaN);
-    timeline.push({
-      observedAt: entry.observedAt,
-      event,
-      endpoint,
-      code,
-      operation,
-      resource,
-      reason,
-      items: Number.isFinite(items) ? items : null,
-      timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : null,
-      limitBytes: Number.isFinite(limitBytes) ? limitBytes : null,
-      load: Number.isFinite(load) ? load : null,
-      available: Number.isFinite(available) ? available : null,
-      streams: Number.isFinite(streams) ? streams : null,
-      categories: Number.isFinite(categories) ? categories : null,
-      count: Number.isFinite(count) ? count : null,
-      kept: Number.isFinite(kept) ? kept : null,
-      total: Number.isFinite(total) ? total : null,
-      mode,
-      elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : null,
-      level: entry.level,
-      text: entry.text,
-    });
-  }
-  return timeline;
-}
+// Input events get their own timeline: one line per press would bury the
+// playback/EPG events this list exists for.
+export const extractDiagnosticTimeline = (logs) =>
+  extractEvents(logs, (name) => !name.startsWith('key.'), 'code');
 
-export function extractInputTimeline(logs) {
-  const timeline = [];
-  for (const entry of logs) {
-    const event = entry.text.match(/\bevent=(key\.[a-z0-9_.-]+)/i)?.[1];
-    if (!event) continue;
-    const code = Number(entry.text.match(/\bcode=(\d+)/)?.[1] ?? NaN);
-    const digit = Number(entry.text.match(/\bdigit=(\d+)/)?.[1] ?? NaN);
-    const number = Number(entry.text.match(/\bnumber=(\d+)/)?.[1] ?? NaN);
-    timeline.push({
-      observedAt: entry.observedAt,
-      event,
-      code: Number.isFinite(code) ? code : null,
-      digit: Number.isFinite(digit) ? digit : null,
-      number: Number.isFinite(number) ? number : null,
-      action: entry.text.match(/\baction=([a-z0-9_-]+)/i)?.[1] ?? '',
-      view: entry.text.match(/\bview=([a-z0-9_-]+)/i)?.[1] ?? '',
-      consumer: entry.text.match(/\bconsumer=([a-z0-9_-]+)/i)?.[1] ?? '',
-      target: entry.text.match(/\btarget=([a-z0-9_-]+)/i)?.[1] ?? '',
-      reason: entry.text.match(/\breason=([a-z0-9_-]+)/i)?.[1] ?? '',
-      level: entry.level,
-      text: entry.text,
-    });
-  }
-  return timeline;
-}
+export const extractXtreamTimeline = (logs) =>
+  extractEvents(logs, (name) => name.startsWith('xtream.'), 'event');
+
+export const extractInputTimeline = (logs) =>
+  extractEvents(logs, (name) => name.startsWith('key.'), 'event');
 
 export function assembleDiagnosticReport({
   capturedAt,
@@ -561,7 +406,7 @@ export function assembleDiagnosticReport({
     } : null,
   } : null;
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     capturedAt,
     redacted: !full,
     capture,
@@ -590,7 +435,8 @@ export function formatDiagnosticSummary(report) {
   const countText = (value) => (value == null ? '?' : String(value));
   const loads = (report.diagnostics ?? [])
     .filter((event) => event.code === 'playlist.load.completed');
-  const lastLoad = loads.length ? loads[loads.length - 1] : null;
+  const lastLoad = loads.length ? loads[loads.length - 1].text : '';
+  const loadSource = eventField(lastLoad, 'source');
   const lines = [
     `Diagnostics captured: ${report.capturedAt}`,
     ...report.capture?.complete === false
@@ -599,8 +445,8 @@ export function formatDiagnosticSummary(report) {
       : [],
     `App: ${report.app?.id ?? '?'} ${report.app?.version ?? '?'}`,
     `Environment: ${report.environment?.userAgent ?? '?'}`,
-    `State: ${state.view ?? '?'} | channels=${countText(lastLoad?.channels)}`
-    + `${lastLoad?.source ? ` (${lastLoad.source})` : ''}`
+    `State: ${state.view ?? '?'} | channels=${countText(eventField(lastLoad, 'channels'))}`
+    + `${loadSource ? ` (${loadSource})` : ''}`
     + ` rendered=${countText(state.channelsRendered ?? state.channels)}`,
     `Playlists: ${String(report.playlists?.length ?? 0)}`,
   ];
@@ -710,99 +556,18 @@ export function formatDiagnosticSummary(report) {
       + ` native=${outcome(native, 'not-run')} ${playlist.url}`,
     );
   }
-  const diagnostics = report.diagnostics ?? report.playback ?? [];
-  lines.push(`Diagnostic events: ${String(diagnostics.length)}`);
-  for (const event of diagnostics) {
-    const fields = [];
-    if (event.session != null) fields.push(`session=${String(event.session)}`);
-    if (event.load != null) fields.push(`load=${String(event.load)}`);
-    if (event.count != null) fields.push(`count=${String(event.count)}`);
-    if (event.channels != null) fields.push(`channels=${String(event.channels)}`);
-    if (event.source) fields.push(`source=${event.source}`);
-    if (event.failed != null) fields.push(`failed=${String(event.failed)}`);
-    if (event.generation != null) fields.push(`generation=${String(event.generation)}`);
-    if (event.active != null) fields.push(`active=${String(event.active)}`);
-    if (event.reason) fields.push(`reason=${event.reason}`);
-    if (event.task) fields.push(`task=${event.task}`);
-    if (event.stage) fields.push(`stage=${event.stage}`);
-    if (event.transport) fields.push(`transport=${event.transport}`);
-    if (event.filter) fields.push(`filter=${event.filter}`);
-    if (event.encoding) fields.push(`encoding=${event.encoding}`);
-    if (event.pass) fields.push(`pass=${event.pass}`);
-    if (event.attempt != null) fields.push(`attempt=${String(event.attempt)}`);
-    if (event.attempts != null) fields.push(`attempts=${String(event.attempts)}`);
-    if (event.available != null) fields.push(`available=${String(event.available)}`);
-    if (event.items != null) fields.push(`items=${String(event.items)}`);
-    if (event.bytes != null) fields.push(`bytes=${String(event.bytes)}`);
-    if (event.chunks != null) fields.push(`chunks=${String(event.chunks)}`);
-    if (event.kept != null) fields.push(`kept=${String(event.kept)}`);
-    if (event.emitted != null) fields.push(`emitted=${String(event.emitted)}`);
-    if (event.added != null) fields.push(`added=${String(event.added)}`);
-    if (event.dropped != null) fields.push(`dropped=${String(event.dropped)}`);
-    if (event.duplicates != null) fields.push(`duplicates=${String(event.duplicates)}`);
-    if (event.batches != null) fields.push(`batches=${String(event.batches)}`);
-    if (event.progress != null) fields.push(`progress=${String(event.progress)}`);
-    if (event.programmes != null) fields.push(`programmes=${String(event.programmes)}`);
-    if (event.streams != null) fields.push(`streams=${String(event.streams)}`);
-    if (event.mode) fields.push(`mode=${event.mode}`);
-    if (event.categories != null) fields.push(`categories=${String(event.categories)}`);
-    if (event.total != null) fields.push(`total=${String(event.total)}`);
-    if (event.epg != null) fields.push(`epg=${String(event.epg)}`);
-    if (event.elapsedMs != null) fields.push(`elapsedMs=${String(event.elapsedMs)}`);
-    if (event.delayMs != null) fields.push(`delayMs=${String(event.delayMs)}`);
-    if (event.timeoutMs != null) fields.push(`timeoutMs=${String(event.timeoutMs)}`);
-    if (event.persisted != null) fields.push(`persisted=${String(event.persisted)}`);
-    if (event.built != null) fields.push(`built=${String(event.built)}`);
-    if (event.posted != null) fields.push(`posted=${String(event.posted)}`);
-    if (event.evicted != null) fields.push(`evicted=${String(event.evicted)}`);
-    if (event.skipped != null) fields.push(`skipped=${String(event.skipped)}`);
-    if (event.sources != null) fields.push(`sources=${String(event.sources)}`);
-    if (event.hintMs != null) fields.push(`hintMs=${String(event.hintMs)}`);
-    if (event.roomBytes != null) fields.push(`roomBytes=${String(event.roomBytes)}`);
-    if (event.engine) fields.push(`engine=${event.engine}`);
-    if (event.rate != null) fields.push(`rate=${String(event.rate)}`);
-    if (event.observed != null) fields.push(`observed=${String(event.observed)}`);
-    if (event.errorCode != null) fields.push(`errorCode=${String(event.errorCode)}`);
-    if (event.scrollEndPadding != null) fields.push(`scrollEndPadding=${String(event.scrollEndPadding)}`);
-    if (event.noFlexGap != null) fields.push(`noFlexGap=${String(event.noFlexGap)}`);
-    lines.push(`- ${event.code}${fields.length ? ` ${fields.join(' ')}` : ''}`);
-  }
-  const input = report.input ?? [];
-  lines.push(`Input events: ${String(input.length)}`);
-  for (const event of input) {
-    const fields = [];
-    if (event.code != null) fields.push(`code=${String(event.code)}`);
-    if (event.digit != null) fields.push(`digit=${String(event.digit)}`);
-    if (event.number != null) fields.push(`number=${String(event.number)}`);
-    if (event.action) fields.push(`action=${event.action}`);
-    if (event.view) fields.push(`view=${event.view}`);
-    if (event.consumer) fields.push(`consumer=${event.consumer}`);
-    if (event.target) fields.push(`target=${event.target}`);
-    if (event.reason) fields.push(`reason=${event.reason}`);
-    lines.push(`- ${event.event}${fields.length ? ` ${fields.join(' ')}` : ''}`);
-  }
-  lines.push(`Xtream events: ${String(report.xtream?.length ?? 0)}`);
-  for (const event of report.xtream ?? []) {
-    const fields = [];
-    if (event.endpoint) fields.push(`endpoint=${event.endpoint}`);
-    if (event.operation) fields.push(`operation=${event.operation}`);
-    if (event.resource) fields.push(`resource=${event.resource}`);
-    if (event.reason) fields.push(`reason=${event.reason}`);
-    if (event.code) fields.push(`code=${event.code}`);
-    if (event.items != null) fields.push(`items=${String(event.items)}`);
-    if (event.timeoutMs != null) fields.push(`timeoutMs=${String(event.timeoutMs)}`);
-    if (event.limitBytes != null) fields.push(`limitBytes=${String(event.limitBytes)}`);
-    if (event.load != null) fields.push(`load=${String(event.load)}`);
-    if (event.available != null) fields.push(`available=${String(event.available)}`);
-    if (event.streams != null) fields.push(`streams=${String(event.streams)}`);
-    if (event.mode) fields.push(`mode=${event.mode}`);
-    if (event.categories != null) fields.push(`categories=${String(event.categories)}`);
-    if (event.count != null) fields.push(`count=${String(event.count)}`);
-    if (event.kept != null) fields.push(`kept=${String(event.kept)}`);
-    if (event.total != null) fields.push(`total=${String(event.total)}`);
-    if (event.elapsedMs != null) fields.push(`elapsedMs=${String(event.elapsedMs)}`);
-    lines.push(`- ${event.event}${fields.length ? ` ${fields.join(' ')}` : ''}`);
-  }
+  const listEvents = (title, events, nameKey) => {
+    lines.push(`${title}: ${String(events.length)}`);
+    for (const event of events) {
+      const name = event[nameKey];
+      let fields = findEvent(event.text)?.fields ?? '';
+      if (fields.length > SUMMARY_FIELDS_MAX) fields = `${fields.slice(0, SUMMARY_FIELDS_MAX - 3)}...`;
+      lines.push(`- ${name}${fields ? ` ${fields}` : ''}`);
+    }
+  };
+  listEvents('Diagnostic events', report.diagnostics ?? [], 'code');
+  listEvents('Input events', report.input ?? [], 'event');
+  listEvents('Xtream events', report.xtream ?? [], 'event');
   lines.push(`Network requests: ${String(report.network?.length ?? 0)}`);
   lines.push(
     `Warnings: ${String((report.logs ?? []).filter((entry) => entry.level === 'warning').length)}`,

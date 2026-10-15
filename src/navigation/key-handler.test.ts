@@ -237,19 +237,14 @@ describe('KeyHandler', () => {
     });
   });
 
-  // `scripts/tv.sh diag` reads these console lines back into its input timeline,
-  // so parse the real output with the real extractor: a "dead button" report is
-  // only answerable if the press, the mapping, and the buffer flush are visible.
+  // `scripts/tv.sh diag` prints these console lines verbatim: a "dead button"
+  // report is only answerable if the press, the mapping, and the buffer flush
+  // are visible.
   describe('diagnostic logging', () => {
-    it('emits key events that the tv-diag input timeline can parse', async () => {
-      const { extractInputTimeline } = await import('../../scripts/tv-diag.mjs');
-      const lines: Array<{ observedAt: string; level: string; text: string }> = [];
+    it('emits key events for tv.sh diag', () => {
+      const lines: string[] = [];
       const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
-        lines.push({
-          observedAt: '2026-01-01T00:00:00.000Z',
-          level: 'log',
-          text: args.map(String).join(' '),
-        });
+        lines.push(args.map(String).join(' '));
       });
 
       press(K.NUM_0 + 4);
@@ -261,17 +256,19 @@ describe('KeyHandler', () => {
       press(K.NUM_0 + 1, input);
       spy.mockRestore();
 
-      expect(extractInputTimeline(lines)).toEqual([
-        expect.objectContaining({
-          event: 'key.down', code: K.NUM_0 + 4, action: 'number', target: 'app',
-        }),
-        expect.objectContaining({ event: 'key.number', number: 4 }),
-        expect.objectContaining({ event: 'key.down', code: K.RED, action: 'red', target: 'app' }),
-        expect.objectContaining({ event: 'key.down', code: 4242, action: 'unmapped' }),
-        // Never the code: it would spell out what is being typed.
-        expect.objectContaining({ event: 'key.down', code: null, target: 'text_input' }),
-        expect.objectContaining({ event: 'key.ignored', reason: 'text_input', code: null }),
+      const events = lines.filter((line) => line.includes('event=key.'));
+      expect(events).toEqual([
+        expect.stringMatching(new RegExp(
+          `event=key\\.down code=${String(K.NUM_0 + 4)} action=number target=app\\b`)),
+        expect.stringMatching(/event=key\.number number=4\b/),
+        expect.stringMatching(new RegExp(
+          `event=key\\.down code=${String(K.RED)} action=red target=app\\b`)),
+        expect.stringMatching(/event=key\.down code=4242 action=unmapped\b/),
+        expect.stringMatching(/event=key\.down code=hidden .*target=text_input/),
+        expect.stringMatching(/event=key\.ignored reason=text_input/),
       ]);
+      // Never the code while typing: it would spell out what is being typed.
+      expect(events.slice(4).join('\n')).not.toMatch(/\bcode=\d/);
     });
 
     it('logs a press a focused component swallows before it can bubble', () => {
