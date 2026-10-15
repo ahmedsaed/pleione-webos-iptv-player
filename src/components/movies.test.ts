@@ -161,6 +161,60 @@ describe('Movies browse + grid', () => {
     expect(handlers.onRevealTabBar).toHaveBeenCalled();
   });
 
+  // One failing rail category must not blank every other rail.
+  it('drops only the failed rail when one category load rejects', async () => {
+    const cats = Array.from({ length: 6 }, (_, i) => ({ id: String(i + 1), name: `Cat ${i + 1}` }));
+    catalogMock.loadVodCategories.mockResolvedValue(cats);
+    catalogMock.loadVodStreams.mockImplementation((_a: unknown, categoryId: string) =>
+      categoryId === '3'
+        ? Promise.reject(new Error('timeout'))
+        : Promise.resolve([vod(`${categoryId}0`, `Movie ${categoryId}`, categoryId)]));
+    const warns = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const view = new Movies(container, { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
+    await view.open(account);
+
+    for (const id of ['1', '2', '4', '5', '6']) {
+      expect(container.querySelector(`.catalog-tile[data-item-id="${id}0"]`)).not.toBeNull();
+    }
+    expect(container.querySelector('.catalog-see-all[data-category-id="3"]')).toBeNull();
+    expect(eventLines(errors, 'xtream.view.load.failed').join('\n')).toContain('operation=rail mode=vod');
+    expect(eventLines(warns, 'xtream.view.rails.partial')[0]).toContain('kept=5 total=6');
+    errors.mockRestore();
+    warns.mockRestore();
+
+    // The failed category stays reachable from All Categories and retries.
+    const cat = container.querySelector<HTMLElement>('.catalog-cat[data-category-id="3"]')!;
+    expect(cat).not.toBeNull();
+    catalogMock.loadVodStreams.mockResolvedValue([vod('30', 'Movie 3', '3')]);
+    cat.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    await Promise.resolve(); await Promise.resolve();
+    expect(container.querySelector('.catalog-grid .catalog-tile[data-item-id="30"]')).not.toBeNull();
+  });
+
+  it('retries a category grid whose load failed when it is opened again', async () => {
+    const cats = Array.from({ length: 7 }, (_, i) => ({ id: String(i + 1), name: `Cat ${i + 1}` }));
+    const { view } = await openWith(cats, [vod('10', 'Movie One')]);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const openCategory = async () => {
+      container.querySelector<HTMLElement>('.catalog-cat[data-category-id="7"]')!
+        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      view.handleAction('select');
+      await Promise.resolve(); await Promise.resolve();
+    };
+    catalogMock.loadVodStreams.mockRejectedValue(new Error('timeout'));
+    await openCategory();
+    expect(container.querySelector('.catalog-grid .catalog-tile[data-item-id]')).toBeNull();
+    expect(eventLines(errors, 'xtream.view.load.failed').join('\n')).toContain('operation=category mode=vod');
+    errors.mockRestore();
+    view.handleAction('back');
+
+    catalogMock.loadVodStreams.mockResolvedValue([vod('20', 'Movie Two', '7')]);
+    await openCategory();
+    expect(container.querySelector('.catalog-grid .catalog-tile[data-item-id="20"]')).not.toBeNull();
+  });
+
   it('drills into a non-rail category grid and back to browse', async () => {
     // 7 categories: the first RAIL_CATEGORIES (6) become poster rails; the 7th
     // is a non-rail tile in the "All Categories" rail — the drill-in target.

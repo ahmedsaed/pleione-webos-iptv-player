@@ -325,14 +325,42 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
         categoryId: category.id,
       }));
       const railCats = this.categories.slice(0, CONFIG.XTREAM.RAIL_CATEGORIES);
+      // Settle each rail on its own: one failing category must not blank the rest.
       const loaded = await Promise.all(
-        railCats.map((c) => this.loadVisibleItems(account, c.id, signal)),
+        railCats.map((c) => this.loadVisibleItems(account, c.id, signal).then(
+          (items): I[] | null => items,
+          (err: unknown): null => {
+            if (!signal.aborted) {
+              log.error(
+                'Catalog rail load failed',
+                'event=xtream.view.load.failed',
+                'operation=rail',
+                `mode=${this.parentalKind}`,
+                err,
+              );
+            }
+            return null;
+          },
+        )),
       );
       if (signal.aborted || this.account?.id !== account.id) return;
-      this.railGroups = railCats.map((category, i) => {
-        this.itemsByCategory[category.id] = loaded[i];
-        return { category, items: loaded[i].slice(0, CONFIG.XTREAM.RAIL_ITEMS) };
+      const groups: { category: C; items: I[] }[] = [];
+      railCats.forEach((category, i) => {
+        const items = loaded[i];
+        if (!items) return;
+        this.itemsByCategory[category.id] = items;
+        groups.push({ category, items: items.slice(0, CONFIG.XTREAM.RAIL_ITEMS) });
       });
+      this.railGroups = groups;
+      if (groups.length < railCats.length) {
+        log.warn(
+          'Catalog rails partially loaded',
+          'event=xtream.view.rails.partial',
+          `mode=${this.parentalKind}`,
+          `kept=${String(groups.length)}`,
+          `total=${String(railCats.length)}`,
+        );
+      }
       this.renderBrowse();
     } catch (err) {
       if (signal.aborted) return;
@@ -589,9 +617,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
           'Catalog category load failed',
           'event=xtream.view.load.failed',
           'operation=category',
+          `mode=${this.parentalKind}`,
           err,
         );
-        this.itemsByCategory[categoryId] = [];
       }
       if (signal.aborted || this.account?.id !== account.id) return;
       // Back (or another category) may have superseded this grid meanwhile.
