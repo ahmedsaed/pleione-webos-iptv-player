@@ -5,10 +5,16 @@ import { avatarColor, firstLetter } from '../utils/avatar';
 import { t } from '../i18n';
 import { CHECK_ICON } from './icons';
 
+export type AccountMenuOpenMode = 'key' | 'pointer';
+// `outside` is a pointer click away from the switcher, `toggle` one on it;
+// `host` is a close the owning component asked for (hidden, color key).
+export type AccountMenuCloseReason = 'key' | 'toggle' | 'outside' | 'choose' | 'host';
+
 interface AccountSwitcherHandlers {
   onSelect: (accountId: string) => void;
-  onMenuOpen?: () => void;
-  onMenuClose?: () => void;
+  onMenuOpen?: (mode: AccountMenuOpenMode) => void;
+  // `hit` is the element under an `outside` click.
+  onMenuClose?: (reason: AccountMenuCloseReason, hit?: Element) => void;
 }
 
 // The circular account avatar + dropdown, mounted in a tab-bar slot. Owns its
@@ -45,20 +51,20 @@ export class AccountSwitcher {
     this.render();
   }
 
-  openMenu(): void {
+  openMenu(mode: AccountMenuOpenMode = 'key'): void {
     if (!this.shown) return;
     this.open = true;
     const cur = this.accounts.findIndex((a) => a.id === this.selectedId);
     this.menuIndex = cur >= 0 ? cur : 0;
     this.render();
-    this.handlers.onMenuOpen?.();
+    this.handlers.onMenuOpen?.(mode);
   }
 
-  closeMenu(): void {
+  closeMenu(reason: AccountMenuCloseReason = 'host', hit?: Element): void {
     if (!this.open) return;
     this.open = false;
     this.render();
-    this.handlers.onMenuClose?.();
+    this.handlers.onMenuClose?.(reason, hit);
   }
 
   handleAction(action: Action): void {
@@ -78,7 +84,7 @@ export class AccountSwitcher {
         break;
       case 'back':
       case 'left':
-        this.closeMenu();
+        this.closeMenu('key');
         break;
       default:
         break;
@@ -96,13 +102,17 @@ export class AccountSwitcher {
       // Several switchers can be mounted (tab bar, parental manager); each
       // only answers to its own slot.
       if (!this.slot.contains(hit)) {
-        if (this.open) this.closeMenu();
+        if (this.open) this.closeMenu('outside', hit);
         return;
       }
       const row = hit.closest<HTMLElement>('.account-menu-item');
       if (row && row.dataset.accountId) { this.choose(row.dataset.accountId); return; }
-      if (hit.closest('.account-avatar')) { this.open ? this.closeMenu() : this.openMenu(); return; }
-      if (this.open) this.closeMenu(); // a click elsewhere dismisses the menu
+      if (hit.closest('.account-avatar')) {
+        if (this.open) this.closeMenu('toggle');
+        else this.openMenu('pointer');
+        return;
+      }
+      if (this.open) this.closeMenu('toggle'); // a click on the menu's chrome dismisses it
     });
     // Pointer hover moves the highlight onto the row under the cursor, so the
     // mouse and D-pad share one selection (OK then picks the hovered row).
@@ -121,7 +131,7 @@ export class AccountSwitcher {
     if (changed) this.selectedId = id;
     this.render();
     if (changed) this.handlers.onSelect(id);
-    this.handlers.onMenuClose?.();
+    this.handlers.onMenuClose?.('choose');
   }
 
   private render(): void {

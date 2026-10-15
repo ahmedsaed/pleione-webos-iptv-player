@@ -531,3 +531,65 @@ test('opening a search result records the query as a recent search', async ({ pa
   await expect(page.locator('#view-player')).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('iptv_search_history'))).toBe('["one"]');
 });
+
+test('a poster clicked to dismiss the account menu over an empty search box still opens', async ({ page }) => {
+  await seedSearch(page);
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'movies');
+  const poster = page.locator('#view-movies .catalog-tile[data-item-id="10"]');
+  await expect(poster).toContainText('Movie One');
+  await enterSearch(page);
+
+  await page.locator('.account-avatar').click();
+  await expect(page.locator('.account-menu')).toBeVisible();
+  await poster.click();
+  await expect(page.locator('.account-menu')).toHaveCount(0);
+  // The click's select reaches the poster instead of the refocused search box.
+  await expect(page.locator('#view-movies .detail-btn-primary')).toBeVisible();
+  await expect(page.locator('.search-history-panel')).toBeHidden();
+  await expect(page.locator('.tab-bar-item.focused, .account-avatar.focused')).toHaveCount(0);
+});
+
+test('a scrim click that dismisses the account menu leaves search like it does without the menu', async ({ page }) => {
+  await seedSearch(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('iptv_search_history', JSON.stringify(['one']));
+  });
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterSearch(page);
+  await expect(page.locator('.search-history-dropdown .search-history-panel')).toBeVisible();
+
+  await page.locator('.account-avatar').click();
+  await expect(page.locator('.account-menu')).toBeVisible();
+  await page.mouse.click(200, 800);
+  await expect(page.locator('.account-menu')).toHaveCount(0);
+  await expect(page.locator('.tab-bar-search.expanded')).toHaveCount(0);
+  await expect(page.locator('#view-channels')).toBeVisible();
+  // The bar's ring must not be left on the avatar, where Down reopens the menu.
+  await expect(page.locator('.account-avatar.focused')).toHaveCount(0);
+});
+
+test('a blank click that dismisses the account menu keeps the remote in the search box', async ({ page }) => {
+  await seedSearch(page);
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'movies');
+  const heading = page.locator('#view-movies .catalog-rail-title').first();
+  await expect(heading).toBeVisible();
+  await enterSearch(page);
+
+  await page.locator('.account-avatar').click();
+  await expect(page.locator('.account-menu')).toBeVisible();
+  await heading.click();
+  await expect(page.locator('.account-menu')).toHaveCount(0);
+
+  // The click fired no select, so Back still closes search rather than
+  // reaching Movies underneath.
+  await pressBack(page);
+  await expect(page.locator('.tab-bar-search.expanded')).toHaveCount(0);
+  await expect(page.locator('#view-movies')).toBeVisible();
+});

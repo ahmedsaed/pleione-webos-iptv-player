@@ -3,7 +3,12 @@ import { html, raw } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { CONFIG } from '../config';
 import { SEARCH_ICON, UNLOCK_ICON } from './icons';
-import { AccountSwitcher } from './account-switcher';
+import { AccountSwitcher, type AccountMenuCloseReason, type AccountMenuOpenMode } from './account-switcher';
+
+// `outside` is narrowed to a click on focusable content, which takes input and
+// releases the bar's focus; `bar` is a click on the bar outside the avatar
+// slot, `blank` one on nothing focusable.
+export type TabBarAccountMenuCloseReason = AccountMenuCloseReason | 'bar' | 'blank';
 import { t } from '../i18n';
 import { createLogger } from '../utils/logger';
 
@@ -60,7 +65,7 @@ interface TabBarHandlers {
   // The avatar dropdown opened; overlays above the tab bar must give way.
   onAccountMenuOpen: () => void;
   // The avatar dropdown closed (picked, dismissed, or toggled).
-  onAccountMenuClose: () => void;
+  onAccountMenuClose: (reason: TabBarAccountMenuCloseReason) => void;
   // End a parental unlock session before it times out.
   onLockNow: () => void;
 }
@@ -284,7 +289,7 @@ export class TabBar {
             this.handlers.onEnter(this.active);
           }
         } else if (this.onAccount()) {
-          this.switcher?.openMenu();
+          this.switcher?.openMenu('key');
           this.render();
         } else if (this.sections[this.focusIndex].id === 'search') {
           this.expandSearch('key');
@@ -501,12 +506,44 @@ export class TabBar {
     if (!this.switcher) {
       this.switcher = new AccountSwitcher(slot, {
         onSelect: (id) => this.handlers.onSelectAccount(id),
-        onMenuOpen: () => this.handlers.onAccountMenuOpen(),
-        onMenuClose: () => this.handlers.onAccountMenuClose(),
+        onMenuOpen: (mode) => {
+          this.takeAccountFocus(mode);
+          this.handlers.onAccountMenuOpen();
+        },
+        onMenuClose: (reason, hit) => {
+          this.handlers.onAccountMenuClose(this.afterAccountMenuClose(reason, hit));
+        },
       });
       this.switcher.init();
     }
     this.switcher.setAccounts(this.accounts, this.selectedAccountId);
     this.switcher.setFocused(this._focused && this.onAccount());
+  }
+
+  // A pointer click opens the menu without routing through handleAction, so
+  // pull input focus onto the avatar; otherwise D-pad keys reach the view below.
+  private takeAccountFocus(mode: AccountMenuOpenMode): void {
+    log.debug('Account menu opened', 'event=account.menu.opened', `mode=${mode}`);
+    if (this._focused && this.onAccount()) return;
+    this.el?.querySelector<HTMLInputElement>('.tab-bar-search-input')?.blur();
+    this._focused = true;
+    this.focusIndex = this.sections.length + (this.lockShown ? 1 : 0);
+    this.render();
+  }
+
+  // A click on focusable content moves the user there, whether the view or the
+  // global handler's deferred select activates it, so release the bar (else
+  // that select reaches the bar and reopens the menu). Other clicks keep it.
+  private afterAccountMenuClose(
+    reason: AccountMenuCloseReason, hit?: Element,
+  ): TabBarAccountMenuCloseReason {
+    let effective: TabBarAccountMenuCloseReason = reason;
+    if (reason === 'outside') {
+      if (hit && this.el?.contains(hit)) effective = 'bar';
+      else if (!hit || !hit.closest('[data-focusable]')) effective = 'blank';
+    }
+    log.debug('Account menu closed', 'event=account.menu.closed', `reason=${effective}`);
+    if (effective === 'outside' && this._focused) this.dropFocus();
+    return effective;
   }
 }

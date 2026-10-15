@@ -353,8 +353,10 @@ class App {
       onSearchClose: () => this.handleSearchClose(),
       onSelectAccount: (id) => this.selectXtreamAccount(id),
       onAccountMenuOpen: () => this.historyDropdown.close('account-menu'),
-      onAccountMenuClose: () => {
-        if (!this.tabBar.searchOpen || !this.tabBar.shown) {
+      onAccountMenuClose: (reason) => {
+        // A click into the content dismissed the menu; that click's select
+        // must reach the content, so don't pull focus back into the box.
+        if (reason === 'outside' || !this.tabBar.searchOpen || !this.tabBar.shown) {
           this.historyDropdown.close('view-change');
           return;
         }

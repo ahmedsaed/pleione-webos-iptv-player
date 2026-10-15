@@ -255,3 +255,21 @@ test('switching account while recent searches are open moves Search to the new a
   await expect(page.locator('#view-search')).toContainText('Bravo Movie');
   await expect(page.locator('#view-search')).not.toContainText('Alpha Movie');
 });
+
+test('a channel-list click that dismisses a pointer-opened menu hands the remote to the list', async ({ page }) => {
+  await seedTwoAccounts(page);
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  await openAccountMenu(page);
+  await expect(page.locator('.account-avatar')).toHaveClass(/focused/);
+  await page.locator('#view-channels .group-item').first().click();
+  await expect(page.locator('.account-menu')).toHaveCount(0);
+  await expect(page.locator('.account-avatar')).not.toHaveClass(/focused/);
+
+  // D-pad now moves in the list instead of reopening the menu from the avatar.
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.account-menu')).toHaveCount(0);
+  await expect(page.locator('#view-channels .focused')).not.toHaveCount(0);
+});

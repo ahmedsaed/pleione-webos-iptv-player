@@ -34,6 +34,10 @@ beforeEach(() => {
   bar.setShown(true);
 });
 
+// Close any menu a test left open, so the document listeners each bar's
+// switcher leaves behind stay inert in later tests.
+afterEach(() => { bar.setShown(false); });
+
 const items = () => Array.from(document.querySelectorAll('.tab-bar-item')).map((b) => b.textContent || b.getAttribute('aria-label'));
 const focusedLabel = () => document.querySelector('.tab-bar-item.focused')?.textContent ?? null;
 
@@ -383,6 +387,140 @@ describe('TabBar account switcher', () => {
     bar.handleAction('select'); // choose
     expect(onSelectAccount).toHaveBeenCalledWith('a2');
     expect(document.querySelector('.account-menu')).toBe(null);
+  });
+
+  describe('opened by pointer', () => {
+    const realElementFromPoint = document.elementFromPoint;
+    afterEach(() => { document.elementFromPoint = realElementFromPoint; });
+
+    const clickOn = (el: HTMLElement) => {
+      document.elementFromPoint = vi.fn(() => el);
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    };
+    const logLines = (fn: () => void): string[] => {
+      const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      fn();
+      const lines = spy.mock.calls.map((args) => args.join(' '));
+      spy.mockRestore();
+      return lines;
+    };
+
+    it('a pointer click on the avatar takes input focus so D-pad drives the menu', () => {
+      bar.setAccounts(A, 'a1');
+      const lines = logLines(() => clickOn(avatar()!));
+      expect(bar.accountMenuOpen).toBe(true);
+      expect(bar.focused).toBe(true);
+      expect(avatar()?.classList.contains('focused')).toBe(true);
+      expect(lines.filter((l) => l.includes('event=account.menu.opened')).pop()).toContain('mode=pointer');
+      bar.handleAction('down');   // highlight Bravo
+      bar.handleAction('select'); // choose
+      expect(onSelectAccount).toHaveBeenCalledWith('a2');
+    });
+
+    it('logs mode=pointer even when the D-pad already rests on the avatar', () => {
+      bar.setAccounts(A, 'a1');
+      bar.setActive('search');
+      bar.focus();
+      bar.handleAction('right'); // -> account
+      const lines = logLines(() => clickOn(avatar()!));
+      expect(lines.filter((l) => l.includes('event=account.menu.opened')).pop()).toContain('mode=pointer');
+    });
+
+    it('a click on the content closes the menu and releases the bar, so its select is not swallowed', () => {
+      bar.setAccounts(A, 'a1');
+      clickOn(avatar()!);
+      const poster = document.createElement('div');
+      poster.setAttribute('data-focusable', '');
+      document.body.appendChild(poster);
+      const lines = logLines(() => clickOn(poster));
+      expect(bar.accountMenuOpen).toBe(false);
+      expect(bar.focused).toBe(false);
+      expect(onAccountMenuClose).toHaveBeenCalledWith('outside');
+      expect(lines.filter((l) => l.includes('event=account.menu.closed')).pop()).toContain('reason=outside');
+      // The global click handler's deferred select must not reopen the menu.
+      bar.handleAction('select');
+      expect(bar.accountMenuOpen).toBe(false);
+    });
+
+    it('a click on a spot that fires no select closes the menu but keeps the bar focused', () => {
+      bar.setAccounts(A, 'a1');
+      clickOn(avatar()!);
+      const blank = document.createElement('div');
+      document.body.appendChild(blank);
+      const lines = logLines(() => clickOn(blank));
+      expect(bar.accountMenuOpen).toBe(false);
+      expect(bar.focused).toBe(true);
+      expect(onAccountMenuClose).toHaveBeenCalledWith('blank');
+      expect(lines.filter((l) => l.includes('event=account.menu.closed')).pop()).toContain('reason=blank');
+    });
+
+    it('a click on a self-activating view\'s item releases the bar too', () => {
+      bar.setAccounts(A, 'a1');
+      clickOn(avatar()!);
+      const list = document.createElement('div');
+      list.setAttribute('data-self-activate', '');
+      const row = document.createElement('div');
+      row.setAttribute('data-focusable', '');
+      list.appendChild(row);
+      document.body.appendChild(list);
+      clickOn(row);
+      expect(bar.accountMenuOpen).toBe(false);
+      expect(bar.focused).toBe(false);
+      expect(onAccountMenuClose).toHaveBeenCalledWith('outside');
+    });
+
+    it('a click elsewhere on the bar closes the menu but keeps the bar focused', () => {
+      bar.setAccounts(A, 'a1');
+      clickOn(avatar()!);
+      const title = document.querySelector<HTMLElement>('.tab-bar-title')!;
+      const lines = logLines(() => clickOn(title));
+      expect(bar.accountMenuOpen).toBe(false);
+      expect(bar.focused).toBe(true);
+      expect(onAccountMenuClose).toHaveBeenCalledWith('bar');
+      expect(lines.filter((l) => l.includes('event=account.menu.closed')).pop()).toContain('reason=bar');
+    });
+
+    it('a magnifier click that collapses search keeps the bar focused', () => {
+      // Like App: the bar's click listener registers before the switcher's.
+      document.body.innerHTML = '';
+      bar = new TabBar({
+        onSwitch, onEnter, onSearchQuery, onSearchLeave, onSearchClose, onSelectAccount, onAccountMenuOpen,
+        onAccountMenuClose, onLockNow,
+      });
+      bar.init();
+      bar.setSections(true);
+      bar.setShown(true);
+      bar.setAccounts(A, 'a1');
+      bar.setActive('search');
+      bar.focus();
+      bar.handleAction('select'); // expand search
+      clickOn(avatar()!);
+      clickOn(document.querySelector<HTMLElement>('.tab-bar-item[data-section="search"]')!);
+      expect(bar.searchOpen).toBe(false);
+      expect(bar.accountMenuOpen).toBe(false);
+      expect(bar.focused).toBe(true);
+    });
+
+    it('a second click on the avatar closes the menu but keeps the bar focused', () => {
+      bar.setAccounts(A, 'a1');
+      clickOn(avatar()!);
+      const lines = logLines(() => clickOn(avatar()!));
+      expect(bar.accountMenuOpen).toBe(false);
+      expect(bar.focused).toBe(true);
+      expect(lines.filter((l) => l.includes('event=account.menu.closed')).pop()).toContain('reason=toggle');
+    });
+  });
+
+  it('logs a D-pad open of the account menu as mode=key', () => {
+    bar.setAccounts(A, 'a1');
+    bar.setActive('search');
+    bar.focus();
+    bar.handleAction('right');
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    bar.handleAction('select');
+    const lines = spy.mock.calls.map((args) => args.join(' '));
+    spy.mockRestore();
+    expect(lines.filter((l) => l.includes('event=account.menu.opened')).pop()).toContain('mode=key');
   });
 
   it('hiding the bar drops search before its account menu closes', () => {
