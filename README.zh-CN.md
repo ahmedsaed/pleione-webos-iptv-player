@@ -222,6 +222,11 @@ scripts/tv.sh perf --duration 30                 # 采样 CPU、堆、DOM 和布
 scripts/tv.sh diag                               # 生成经过脱敏的诊断报告
 scripts/tv.sh capt screenshot screen.png         # 截取电视画面和应用 OSD
 scripts/tv.sh capt record screen.mp4             # 录制 10 秒电视画面，约 5 fps，无音频
+scripts/tv.sh input key down ok red              # 按遥控器按键
+scripts/tv.sh input click 700 450                # 移动 Magic Remote 指针并点击
+scripts/tv.sh input wheel 3                      # 在指针处向下滚动滚轮 3 格
+scripts/tv.sh input key power                    # 关闭电视
+scripts/tv.sh input wake                         # 开启电视（Wake-on-LAN）
 scripts/tv.sh run 'uname -a'                     # 通过 SSH 在电视上执行命令
 scripts/tv.sh push ./file.txt /tmp/file.txt      # 将本地文件复制到电视
 scripts/tv.sh pull /tmp/file.txt ./file.txt      # 将电视文件复制到本地
@@ -230,8 +235,8 @@ scripts/tv.sh reboot                             # 通过 Luna 重启电视
 TV_DEVICE=tv2 scripts/tv.sh logs                 # 选择非默认的已配置电视
 ```
 
-运行 `scripts/tv.sh logs --help`（`eval`、`perf`、`diag`、`capt` 同理）
-可查看相关选项。
+运行 `scripts/tv.sh logs --help`（`eval`、`perf`、`diag`、`capt`、`input`
+同理）可查看相关选项。
 
 ### 在浏览器中预览
 

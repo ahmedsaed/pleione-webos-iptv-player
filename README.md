@@ -223,6 +223,11 @@ scripts/tv.sh perf --duration 30                 # Sample CPU, heap, DOM, and la
 scripts/tv.sh diag                               # Capture a redacted diagnostics report
 scripts/tv.sh capt screenshot screen.png         # Capture video and app OSD
 scripts/tv.sh capt record screen.mp4             # Record 10 seconds, target 5 fps, no audio
+scripts/tv.sh input key down ok red              # Press remote keys
+scripts/tv.sh input click 700 450                # Move the Magic Remote pointer and click
+scripts/tv.sh input wheel 3                      # Scroll the wheel 3 notches down at the pointer
+scripts/tv.sh input key power                    # Turn the TV off
+scripts/tv.sh input wake                         # Turn the TV on (Wake-on-LAN)
 scripts/tv.sh run 'uname -a'                     # Run a TV command over SSH
 scripts/tv.sh push ./file.txt /tmp/file.txt      # Copy a local file to the TV
 scripts/tv.sh pull /tmp/file.txt ./file.txt      # Copy a TV file to this computer
@@ -231,8 +236,8 @@ scripts/tv.sh reboot                             # Reboot the TV through Luna
 TV_DEVICE=tv2 scripts/tv.sh logs                 # Select a non-default configured TV
 ```
 
-Run `scripts/tv.sh logs --help` (or `eval`, `perf`, `diag`, `capt`) for
-options.
+Run `scripts/tv.sh logs --help` (or `eval`, `perf`, `diag`, `capt`,
+`input`) for options.
 
 ### Preview in Browser
 

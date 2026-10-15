@@ -3,6 +3,7 @@ import { formatOptions, parseArgs } from './cli-args.mjs';
 import { CAPTURE_HELP, CAPTURE_SPEC } from './tv-capt.mjs';
 import { DIAGNOSTIC_HELP, DIAGNOSTIC_SPEC } from './tv-diag.mjs';
 import { EVAL_HELP, EVAL_SPEC } from './tv-eval.mjs';
+import { INPUT_HELP, INPUT_SPEC } from './tv-input.mjs';
 import { LOGS_HELP, LOGS_SPEC } from './tv-logs.mjs';
 import { PERFORMANCE_HELP, PERFORMANCE_SPEC } from './tv-perf.mjs';
 
@@ -176,6 +177,7 @@ describe('script help', () => {
     ['tv-capt', CAPTURE_SPEC, CAPTURE_HELP],
     ['tv-diag', DIAGNOSTIC_SPEC, DIAGNOSTIC_HELP],
     ['tv-eval', EVAL_SPEC, EVAL_HELP],
+    ['tv-input', INPUT_SPEC, INPUT_HELP],
     ['tv-logs', LOGS_SPEC, LOGS_HELP],
     ['tv-perf', PERFORMANCE_SPEC, PERFORMANCE_HELP],
   ])('%s documents every option within 79 columns', (_name, spec, help) => {
