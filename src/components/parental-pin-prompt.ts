@@ -38,6 +38,8 @@ export class ParentalPinPrompt {
     this.bindEvents();
   }
 
+  get ringRoot(): HTMLElement | null { return this.el; }
+
   get visible(): boolean {
     return !this.el.classList.contains('hidden');
   }

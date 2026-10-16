@@ -655,6 +655,15 @@ describe('KeyHandler', () => {
       expect(handler).toHaveBeenLastCalledWith('channel_up');
     });
 
+    it('marks only the action a wheel step dispatches as a wheel action', () => {
+      const seen: boolean[] = [];
+      handler.mockImplementation(() => { seen.push(KeyHandler.isWheelAction()); });
+      wheel(120);
+      document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: K.CH_DOWN, bubbles: true }));
+      expect(seen).toEqual([true, false]);
+      expect(KeyHandler.isWheelAction()).toBe(false);
+    });
+
     it('swallows the first scroll after a 5s idle period (cursor re-activation)', () => {
       wheel(120); // warmed up by default → acts
       expect(handler).toHaveBeenCalledTimes(1);

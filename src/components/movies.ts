@@ -236,6 +236,7 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
     const watchlisted = StorageService.isWatchlisted(a.id, 'vod', vod.streamId);
 
     const prevKey = this.nav.focused?.getAttribute('data-key') ?? null;
+    const wasHidden = this.nav.isHighlightHidden;
     morph(this.layer('detail'), html`
       <div class="catalog-view movies-detail" data-nav-container>
         <div class="detail-poster-wrap">${this.posterCell(vod.name, poster)}</div>
@@ -261,10 +262,6 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
         </div>
       </div>
     `);
-    const restore = prevKey
-      ? this.focusableByKey(this.layer('detail'), prevKey)
-      : null;
-    if (restore) this.nav.focus(restore);
-    else if (!this.nav.focusFirst()) this.nav.focus(null);
+    this.restoreDetailFocus(prevKey, wasHidden);
   }
 }

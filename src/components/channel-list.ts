@@ -8,7 +8,8 @@ import type {
   ChannelScope,
   NumberEvent,
 } from '../types';
-import { SpatialNav } from '../navigation/spatial-nav';
+import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
+import { KeyHandler } from '../navigation/key-handler';
 import { html, raw, type Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { channelKey, groupDisplayLabel } from '../utils/channel';
@@ -518,6 +519,15 @@ export class ChannelList {
     if (resumeFirst && !this.editor.ownsInput && this.resumeDetachedFocus()
         && action !== 'left' && action !== 'right') {
       return true;
+    }
+    if (isFocusMove(action, true) && !this.editor.ownsInput) {
+      // The preview controls hold the ring, and a wheel step scrolls: both move
+      // the list directly.
+      if (this.previewFocused || KeyHandler.isWheelAction()) this.nav.forgetHidden();
+      if (!this.previewFocused && (this.resumeDetachedFocus() || this.nav.revealHidden())) {
+        // A row scrolled away resumes in view instead of being scrolled back to.
+        return true;
+      }
     }
     if (this.editor.handleAction(action)) return true;
     if (action === 'up' && this.nav.focused?.dataset.listPosition === '0') return false;

@@ -1107,6 +1107,33 @@ test.describe('Settings Xtream live categories', () => {
       .toEqual({ mode: 'include', ids: ['c1', 'c3'] });
   });
 
+  test('after the pointer leaves, the first Down in the picker shows the row', async ({ page }) => {
+    await routeAccount(page, () => 3);
+    await seedAccount(page);
+    await page.goto('/');
+    await expect(channels(page)).toHaveCount(3);
+    await enterTab(page, 'settings');
+    await page.locator('[data-settings-target="sources"]').click();
+    await page.locator('.xtream-card .xtream-live-categories').click();
+    const picker = page.locator('.live-category-picker');
+    const row = picker.locator('[data-key="all:c1"]');
+    await expect(picker.locator('[data-category-id]')).toHaveCount(3);
+    // Loading seeds focus; hover only after it, or the seed overrides the hover.
+    await expect(picker.locator('.focused')).toHaveCount(1);
+    // Park the real cursor the clicks left over the picker, or it hovers a row.
+    await page.mouse.move(0, 0);
+    await row.evaluate((node) => {
+      node.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      node.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    });
+    await expect(picker.locator('.focused')).toHaveCount(0);
+
+    await page.keyboard.press('ArrowDown');
+    await expect(row).toHaveClass(/\bfocused\b/);
+    await page.keyboard.press('ArrowDown');
+    await expect(row).not.toHaveClass(/\bfocused\b/);
+  });
+
   test('the picker switches accounts after applying the current one', async ({ page }) => {
     await routeAccount(page, () => 3);
     await page.addInitScript(() => {

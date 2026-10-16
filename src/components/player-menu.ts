@@ -8,6 +8,7 @@ import {
   type PlaybackRate,
   type PlaybackRateState,
 } from '../services/playback-rate';
+import { setRing } from '../navigation/focus-ring';
 
 const AUTO_HIDE_MS = 5000;
 
@@ -189,7 +190,7 @@ export class PlayerMenu {
     }
 
     items.forEach((item, i) => {
-      item.classList.toggle('focused', i === this.focusIdx);
+      setRing(item, i === this.focusIdx);
     });
     this.scrollFocusedIntoView();
   }
@@ -466,7 +467,7 @@ export class PlayerMenu {
         const items = el.querySelectorAll<HTMLElement>('.menu-item');
         items.forEach((item, i) => {
           if (item === btn) this.focusIdx = i;
-          item.classList.toggle('focused', item === btn);
+          setRing(item, item === btn);
         });
         this.resetTimer();
       }

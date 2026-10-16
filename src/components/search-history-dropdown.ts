@@ -44,6 +44,7 @@ export class SearchHistoryDropdown {
     this.root.addEventListener('click', (e: MouseEvent) => this.onClick(e));
   }
 
+  get ringRoot(): HTMLElement { return this.root; }
   get isOpen(): boolean { return this._open; }
 
   /** Opens under the search box when there is history; false when there is none. */
@@ -211,8 +212,6 @@ export class SearchHistoryDropdown {
       </div>
     `);
     this.nav.clearDetachedFocus();
-    // morph strips the ring from a tile that stays focused across a re-anchor.
-    if (this.nav.focused) this.nav.focus(this.nav.focused);
   }
 }
 

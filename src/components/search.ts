@@ -1,5 +1,5 @@
 import type { Action, CatchupInfo, Channel, PlaylistEntry, Programme, VodItem, SeriesItem } from '../types';
-import { SpatialNav } from '../navigation/spatial-nav';
+import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { html, raw } from '../utils/dom';
 import { channelLockBadge, seriesLockBadge, vodLockBadge } from './parental-badge';
 import { morph } from '../utils/morph';
@@ -392,6 +392,7 @@ export class Search {
     this.vodCache = null;
     this.seriesCache = null;
     this.loadedFor = null;
+    this.nav.resetRecovery();
     this.clearResults();
     this.invalidateWorkerIndex();
   }
@@ -409,12 +410,21 @@ export class Search {
     this.queryPending = false;
   }
 
+  get isPromptVisible(): boolean {
+    return this.resumePrompt.visible;
+  }
+
+  get promptRoot(): HTMLElement | null {
+    return this.resumePrompt.ringRoot;
+  }
+
   handleAction(action: Action): void {
     this.focusPending = false;
     if (this.resumePrompt.visible) {
       this.resumePrompt.handleAction(action);
       return;
     }
+    if (isFocusMove(action) && this.nav.revealHidden()) return;
     if (this.moveVirtualFocus(action)) return;
     switch (action) {
       case 'up':

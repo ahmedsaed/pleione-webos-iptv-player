@@ -864,6 +864,9 @@ test('a scrolled-away first group still leads Up to Lock suggested', async ({ pa
   await view.locator('[data-parental-group="1"]').click();
   // A resting cursor would hover-focus whatever row scrolls under it.
   await page.mouse.move(0, 0);
+  // The pointer left the clicked group, so the first key only shows it.
+  await page.keyboard.press('ArrowUp');
+  await expect(view.locator('[data-parental-group].focused')).toHaveAttribute('data-parental-group', '1');
   await page.keyboard.press('ArrowUp');
   await expect(view.locator('[data-parental-group].focused')).toHaveAttribute('data-parental-group', '0');
 
@@ -1206,4 +1209,61 @@ test('Up in the PIN field does not enter a digit', async ({ page }) => {
   await page.keyboard.press('ArrowUp');
   await expect(input).toHaveValue('');
   await expect(prompt.locator('.parental-pin-slots .filled')).toHaveCount(0);
+});
+
+// Hover a row, then let the pointer leave it: the highlight hides but focus stays.
+async function hoverThenLeave(el: import('@playwright/test').Locator): Promise<void> {
+  await el.evaluate((node) => {
+    node.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    node.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+  });
+}
+
+test('a re-render keeps a pointer-hidden highlight hidden until the next key shows it', async ({ page }) => {
+  const streams = Array.from({ length: 200 }, (_, index) => ({
+    stream_id: index + 1, name: `Movie ${index}`, stream_icon: '', container_extension: 'mp4', category_id: '1',
+  }));
+  await neuterVideo(page);
+  await routeLiveManifest(page);
+  await routeVodCatalog(page, [{ category_id: '1', category_name: 'Cat A' }], () => streams);
+  await page.goto('/');
+  await createPinFromSettings(page);
+  const view = page.locator('#view-parental-controls');
+  await view.locator('#parental-kind [data-value="vod"]').click();
+  await view.locator('[data-parental-group]').filter({ hasText: 'Cat A' }).click();
+  const item = (index: number) => view.locator(`[data-parental-item="${String(index)}"]`);
+  await expect(item(2)).toContainText('Movie 2');
+  // Park the real cursor the clicks left over the lists, or it hovers a row.
+  await page.mouse.move(0, 0);
+
+  await hoverThenLeave(item(2));
+  // A small scroll re-renders the virtual list with the row still mounted.
+  await view.locator('[data-parental-list="item"]').evaluate((list) => { list.scrollTop = 20; });
+  await page.waitForTimeout(100);
+  await expect(view.locator('.focused')).toHaveCount(0);
+
+  await page.keyboard.press('ArrowDown');
+  await expect(item(2)).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('ArrowDown');
+  await expect(item(3)).toHaveClass(/\bfocused\b/);
+});
+
+test('the remove-all prompt owns the remote ring, not the manager behind it', async ({ page }) => {
+  await openManagerWithNewPin(page);
+  await page.locator('[data-parental-tab="options"]').click();
+  await page.locator('[data-parental-remove-all]').click();
+  const confirm = page.locator('.confirmation-prompt');
+  await expect(confirm).toBeVisible();
+
+  await page.keyboard.press('ArrowRight');
+  await expect(confirm.locator('[data-confirm-action="cancel"]')).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('#view-parental-controls .focused')).toHaveCount(0);
+  await page.keyboard.press('ArrowLeft');
+  await expect(confirm.locator('[data-confirm-action="confirm"]')).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('#view-parental-controls .focused')).toHaveCount(0);
+
+  await page.keyboard.press('Escape');
+  await expect(confirm).toBeHidden();
+  await expect(page.locator('[data-parental-remove-all]')).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
 });

@@ -1,7 +1,7 @@
 import type { Action, PlaylistEntry, XtreamLiveCategoryFilter, XtreamLiveCategorySnapshot } from '../types';
 import { html, raw, type Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
-import { SpatialNav } from '../navigation/spatial-nav';
+import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { t } from '../i18n';
 import { createLogger } from '../utils/logger';
 import type { XtreamLiveCategory } from '../services/xtream-client';
@@ -99,6 +99,8 @@ export class LiveCategoryPicker {
   // A wheel scroll can unmount the focused row; D-pad resumes from here.
   private detachedEntry: number | null = null;
 
+  get ringRoot(): HTMLElement | null { return this.el; }
+
   get visible(): boolean {
     return this.el !== null && !this.el.classList.contains('hidden');
   }
@@ -133,6 +135,7 @@ export class LiveCategoryPicker {
       else this.switcher.handleAction(action);
       return;
     }
+    if (isFocusMove(action) && this.nav.revealHidden()) return;
     switch (action) {
       case 'back':
       case 'yellow':
@@ -488,10 +491,8 @@ export class LiveCategoryPicker {
       </div>`);
     const list = this.listElement();
     if (list) this.scrollGuard.syncOffset(list, 'vertical', this.virtualizer.scrollOffset);
-    // morph() resets `class` from the template, dropping the nav highlight.
     this.nav?.clearDetachedFocus();
     if (focusedEntry !== null && !this.nav?.focused) this.detachedEntry = focusedEntry;
-    if (this.nav?.focused) this.nav.focused.classList.add('focused');
     this.mountAccount();
   }
 }

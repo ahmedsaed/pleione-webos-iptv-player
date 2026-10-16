@@ -29,6 +29,7 @@ import { VirtualScrollGuard } from '../utils/virtual-scroll';
 import { WorkerListSearch } from '../workers/list-search-client';
 import { createLogger } from '../utils/logger';
 import { liveBadge } from './live-badge';
+import { ringsIn, setRing } from '../navigation/focus-ring';
 
 const log = createLogger('EpgGrid');
 
@@ -146,6 +147,10 @@ export class EpgGrid {
   focusReminderEntry(): void {
     this.focusCol = 'legend';
     this.render();
+  }
+
+  get promptRoot(): HTMLElement | null {
+    return this.resumePrompt.ringRoot;
   }
 
   /** Whether the catch-up resume prompt is currently visible. */
@@ -498,7 +503,7 @@ export class EpgGrid {
             <div class="epg-filter-bar">
               <div class="epg-group-control">
                 <button type="button"
-                        class="epg-filter-control epg-group-button ${this.focusCol === 'filters' && this.filterFocus === 'group' ? 'focused' : ''} ${this.selectedGroup !== 'builtin:all' ? 'active' : ''}"
+                        class="epg-filter-control epg-group-button ${this.focusCol === 'filters' && this.filterFocus === 'group' && !this.groupOpen ? 'focused' : ''} ${this.selectedGroup !== 'builtin:all' ? 'active' : ''}"
                         data-key="epg-group-button" data-epg-group-toggle
                         aria-expanded="${this.groupOpen ? 'true' : 'false'}">
                   <span class="epg-group-button-prefix">${t('common.groups')}:</span>
@@ -848,8 +853,9 @@ export class EpgGrid {
       if (menuWasOpen) {
         this.render();
       } else {
-        this.container.querySelector('.epg-group-button')?.classList.remove('focused');
-        this.container.querySelector('.epg-search-wrap')?.classList.add('focused');
+        ringsIn(this.container, '.epg-group-button').forEach(el => setRing(el, false));
+        const search = this.container.querySelector('.epg-search-wrap');
+        if (search) setRing(search, true);
       }
     });
 
@@ -892,8 +898,9 @@ export class EpgGrid {
 
   private setProgFocusLight(idx: number): void {
     if (this.focusProg === idx && this.focusCol === 'programmes') return;
-    this.container.querySelectorAll('.epg-programme-item.focused').forEach(el => el.classList.remove('focused'));
-    this.container.querySelector<HTMLElement>(`[data-prog-idx="${idx}"]`)?.classList.add('focused');
+    ringsIn(this.container, '.epg-programme-item').forEach(el => setRing(el, false));
+    const next = this.container.querySelector<HTMLElement>(`[data-prog-idx="${idx}"]`);
+    if (next) setRing(next, true);
     this.focusProg = idx;
     if (this.focusCol !== 'programmes') {
       this.focusCol = 'programmes';

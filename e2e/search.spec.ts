@@ -510,10 +510,12 @@ test('Back steps from recent searches and results to the box, then to the view s
   await pressBack(page);
   await expect(input).toBeFocused();
   await expect(page.locator('#view-search')).toBeVisible();
+  await expect(page.locator('#view-search .focused')).toHaveCount(0);
 
   await pressBack(page);
   await expect(page.locator('.tab-bar-search.expanded')).toHaveCount(0);
   await expect(page.locator('#view-epg')).toBeVisible();
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
 
 test('opening a search result records the query as a recent search', async ({ page }) => {
@@ -592,4 +594,86 @@ test('a blank click that dismisses the account menu keeps the remote in the sear
   await pressBack(page);
   await expect(page.locator('.tab-bar-search.expanded')).toHaveCount(0);
   await expect(page.locator('#view-movies')).toBeVisible();
+});
+
+// Hover a row, then let the pointer leave it: the highlight hides but focus stays.
+async function hoverThenLeave(el: import('@playwright/test').Locator): Promise<void> {
+  await el.evaluate((node) => {
+    node.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    node.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+  });
+}
+
+test('after the pointer leaves a result, the first key shows it and the next one moves', async ({ page }) => {
+  await seedSearch(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterSearch(page);
+  await page.locator('.tab-bar-search-input').fill('channel');
+  const tile = (index: number) => page.locator(`#view-search .catalog-tile[data-channel-index="${String(index)}"]`);
+  await expect(tile(1)).toBeVisible();
+  await page.locator('.tab-bar-search-input').press('ArrowDown');
+  // Step along the channel results, which search moves through by itself.
+  const section = await tile(0).evaluate((el) =>
+    el.closest<HTMLElement>('[data-search-section]')?.dataset.searchSection ?? '');
+  const along = section === 'channels-rail' ? 'ArrowRight' : 'ArrowDown';
+  await hoverThenLeave(tile(0));
+  await expect(page.locator('#view-search .focused')).toHaveCount(0);
+
+  await page.keyboard.press(along);
+  await expect(tile(0)).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press(along);
+  await expect(tile(1)).toHaveClass(/\bfocused\b/);
+});
+
+test('Up back to the box leaves no ring on a result, while typing too', async ({ page }) => {
+  await seedSearch(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterSearch(page);
+  const input = page.locator('.tab-bar-search-input');
+  await input.fill('on');
+  const tile = page.locator('#view-search .catalog-tile[data-channel-index="0"]');
+  await expect(tile).toContainText('Channel One');
+  await input.press('ArrowDown');
+  await expect(page.locator('#view-search .focused')).toHaveCount(1);
+
+  for (let i = 0; i < 4; i++) {
+    if (await input.evaluate((el) => el === document.activeElement)) break;
+    await page.keyboard.press('ArrowUp');
+  }
+  await expect(input).toBeFocused();
+  await expect(page.locator('#view-search .focused')).toHaveCount(0);
+  await page.keyboard.type('e');
+  await expect(page.locator('#view-search [data-search-query]')).toHaveAttribute('data-search-query', 'one');
+  await expect(tile).toBeVisible();
+  await expect(page.locator('#view-search .focused')).toHaveCount(0);
+});
+
+test('Down from the box after Up rings a result at once, and one Right moves', async ({ page }) => {
+  await seedSearch(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterSearch(page);
+  const input = page.locator('.tab-bar-search-input');
+  await input.fill('one');
+  await expect(page.locator('#view-search .catalog-tile[data-stream-id="10"]')).toContainText('Movie One');
+  await input.press('ArrowDown');
+  const focused = page.locator('#view-search .focused');
+  await expect(focused).toHaveCount(1);
+  const first = await focused.getAttribute('data-key');
+
+  for (let i = 0; i < 4; i++) {
+    if (await input.evaluate((el) => el === document.activeElement)) break;
+    await page.keyboard.press('ArrowUp');
+  }
+  await expect(input).toBeFocused();
+  await expect(focused).toHaveCount(0);
+
+  await input.press('ArrowDown');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).toHaveAttribute('data-key', first ?? '');
+  await page.keyboard.press('ArrowRight');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).not.toHaveAttribute('data-key', first ?? '');
 });

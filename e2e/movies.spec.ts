@@ -458,3 +458,125 @@ test('a detail whose first control is hidden focuses the next visible one', asyn
     document.querySelector('#view-movies .focused')?.getAttribute('data-key') ?? null);
   expect(focused).toBe('watchlist');
 });
+
+// Hover a row, then let the pointer leave it: the highlight hides but focus stays.
+async function hoverThenLeave(el: import('@playwright/test').Locator): Promise<void> {
+  await el.evaluate((node) => {
+    node.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    node.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+  });
+}
+
+test('after the pointer leaves a grid tile, the first key shows it and the next one moves', async ({ page }) => {
+  await seedMovies(page, { streams: 30 });
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'movies');
+  await page.locator('.catalog-tile[data-item-id="100"]')
+    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
+
+  const tile = (index: number) => page.locator(`#view-movies [data-grid-index="${String(index)}"] .catalog-tile`);
+  await hoverThenLeave(tile(0));
+  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveCount(0);
+
+  await page.keyboard.press('ArrowRight');
+  await expect(tile(0)).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('ArrowRight');
+  await expect(tile(1)).toHaveClass(/\bfocused\b/);
+});
+
+test('CH+/CH- leave a pointer-hidden tile hidden in the catalog', async ({ page }) => {
+  await seedMovies(page, { streams: 30 });
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'movies');
+  await page.locator('.catalog-tile[data-item-id="100"]')
+    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
+
+  const tile = (index: number) => page.locator(`#view-movies [data-grid-index="${String(index)}"] .catalog-tile`);
+  await hoverThenLeave(tile(0));
+  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveCount(0);
+
+  // The movies view ignores CH+/CH- (a wheel over the tab bar sends them).
+  await page.keyboard.press('PageUp');
+  await page.keyboard.press('PageDown');
+  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await expect(tile(0)).toHaveClass(/\bfocused\b/);
+});
+
+test('a revealed grid tile keeps its ring after the reveal scrolls the grid', async ({ page }) => {
+  await seedMovies(page, { streams: 60 });
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'movies');
+  await page.locator('.catalog-tile[data-item-id="100"]')
+    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
+
+  const tile = page.locator('#view-movies [data-grid-index="0"] .catalog-tile');
+  await hoverThenLeave(tile);
+  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveCount(0);
+  // A wheel with the pointer in a gap scrolls the tile out of view, still rendered.
+  const grid = page.locator('#view-movies .catalog-grid');
+  const box = await tile.boundingBox();
+  if (!box) throw new Error('no layout');
+  await grid.evaluate((el, top) => { el.scrollTop = top; }, box.height + 40);
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }));
+  await expect(tile).toHaveCount(1);
+
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => grid.evaluate((el) => el.scrollTop)).toBeLessThan(box.height);
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }));
+  await expect(tile).toHaveClass(/\bfocused\b/);
+});
+
+test('Up into the tab bar takes the ring off the catalog tile', async ({ page }) => {
+  await seedMovies(page, { streams: 30 });
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'movies');
+  const tile = page.locator('#view-movies .catalog-tile[data-item-id="100"]');
+  await tile.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  await expect(tile).toHaveClass(/\bfocused\b/);
+
+  for (let i = 0; i < 4 && !(await page.locator('.tab-bar-item.focused').count()); i++) {
+    await page.keyboard.press('ArrowUp');
+  }
+  await expect(page.locator('.tab-bar-item.focused')).toHaveCount(1);
+  await expect(page.locator('#view-movies .focused')).toHaveCount(0);
+});
+
+test('Down from the tab bar rings a tile at once, and one Right moves', async ({ page }) => {
+  await seedMovies(page, { streams: 30 });
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'movies');
+  const tile = page.locator('#view-movies .catalog-tile[data-item-id="100"]');
+  await tile.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  for (let i = 0; i < 4 && !(await page.locator('.tab-bar-item.focused').count()); i++) {
+    await page.keyboard.press('ArrowUp');
+  }
+  await expect(page.locator('.tab-bar-item.focused')).toHaveCount(1);
+  await expect(page.locator('#view-movies .focused')).toHaveCount(0);
+
+  await page.keyboard.press('ArrowDown');
+  const focused = page.locator('#view-movies .focused');
+  await expect(focused).toHaveCount(1);
+  const first = await focused.getAttribute('data-key');
+  await page.keyboard.press('ArrowRight');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).not.toHaveAttribute('data-key', first ?? '');
+});

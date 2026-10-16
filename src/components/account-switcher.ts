@@ -138,7 +138,7 @@ export class AccountSwitcher {
     if (!this.shown) { morph(this.slot, html``); return; }
     const active = this.accounts.find((a) => a.id === this.selectedId) ?? this.accounts[0];
     morph(this.slot, html`
-      <button class="account-avatar ${this.focused ? 'focused' : ''}" data-key="account-avatar"
+      <button class="account-avatar ${this.focused && !this.open ? 'focused' : ''}" data-key="account-avatar"
               aria-label="${t('nav.switchAccount')}" style="background:${avatarColor(active.name)}">${firstLetter(active.name)}</button>
       ${this.open ? html`
         <div class="account-menu" data-nav-container>

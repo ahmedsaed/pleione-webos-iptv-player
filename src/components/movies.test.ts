@@ -155,6 +155,38 @@ describe('Movies browse + grid', () => {
     }));
   });
 
+  describe('detail info landing late', () => {
+    async function openSlowDetail() {
+      let resolveInfo: (info: unknown) => void = () => undefined;
+      catalogMock.loadVodInfo.mockReturnValue(new Promise((resolve) => { resolveInfo = resolve; }));
+      const { view, handlers } = await openWith();
+      container.querySelector('.catalog-tile[data-item-id="10"]')!
+        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      view.handleAction('select');
+      const detail = () => container.querySelector('.catalog-layer:not(.catalog-layer-hidden)')!;
+      expect(detail().querySelector('.focused')).not.toBeNull();
+      const land = async () => {
+        resolveInfo({
+          plot: '', cast: '', director: '', genre: '', releaseDate: '', durationSecs: 0,
+          poster: '', backdrop: '', rating: '', subtitles: [],
+        });
+        await Promise.resolve(); await Promise.resolve();
+      };
+      return { view, handlers, detail, land };
+    }
+
+    it('leaves the ring off a button the pointer left, for the next key to reveal', async () => {
+      const { view, detail, land } = await openSlowDetail();
+      const button = detail().querySelector<HTMLElement>('.focused')!;
+      button.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+      await land();
+      expect(detail().querySelector('.focused')).toBeNull();
+      view.handleAction('down');
+      expect(detail().querySelector('.focused')?.getAttribute('data-key'))
+        .toBe(button.getAttribute('data-key'));
+    });
+  });
+
   it('reveals the tab bar when Up cannot move within the view', async () => {
     const { view, handlers } = await openWith();
     view.handleAction('up');
@@ -324,6 +356,43 @@ describe('Movies browse + grid', () => {
     await vi.waitFor(() => expect(container.querySelector('.catalog-browse')).not.toBeNull());
     expect(catalogMock.loadVodCategories).toHaveBeenCalledTimes(2);
     expect(container.querySelector('.catalog-tile[data-item-id="10"]')).not.toBeNull();
+  });
+
+  it('rings a detail opened from Search after the pointer left the last one', async () => {
+    catalogMock.loadVodInfo.mockResolvedValue({
+      plot: '', cast: '', director: '', genre: '', releaseDate: '', durationSecs: 0,
+      poster: '', imdbId: '', tmdbId: '', year: 0,
+    });
+    const { view } = await openWith();
+    await view.openItem(account, vod('98', 'First Find'), vi.fn());
+    container.querySelector('.movies-detail .focused')!
+      .dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    expect(container.querySelector('.movies-detail .focused')).toBeNull();
+
+    await view.openItem(account, vod('99', 'Second Find'), vi.fn());
+    expect(container.querySelector('.movies-detail')?.textContent).toContain('Second Find');
+    expect(container.querySelector('.movies-detail .focused')).not.toBeNull();
+  });
+
+  it('keeps the ring hidden when the detail it was hidden on loses that button', async () => {
+    let resolveInfo!: (info: unknown) => void;
+    catalogMock.loadVodInfo.mockReturnValueOnce(new Promise((r) => { resolveInfo = r; }));
+    storageMock.getResume.mockReturnValue({ position: 60, duration: 600 } as never);
+    const { view } = await openWith();
+    void view.openItem(account, vod('99', 'Found Movie'), vi.fn());
+    const resume = container.querySelector('.movies-detail [data-key="resume"]') as HTMLElement;
+    resume.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    resume.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    expect(container.querySelector('.movies-detail .focused')).toBeNull();
+
+    storageMock.getResume.mockReturnValue(null);
+    resolveInfo({
+      plot: '', cast: '', director: '', genre: '', releaseDate: '', durationSecs: 0,
+      poster: '', imdbId: '', tmdbId: '', year: 0,
+    });
+    await vi.waitFor(() =>
+      expect(container.querySelector('.movies-detail [data-key="resume"]')).toBeNull());
+    expect(container.querySelector('.movies-detail .focused')).toBeNull();
   });
 
   it('keeps a second deep-linked detail when the section is shown again', async () => {

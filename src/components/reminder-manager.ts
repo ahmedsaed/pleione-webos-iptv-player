@@ -40,6 +40,10 @@ export class ReminderManager {
     });
   }
 
+  get promptRoot(): HTMLElement | null {
+    return this.confirmationPrompt.ringRoot;
+  }
+
   get isPromptVisible(): boolean {
     return this.confirmationPrompt.visible;
   }

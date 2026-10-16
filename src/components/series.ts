@@ -303,6 +303,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
         ep.plot ? EPISODE_PLOT_ESTIMATE : EPISODE_NO_PLOT_ESTIMATE));
     }
     const prevKey = this.nav.focused?.getAttribute('data-key') ?? null;
+    const wasHidden = this.nav.isHighlightHidden;
     const watchlisted = StorageService.isWatchlisted(a.id, 'series', series.seriesId);
     const previousScroller = this.layer('detail').querySelector<HTMLElement>('.series-detail');
     const previousEpisodes = this.layer('detail').querySelector<HTMLElement>('.series-episodes');
@@ -413,11 +414,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       this.nav.clearDetachedFocus();
       return;
     }
-    const restore = prevKey
-      ? this.focusableByKey(this.layer('detail'), prevKey)
-      : null;
-    if (restore) this.nav.focus(restore);
-    else if (!this.nav.focusFirst()) this.nav.focus(null);
+    this.restoreDetailFocus(prevKey, wasHidden);
   }
 
   protected moveExtraFocus(action: Action): boolean {

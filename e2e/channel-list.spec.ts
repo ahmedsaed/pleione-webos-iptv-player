@@ -793,3 +793,95 @@ test('Blue on a grabbed row scrolled out of view opens the rename on that row', 
   await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 406, bubbles: true })));
   await expect(row1.locator('.edit-text-input')).toHaveCount(1);
 });
+
+// Hover a row, then let the pointer leave it: the highlight hides but focus stays.
+async function hoverThenLeave(el: import('@playwright/test').Locator): Promise<void> {
+  await el.evaluate((node) => {
+    node.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    node.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+  });
+}
+
+test('after the pointer leaves, the first Down shows the row and the next one moves', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(30));
+  await seedPlaylist(page);
+  await page.goto('/');
+  const main = page.locator('#view-channels .channel-main');
+  const row = main.locator('[data-list-position="5"]');
+  await expect(row).toBeVisible();
+  await hoverThenLeave(row);
+  await expect(main.locator('.focused')).toHaveCount(0);
+
+  await page.keyboard.press('ArrowDown');
+  await expect(row).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('ArrowDown');
+  await expect(main.locator('[data-list-position="6"]')).toHaveClass(/\bfocused\b/);
+});
+
+function stableChannelKey(url: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < url.length; i++) {
+    hash ^= url.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+// Recently Watched renders every row and skips the scroll re-render, so a row
+// the pointer left stays hidden, rendered, and out of view.
+test('Down after the wheel scrolls a pointer-left row away resumes in view', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(30));
+  await seedPlaylist(page);
+  const now = Date.now();
+  await page.addInitScript((entries) => {
+    localStorage.setItem('iptv_recently_watched_live', JSON.stringify(entries));
+  }, Array.from({ length: 30 }, (_, i) => ({
+    channelKey: stableChannelKey(`http://host/${String(i + 1)}.m3u8`),
+    updatedAt: now - i * 1000,
+  })));
+  await page.goto('/');
+  await page.locator('[data-group="builtin:recently-watched"]').click();
+  const main = page.locator('#view-channels .channel-main');
+  await expect(main.locator('.recent-item')).toHaveCount(30);
+  const row = main.locator('[data-list-position="5"]');
+  const box = await row.boundingBox();
+  const list = await main.boundingBox();
+  if (!box || !list) throw new Error('no layout');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(row).toHaveClass(/\bfocused\b/);
+  // Onto the list's side padding: off the row, still over the list.
+  await page.mouse.move(list.x + list.width - 4, box.y + box.height / 2);
+  await expect(main.locator('.focused')).toHaveCount(0);
+
+  const offset = box.y + box.height - list.y + 40;
+  await main.evaluate((el, top) => { el.scrollTop = top; }, offset);
+  await settleVirtualScroll(page);
+
+  await page.keyboard.press('ArrowDown');
+  const focused = main.locator('.focused');
+  await expect(focused).toHaveCount(1);
+  expect(await main.evaluate((el) => el.scrollTop)).toBeGreaterThanOrEqual(offset - 1);
+  const now2 = await focused.boundingBox();
+  if (!now2) throw new Error('no layout');
+  expect(rowInView(now2, list)).toBe(true);
+});
+
+test('a wheel step below a short list moves the pointer-left row at once', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(3));
+  await seedPlaylist(page);
+  await page.goto('/');
+  const main = page.locator('#view-channels .channel-main');
+  const row = main.locator('[data-list-position="0"]');
+  await expect(row).toBeVisible();
+  const box = await row.boundingBox();
+  const list = await main.boundingBox();
+  if (!box || !list) throw new Error('no layout');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(row).toHaveClass(/\bfocused\b/);
+  // Onto the empty list area under the rows, which has nothing to scroll.
+  await page.mouse.move(box.x + box.width / 2, list.y + list.height - 20);
+  await expect(main.locator('.focused')).toHaveCount(0);
+
+  await page.mouse.wheel(0, 120);
+  await expect(main.locator('[data-list-position="1"]')).toHaveClass(/\bfocused\b/);
+});

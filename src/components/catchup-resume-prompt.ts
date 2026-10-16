@@ -17,6 +17,8 @@ export class CatchupResumePrompt {
   private title = '';
   private position = 0;
 
+  get ringRoot(): HTMLElement | null { return this.el; }
+
   get visible(): boolean {
     return this.el !== null && !this.el.classList.contains('hidden');
   }

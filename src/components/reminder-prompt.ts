@@ -16,6 +16,8 @@ export class ReminderPrompt {
   private channelName = '';
   private locked = false;
 
+  get ringRoot(): HTMLElement | null { return this.el; }
+
   get visible(): boolean {
     return this.el !== null && !this.el.classList.contains('hidden');
   }

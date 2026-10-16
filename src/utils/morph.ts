@@ -1,5 +1,6 @@
 import { Safe } from './dom';
 import { createLogger } from './logger';
+import { isRingAttr, keepRingClass } from '../navigation/focus-ring';
 
 const log = createLogger('morph');
 
@@ -8,8 +9,9 @@ const log = createLogger('morph');
  * described by `next` (the escaped output of the `html` tagged template),
  * reusing existing nodes wherever possible.
  *
- * Reused nodes keep their listeners, scroll position, focus, and any classes
- * added imperatively (template `class` is authoritative — see syncAttributes).
+ * Reused nodes keep their listeners, scroll position, and focus. Template
+ * `class` is authoritative, except that a node a SpatialNav holds keeps its
+ * focus ring (see focus-ring.ts).
  *
  * List items SHOULD carry a `data-key` with a stable semantic id (channel id,
  * group name, day ISO, programme start ms). Unkeyed children fall back to
@@ -146,13 +148,15 @@ function syncAttributes(oldEl: Element, newEl: Element): void {
   const oldAttrs = Array.from(oldEl.attributes);
 
   for (const a of newAttrs) {
-    if (oldEl.getAttribute(a.name) !== a.value) {
-      oldEl.setAttribute(a.name, a.value);
+    const value = a.name === 'class' ? keepRingClass(oldEl, a.value) ?? '' : a.value;
+    if (oldEl.getAttribute(a.name) !== value) {
+      oldEl.setAttribute(a.name, value);
     }
   }
   for (const a of oldAttrs) {
-    if (!newEl.hasAttribute(a.name)) {
-      oldEl.removeAttribute(a.name);
-    }
+    if (newEl.hasAttribute(a.name) || isRingAttr(a.name)) continue;
+    const kept = a.name === 'class' ? keepRingClass(oldEl, null) : null;
+    if (kept) oldEl.setAttribute('class', kept);
+    else oldEl.removeAttribute(a.name);
   }
 }

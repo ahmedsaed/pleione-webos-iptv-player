@@ -7,7 +7,7 @@ import type {
   WatchlistEntry,
   WatchlistKind,
 } from '../types';
-import { SpatialNav } from '../navigation/spatial-nav';
+import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { html, raw, Safe, withInstantScroll } from '../utils/dom';
 import { categoryLockBadge, lockBadge } from './parental-badge';
 import { SEE_ALL_ICON } from './icons';
@@ -203,6 +203,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
 
   // Detail entry for subclasses: remembers where browse focus was first.
   protected enterDetail(): void {
+    // Detail button keys repeat across items, so a hidden ring must not carry over.
+    this.nav.forgetHidden();
     this.showLayer('detail');
   }
 
@@ -250,6 +252,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
     if (this.account?.id !== account.id) {
       this.requestController?.abort();
       this.onRequestSessionReset();
+      this.nav.resetRecovery();
     }
     this.account = account;
   }
@@ -427,6 +430,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
   }
 
   handleAction(action: Action): void {
+    if (isFocusMove(action) && this.nav.revealHidden()) return;
     if (this.moveExtraFocus(action)) return;
     if (this.mode === 'browse' && (action === 'left' || action === 'right')
         && this.moveCategoryFocus(action)) return;
@@ -454,6 +458,16 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
       default:
         return;
     }
+  }
+
+  // Detail info lands after the pointer took the ring off.
+  protected restoreDetailFocus(prevKey: string | null, wasHidden: boolean): void {
+    const restore = prevKey
+      ? this.focusableByKey(this.layer('detail'), prevKey)
+      : null;
+    if (restore) this.nav.focus(restore);
+    else if (!this.nav.focusFirst()) this.nav.focus(null);
+    if (wasHidden && this.nav.focused) this.nav.clearHighlight();
   }
 
   private onBack(): void {

@@ -181,7 +181,10 @@ test.describe('EPG live badge', () => {
       };
       const idle = read();
       element.classList.add('focused');
-      return { idle, focused: read() };
+      const focused = read();
+      // A probe, not a real ring: leave one ring on screen for the audit.
+      element.classList.remove('focused');
+      return { idle, focused };
     });
 
     expect(styles.focused.outline).not.toBe('none');

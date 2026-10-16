@@ -18,7 +18,7 @@ import { html, raw, type Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard } from '../utils/virtual-scroll';
-import { SpatialNav } from '../navigation/spatial-nav';
+import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { StorageService } from '../services/storage-service';
 import { PlaylistService } from '../services/playlist-service';
 import { channelKey, groupDisplayLabel } from '../utils/channel';
@@ -246,6 +246,14 @@ export class ParentalControls {
     this.resetItems();
   }
 
+  get isPromptVisible(): boolean {
+    return this.confirmationPrompt.visible;
+  }
+
+  get promptRoot(): HTMLElement | null {
+    return this.confirmationPrompt.ringRoot;
+  }
+
   handleAction(action: Action): void {
     if (this.confirmationPrompt.visible) {
       this.confirmationPrompt.handleAction(action);
@@ -260,6 +268,7 @@ export class ParentalControls {
       this.onBack();
       return;
     }
+    if (isFocusMove(action) && this.nav.revealHidden()) return;
     if (action === 'left' || action === 'right' || action === 'select') {
       if (!this.nav.focused) this.restoreDetachedRow();
     }
@@ -949,10 +958,8 @@ export class ParentalControls {
     `);
     this.syncListScroll('group');
     this.syncListScroll('item');
-    // morph() resets `class` from the template, dropping the nav highlight.
     this.nav.clearDetachedFocus();
     if (focusedRow && !this.nav.focused) this.detachedRow = focusedRow;
-    if (this.nav.focused) this.nav.focused.classList.add('focused');
     this.mountAccount();
   }
 

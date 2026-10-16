@@ -26,6 +26,7 @@ import { VirtualScrollGuard } from '../utils/virtual-scroll';
 import { WorkerListSearch } from '../workers/list-search-client';
 import { createLogger } from '../utils/logger';
 import { ChannelHealthService } from '../services/channel-health';
+import { ringsIn, setRing } from '../navigation/focus-ring';
 
 const log = createLogger('Sidebar');
 
@@ -523,9 +524,13 @@ export class Sidebar {
     this.resetTimer();
   }
 
+  private clearRings(selector: string): void {
+    if (this.el) ringsIn(this.el, selector).forEach(n => setRing(n, false));
+  }
+
   /** Drop the hover highlight; next hover/d-pad re-shows it (see hoverCleared). */
   private clearHover(): void {
-    this.el?.querySelectorAll('.focused').forEach(n => n.classList.remove('focused'));
+    if (this.el) ringsIn(this.el).forEach(n => setRing(n, false));
     this.hoverCleared = true;
   }
 
@@ -543,21 +548,15 @@ export class Sidebar {
         items = this.el.querySelectorAll<HTMLElement>('.sidebar-ch-item');
       }
       items.forEach((item) => {
-        item.classList.toggle('focused',
-          parseInt(item.dataset.sidebarPos || '-2', 10) === this.channelFocusIdx);
+        setRing(item, parseInt(item.dataset.sidebarPos || '-2', 10) === this.channelFocusIdx);
       });
-      this.el?.querySelector('.sidebar-search-input')
-        ?.classList.toggle('focused', this.channelFocusIdx === -1);
-      this.el?.querySelectorAll('.sidebar-group-item.focused')
-        .forEach(item => item.classList.remove('focused'));
-      this.el?.querySelectorAll('.sidebar-tab.focused')
-        .forEach(item => item.classList.remove('focused'));
+      const input = this.el?.querySelector('.sidebar-search-input');
+      if (input) setRing(input, this.channelFocusIdx === -1);
+      this.clearRings('.sidebar-group-item, .sidebar-tab');
     } else if (this.activePane === 'sources') {
-      this.el?.querySelector('.sidebar-search-input')?.classList.remove('focused');
-      this.el?.querySelectorAll('.sidebar-ch-item.focused, .sidebar-group-item.focused')
-        .forEach(item => item.classList.remove('focused'));
+      this.clearRings('.sidebar-search-input, .sidebar-ch-item, .sidebar-group-item');
       this.el?.querySelectorAll<HTMLElement>('.sidebar-tab').forEach((item, index) => {
-        item.classList.toggle('focused', index === this.sourceFocusIdx);
+        setRing(item, index === this.sourceFocusIdx);
       });
       if (reveal) {
         this.el?.querySelector('.sidebar-tab.focused')
@@ -568,14 +567,9 @@ export class Sidebar {
         this.render();
         return;
       }
-      this.el?.querySelector('.sidebar-search-input')?.classList.remove('focused');
-      this.el?.querySelectorAll('.sidebar-ch-item.focused')
-        .forEach(item => item.classList.remove('focused'));
-      this.el?.querySelectorAll('.sidebar-tab.focused')
-        .forEach(item => item.classList.remove('focused'));
+      this.clearRings('.sidebar-search-input, .sidebar-ch-item, .sidebar-tab');
       this.el?.querySelectorAll<HTMLElement>('.sidebar-group-item').forEach((item) => {
-        item.classList.toggle('focused',
-          parseInt(item.dataset.groupPos || '-1', 10) === this.groupFocusIdx);
+        setRing(item, parseInt(item.dataset.groupPos || '-1', 10) === this.groupFocusIdx);
       });
       if (reveal) {
         this.el?.querySelector('.sidebar-group-item.focused')

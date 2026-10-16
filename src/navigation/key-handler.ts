@@ -49,6 +49,7 @@ let numberTimer: ReturnType<typeof setTimeout> | null = null;
 let channelCount: (() => number) | null = null;
 let wheelWarmedUp = true;
 let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
+let dispatchingWheel = false;
 
 function hasScrollableAncestor(el: Element | null): boolean {
   for (let node: Element | null = el; node && node !== document.body; node = node.parentElement) {
@@ -281,9 +282,13 @@ export const KeyHandler = {
         return;
       }
 
-      if (!activeHandler) return;
-      if (e.deltaY < 0) activeHandler('channel_up');
-      else if (e.deltaY > 0) activeHandler('channel_down');
+      if (!activeHandler || e.deltaY === 0) return;
+      dispatchingWheel = true;
+      try {
+        activeHandler(e.deltaY < 0 ? 'channel_up' : 'channel_down');
+      } finally {
+        dispatchingWheel = false;
+      }
     }, { passive: false });
 
     document.addEventListener('click', (e: MouseEvent) => {
@@ -306,6 +311,11 @@ export const KeyHandler = {
         setTimeout(() => activeHandler!('select'), 0);
       }
     });
+  },
+
+  // Whether the action being handled is a wheel step rather than a key.
+  isWheelAction(): boolean {
+    return dispatchingWheel;
   },
 
   setHandler(handler: ActionHandler): void {

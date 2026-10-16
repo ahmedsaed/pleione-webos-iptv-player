@@ -399,6 +399,9 @@ test('D-pad enters controls and returns to the selected row without stopping', a
   await setup(page, { enabled: true });
   await selectFirst(page);
   await page.mouse.move(0, 0);
+  // The pointer left the list, so the first key only shows the focused row.
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator(`${ROW}.focused`)).toContainText('ch1');
   await page.keyboard.press('ArrowRight');
   await expect(page.locator(MUTE)).toHaveClass(/focused/);
   await expect(page.locator(`${PANEL} .live-preview-legend`)).toContainText('Mute');
@@ -431,6 +434,52 @@ test('D-pad enters controls and returns to the selected row without stopping', a
   await expect(page.locator(`${ROW}.focused`)).toContainText('ch1');
 });
 
+test('CH- from the controls after the pointer left moves the list, not just the ring', async ({ page }) => {
+  await setup(page, { enabled: true });
+  await selectFirst(page);
+  await page.mouse.move(0, 0);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator(MUTE)).toHaveClass(/focused/);
+
+  await page.keyboard.press('PageDown');
+  await expect(page.locator(MUTE)).not.toHaveClass(/focused/);
+  await expect(page.locator(`${ROW}.focused`)).toHaveCount(1);
+});
+
+function stableChannelKey(url: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < url.length; i++) {
+    hash ^= url.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+// Recently Watched has no virtual step, so CH- falls back to a spatial move.
+test('CH- from the controls in Recently Watched moves the list', async ({ page }) => {
+  await page.addInitScript((keys) => {
+    localStorage.setItem('iptv_recently_watched_live', JSON.stringify(
+      keys.map((channelKey, i) => ({ channelKey, updatedAt: Date.now() - i * 1000 })),
+    ));
+  }, ['http://host/ch1.m3u8', 'http://host/ch2.m3u8'].map(stableChannelKey));
+  await setup(page, { enabled: true });
+  await page.locator('[data-group="builtin:recently-watched"]').click();
+  const rows = page.locator('#channel-browser .channel-main .recent-item');
+  await expect(rows).toHaveCount(2);
+  await rows.first().click();
+  await expect(page.locator(`${PANEL} .live-preview-channel`)).toHaveText('ch1');
+  await page.mouse.move(0, 0);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator(MUTE)).toHaveClass(/focused/);
+
+  await page.keyboard.press('PageDown');
+  await expect(page.locator(MUTE)).not.toHaveClass(/focused/);
+  await expect(rows.nth(1)).toHaveClass(/\bfocused\b/);
+  await expect(rows.first()).not.toHaveClass(/\bfocused\b/);
+});
+
 test('Left from the controls after the list scrolls resumes at a row in view', async ({ page }) => {
   const events: string[] = [];
   page.on('console', (msg) => events.push(msg.text()));
@@ -442,6 +491,9 @@ test('Left from the controls after the list scrolls resumes at a row in view', a
   await setup(page, { enabled: true, playlist: lines.join('\n') });
   await selectFirst(page);
   await page.mouse.move(0, 0);
+  // The pointer left the list, so the first key only shows the focused row.
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator(`${ROW}.focused`)).toContainText('ch1');
   await page.keyboard.press('ArrowRight');
   await expect(page.locator(MUTE)).toHaveClass(/focused/);
 
@@ -492,6 +544,9 @@ test('preview controls stay transparent until focused and reuse focus tokens', a
   await setup(page, { enabled: true });
   await selectFirst(page);
   await page.mouse.move(0, 0);
+  // The pointer left the list, so the first key only shows the focused row.
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator(`${ROW}.focused`)).toContainText('ch1');
   await page.keyboard.press('ArrowRight');
   await expect(page.locator(MUTE)).toHaveClass(/focused/);
   await expect.poll(() => page.locator(MUTE).evaluate(element =>

@@ -106,6 +106,50 @@ test('the dropdown lists every account with the active one marked', async ({ pag
   await expect(page.locator('.account-menu-item.current .account-menu-name')).toHaveText('Alpha');
 });
 
+test('an open account menu holds the only ring, which returns to the avatar on close', async ({ page }) => {
+  await seedTwoAccounts(page);
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  await openAccountMenu(page);
+  await expect(page.locator('.account-menu-item.focused')).toHaveCount(1);
+  await expect(page.locator('.account-avatar')).not.toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.account-menu-item.focused .account-menu-name')).toHaveText('Bravo');
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.account-menu')).toHaveCount(0);
+  await expect(page.locator('.account-avatar')).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+});
+
+test('a menu opened with the remote holds the only ring, which returns to the avatar on Back', async ({ page }) => {
+  await seedTwoAccounts(page);
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  const avatar = page.locator('.account-avatar');
+  for (let i = 0; i < 4 && !(await page.locator('.tab-bar-item.focused').count()); i++) {
+    await page.keyboard.press('ArrowUp');
+  }
+  for (let i = 0; i < 10 && !(await avatar.evaluate((el) => el.classList.contains('focused'))); i++) {
+    await page.keyboard.press('ArrowRight');
+  }
+  await expect(avatar).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.account-menu')).toBeVisible();
+  await expect(page.locator('.account-menu-item.focused')).toHaveCount(1);
+  await expect(avatar).not.toHaveClass(/\bfocused\b/);
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.account-menu')).toHaveCount(0);
+  await expect(avatar).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+});
+
 test('switching account in the dropdown reloads Movies and updates the avatar', async ({ page }) => {
   await seedTwoAccounts(page);
   await routeLiveManifest(page);
@@ -263,7 +307,7 @@ test('a channel-list click that dismisses a pointer-opened menu hands the remote
   await expect(page.locator('#view-channels')).toBeVisible();
 
   await openAccountMenu(page);
-  await expect(page.locator('.account-avatar')).toHaveClass(/focused/);
+  await expect(page.locator('.account-menu-item.focused')).toHaveCount(1);
   await page.locator('#view-channels .group-item').first().click();
   await expect(page.locator('.account-menu')).toHaveCount(0);
   await expect(page.locator('.account-avatar')).not.toHaveClass(/focused/);

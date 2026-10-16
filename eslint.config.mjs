@@ -96,6 +96,12 @@ export default [
           selector: `CallExpression > MemberExpression[property.name='${e.name}']`,
           message: e.message,
         })),
+        {
+          // A raw class write can't see a ring FocusRing parked, so a later
+          // return of the keys would show two (see src/navigation/focus-ring.ts).
+          selector: "CallExpression[callee.object.property.name='classList'][arguments.0.value='focused']",
+          message: "Write the focus ring through setRing()/ringsIn() from navigation/focus-ring.",
+        },
       ],
       'webos-compat/unsupported-patterns': 'error',
     },

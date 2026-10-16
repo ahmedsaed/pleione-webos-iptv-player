@@ -76,6 +76,7 @@ import {
   PLAYBACK_ICON,
   SOURCES_ICON,
 } from './icons';
+import { ringsIn, setRing } from '../navigation/focus-ring';
 
 const log = createLogger('Settings');
 
@@ -1661,6 +1662,11 @@ export class Settings {
     this.onChannelsChanged();
   }
 
+  get promptRoot(): HTMLElement | null {
+    return this.confirmationPrompt.visible
+      ? this.confirmationPrompt.ringRoot : this.liveCategoryPicker.ringRoot;
+  }
+
   get isPromptVisible(): boolean {
     return this.confirmationPrompt.visible || this.liveCategoryPicker.visible;
   }
@@ -1689,9 +1695,9 @@ export class Settings {
   }
 
   private onNavFocus(el: HTMLElement | null): void {
-    this.container.querySelector('.settings-advanced-row.focused')
-      ?.classList.remove('focused');
-    el?.closest('.settings-advanced-row')?.classList.add('focused');
+    ringsIn(this.container, '.settings-advanced-row').forEach(row => setRing(row, false));
+    const row = el?.closest('.settings-advanced-row');
+    if (row) setRing(row, true);
     if (el?.dataset.themeId) previewTheme(el.dataset.themeId);
     else previewTheme(this.selectedTheme);
   }

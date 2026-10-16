@@ -50,6 +50,7 @@ import { isSourceEnabled } from './utils/playlist';
 import { truncate } from './utils/text';
 import { $, show, hide } from './utils/dom';
 import { createLogger, installGlobalErrorHandlers, logEnvironment } from './utils/logger';
+import { FocusRing } from './navigation/focus-ring';
 import type {
   Action,
   NumberEvent,
@@ -368,7 +369,14 @@ class App {
     this.tabBar.init();
 
     KeyHandler.init();
-    KeyHandler.setHandler((action, event) => this.handleKey(action, event));
+    KeyHandler.setHandler((action, event) => {
+      this.handleKey(action, event);
+      FocusRing.sync();
+    });
+    FocusRing.install(() => {
+      const owner = this.keyOwner(this.viewStack[this.viewStack.length - 1]);
+      return { root: owner.root, modal: !owner.name.startsWith('view_') && owner.name !== 'tab_bar' };
+    });
     KeyHandler.setChannelCount(() => PlaylistService.channels.length);
 
     this.initSidebarTrigger();
@@ -1488,25 +1496,45 @@ class App {
     }, concealed !== null);
   }
 
-  // Which modal/overlay is holding input, for the key diagnostic timeline: a
-  // "button does nothing" report is usually an unexpected consumer, not a lost key.
-  private keyConsumer(currentView: string): string {
-    if (this.parentalPinPrompt.visible) return 'parental_pin_prompt';
-    if (this.reminderPrompt.visible) return 'reminder_prompt';
-    if (this.epgGrid.isPromptVisible) return 'epg_prompt';
-    if (this.settings.isPromptVisible) return 'settings_prompt';
-    if (this.reminderManager.isPromptVisible) return 'reminder_manager_prompt';
-    if (this.tabBar.focused) return 'tab_bar';
-    if (this.historyDropdown.isOpen) return 'search_history';
-    if (currentView === 'player' && this.player.subtitleOffsetOpen()) return 'subtitle_offset';
-    return `view_${currentView}`;
+  // The one answer to "who gets the next key": handleKey routes by it, the
+  // key diagnostic timeline names it, and FocusRing lets only its root show a
+  // ring. A "button does nothing" report is usually an unexpected owner.
+  private keyOwner(currentView: ViewName): { name: string; root: HTMLElement | null } {
+    if (this.parentalPinPrompt.visible) {
+      return { name: 'parental_pin_prompt', root: this.parentalPinPrompt.ringRoot };
+    }
+    if (this.reminderPrompt.visible) return { name: 'reminder_prompt', root: this.reminderPrompt.ringRoot };
+    if (this.epgGrid.isPromptVisible) return { name: 'epg_prompt', root: this.epgGrid.promptRoot };
+    if (this.settings.isPromptVisible) return { name: 'settings_prompt', root: this.settings.promptRoot };
+    if (this.reminderManager.isPromptVisible) {
+      return { name: 'reminder_manager_prompt', root: this.reminderManager.promptRoot };
+    }
+    if (currentView === 'parental-controls' && this.parentalControls.isPromptVisible) {
+      return { name: 'parental_prompt', root: this.parentalControls.promptRoot };
+    }
+    if (currentView === 'search' && this.search.isPromptVisible) {
+      return { name: 'search_prompt', root: this.search.promptRoot };
+    }
+    if (this.tabBar.focused) return { name: 'tab_bar', root: this.tabBar.ringRoot };
+    if (this.historyDropdown.isOpen) return { name: 'search_history', root: this.historyDropdown.ringRoot };
+    const view = this.views[currentView];
+    if (currentView === 'player') {
+      if (this.player.subtitleOffsetOpen()) return { name: 'subtitle_offset', root: $('#subtitle-offset', view) };
+      // The menu keeps the D-pad while the subtitle search sits above it.
+      if (this.sidebar.visible) return { name: 'view_player', root: $('#player-sidebar', view) };
+      if (this.menu.visible) return { name: 'view_player', root: $('#player-menu', view) };
+      const search = $('#subtitle-search', view);
+      if (search && !search.classList.contains('hidden')) return { name: 'view_player', root: search };
+    }
+    return { name: `view_${currentView}`, root: view };
   }
 
   private handleKey(action: Action, event?: NumberEvent): void {
     const currentView = this.viewStack[this.viewStack.length - 1];
+    const owner = this.keyOwner(currentView);
 
     log.debug('Key routed', 'event=key.action', `action=${action}`,
-      `view=${currentView}`, `consumer=${this.keyConsumer(currentView)}`,
+      `view=${currentView}`, `consumer=${owner.name}`,
       `number=${event ? String(event.number) : 'none'}`);
 
     // The digit OSD is body-mounted and outlives every view, so an abandoned
@@ -1516,50 +1544,41 @@ class App {
       return;
     }
 
-    // A reminder prompt overlays every view and consumes input first.
-    if (this.parentalPinPrompt.visible) {
-      this.parentalPinPrompt.handleAction(action, event);
-      return;
-    }
-
-    // A reminder prompt overlays every view and consumes input first.
-    if (this.reminderPrompt.visible) {
-      this.reminderPrompt.handleAction(action);
-      return;
-    }
-
-    // The catch-up resume prompt is body-mounted but logically inside the EPG;
-    // consume all actions (including back/blue globals) while it is visible.
-    if (this.epgGrid.isPromptVisible) {
-      this.epgGrid.handleAction(action, event);
-      return;
-    }
-
-    if (this.settings.isPromptVisible) {
-      this.settings.handleAction(action);
-      return;
-    }
-    if (this.reminderManager.isPromptVisible) {
-      this.reminderManager.handleAction(action);
-      return;
-    }
-
-    // The docked tab bar consumes input while it holds focus.
-    if (this.tabBar.focused) {
-      this.tabBar.handleAction(action);
-      return;
-    }
-
-    // Recent searches drop over the current view and take its input.
-    if (this.historyDropdown.isOpen) {
-      this.historyDropdown.handleAction(action);
-      return;
-    }
-
-    // The subtitle-sync adjuster is modal over the player: it consumes all input.
-    if (currentView === 'player' && this.player.subtitleOffsetOpen()) {
-      this.player.handleSubtitleOffsetAction(action);
-      return;
+    // Modal layers take every key; their order lives in keyOwner().
+    switch (owner.name) {
+      case 'parental_pin_prompt':
+        this.parentalPinPrompt.handleAction(action, event);
+        return;
+      case 'reminder_prompt':
+        this.reminderPrompt.handleAction(action);
+        return;
+      // The catch-up resume prompt is body-mounted but logically inside the EPG.
+      case 'epg_prompt':
+        this.epgGrid.handleAction(action, event);
+        return;
+      case 'settings_prompt':
+        this.settings.handleAction(action);
+        return;
+      case 'reminder_manager_prompt':
+        this.reminderManager.handleAction(action);
+        return;
+      case 'parental_prompt':
+        this.parentalControls.handleAction(action);
+        return;
+      // Like the EPG's, Search's catch-up resume prompt also takes the color keys.
+      case 'search_prompt':
+        this.search.handleAction(action);
+        return;
+      case 'tab_bar':
+        this.tabBar.handleAction(action);
+        return;
+      // Recent searches drop over the current view and take its input.
+      case 'search_history':
+        this.historyDropdown.handleAction(action);
+        return;
+      case 'subtitle_offset':
+        this.player.handleSubtitleOffsetAction(action);
+        return;
     }
 
     // Direct channel entry: echo the digits while KeyHandler buffers them, in

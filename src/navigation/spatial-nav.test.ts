@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { SpatialNav } from './spatial-nav';
+import { SpatialNav, isFocusMove } from './spatial-nav';
 import { applyAnimationMode } from '../services/motion-service';
+import { morph } from '../utils/morph';
+import { html } from '../utils/dom';
 
 // jsdom implements no layout: scrollIntoView is missing and getBoundingClientRect
 // returns zeros. Stub both so focus()/move() can be exercised deterministically.
@@ -454,6 +456,250 @@ describe('SpatialNav', () => {
     });
   });
 
+  describe('setRestrict with focus left outside', () => {
+    it('enters the trap at its first item even when another item is nearer', () => {
+      const outside = focusable({ x: 0, y: 300 });
+      const menu = document.createElement('div');
+      const first = focusable({ x: 200, y: 0 });
+      const near = focusable({ x: 200, y: 300 });
+      menu.append(first, near);
+      const nav = new SpatialNav(makeContainer(outside, menu));
+      nav.setRestrict(menu);
+      nav.focus(outside);
+
+      nav.move('down');
+      expect(nav.focused).toBe(first);
+    });
+  });
+
+  describe('after the pointer leaves', () => {
+    it('shows the kept focus on the first key instead of moving past it', () => {
+      const a = focusable({ x: 0, y: 0 });
+      const b = focusable({ x: 0, y: 100 });
+      const nav = new SpatialNav(makeContainer(a, b));
+      nav.focus(a);
+      a.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+
+      expect(nav.move('down')).toBe(true);
+      expect(nav.focused).toBe(a);
+      expect(a.classList.contains('focused')).toBe(true);
+      expect(nav.move('down')).toBe(true);
+      expect(nav.focused).toBe(b);
+    });
+
+    it('moves on the first key when a re-render only stripped the class', () => {
+      const a = focusable({ x: 0, y: 0 });
+      const b = focusable({ x: 0, y: 100 });
+      const nav = new SpatialNav(makeContainer(a, b));
+      nav.focus(a);
+      a.classList.remove('focused');
+
+      nav.move('down');
+      expect(nav.focused).toBe(b);
+    });
+
+    it('moves on the first key once hover has refocused an element', () => {
+      const a = focusable({ x: 0, y: 0 });
+      const b = focusable({ x: 0, y: 100 });
+      const c = focusable({ x: 0, y: 200 });
+      const nav = new SpatialNav(makeContainer(a, b, c));
+      nav.focus(a);
+      nav.clearHighlight();
+      b.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+
+      nav.move('down');
+      expect(nav.focused).toBe(c);
+    });
+  });
+
+  describe('when the focused element is re-rendered away', () => {
+    it('recovers on the element that took its data-key', () => {
+      const a = focusable({ x: 0, y: 0 });
+      const b = focusable({ x: 0, y: 100 });
+      b.dataset.key = 'row-b';
+      const container = makeContainer(a, b);
+      const nav = new SpatialNav(container);
+      nav.focus(b);
+      const replacement = focusable({ x: 0, y: 100 });
+      replacement.dataset.key = 'row-b';
+      container.replaceChild(replacement, b);
+
+      expect(nav.move('down')).toBe(true);
+      expect(nav.focused).toBe(replacement);
+    });
+
+    it('recovers nearest where focus was instead of at the top', () => {
+      const rows = [0, 100, 200, 300].map((y) => focusable({ x: 0, y }));
+      const container = makeContainer(...rows);
+      const nav = new SpatialNav(container);
+      nav.focus(rows[2]);
+      container.removeChild(rows[2]);
+
+      expect(nav.move('down')).toBe(true);
+      expect([rows[1], rows[3]]).toContain(nav.focused);
+    });
+  });
+
+  describe('recovery after clearDetachedFocus', () => {
+    it('still recovers on the keyed replacement on the next move', () => {
+      const a = focusable({ x: 0, y: 0 });
+      const b = focusable({ x: 0, y: 100 });
+      b.dataset.key = 'row-b';
+      const container = makeContainer(a, b);
+      const nav = new SpatialNav(container);
+      nav.focus(b);
+      const replacement = focusable({ x: 0, y: 300 });
+      replacement.dataset.key = 'row-b';
+      container.replaceChild(replacement, b);
+      nav.clearDetachedFocus();
+      expect(nav.focused).toBeNull();
+
+      nav.move('down');
+      expect(nav.focused).toBe(replacement);
+    });
+
+    it('still recovers nearest where focus was on the next move', () => {
+      const rows = [0, 100, 200, 300].map((y) => focusable({ x: 0, y }));
+      const container = makeContainer(...rows);
+      const nav = new SpatialNav(container);
+      nav.focus(rows[3]);
+      container.removeChild(rows[3]);
+      nav.clearDetachedFocus();
+
+      nav.move('down');
+      expect(nav.focused).toBe(rows[2]);
+    });
+
+    it('enters a trap at its first item when the element left outside it was removed', () => {
+      const outside = focusable({ x: 0, y: 300 });
+      const menu = document.createElement('div');
+      const first = focusable({ x: 200, y: 0 });
+      const near = focusable({ x: 200, y: 300 });
+      menu.append(first, near);
+      const container = makeContainer(outside, menu);
+      const nav = new SpatialNav(container);
+      nav.focus(outside);
+      nav.setRestrict(menu);
+      container.removeChild(outside);
+      nav.clearDetachedFocus();
+
+      nav.move('down');
+      expect(nav.focused).toBe(first);
+    });
+
+    it('does not recover after the trap changes', () => {
+      const rows = [0, 100, 200, 300].map((y) => focusable({ x: 0, y }));
+      const layer = document.createElement('div');
+      layer.append(...rows);
+      const container = makeContainer(layer);
+      const nav = new SpatialNav(container);
+      nav.focus(rows[3]);
+      container.removeChild(layer);
+      rows[3].remove();
+      nav.clearDetachedFocus();
+      const other = document.createElement('div');
+      other.append(...rows.slice(0, 3));
+      container.append(other);
+      nav.setRestrict(other);
+
+      nav.move('down');
+      expect(nav.focused).toBe(rows[0]);
+    });
+
+    it('keeps recovery when the same trap is set again', () => {
+      const rows = [0, 100, 200, 300].map((y) => focusable({ x: 0, y }));
+      const layer = document.createElement('div');
+      layer.append(...rows);
+      const container = makeContainer(layer);
+      const nav = new SpatialNav(container);
+      nav.setRestrict(layer);
+      nav.focus(rows[3]);
+      rows[3].remove();
+      nav.clearDetachedFocus();
+      nav.setRestrict(layer);
+
+      nav.move('down');
+      expect(nav.focused).toBe(rows[2]);
+    });
+
+    it('does not recover after resetRecovery', () => {
+      const rows = [0, 100, 200, 300].map((y) => focusable({ x: 0, y }));
+      const container = makeContainer(...rows);
+      const nav = new SpatialNav(container);
+      nav.focus(rows[3]);
+      container.removeChild(rows[3]);
+      nav.clearDetachedFocus();
+      nav.resetRecovery();
+
+      nav.move('down');
+      expect(nav.focused).toBe(rows[0]);
+    });
+
+    it('does not recover after an explicit focus(null)', () => {
+      const rows = [0, 100, 200].map((y) => focusable({ x: 0, y }));
+      const container = makeContainer(...rows);
+      const nav = new SpatialNav(container);
+      nav.focus(rows[2]);
+      nav.focus(null);
+
+      nav.move('down');
+      expect(nav.focused).toBe(rows[0]);
+    });
+  });
+
+  describe('revealHidden and the kept ring', () => {
+    it('counts CH+/CH- as focus moves only when asked', () => {
+      expect(isFocusMove('down')).toBe(true);
+      expect(isFocusMove('channel_up')).toBe(false);
+      expect(isFocusMove('channel_down', true)).toBe(true);
+    });
+
+    it('forgetHidden lets the next move move instead of reveal', () => {
+      const a = focusable({ x: 0, y: 0 });
+      const b = focusable({ x: 0, y: 100 });
+      const nav = new SpatialNav(makeContainer(a, b));
+      nav.focus(a);
+      nav.clearHighlight();
+      nav.forgetHidden();
+
+      expect(nav.move('down')).toBe(true);
+      expect(nav.focused).toBe(b);
+    });
+
+    it('scrolls the revealed element into view', () => {
+      const a = focusable({ x: 0, y: 0 });
+      const nav = new SpatialNav(makeContainer(a));
+      nav.focus(a);
+      nav.clearHighlight();
+      (a.scrollIntoView as ReturnType<typeof vi.fn>).mockClear();
+
+      expect(nav.revealHidden()).toBe(true);
+      expect(a.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+      expect(nav.revealHidden()).toBe(false);
+    });
+
+    it('keeps its ring through a morph re-render, but not one the pointer hid', () => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const render = () => morph(container, html`<div data-nav-container>
+        <div class="row" data-focusable data-key="a">A</div>
+        <div class="row" data-focusable data-key="b">B</div>
+      </div>`);
+      render();
+      const nav = new SpatialNav(container);
+      const a = container.querySelector<HTMLElement>('[data-key="a"]')!;
+      nav.focus(a);
+
+      render();
+      expect(a.className).toBe('row focused');
+
+      nav.clearHighlight();
+      render();
+      expect(a.classList.contains('focused')).toBe(false);
+      container.remove();
+    });
+  });
+
   describe('move return value', () => {
     it('returns true when focus moves to a target', () => {
       const a = focusable({ x: 0, y: 0 });
@@ -469,7 +715,6 @@ describe('SpatialNav', () => {
       const b = focusable({ x: 0, y: 100 });
       const nav = new SpatialNav(makeContainer(a, b));
       nav.focus(a);
-      nav.clearHighlight();
       expect(nav.move('up')).toBe(false);
       expect(nav.focused).toBe(a);
       expect(a.classList.contains('focused')).toBe(true);

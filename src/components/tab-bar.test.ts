@@ -410,11 +410,14 @@ describe('TabBar account switcher', () => {
       const lines = logLines(() => clickOn(avatar()!));
       expect(bar.accountMenuOpen).toBe(true);
       expect(bar.focused).toBe(true);
-      expect(avatar()?.classList.contains('focused')).toBe(true);
+      // The open menu holds the ring; the avatar gets it back on close.
+      expect(avatar()?.classList.contains('focused')).toBe(false);
+      expect(document.querySelectorAll('.account-menu-item.focused')).toHaveLength(1);
       expect(lines.filter((l) => l.includes('event=account.menu.opened')).pop()).toContain('mode=pointer');
       bar.handleAction('down');   // highlight Bravo
       bar.handleAction('select'); // choose
       expect(onSelectAccount).toHaveBeenCalledWith('a2');
+      expect(avatar()?.classList.contains('focused')).toBe(true);
     });
 
     it('logs mode=pointer even when the D-pad already rests on the avatar', () => {

@@ -11,6 +11,7 @@ import { AccountSwitcher, type AccountMenuCloseReason, type AccountMenuOpenMode 
 export type TabBarAccountMenuCloseReason = AccountMenuCloseReason | 'bar' | 'blank';
 import { t } from '../i18n';
 import { createLogger } from '../utils/logger';
+import { setRing } from '../navigation/focus-ring';
 
 // Cap for the expanded inline search box.
 export const SEARCH_INPUT_MAX_WIDTH = 600;
@@ -95,6 +96,8 @@ export class TabBar {
   constructor(handlers: TabBarHandlers) {
     this.handlers = handlers;
   }
+
+  get ringRoot(): HTMLElement | null { return this.el; }
 
   get focused(): boolean { return this._focused; }
   get shown(): boolean { return this._shown; }
@@ -469,7 +472,7 @@ export class TabBar {
     const input = wrap.querySelector<HTMLInputElement>('.tab-bar-search-input')!;
     input.placeholder = this.searchPlaceholder();
     const btn = wrap.querySelector<HTMLElement>('.search-icon')!;
-    btn.classList.toggle('focused', iconFocused);
+    setRing(btn, iconFocused);
     btn.classList.toggle('active', this.active === 'search');
   }
 
