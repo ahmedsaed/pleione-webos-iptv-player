@@ -52,7 +52,8 @@ export function sectionForView(view: string): Section | null {
 interface TabBarHandlers {
   onSwitch: (section: Section) => void;
   // `pointer`: a click on the tab, which the pointer still rests on.
-  onEnter: (section: Section, via: 'key' | 'pointer') => void;
+  // `resume`: back into the content the bar took focus from, left as it was.
+  onEnter: (section: Section, via: 'key' | 'pointer' | 'resume') => void;
   // The search query changed (typed / cleared); the host shows the results view
   // over the current one only while the query is non-empty.
   onSearchQuery: (query: string) => void;
@@ -86,6 +87,8 @@ export class TabBar {
   private _shown = false;   // docked & visible on the current view
   private _focused = false; // holds input focus (ring + key capture)
   private active: Section = 'live';
+  // The section whose content the bar took focus from, until it switches.
+  private returnSection: Section | null = null;
   private focusIndex = 0;
   private searchExpanded = false;
   private expandGeneration = 0;
@@ -166,6 +169,7 @@ export class TabBar {
   }
 
   setActive(section: Section): void {
+    if (section !== this.active) this.returnSection = null;
     if (section !== 'search' && this.searchExpanded) this.dropSearch('section-change');
     this.active = section;
     this.focusIndex = Math.max(0, this.sections.findIndex((s) => s.id === section));
@@ -213,6 +217,7 @@ export class TabBar {
   // Move input focus onto the bar (D-pad Up from a view's top row).
   focus(): void {
     if (!this._shown) return;
+    if (!this._focused) this.returnSection = this.active;
     this._focused = true;
     this.focusIndex = Math.max(0, this.sections.findIndex((s) => s.id === this.active));
     this.render();
@@ -256,6 +261,7 @@ export class TabBar {
         return;
       }
       this.active = section;
+      this.returnSection = null;
       this.focusIndex = Math.max(0, this.sections.findIndex((s) => s.id === section));
       this.dropFocus();
       this.handlers.onEnter(section, 'pointer');
@@ -301,8 +307,7 @@ export class TabBar {
           if (action === 'select') {
             this.handlers.onLockNow();
           } else {
-            this.dropFocus();
-            this.handlers.onEnter(this.active, 'key');
+            this.enterActive();
           }
         } else if (this.onAccount()) {
           this.switcher?.openMenu('key');
@@ -310,19 +315,24 @@ export class TabBar {
         } else if (this.sections[this.focusIndex].id === 'search') {
           this.expandSearch('key');
         } else {
-          this.dropFocus();
-          this.handlers.onEnter(this.active, 'key');
+          this.enterActive();
         }
         break;
       case 'back':
-        this.dropFocus();
-        this.handlers.onEnter(this.active, 'key');
+        this.enterActive();
         break;
       case 'up':
         break; // topmost — stay on the bar
       default:
         break;
     }
+  }
+
+  private enterActive(): void {
+    const via = this.returnSection === this.active ? 'resume' : 'key';
+    this.returnSection = null;
+    this.dropFocus();
+    this.handlers.onEnter(this.active, via);
   }
 
   // Moving onto a section switches it live; moving onto the avatar or the
@@ -333,7 +343,13 @@ export class TabBar {
   }
 
   private commitSwitch(): void {
+    // Back onto the shown section from the avatar or the lock: nothing to switch.
+    if (this.sections[this.focusIndex].id === this.active) {
+      this.render();
+      return;
+    }
     this.active = this.sections[this.focusIndex].id;
+    this.returnSection = null;
     this.render();
     this.handlers.onSwitch(this.active);
   }
@@ -344,6 +360,7 @@ export class TabBar {
   private expandSearch(mode: 'key' | 'pointer'): void {
     log.debug('Search box expanded', 'event=search.box.expanded', `mode=${mode}`);
     this.active = 'search';
+    this.returnSection = null;
     this.focusIndex = this.sections.findIndex((s) => s.id === 'search');
     this.searchExpanded = true;
     this._focused = true;
@@ -405,6 +422,8 @@ export class TabBar {
     this._focused = true;
     this.render();
     this.handlers.onSearchClose();
+    // The bar still has the keys over the restored view, which Down resumes.
+    this.returnSection = this.active;
   }
 
   // Slide the input out from the magnifier toward the Settings tab.
@@ -521,7 +540,10 @@ export class TabBar {
     if (!slot) return;
     if (!this.switcher) {
       this.switcher = new AccountSwitcher(slot, {
-        onSelect: (id) => this.handlers.onSelectAccount(id),
+        onSelect: (id) => {
+          this.returnSection = null;
+          this.handlers.onSelectAccount(id);
+        },
         onMenuOpen: (mode) => {
           this.takeAccountFocus(mode);
           this.handlers.onAccountMenuOpen();
@@ -542,6 +564,7 @@ export class TabBar {
     log.debug('Account menu opened', 'event=account.menu.opened', `mode=${mode}`);
     if (this._focused && this.onAccount()) return;
     this.el?.querySelector<HTMLInputElement>('.tab-bar-search-input')?.blur();
+    if (!this._focused) this.returnSection = this.active;
     this._focused = true;
     this.focusIndex = this.sections.length + (this.lockShown ? 1 : 0);
     this.render();

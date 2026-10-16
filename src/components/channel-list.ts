@@ -471,6 +471,14 @@ export class ChannelList {
     }
   }
 
+  // Back from the tab bar: the list may have scrolled the held row off or
+  // virtualized it away while the bar had the keys.
+  resumeFocus(): void {
+    const focused = this.nav.focused;
+    if (focused && this.container.contains(focused) && !this.offscreenRow(focused)) return;
+    this.restoreFocus();
+  }
+
   get isEditing(): boolean {
     return this.editor.isEditing;
   }

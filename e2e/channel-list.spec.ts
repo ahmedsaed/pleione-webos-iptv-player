@@ -885,3 +885,26 @@ test('a wheel step below a short list moves the pointer-left row at once', async
   await page.mouse.wheel(0, 120);
   await expect(main.locator('[data-list-position="1"]')).toHaveClass(/\bfocused\b/);
 });
+
+test('Down from the tab bar resumes in view after the list scrolled meanwhile', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(60));
+  await seedPlaylist(page);
+  await page.goto('/');
+  const main = page.locator('#view-channels .channel-main');
+  await expect(main.locator('[data-list-position="0"]')).toHaveClass(/\bfocused\b/);
+  const list = await main.boundingBox();
+  if (!list) throw new Error('no layout');
+
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('.tab-bar-item[data-section="live"].focused')).toHaveCount(1);
+  await main.evaluate((el) => { el.scrollTop = 1500; });
+  await settleVirtualScroll(page);
+
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.tab-bar .focused')).toHaveCount(0);
+  const focused = main.locator('.focused');
+  await expect(focused).toHaveCount(1);
+  const box = await focused.boundingBox();
+  if (!box) throw new Error('no layout');
+  expect(rowInView(box, list)).toBe(true);
+});

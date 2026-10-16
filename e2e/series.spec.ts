@@ -149,3 +149,24 @@ test('episode playback suppresses the live channel sidebar and shows a VOD-only 
   expect(await menu.textContent()).not.toContain('Toggle Favorite');
   expect(await menu.textContent()).not.toContain('Playing:');
 });
+
+test('Down from the tab bar resumes the Series detail Up left', async ({ page }) => {
+  await seedSeries(page);
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'series');
+  await page.locator('.catalog-tile[data-item-id="1"]')
+    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  await page.keyboard.press('Enter');
+  const season = page.locator('#view-series .series-season-btn[data-season="1"]');
+  await expect(season).toContainText('Season 1');
+
+  for (let i = 0; i < 8 && !(await page.locator('.tab-bar-item.focused').count()); i++) {
+    await page.keyboard.press('ArrowUp');
+  }
+  await expect(page.locator('.tab-bar-item[data-section="series"].focused')).toHaveCount(1);
+  await page.keyboard.press('ArrowDown');
+  await expect(season).toBeVisible();
+  await expect(page.locator('#view-series .focused')).toHaveCount(1);
+});

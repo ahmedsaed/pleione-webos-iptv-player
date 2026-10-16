@@ -1307,8 +1307,14 @@ class App {
 
   // Down/Select from the bar, or a click on a tab: switch to the section and
   // drop focus into content.
-  private enterSection(section: Section, via: 'key' | 'pointer'): void {
+  private enterSection(section: Section, via: 'key' | 'pointer' | 'resume'): void {
     this.tabBar.setActive(section);
+    // Back into the content Up left: re-opening it would drop unsaved edits
+    // and the position the ring comes back to.
+    if (via === 'resume' && sectionForView(this.viewStack[this.viewStack.length - 1]) === section) {
+      if (section === 'live') this.channelList.resumeFocus();
+      return;
+    }
     this.switchSection(section);
     // The pointer still rests on the tab, so the content's focus waits for a
     // key. Search keeps the keys in its own box.
@@ -1765,8 +1771,8 @@ class App {
         if (action === 'back') {
           this.channelList.render();
           this.showView('channels');
-        } else {
-          this.settings.handleAction(action);
+        } else if (!this.settings.handleAction(action) && action === 'up' && this.tabBar.shown) {
+          this.tabBar.focus();
         }
         break;
       case 'reminders':

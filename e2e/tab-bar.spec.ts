@@ -527,6 +527,60 @@ test.describe('hovering content after D-pad Up onto the tab bar', () => {
   });
 });
 
+test.describe('D-pad Up in Settings', () => {
+  async function openSettings(page: import('@playwright/test').Page) {
+    await seedXtream(page);
+    await routeLiveManifest(page);
+    await page.goto('/');
+    await expect(page.locator('#view-channels .channel-item').first()).toBeVisible();
+    await enterTab(page, 'settings');
+    const first = page.locator('#view-settings .settings-nav-item').first();
+    await page.keyboard.press('ArrowDown');
+    await expect(first).toHaveClass(/\bfocused\b/);
+    return first;
+  }
+
+  test('reaches the tab bar from the first category', async ({ page }) => {
+    const first = await openSettings(page);
+
+    await page.keyboard.press('ArrowUp');
+    await expect(page.locator('.tab-bar-item[data-section="settings"].focused')).toHaveCount(1);
+    await expect(page.locator('#view-settings .focused')).toHaveCount(0);
+    await expect(page.locator('#view-settings .dropdown.open')).toHaveCount(0);
+
+    await page.keyboard.press('ArrowDown');
+    await expect(first).toHaveClass(/\bfocused\b/);
+    await expect(page.locator('.tab-bar .focused')).toHaveCount(0);
+  });
+
+  test('reaches the tab bar from the top of the pane', async ({ page }) => {
+    await openSettings(page);
+    await page.keyboard.press('ArrowRight');
+    const language = page.locator('#view-settings [data-dropdown-trigger]').first();
+    await expect(language).toHaveClass(/\bfocused\b/);
+
+    await page.keyboard.press('ArrowUp');
+    await expect(page.locator('.tab-bar-item[data-section="settings"].focused')).toHaveCount(1);
+    await expect(page.locator('#view-settings .focused')).toHaveCount(0);
+  });
+
+  test('keeps Up inside an open dropdown', async ({ page }) => {
+    await openSettings(page);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Enter');
+    const menu = page.locator('#view-settings .dropdown.open');
+    await expect(menu).toHaveCount(1);
+    const options = menu.locator('.dropdown-option');
+    await options.first().evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+    await expect(options.first()).toHaveClass(/\bfocused\b/);
+
+    await page.keyboard.press('ArrowUp');
+    await expect(menu).toHaveCount(1);
+    await expect(options.first()).toHaveClass(/\bfocused\b/);
+    await expect(page.locator('.tab-bar .focused')).toHaveCount(0);
+  });
+});
+
 test.describe('the Guide channel column under the pointer', () => {
   test('a click after a Guide tab click shows the ring, and keys go on from it', async ({ page }) => {
     await seedXtream(page);
@@ -572,4 +626,37 @@ test.describe('the Guide channel column under the pointer', () => {
     await expect(page.locator('#view-epg')).toHaveAttribute('data-ring-owner', '');
     await expect(page.locator('#view-epg .epg-channel-item.focused')).toHaveCount(0);
   });
+});
+
+test('Up to the tab bar and back keeps unsaved Settings and their position', async ({ page }) => {
+  await seedXtream(page);
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels .channel-item').first()).toBeVisible();
+  await enterTab(page, 'settings');
+
+  const active = page.locator('#auto-play .toggle-option.active');
+  const changed = await active.getAttribute('data-value') === 'on' ? 'off' : 'on';
+  await page.locator(`#auto-play .toggle-option[data-value="${changed}"]`).click();
+  await expect(active).toHaveAttribute('data-value', changed);
+
+  // Back to the top of the pane by keys, then out to the bar and down again.
+  await page.keyboard.press('ArrowLeft');
+  const nav = page.locator('#view-settings .settings-nav-item');
+  await expect(page.locator('#view-settings .settings-nav-item.focused')).toHaveCount(1);
+  for (let i = 0; i < 8; i++) {
+    if (await nav.first().evaluate((el) => el.classList.contains('focused'))) break;
+    await page.keyboard.press('ArrowUp');
+  }
+  await expect(nav.first()).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('ArrowRight');
+  const language = page.locator('#view-settings [data-dropdown-trigger]').first();
+  await expect(language).toHaveClass(/\bfocused\b/);
+
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('.tab-bar-item[data-section="settings"].focused')).toHaveCount(1);
+  await page.keyboard.press('ArrowDown');
+  await expect(language).toHaveClass(/\bfocused\b/);
+  await expect(nav.first()).toHaveClass(/\bactive\b/);
+  await expect(active).toHaveAttribute('data-value', changed);
 });

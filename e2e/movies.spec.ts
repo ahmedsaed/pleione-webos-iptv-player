@@ -580,3 +580,48 @@ test('Down from the tab bar rings a tile at once, and one Right moves', async ({
   await expect(focused).toHaveCount(1);
   await expect(focused).not.toHaveAttribute('data-key', first ?? '');
 });
+
+async function upToTabBar(page: Page): Promise<void> {
+  for (let i = 0; i < 8 && !(await page.locator('.tab-bar-item.focused').count()); i++) {
+    await page.keyboard.press('ArrowUp');
+  }
+  await expect(page.locator('.tab-bar-item[data-section="movies"].focused')).toHaveCount(1);
+}
+
+async function openCategoryGrid(page: Page): Promise<void> {
+  await seedMovies(page, { streams: 30 });
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'movies');
+  const seeAll = page.locator('#view-movies .catalog-see-all');
+  await seeAll.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
+  await expect(gridFocus(page)).toHaveCount(1);
+  await page.keyboard.press('ArrowRight');
+  await expect(gridFocus(page)).toHaveAttribute('data-item-id', '101');
+}
+
+const gridFocus = (page: Page) => page.locator('#view-movies .catalog-grid .catalog-tile.focused');
+
+test.describe('Down from the tab bar resumes Movies as Up left it', () => {
+  test('in a category grid', async ({ page }) => {
+    await openCategoryGrid(page);
+    await upToTabBar(page);
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
+    await expect(gridFocus(page)).toHaveAttribute('data-item-id', '101');
+  });
+
+  test('in a category grid Search was opened over', async ({ page }) => {
+    await openCategoryGrid(page);
+    await enterTab(page, 'search');
+    await expect(page.locator('.tab-bar-search.expanded')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.tab-bar-search.expanded')).toHaveCount(0);
+    await expect(page.locator('.tab-bar-item[data-section="movies"].focused')).toHaveCount(1);
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
+    await expect(gridFocus(page)).toHaveAttribute('data-item-id', '101');
+  });
+});

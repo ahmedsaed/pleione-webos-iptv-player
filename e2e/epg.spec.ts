@@ -287,3 +287,49 @@ test.describe('EPG time zone', () => {
     await expect(selectedDay(page)).toHaveText(/Sun\s+03\/10/);
   });
 });
+
+test('Down from the tab bar resumes the Guide on the day and channel Up left', async ({ page }) => {
+  const day = (d: number, h: number) => `202403${String(d).padStart(2, '0')}${String(h).padStart(2, '0')}0000 +0000`;
+  const programmes = ['ch1', 'ch2'].flatMap((ch) => [9, 10, 11].flatMap((d) => [
+    `<programme channel="${ch}" start="${day(d, 0)}" stop="${day(d, 12)}"><title>Alpha</title></programme>`,
+    `<programme channel="${ch}" start="${day(d, 12)}" stop="${day(d + 1, 0)}"><title>Bravo</title></programme>`,
+  ]));
+  await routePlaylist(page, [
+    '#EXTM3U',
+    '#EXTINF:-1 tvg-id="ch1",Channel 1',
+    'http://streams.example.com/ch1.m3u8',
+    '#EXTINF:-1 tvg-id="ch2",Channel 2',
+    'http://streams.example.com/ch2.m3u8',
+  ].join('\n'));
+  await page.route('**/epg.xml', (r) => r.fulfill({ status: 200, contentType: 'application/xml',
+    body: `<?xml version="1.0" encoding="UTF-8"?><tv><channel id="ch1"/><channel id="ch2"/>${programmes.join('')}</tv>` }));
+  await page.clock.setFixedTime(new Date('2024-03-10T06:00:00Z'));
+  await page.addInitScript(() => {
+    localStorage.setItem('iptv_playlists', JSON.stringify([{ name: 'P', url: 'http://host/playlist.m3u' }]));
+    localStorage.setItem('iptv_epg_url', JSON.stringify('http://host/epg.xml'));
+  });
+  await page.goto('/');
+  await expect(page.locator('#view-channels .channel-item').first()).toHaveClass(/\bfocused\b/);
+
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowDown');
+  const channel = page.locator('#view-epg .epg-channel-item.selected');
+  await expect(channel).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('ArrowDown');
+  await expect(channel).toHaveAttribute('data-channel-idx', '1');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowUp');
+  const date = page.locator('#epg-dates .epg-date-item.focused');
+  await expect(date).toHaveCount(1);
+  await page.keyboard.press('ArrowRight');
+  await expect(date).toHaveClass(/\bselected\b/);
+  await expect(date).not.toHaveClass(/\btoday\b/);
+  const label = await date.textContent();
+
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('.tab-bar-item[data-section="epg"].focused')).toHaveCount(1);
+  await page.keyboard.press('ArrowDown');
+  await expect(date).toHaveText(label ?? '');
+  await expect(channel).toHaveAttribute('data-channel-idx', '1');
+});

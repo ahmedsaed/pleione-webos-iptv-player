@@ -1240,11 +1240,12 @@ export class Settings {
   // An open dropdown menu is absolutely positioned over the settings pane, so an
   // untrapped move scores items behind it. The restriction is released straight
   // after: the pane is re-morphed on every render, so a held element goes stale.
-  private moveFocus(action: NavDirection): void {
+  private moveFocus(action: NavDirection): boolean {
     const open = this.container.querySelector<HTMLElement>('.dropdown.open');
     this.nav.setRestrict(open?.querySelector<HTMLElement>('.dropdown-menu') ?? null);
-    this.nav.move(action);
+    const moved = this.nav.move(action);
     this.nav.setRestrict(null);
+    return moved || !!open;
   }
 
   private restoreOpenDropdownFocus(open: HTMLElement): void {
@@ -1253,21 +1254,25 @@ export class Settings {
     if (option) this.nav.focus(option);
   }
 
-  handleAction(action: Action): void {
+  // False when Up or Down found nothing to move to, so the host can hand Up
+  // to the tab bar.
+  handleAction(action: Action): boolean {
     if (this.confirmationPrompt.visible) {
       this.confirmationPrompt.handleAction(action);
-      return;
+      return true;
     }
     if (this.liveCategoryPicker.visible) {
       this.liveCategoryPicker.handleAction(action);
-      return;
+      return true;
     }
 
     switch (action) {
       case 'up':
+        // The geometric move from the first category lands in the pane.
+        if (this.nav.focused === this.container.querySelector('.settings-nav-item')) return false;
+        return this.moveFocus(action);
       case 'down':
-        this.moveFocus(action);
-        break;
+        return this.moveFocus(action);
 
       case 'right':
         if (this.nav.focused?.classList.contains('settings-nav-item')) {
@@ -1303,6 +1308,7 @@ export class Settings {
         break;
       }
     }
+    return true;
   }
 
   focusReminderEntry(): void {

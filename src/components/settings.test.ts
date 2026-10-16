@@ -1566,6 +1566,21 @@ describe('Settings.save', () => {
 });
 
 describe('Settings.handleAction', () => {
+  it('leaves Up from the first category to the host', () => {
+    settings.render();
+    const general = container.querySelector('[data-settings-target="general"]');
+    expect(general?.classList.contains('focused')).toBe(true);
+    expect(settings.handleAction('up')).toBe(false);
+    expect(general?.classList.contains('focused')).toBe(true);
+  });
+
+  it('keeps Up inside an open dropdown', () => {
+    settings.render();
+    click('#app-language [data-dropdown-trigger]');
+    expect(settings.handleAction('up')).toBe(true);
+    expect(container.querySelector('#app-language')?.classList.contains('open')).toBe(true);
+  });
+
   it('dismisses an open dropdown and restores focus to its trigger', () => {
     settings.render();
     click('#app-language [data-dropdown-trigger]');

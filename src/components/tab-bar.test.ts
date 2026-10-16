@@ -104,11 +104,23 @@ describe('TabBar', () => {
     expect(focusedLabel()).toBe(null);
   });
 
-  it('back drops focus into the content (enters the active section)', () => {
+  it('back drops focus back into the content it came from', () => {
     bar.focus();
     bar.handleAction('back');
-    expect(onEnter).toHaveBeenCalledWith('live', 'key');
+    expect(onEnter).toHaveBeenCalledWith('live', 'resume');
     expect(bar.focused).toBe(false);
+  });
+
+  it('enters afresh a section the bar switched to, even when it switched back', () => {
+    bar.focus();
+    bar.handleAction('down');
+    expect(onEnter).toHaveBeenLastCalledWith('live', 'resume');
+
+    bar.focus();
+    bar.handleAction('right');
+    bar.handleAction('left');
+    bar.handleAction('down');
+    expect(onEnter).toHaveBeenLastCalledWith('live', 'key');
   });
 
   it('up is a no-op on the bar (topmost)', () => {
@@ -223,6 +235,17 @@ describe('TabBar', () => {
 describe('TabBar inline search', () => {
   const input = () => document.querySelector<HTMLInputElement>('.tab-bar-search-input');
   const expanded = () => !!document.querySelector('.tab-bar-search.expanded');
+
+  it('Down after closing the box resumes the view it was opened over', () => {
+    onSearchClose.mockImplementation(() => bar.setActive('movies'));
+    bar.setActive('search');
+    bar.focus();
+    bar.handleAction('select');
+    bar.handleAction('back');
+    expect(bar.focused).toBe(true);
+    bar.handleAction('down');
+    expect(onEnter).toHaveBeenLastCalledWith('movies', 'resume');
+  });
 
   it('Select on the Search tab expands the inline box (without switching views yet)', () => {
     bar.setActive('search');
@@ -432,6 +455,19 @@ describe('TabBar account switcher', () => {
     expect(onSwitch).not.toHaveBeenCalled();
   });
 
+  it('Right back off the avatar onto the shown section neither switches nor forgets it', () => {
+    bar.setAccounts(A, 'a1');
+    bar.focus();
+    onSwitch.mockClear();
+    bar.handleAction('left'); // Live -> account
+    expect(avatar()?.classList.contains('focused')).toBe(true);
+    bar.handleAction('right'); // back onto Live
+    expect(focusedLabel()).toBe('Live');
+    expect(onSwitch).not.toHaveBeenCalled();
+    bar.handleAction('down');
+    expect(onEnter).toHaveBeenLastCalledWith('live', 'resume');
+  });
+
   it('Right past the avatar wraps back to Live', () => {
     bar.setAccounts(A, 'a1');
     bar.setActive('search');
@@ -483,6 +519,17 @@ describe('TabBar account switcher', () => {
       bar.handleAction('select'); // choose
       expect(onSelectAccount).toHaveBeenCalledWith('a2');
       expect(avatar()?.classList.contains('focused')).toBe(true);
+    });
+
+    it('Back after a pointer-opened menu resumes the shown section', () => {
+      bar.setAccounts(A, 'a1');
+      bar.setActive('settings');
+      clickOn(avatar()!);
+      bar.handleAction('back'); // closes the menu; the bar stays on the avatar
+      expect(bar.accountMenuOpen).toBe(false);
+      expect(bar.focused).toBe(true);
+      bar.handleAction('back');
+      expect(onEnter).toHaveBeenLastCalledWith('settings', 'resume');
     });
 
     it('logs mode=pointer even when the D-pad already rests on the avatar', () => {

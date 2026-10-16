@@ -1267,3 +1267,36 @@ test('the remove-all prompt owns the remote ring, not the manager behind it', as
   await expect(page.locator('[data-parental-remove-all]')).toHaveClass(/\bfocused\b/);
   await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
+
+test('Lock now from the bar resumes Live on a row still shown', async ({ page }) => {
+  await openManagerWithNewPin(page);
+  const view = page.locator('#view-parental-controls');
+  const news = view.locator('[data-parental-group]').filter({ hasText: 'News' });
+  await news.click();
+  await expect(news).toContainText('Locked');
+  await chooseOption(page, 'parental-conceal', 'hide-locked');
+  await chooseOption(page, 'parental-duration', 'until-backgrounded');
+  await page.locator('[data-parental-back]').click();
+
+  await enterTab(page, 'live');
+  const rows = page.locator('#view-channels .channel-main .channel-item');
+  const one = rows.filter({ hasText: 'Channel One' });
+  await expect(one).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await expect(rows.first()).toHaveClass(/\bfocused\b/);
+  await expect(rows.first()).toHaveText(/Channel One/);
+
+  // Up onto the bar, Left onto Lock now, and lock with OK.
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowLeft');
+  const lockNow = page.locator('.tab-bar [data-lock-now]');
+  await expect(lockNow).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('Enter');
+  await expect(lockNow).toHaveCount(0);
+  await expect(one).toHaveCount(0);
+
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.tab-bar .focused')).toHaveCount(0);
+  await expect(page.locator('#view-channels .focused')).toHaveCount(1);
+  await expect(page.locator('#view-channels .focused')).toBeInViewport();
+});
