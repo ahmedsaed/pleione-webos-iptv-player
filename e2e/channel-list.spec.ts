@@ -7,6 +7,7 @@ import {
   enterTab,
   routeLiveManifest,
   measureRowTextFit,
+  type Page,
 } from './helpers';
 
 // The channel list: rendering safety (XSS), group filtering, and the fact that
@@ -314,6 +315,39 @@ test('direct channel entry scrolls the list to the tuned channel and keeps it on
   expect(row!.y + row!.height).toBeLessThanOrEqual(viewport!.y + viewport!.height);
 });
 
+test('returning to a far playing channel keeps it focused under full animation', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('iptv_animation_mode', JSON.stringify('full')));
+  const lines = ['#EXTM3U'];
+  for (let index = 1; index <= 300; index++) {
+    lines.push(`#EXTINF:-1 group-title="Group",Channel ${String(index)}`,
+      `http://streams.example.com/${String(index)}.m3u8`);
+  }
+  await routePlaylist(page, lines.join('\n'));
+  await routeLiveManifest(page);
+  await seedPlaylist(page);
+  await page.goto('/');
+  await expect(page.locator('html')).toHaveAttribute('data-animation', 'full');
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  await page.keyboard.press('2');
+  await page.keyboard.press('1');
+  await page.keyboard.press('5');
+  await expect(page.locator('.osd-channel-number')).toHaveText('215');
+
+  await page.evaluate(() =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  // A smooth far jump would pass through windows that drop the focused row.
+  await page.waitForTimeout(1000);
+  const focused = page.locator('.channel-main .channel-item.focused');
+  await expect(focused).toContainText('Channel 215');
+  const list = page.locator('.channel-main');
+  const [row, viewport] = await Promise.all([focused.boundingBox(), list.boundingBox()]);
+  expect(row!.y).toBeGreaterThanOrEqual(viewport!.y);
+  expect(row!.y + row!.height).toBeLessThanOrEqual(viewport!.y + viewport!.height);
+});
+
 // Geometry alone puts re-entry focus on whichever row sits nearest the
 // sidebar, which is not where the eye left off after scrolling. `.channel-main`
 // opts into last-focused re-entry so the row you left is the row you return to.
@@ -342,4 +376,420 @@ test('returning from the sidebar restores the channel you left', async ({ page }
   // Right may hop within the sidebar before crossing back into the list.
   for (let i = 0; i < 4 && (await key()) === null; i++) await page.keyboard.press('ArrowRight');
   expect(await key()).toBe(left);
+});
+
+function longPlaylist(count: number): string {
+  const lines = ['#EXTM3U'];
+  for (let i = 1; i <= count; i++) {
+    lines.push(`#EXTINF:-1 tvg-id="c${i}" group-title="Alpha",Ch ${i}`);
+    lines.push(`http://host/${i}.m3u8`);
+  }
+  return lines.join('\n');
+}
+
+async function focusFirstChannelRow(page: Page): Promise<void> {
+  const row0 = page.locator('#view-channels .channel-main [data-list-position="0"]');
+  await expect(row0).toBeVisible();
+  for (let i = 0; i < 4; i++) {
+    if (await row0.evaluate((el) => el.classList.contains('focused'))) break;
+    await page.keyboard.press('ArrowRight');
+  }
+  await expect(row0).toHaveClass(/\bfocused\b/);
+}
+
+// A key that scrolled the list holds its offset for two frames and reverts
+// any scroll in between, so a test scroll waits the hold out.
+async function settleVirtualScroll(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }));
+}
+
+test('Down after the focused row scrolls out of view stays in the channel list', async ({ page }) => {
+  const events: string[] = [];
+  page.on('console', (msg) => events.push(msg.text()));
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+
+  // Scroll without the pointer following the rows (cursor hidden, or the wheel
+  // over the list padding): the focused row leaves the rendered window.
+  const main = page.locator('#view-channels .channel-main');
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 3000; });
+  await expect(main.locator('[data-list-position="0"]')).toHaveCount(0);
+
+  await page.keyboard.press('ArrowDown');
+  const focused = page.locator('#view-channels .focused');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).toHaveAttribute('data-list-position', /^\d+$/);
+  const view = await main.boundingBox();
+  const row = await focused.boundingBox();
+  if (!view || !row) throw new Error('no layout');
+  expect(row.y).toBeGreaterThanOrEqual(view.y - 1);
+  expect(row.y + row.height).toBeLessThanOrEqual(view.y + view.height + 1);
+  expect(events.some((text) => text.includes('event=channel_list.focus.resumed'))).toBe(true);
+});
+
+test('a stationary pointer over the channel list does not trap D-pad Down', async ({ page }) => {
+  const events: string[] = [];
+  page.on('console', (msg) => events.push(msg.text()));
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  const main = page.locator('#view-channels .channel-main');
+  const start = main.locator('[data-list-position="5"]');
+  await expect(start).toBeVisible();
+  const box = await start.boundingBox();
+  if (!box) throw new Error('no layout');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(start).toHaveClass(/\bfocused\b/);
+
+  for (let i = 0; i < 20; i++) {
+    await page.keyboard.press('ArrowDown');
+    // Leave time for the hover the browser fires as rows slide under the pointer.
+    await page.waitForTimeout(150);
+  }
+  await expect(main.locator('[data-list-position="25"]')).toHaveClass(/\bfocused\b/);
+
+  // Moving the pointer hands focus back to the row under it.
+  await page.mouse.move(box.x + box.width / 2 + 4, box.y + box.height / 2);
+  const hovered = main.locator('.focused');
+  await expect(hovered).toHaveCount(1);
+  await expect(hovered).not.toHaveAttribute('data-list-position', '25');
+  expect(events.some((text) => text.includes('event=nav.hover.resumed'))).toBe(true);
+});
+
+function rowInView(row: { y: number; height: number }, view: { y: number; height: number }): boolean {
+  return row.y >= view.y - 1 && row.y + row.height <= view.y + view.height + 1;
+}
+
+test('Down after the focused group scrolls out of view stays in the group list', async ({ page }) => {
+  const events: string[] = [];
+  page.on('console', (msg) => events.push(msg.text()));
+  const lines = ['#EXTM3U'];
+  for (let i = 1; i <= 200; i++) {
+    lines.push(`#EXTINF:-1 group-title="Group ${String(i)}",Ch ${String(i)}`, `http://host/${String(i)}.m3u8`);
+  }
+  await routePlaylist(page, lines.join('\n'));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  const groups = page.locator('#view-channels .group-list');
+  for (let i = 0; i < 4 && (await groups.locator('.focused').count()) === 0; i++) {
+    await page.keyboard.press('ArrowLeft');
+  }
+  const start = groups.locator('.focused');
+  await expect(start).toHaveAttribute('data-group-position', /^\d+$/);
+  const startPosition = await start.getAttribute('data-group-position');
+
+  await settleVirtualScroll(page);
+  await groups.evaluate((el) => { el.scrollTop = 5000; });
+  await expect(groups.locator(`[data-group-position="${String(startPosition)}"]`)).toHaveCount(0);
+
+  await page.keyboard.press('ArrowDown');
+  const focused = page.locator('#view-channels .focused');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).toHaveAttribute('data-group-position', /^\d+$/);
+  const view = await groups.boundingBox();
+  const row = await focused.boundingBox();
+  if (!view || !row) throw new Error('no layout');
+  expect(rowInView(row, view)).toBe(true);
+  expect(events.some((text) => /event=channel_list\.focus\.resumed list=group\b/.test(text))).toBe(true);
+});
+
+// The first OK only brings focus back into view, as it does outside edit mode.
+test('OK in edit mode after the focused row scrolls away does not grab the hidden row', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 405, bubbles: true })));
+  await expect(page.locator('.edit-hints')).toBeVisible();
+  const main = page.locator('#view-channels .channel-main');
+  await page.keyboard.press('ArrowDown');
+  const hidden = main.locator('[data-list-position="1"]');
+  await expect(hidden).toHaveClass(/\bfocused\b/);
+
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 3000; });
+  await expect(hidden).toHaveCount(0);
+
+  await page.keyboard.press('Enter');
+  const focused = main.locator('.focused');
+  await expect(focused).toHaveCount(1);
+  const view = await main.boundingBox();
+  const row = await focused.boundingBox();
+  if (!view || !row) throw new Error('no layout');
+  expect(rowInView(row, view)).toBe(true);
+
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 0; });
+  await expect(hidden).toBeVisible();
+  await expect(page.locator('.grabbed')).toHaveCount(0);
+});
+
+test('OK in edit mode with a grabbed row scrolled away brings the grabbed row back', async ({ page }) => {
+  const events: string[] = [];
+  page.on('console', (msg) => events.push(msg.text()));
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 405, bubbles: true })));
+  await expect(page.locator('.edit-hints')).toBeVisible();
+  const main = page.locator('#view-channels .channel-main');
+  await page.keyboard.press('ArrowDown');
+  const grabbed = main.locator('[data-list-position="1"]');
+  await expect(grabbed).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('Enter');
+  await expect(grabbed).toHaveClass(/\bgrabbed\b/);
+
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 3000; });
+  await expect(grabbed).toHaveCount(0);
+
+  await page.keyboard.press('Enter');
+  await expect(grabbed).toHaveClass(/\bgrabbed\b/);
+  await expect(grabbed).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.grabbed')).toHaveCount(1);
+  const view = await main.boundingBox();
+  const row = await grabbed.boundingBox();
+  if (!view || !row) throw new Error('no layout');
+  expect(rowInView(row, view)).toBe(true);
+  expect(events.some((text) => /event=channel_list\.focus\.resumed list=channel target=grabbed\b/.test(text))).toBe(true);
+
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.grabbed')).toHaveCount(0);
+});
+
+async function enterEditMode(page: Page): Promise<void> {
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 405, bubbles: true })));
+  await expect(page.locator('.edit-hints')).toBeVisible();
+}
+
+test('a focused row scrolled just out of view, still rendered, is not acted on', async ({ page }) => {
+  const events: string[] = [];
+  page.on('console', (msg) => events.push(msg.text()));
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  await enterEditMode(page);
+  const main = page.locator('#view-channels .channel-main');
+  await page.keyboard.press('ArrowDown');
+  const hidden = main.locator('[data-list-position="1"]');
+  await expect(hidden).toHaveClass(/\bfocused\b/);
+
+  // Within the virtual list's overscan: the row stays in the DOM.
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 500; });
+  await expect(hidden).toHaveCount(1);
+  const view = await main.boundingBox();
+  if (!view) throw new Error('no layout');
+  expect(((await hidden.boundingBox())?.y ?? 0) + 88).toBeLessThanOrEqual(view.y);
+
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.grabbed')).toHaveCount(0);
+  const focused = main.locator('.focused');
+  await expect(focused).toHaveCount(1);
+  const row = await focused.boundingBox();
+  if (!row) throw new Error('no layout');
+  expect(rowInView(row, view)).toBe(true);
+  expect(events.some((text) => /event=channel_list\.focus\.resumed list=channel target=nearest .*rendered=yes/.test(text))).toBe(true);
+
+  await page.keyboard.press('Escape');
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 0; });
+  await page.keyboard.press('ArrowDown');
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 500; });
+  const before = await main.evaluate((el) => el.scrollTop);
+  await page.keyboard.press('ArrowDown');
+  // The list stays where it was scrolled instead of snapping back.
+  expect(Math.abs((await main.evaluate((el) => el.scrollTop)) - before)).toBeLessThan(100);
+});
+
+test('OK in edit mode with a grabbed group scrolled away brings the group back', async ({ page }) => {
+  const lines = ['#EXTM3U'];
+  for (let i = 1; i <= 200; i++) {
+    lines.push(`#EXTINF:-1 group-title="Group ${String(i)}",Ch ${String(i)}`, `http://host/${String(i)}.m3u8`);
+  }
+  await routePlaylist(page, lines.join('\n'));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  await enterEditMode(page);
+  const groups = page.locator('#view-channels .group-list');
+  for (let i = 0; i < 4 && (await groups.locator('.focused').count()) === 0; i++) {
+    await page.keyboard.press('ArrowLeft');
+  }
+  for (let i = 0; i < 6 && !(await groups.locator('.focused').getAttribute('data-group') ?? '').startsWith('source:'); i++) {
+    await page.keyboard.press('ArrowDown');
+  }
+  const start = groups.locator('.focused');
+  await expect(start).toHaveAttribute('data-group', /^source:/);
+  const key = await start.getAttribute('data-key');
+  const grabbed = groups.locator(`[data-key="${String(key)}"]`);
+  await page.keyboard.press('Enter');
+  await expect(grabbed).toHaveClass(/\bgrabbed\b/);
+
+  await settleVirtualScroll(page);
+  await groups.evaluate((el) => { el.scrollTop = 5000; });
+  await expect(grabbed).toHaveCount(0);
+  await page.keyboard.press('Enter');
+  await expect(grabbed).toHaveClass(/\bfocused\b/);
+  await expect(groups.locator('.grabbed')).toHaveCount(1);
+  await expect(grabbed).toHaveClass(/\bgrabbed\b/);
+
+  // Down only brings it back, like Up; the next Down moves it. Scroll after
+  // the virtual list's own scroll settles, as a user would.
+  const position = await grabbed.getAttribute('data-group-position');
+  await settleVirtualScroll(page);
+  await groups.evaluate((el) => { el.scrollTop = 5000; });
+  await expect(grabbed).toHaveCount(0);
+  await page.keyboard.press('ArrowDown');
+  await expect(grabbed).toHaveClass(/\bfocused\b/);
+  await expect(grabbed).toHaveAttribute('data-group-position', String(position));
+  await page.keyboard.press('ArrowDown');
+  await expect(grabbed).toHaveClass(/\bfocused\b/);
+  await expect(grabbed).not.toHaveAttribute('data-group-position', String(position));
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.grabbed')).toHaveCount(0);
+});
+
+test('focus resumed in edit mode is not hidden under the hints bar', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  await enterEditMode(page);
+  const main = page.locator('#view-channels .channel-main');
+  for (let i = 0; i < 40; i++) await page.keyboard.press('ArrowDown');
+  await expect(main.locator('[data-list-position="40"]')).toHaveClass(/\bfocused\b/);
+
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 0; });
+  await expect(main.locator('[data-list-position="40"]')).toHaveCount(0);
+  await page.keyboard.press('ArrowDown');
+  const focused = main.locator('.focused');
+  await expect(focused).toHaveCount(1);
+  const row = await focused.boundingBox();
+  const hints = await page.locator('.edit-hints').boundingBox();
+  if (!row || !hints) throw new Error('no layout');
+  expect(row.y + row.height).toBeLessThanOrEqual(hints.y + 1);
+});
+
+test('Up on a focused first row just out of view resumes instead of leaving the list', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  const main = page.locator('#view-channels .channel-main');
+  const row0 = main.locator('[data-list-position="0"]');
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 500; });
+  await expect(row0).toHaveCount(1);
+
+  // Up on row 0 would otherwise hand focus to the tab bar.
+  await page.keyboard.press('ArrowUp');
+  const focused = page.locator('#view-channels .channel-main .focused');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).not.toHaveAttribute('data-list-position', '0');
+  const view = await main.boundingBox();
+  const row = await focused.boundingBox();
+  if (!view || !row) throw new Error('no layout');
+  expect(rowInView(row, view)).toBe(true);
+});
+
+test('Green on a focused row just out of view resumes instead of toggling its favorite', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  const main = page.locator('#view-channels .channel-main');
+  const favorites = page.locator('#view-channels [data-group="builtin:favorites"]');
+  const before = await favorites.textContent();
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 500; });
+  await expect(main.locator('[data-list-position="0"]')).toHaveCount(1);
+
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 404, bubbles: true })));
+  const focused = main.locator('.focused');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).not.toHaveAttribute('data-list-position', '0');
+  expect(await favorites.textContent()).toBe(before);
+});
+
+test('OK commits a rename even after the renamed row scrolls out of view', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  await enterEditMode(page);
+  const main = page.locator('#view-channels .channel-main');
+  await page.keyboard.press('Enter');
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 406, bubbles: true })));
+  const field = page.locator('.edit-text-input');
+  await field.fill('Renamed');
+  // Closing the on-screen keyboard leaves the field open but unfocused, so
+  // the remote's OK reaches the list.
+  await field.evaluate((el) => { (el as HTMLInputElement).blur(); });
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 500; });
+
+  await page.keyboard.press('Enter');
+  await expect(field).toHaveCount(0);
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 0; });
+  await expect(main.locator('[data-list-position="0"] .channel-name')).toHaveText('Renamed');
+});
+
+test('OK on a rename whose row left the rendered list brings it back with the typed name', async ({ page }) => {
+  const events: string[] = [];
+  page.on('console', (msg) => events.push(msg.text()));
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  await enterEditMode(page);
+  const main = page.locator('#view-channels .channel-main');
+  const row0 = main.locator('[data-list-position="0"]');
+  await page.keyboard.press('Enter');
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 406, bubbles: true })));
+  const field = page.locator('.edit-text-input');
+  await field.fill('Renamed');
+  await field.evaluate((el) => { (el as HTMLInputElement).blur(); });
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 3000; });
+  await expect(row0).toHaveCount(0);
+
+  await page.keyboard.press('Enter');
+  await expect(row0.locator('.edit-text-input')).toHaveValue('Renamed');
+  expect(events.some((text) => text.includes('event=channel_edit.rename.restored kind=channel'))).toBe(true);
+  await row0.locator('.edit-text-input').evaluate((el) => { (el as HTMLInputElement).blur(); });
+  await page.keyboard.press('Enter');
+  await expect(field).toHaveCount(0);
+  await expect(row0.locator('.channel-name')).toHaveText('Renamed');
+});
+
+test('Blue on a grabbed row scrolled out of view opens the rename on that row', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  await enterEditMode(page);
+  const main = page.locator('#view-channels .channel-main');
+  await page.keyboard.press('ArrowDown');
+  const row1 = main.locator('[data-list-position="1"]');
+  await expect(row1).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('Enter');
+  await expect(row1).toHaveClass(/\bgrabbed\b/);
+  await settleVirtualScroll(page);
+  await main.evaluate((el) => { el.scrollTop = 3000; });
+  await expect(row1).toHaveCount(0);
+
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 406, bubbles: true })));
+  await expect(row1.locator('.edit-text-input')).toHaveCount(1);
 });

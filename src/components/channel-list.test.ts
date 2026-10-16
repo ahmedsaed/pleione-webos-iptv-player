@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Channel } from '../types';
 import type { RecentlyWatchedItem } from '../services/recently-watched';
 
@@ -336,6 +336,71 @@ describe('ChannelList.render', () => {
     list.render();
     expect(container.querySelector('.channel-search')).toBeNull();
     expect(container.querySelector('.search-icon')).toBeNull();
+  });
+
+  describe('with focus scrolled out of the rendered rows', () => {
+    let original: Channel[];
+    let main: HTMLElement;
+
+    beforeEach(() => {
+      original = data.raw.slice();
+      data.raw.splice(0, data.raw.length);
+      for (let i = 0; i < 300; i++) {
+        data.raw.push({
+          ...original[0],
+          id: `ch${String(i)}`,
+          name: `Channel ${String(i)}`,
+          logo: `http://host/logo${String(i)}.png`,
+          url: `http://host/${String(i)}`,
+        });
+      }
+      playlistMock.applyCustomization();
+      list.setPlaying(0);
+      list.render();
+      main = container.querySelector<HTMLElement>('.channel-main')!;
+      expect(main.querySelector('[data-list-position="0"]')?.classList.contains('focused')).toBe(true);
+    });
+
+    function scrollTo(offset: number): void {
+      main.scrollTop = offset;
+      main.dispatchEvent(new Event('scroll'));
+      list.render(false);
+    }
+
+    afterEach(() => {
+      data.raw.splice(0, data.raw.length, ...original);
+      playlistMock.applyCustomization();
+    });
+
+    it('a failed logo keeps a focused row scrolled just out of view where it is', () => {
+      scrollTo(200);
+      const row0 = main.querySelector('[data-list-position="0"]');
+      expect(row0?.classList.contains('focused')).toBe(true);
+      main.querySelector<HTMLImageElement>('img.channel-logo')!.dispatchEvent(new Event('error'));
+
+      expect(main.scrollTop).toBe(200);
+    });
+
+    it('a failed logo keeps the scroll position and the detached focus', () => {
+      scrollTo(3000);
+      expect(main.querySelector('[data-list-position="0"]')).toBeNull();
+      const logo = main.querySelector<HTMLImageElement>('img.channel-logo')!;
+      logo.dispatchEvent(new Event('error'));
+
+      expect(main.scrollTop).toBe(3000);
+      expect(main.querySelector('[data-list-position="0"]')).toBeNull();
+      expect(container.querySelector('.focused')).toBeNull();
+    });
+
+    it('a full render leaves the detached focus for the next key to resume', () => {
+      scrollTo(3000);
+      expect(main.querySelector('[data-list-position="0"]')).toBeNull();
+      list.render();
+
+      expect(main.scrollTop).toBe(3000);
+      expect(main.querySelector('[data-list-position="0"]')).toBeNull();
+      expect(container.querySelector('.focused')).toBeNull();
+    });
   });
 
   it('renders a bounded window for 50,000 channels', () => {

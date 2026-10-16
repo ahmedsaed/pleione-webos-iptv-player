@@ -51,10 +51,10 @@ test.use({ timezoneId: 'UTC' });
 
 async function setup(
   page: Page,
-  options: { enabled?: boolean; stub?: boolean; epg?: boolean | string; now?: string } = {},
+  options: { enabled?: boolean; stub?: boolean; epg?: boolean | string; now?: string; playlist?: string } = {},
 ): Promise<void> {
   await page.clock.setFixedTime(new Date(options.now || '2026-09-15T12:00:00Z'));
-  await routePlaylist(page, CHANNELS);
+  await routePlaylist(page, options.playlist ?? CHANNELS);
   await routeLiveManifest(page);
   await page.route('http://host/guide.xml', route => route.fulfill({
     contentType: 'application/xml',
@@ -109,7 +109,8 @@ async function setup(
     }, true);
   }, { enabled: options.enabled, stub: options.stub !== false });
   await page.goto('/');
-  await expect(page.locator(ROW)).toHaveCount(2);
+  if (options.playlist) await expect(page.locator(ROW).first()).toBeVisible();
+  else await expect(page.locator(ROW)).toHaveCount(2);
 }
 
 async function selectFirst(page: Page): Promise<void> {
@@ -428,6 +429,37 @@ test('D-pad enters controls and returns to the selected row without stopping', a
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowLeft');
   await expect(page.locator(`${ROW}.focused`)).toContainText('ch1');
+});
+
+test('Left from the controls after the list scrolls resumes at a row in view', async ({ page }) => {
+  const events: string[] = [];
+  page.on('console', (msg) => events.push(msg.text()));
+  const lines = ['#EXTM3U'];
+  for (let i = 1; i <= 300; i++) {
+    lines.push(`#EXTINF:-1 tvg-id="ch${String(i)}" group-title="Group 1",ch${String(i)}`,
+      `http://host/ch${String(i)}.m3u8`);
+  }
+  await setup(page, { enabled: true, playlist: lines.join('\n') });
+  await selectFirst(page);
+  await page.mouse.move(0, 0);
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator(MUTE)).toHaveClass(/focused/);
+
+  // The wheel scrolls the list under the pointer while the controls keep focus.
+  const main = page.locator('#channel-browser .channel-main');
+  await main.evaluate((el) => { el.scrollTop = 3000; });
+  await expect(main.locator('[data-list-position="0"]')).toHaveCount(0);
+
+  await page.keyboard.press('ArrowLeft');
+  const focused = page.locator(`${ROW}.focused`);
+  await expect(focused).toHaveCount(1);
+  const view = await main.boundingBox();
+  const row = await focused.boundingBox();
+  if (!view || !row) throw new Error('no layout');
+  expect(row.y).toBeGreaterThanOrEqual(view.y - 1);
+  expect(row.y + row.height).toBeLessThanOrEqual(view.y + view.height + 1);
+  expect(await main.evaluate((el) => el.scrollTop)).toBeGreaterThan(2000);
+  expect(events.some((text) => text.includes('event=channel_list.focus.resumed'))).toBe(true);
 });
 
 test('entering channel edit mode closes the active preview', async ({ page }) => {

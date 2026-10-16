@@ -51,6 +51,7 @@ const POINTER_EXIT_DWELL_MS = 500;
 // Row strides mirror the fixed row geometry in css/player.css: .sidebar-ch-item
 // is 84px plus a 4px gap, .sidebar-group-item is 64px.
 const CHANNEL_ROW_STRIDE = 88;
+const CHANNEL_ROW_GAP = 4;
 const GROUP_ROW_STRIDE = 64;
 const CHANNEL_OVERSCAN = 12;
 const FALLBACK_LIST_HEIGHT = 800;
@@ -79,6 +80,7 @@ export class Sidebar {
   private searchQuery = '';
   keyboardOn = false; // while on, the sidebar never auto-hides
   private hoverCleared = false; // highlight removed on mouseleave; next hover re-shows it
+  private lastWheelAt = 0;
   private opening = false;
   private readonly channelVirtualizer = new VirtualList({
     itemSize: CHANNEL_ROW_STRIDE,
@@ -290,6 +292,9 @@ export class Sidebar {
       return;
     }
 
+    // Left/Right still run after a resume so they don't reveal a stale row.
+    if (action === 'left' || action === 'right') this.resumeDetachedFocus();
+
     if (action === 'left') {
       if (!this.groupsExpanded) {
         this.openGroups();
@@ -304,6 +309,12 @@ export class Sidebar {
     if (action === 'right') {
       if (this.groupsExpanded) this.collapseGroups();
       else this.hide();
+      return;
+    }
+
+    if ((action === 'up' || action === 'down' || action === 'channel_up'
+        || action === 'channel_down' || action === 'select') && this.resumeDetachedFocus()) {
+      this.resetTimer();
       return;
     }
 
@@ -518,10 +529,12 @@ export class Sidebar {
     this.hoverCleared = true;
   }
 
-  private updateFocus(items?: NodeListOf<HTMLElement>): void {
+  // Pointer focus skips reveal: the row is already under the pointer, and the
+  // virtualizer offset may lag a native wheel scroll.
+  private updateFocus(items?: NodeListOf<HTMLElement>, reveal = true): void {
     this.hoverCleared = false;
     if (this.activePane === 'channels') {
-      if (this.ensureFocusVisible()) {
+      if (reveal && this.ensureFocusVisible()) {
         this.render();
         return;
       }
@@ -546,10 +559,12 @@ export class Sidebar {
       this.el?.querySelectorAll<HTMLElement>('.sidebar-tab').forEach((item, index) => {
         item.classList.toggle('focused', index === this.sourceFocusIdx);
       });
-      this.el?.querySelector('.sidebar-tab.focused')
-        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      if (reveal) {
+        this.el?.querySelector('.sidebar-tab.focused')
+          ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
     } else {
-      if (this.ensureGroupFocusVisible()) {
+      if (reveal && this.ensureGroupFocusVisible()) {
         this.render();
         return;
       }
@@ -562,8 +577,10 @@ export class Sidebar {
         item.classList.toggle('focused',
           parseInt(item.dataset.groupPos || '-1', 10) === this.groupFocusIdx);
       });
-      this.el?.querySelector('.sidebar-group-item.focused')
-        ?.scrollIntoView({ block: 'nearest' });
+      if (reveal) {
+        this.el?.querySelector('.sidebar-group-item.focused')
+          ?.scrollIntoView({ block: 'nearest' });
+      }
     }
   }
 
@@ -581,6 +598,38 @@ export class Sidebar {
     this.sourceFocusIdx = selected >= 0 ? selected : 0;
     this.activePane = 'sources';
     this.updateFocus();
+  }
+
+  // The wheel scrolls without moving focus, so the focused row is lost when the
+  // pointer stops over padding or a key beats the hover sync. Resume at the
+  // nearest row in view instead of scrolling back to it.
+  private resumeDetachedFocus(): boolean {
+    if (!this.el || this.activePane === 'sources') return false;
+    const channels = this.activePane === 'channels';
+    const list = this.el.querySelector<HTMLElement>(
+      channels ? '.sidebar-channel-list' : '.sidebar-group-list',
+    );
+    const index = channels ? this.channelFocusIdx : this.groupFocusIdx;
+    const count = channels ? this.getChannelCount() : this.getGroups().length;
+    if (!list || !list.clientHeight || index < 0 || count === 0) return false;
+    const stride = channels ? CHANNEL_ROW_STRIDE : GROUP_ROW_STRIDE;
+    const rowHeight = channels ? CHANNEL_ROW_STRIDE - CHANNEL_ROW_GAP : GROUP_ROW_STRIDE;
+    const padding = parseFloat(getComputedStyle(list).paddingTop) || 0;
+    const top = list.scrollTop - padding;
+    const bottom = top + list.clientHeight;
+    const rowTop = index * stride;
+    if (rowTop + rowHeight > top && rowTop < bottom) return false;
+    const first = Math.max(0, Math.ceil(top / stride));
+    const last = Math.min(count - 1, Math.floor((bottom - rowHeight) / stride));
+    if (first > last) return false;
+    const target = index < first ? first : last;
+    if (channels) this.channelFocusIdx = target;
+    else this.groupFocusIdx = target;
+    log.debug('Resumed detached focus', 'event=sidebar.focus.resumed',
+      `pane=${this.activePane}`, `distance=${String(Math.abs(target - index))}`);
+    this.render();
+    this.updateFocus(undefined, false);
+    return true;
   }
 
   private ensureFocusVisible(): boolean {
@@ -692,9 +741,8 @@ export class Sidebar {
     const groups = this.getGroups();
     const selected = groups.findIndex(group => group.id === this.group);
     this.groupFocusIdx = selected >= 0 ? selected : 0;
-    this.groupVirtualizer.centerOn(this.groupFocusIdx, FALLBACK_LIST_HEIGHT);
     this.syncPanelState();
-    this.render();
+    this.render(true, true);
   }
 
   private collapseGroups(): void {
@@ -760,7 +808,9 @@ export class Sidebar {
     this.pointerExitTimer = null;
   }
 
-  private render(measureMarquees = true): void {
+  // Only opening the groups pane reveals its focus; key moves reveal through
+  // updateFocus, and background renders keep the user's scroll offset.
+  private render(measureMarquees = true, revealGroup = false): void {
     const el = this.el;
     if (!el) return;
 
@@ -788,9 +838,7 @@ export class Sidebar {
     if (previousGroupList) this.groupVirtualizer.setScrollOffset(previousGroupList.scrollTop);
     const viewportHeight = previousList?.clientHeight || FALLBACK_LIST_HEIGHT;
     const groupViewportHeight = previousGroupList?.clientHeight || FALLBACK_LIST_HEIGHT;
-    if (this.groupsExpanded && this.activePane === 'groups') {
-      this.groupVirtualizer.ensureVisible(this.groupFocusIdx, groupViewportHeight);
-    }
+    if (revealGroup) this.groupVirtualizer.centerOn(this.groupFocusIdx, groupViewportHeight);
     const groupRange = this.groupVirtualizer.getRange(groups.length, groupViewportHeight);
     const range = this.channelVirtualizer.getRange(entryCount, viewportHeight);
     const visibleEntries: SidebarEntry[] = [];
@@ -1197,7 +1245,7 @@ export class Sidebar {
         if (this.activePane !== 'groups' || pos !== this.groupFocusIdx || this.hoverCleared) {
           this.activePane = 'groups';
           this.groupFocusIdx = pos;
-          this.updateFocus();
+          this.updateFocus(undefined, false);
         }
         this.resetTimer();
         return;
@@ -1212,6 +1260,7 @@ export class Sidebar {
             || this.hoverCleared) {
           this.activePane = 'sources';
           this.sourceFocusIdx = position;
+          // The tab strip isn't virtualized, so revealing a half-hidden tab is safe.
           this.updateFocus();
         }
         this.resetTimer();
@@ -1225,7 +1274,7 @@ export class Sidebar {
       if (this.activePane !== 'channels' || pos !== this.channelFocusIdx || this.hoverCleared) {
         this.activePane = 'channels';
         this.channelFocusIdx = pos;
-        this.updateFocus();
+        this.updateFocus(undefined, false);
       }
       this.resetTimer();
     });
@@ -1258,24 +1307,17 @@ export class Sidebar {
       });
     }, true);
 
-    // Scroll wheel moves focus within the pane under the pointer.
+    // The wheel scrolls natively and hover moves the highlight. Stepping focus
+    // here raced the scroll event and yanked the list back to the stale offset.
     el.addEventListener('wheel', (e: WheelEvent) => {
       e.stopPropagation();
-      const target = e.target as HTMLElement;
-      if (target.closest('.sidebar-group-panel')) {
-        const len = this.getGroups().length;
-        this.activePane = 'groups';
-        if (e.deltaY < 0) this.groupFocusIdx = Math.max(0, this.groupFocusIdx - 1);
-        else if (e.deltaY > 0) this.groupFocusIdx = Math.min(len - 1, this.groupFocusIdx + 1);
-      } else {
-        const len = this.getChannelCount();
-        this.activePane = 'channels';
-        if (e.deltaY < 0) this.channelFocusIdx = Math.max(0, this.channelFocusIdx - 1);
-        else if (e.deltaY > 0) {
-          this.channelFocusIdx = Math.min(len - 1, this.channelFocusIdx + 1);
-        }
+      const now = Date.now();
+      if (now - this.lastWheelAt > 500) {
+        const pane = (e.target as HTMLElement).closest('.sidebar-group-panel')
+          ? 'groups' : 'channels';
+        log.debug('Wheel scroll', 'event=sidebar.wheel.scroll', `pane=${pane}`);
       }
-      this.updateFocus();
+      this.lastWheelAt = now;
       this.resetTimer();
     }, { passive: false });
   }

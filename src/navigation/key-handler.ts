@@ -7,6 +7,8 @@ type ActionHandler = (action: Action, event?: NumberEvent) => void;
 
 const log = createLogger('Key');
 const K = CONFIG.KEYS;
+const WHEEL_SCROLL_WINDOW_MS = 1000;
+const HOVER_SYNC_DELAY_MS = 60;
 
 const ACTION_MAP: Record<number, Action> = {
   [K.UP]: 'up',
@@ -48,8 +50,8 @@ let channelCount: (() => number) | null = null;
 let wheelWarmedUp = true;
 let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
-function hasScrollableAncestor(el: HTMLElement | null): boolean {
-  for (let node: HTMLElement | null = el; node && node !== document.body; node = node.parentElement) {
+function hasScrollableAncestor(el: Element | null): boolean {
+  for (let node: Element | null = el; node && node !== document.body; node = node.parentElement) {
     if (node.scrollHeight <= node.clientHeight) continue;
     const overflow = getComputedStyle(node).overflowY;
     if (overflow === 'auto' || overflow === 'scroll') return true;
@@ -160,26 +162,104 @@ export const KeyHandler = {
     const root = document.documentElement;
     let pointerX: number | null = null;
     let pointerY: number | null = null;
-    document.addEventListener('keydown', () => root.classList.add('keyboard-nav'), true);
-    document.addEventListener('mousemove', (e: MouseEvent) => {
-      const moved = pointerX !== null && (e.screenX !== pointerX || e.screenY !== pointerY);
-      pointerX = e.screenX;
-      pointerY = e.screenY;
-      if (moved) root.classList.remove('keyboard-nav');
-    }, true);
 
     // Mouse support for desktop preview. Skip re-dispatching when the focusable hasn't changed.
     let lastHover: HTMLElement | null = null;
+    let suppressedHovers = 0;
+    let rehoverPending = false;
     const setHoverTarget = (target: HTMLElement | null): void => {
+      rehoverPending = false;
       if (target === lastHover) return;
       lastHover?.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
       lastHover = target;
       target?.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     };
+    const focusableAt = (e: MouseEvent): HTMLElement | null =>
+      e.target instanceof Element ? e.target.closest<HTMLElement>('[data-focusable]') : null;
+
+    const resumePointer = (e: MouseEvent, via: string): void => {
+      if (!root.classList.contains('keyboard-nav')) return;
+      root.classList.remove('keyboard-nav');
+      if (suppressedHovers > 0) {
+        log.debug('Hover resumed', 'event=nav.hover.resumed', `via=${via}`,
+          `suppressed=${suppressedHovers}`);
+        suppressedHovers = 0;
+      }
+      const target = focusableAt(e);
+      // The D-pad moved focus away, so hovering the same element again must
+      // still re-dispatch nav:hover to pull focus back under the pointer.
+      if (rehoverPending && target && target === lastHover) {
+        rehoverPending = false;
+        target.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      } else {
+        setHoverTarget(target);
+      }
+    };
+
+    document.addEventListener('keydown', (e: KeyboardEvent) => {
+      // webOS reports its cursor appearing or hiding as a key press; neither
+      // is the D-pad taking over.
+      if (e.keyCode === K.CURSOR_SHOW || e.keyCode === K.CURSOR_HIDE) return;
+      root.classList.add('keyboard-nav');
+      rehoverPending = true;
+    }, true);
+    let pointerClientX = 0;
+    let pointerClientY = 0;
+    document.addEventListener('mousemove', (e: MouseEvent) => {
+      const moved = pointerX !== null && (e.screenX !== pointerX || e.screenY !== pointerY);
+      pointerX = e.screenX;
+      pointerY = e.screenY;
+      pointerClientX = e.clientX;
+      pointerClientY = e.clientY;
+      if (moved) resumePointer(e, 'move');
+    }, true);
+    // Scrolling content with the wheel is pointer use even with the cursor at
+    // rest; the hovers it causes must follow the pointer again. A wheel that
+    // only steps channels moves nothing under the pointer.
+    let wheelScrollUntil = 0;
+    document.addEventListener('wheel', (e: WheelEvent) => {
+      // An SVG icon under the pointer still sits in the scrolled list.
+      if (e.target instanceof Element && hasScrollableAncestor(e.target)) {
+        pointerClientX = e.clientX;
+        pointerClientY = e.clientY;
+        wheelScrollUntil = Date.now() + WHEEL_SCROLL_WINDOW_MS;
+        resumePointer(e, 'wheel');
+      }
+    }, true);
+    // webOS fires no mouseover as wheel-scrolled content slides under a resting
+    // cursor, so hover what lands under it once the scroll (and any virtual
+    // list re-render) settles.
+    let hoverSyncTimer: ReturnType<typeof setTimeout> | null = null;
+    document.addEventListener('scroll', () => {
+      if (Date.now() > wheelScrollUntil) return;
+      if (hoverSyncTimer !== null) clearTimeout(hoverSyncTimer);
+      hoverSyncTimer = setTimeout(() => {
+        hoverSyncTimer = null;
+        if (root.classList.contains('keyboard-nav')) return;
+        const hit = document.elementFromPoint(pointerClientX, pointerClientY);
+        if (!hit) return;
+        log.debug('Hover synced after scroll', 'event=nav.hover.synced', 'via=wheel');
+        // A real mouseover, so views with their own hover handling follow too.
+        hit.dispatchEvent(new MouseEvent('mouseover', {
+          bubbles: true,
+          clientX: pointerClientX,
+          clientY: pointerClientY,
+          screenX: pointerX ?? 0,
+          screenY: pointerY ?? 0,
+        }));
+      }, HOVER_SYNC_DELAY_MS);
+    }, true);
+    // While the D-pad drives, rows scrolling under a resting cursor fire
+    // mouseover too; following them would pull focus back under the pointer.
+    // Capture phase, so components with their own mouseover never see them.
     document.addEventListener('mouseover', (e: MouseEvent) => {
-      const target = (e.target as HTMLElement).closest<HTMLElement>('[data-focusable]');
-      setHoverTarget(target);
-    });
+      if (root.classList.contains('keyboard-nav')
+          && e.screenX === pointerX && e.screenY === pointerY) {
+        suppressedHovers++;
+        e.stopImmediatePropagation();
+      }
+    }, true);
+    document.addEventListener('mouseover', (e: MouseEvent) => setHoverTarget(focusableAt(e)));
     // Cursor left the window: forget the last hover so returning to the same
     // element re-dispatches nav:hover (re-showing a cleared highlight).
     document.documentElement.addEventListener('mouseleave', () => setHoverTarget(null));
@@ -189,7 +269,7 @@ export const KeyHandler = {
     // focus would snap back to the cursor as content scrolls underneath it.
     // First scroll after pointer was hidden just reactivates the cursor.
     document.addEventListener('wheel', (e: WheelEvent) => {
-      if (hasScrollableAncestor(e.target as HTMLElement)) return;
+      if (hasScrollableAncestor(e.target as Element)) return;
       e.preventDefault();
 
       // Reset idle timer — if no scroll for 5s, next scroll is swallowed

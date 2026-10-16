@@ -76,6 +76,19 @@ export function focusWithoutScroll(el: HTMLElement): void {
   }
 }
 
+// Overrides the CSS smooth-scroll policy for one synchronous scroll. Goes
+// through setProperty, which works whether or not the engine reflects
+// `style.scrollBehavior`.
+export function withInstantScroll(nodes: HTMLElement[], scroll: () => void): void {
+  const saved = nodes.map((node) => node.style.getPropertyValue('scroll-behavior'));
+  nodes.forEach((node) => node.style.setProperty('scroll-behavior', 'auto'));
+  try {
+    scroll();
+  } finally {
+    nodes.forEach((node, i) => node.style.setProperty('scroll-behavior', saved[i]));
+  }
+}
+
 // --- Safe HTML templating ------------------------------------------------
 // Channel names, programme titles, logo URLs etc. come from untrusted M3U /
 // XMLTV sources. Interpolating them straight into innerHTML is a DOM-XSS hole,

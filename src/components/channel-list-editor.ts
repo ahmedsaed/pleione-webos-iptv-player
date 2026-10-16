@@ -49,6 +49,8 @@ export class ChannelListEditor {
   private editing = false;
   private grabbed: EditTarget | null = null;
   private renaming: EditTarget | null = null;
+  // The row, and its field, can scroll out of the rendered list mid-rename.
+  private renameDraft: string | null = null;
   private groupPickerFor: string | null = null;
   private newGroupOpen = false;
   private epgPickerFor: string | null = null;
@@ -145,6 +147,11 @@ export class ChannelListEditor {
     });
     this.container.addEventListener('input', (event: Event) => {
       const input = event.target;
+      if (input instanceof HTMLInputElement && this.renaming && !this.newGroupOpen
+          && input.classList.contains('edit-text-input')) {
+        this.renameDraft = input.value;
+        return;
+      }
       if (!(input instanceof HTMLInputElement)
           || !input.classList.contains('epg-mapping-search')) return;
       this.epgQuery = input.value;
@@ -216,6 +223,16 @@ export class ChannelListEditor {
     return this.favoriteSelection !== null;
   }
 
+  get hasGrabbed(): boolean {
+    return this.grabbed !== null;
+  }
+
+  // A text field or picker takes every key, whatever row holds focus.
+  get ownsInput(): boolean {
+    return this.renaming !== null || this.newGroupOpen || this.groupPickerFor !== null
+      || this.epgPickerFor !== null || this.epgOffsetFor !== null;
+  }
+
   get hasGroupPicker(): boolean {
     return this.groupPickerFor !== null;
   }
@@ -258,6 +275,7 @@ export class ChannelListEditor {
     this.favoriteSelection = null;
     this.grabbed = null;
     this.renaming = null;
+    this.renameDraft = null;
     this.groupPickerFor = null;
     this.newGroupOpen = false;
     this.epgPickerFor = null;
@@ -320,6 +338,7 @@ export class ChannelListEditor {
     }
     if (this.renaming) {
       this.renaming = null;
+      this.renameDraft = null;
       this.options.render();
       return true;
     }
@@ -378,6 +397,26 @@ export class ChannelListEditor {
     }, 0);
   }
 
+  // Aim the next render's focus at the grabbed row, wherever it scrolled.
+  refocusGrabbed(kind: EditTarget['kind']): boolean {
+    const grabbed = this.grabbed;
+    if (grabbed?.kind !== kind) return false;
+    const key = this.refocusKeyFor(grabbed);
+    if (!key) return false;
+    this.refocus = key;
+    return true;
+  }
+
+  private refocusKeyFor(target: EditTarget): string | null {
+    if (target.kind === 'channel') {
+      const index = PlaylistService.indexOfKey(target.key);
+      return index < 0 ? null : `ch:${String(index)}`;
+    }
+    const display = PlaylistService.getGroupsForPlaylist(this.options.getCurrentPlaylist() || undefined)
+      .find(name => this.groupKeyForDisplay(name) === target.key);
+    return display === undefined ? null : `g:source:${display}`;
+  }
+
   takeRefocusKey(previous: string | null): string | null {
     const key = this.refocus ?? previous;
     this.refocus = null;
@@ -429,6 +468,10 @@ export class ChannelListEditor {
 
   isGroupGrabbed(key: string): boolean {
     return this.grabbed?.kind === 'group' && this.grabbed.key === key;
+  }
+
+  renameValue(current: string): string {
+    return this.renameDraft ?? current;
   }
 
   isGroupRenaming(key: string): boolean {
@@ -773,6 +816,7 @@ export class ChannelListEditor {
       delta > 0,
     );
     this.applyEdit();
+    this.refocus = this.refocusKeyFor(grabbed);
     this.options.render();
   }
 
@@ -860,9 +904,7 @@ export class ChannelListEditor {
     if (target.kind === 'channel') ChannelCustomizationService.toggleHidden(target.key);
     else ChannelCustomizationService.toggleGroupHidden(target.key);
     this.applyEdit();
-    if (target.kind === 'channel') {
-      this.refocus = `ch:${PlaylistService.indexOfKey(target.key)}`;
-    }
+    this.refocus = this.refocusKeyFor(target);
     this.options.render();
   }
 
@@ -873,6 +915,8 @@ export class ChannelListEditor {
       return;
     }
     this.renaming = target;
+    this.renameDraft = null;
+    this.refocus = this.refocusKeyFor(target);
     this.options.render();
   }
 
@@ -895,12 +939,20 @@ export class ChannelListEditor {
     }
 
     const target = this.renaming;
+    if (target && !input) {
+      // Committing without the field would save an empty name; bring the row back.
+      this.refocus = this.refocusKeyFor(target);
+      log.debug('Restored rename row', 'event=channel_edit.rename.restored', `kind=${target.kind}`);
+      this.options.render();
+      return;
+    }
     if (target) {
       if (target.kind === 'group' && this.groupNameExists(target.key, value)) {
         showToast(t('channel.editGroupExists'));
         return;
       }
       this.renaming = null;
+      this.renameDraft = null;
       if (target.kind === 'channel') ChannelCustomizationService.rename(target.key, value);
       else ChannelCustomizationService.renameGroup(target.key, value);
       this.applyEdit();

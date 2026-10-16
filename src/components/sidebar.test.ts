@@ -567,6 +567,109 @@ describe('Sidebar', () => {
       }
     });
 
+    it('resumes group focus in view after the focused group scrolled away', () => {
+      const logs = vi.spyOn(console, 'log');
+      const originalGroups = PlaylistService.getGroupsForPlaylist;
+      const originalCount = PlaylistService.getGroupCount;
+      PlaylistService.getGroupsForPlaylist = () =>
+        Array.from({ length: 500 }, (_, index) => `Group ${String(index)}`);
+      PlaylistService.getGroupCount = () => 1;
+      PlaylistService.groupsRevision++;
+      try {
+        sidebar.refresh();
+        sidebar.handleAction('left');
+        const list = el.querySelector<HTMLElement>('.sidebar-group-list')!;
+        Object.defineProperty(list, 'clientHeight', { value: 640, configurable: true });
+        list.scrollTop = 6400;
+        list.dispatchEvent(new Event('scroll'));
+        vi.advanceTimersByTime(20);
+        expect(list.scrollTop).toBe(6400);
+
+        sidebar.handleAction('up');
+
+        expect(list.scrollTop).toBe(6400);
+        expect(el.querySelector<HTMLElement>('.sidebar-group-item.focused')?.dataset.groupPos)
+          .toBe('100');
+        const lines = logs.mock.calls.map(args => args.join(' '))
+          .filter(line => line.includes('event=sidebar.focus.resumed '));
+        expect(lines).toEqual([expect.stringMatching(/pane=groups distance=100$/)]);
+      } finally {
+        PlaylistService.getGroupsForPlaylist = originalGroups;
+        PlaylistService.getGroupCount = originalCount;
+        PlaylistService.groupsRevision++;
+      }
+    });
+
+    describe('with many groups', () => {
+      let originalGroups: typeof PlaylistService.getGroupsForPlaylist;
+      let originalCount: typeof PlaylistService.getGroupCount;
+
+      beforeEach(() => {
+        originalGroups = PlaylistService.getGroupsForPlaylist;
+        originalCount = PlaylistService.getGroupCount;
+        PlaylistService.getGroupsForPlaylist = () =>
+          Array.from({ length: 500 }, (_, index) => `Group ${String(index)}`);
+        PlaylistService.getGroupCount = () => 1;
+        PlaylistService.groupsRevision++;
+        sidebar.refresh();
+        sidebar.handleAction('left');
+      });
+
+      afterEach(() => {
+        PlaylistService.getGroupsForPlaylist = originalGroups;
+        PlaylistService.getGroupCount = originalCount;
+        PlaylistService.groupsRevision++;
+      });
+
+      function scrollGroups(scrollTop: number): HTMLElement {
+        const list = el.querySelector<HTMLElement>('.sidebar-group-list')!;
+        Object.defineProperty(list, 'clientHeight', { value: 640, configurable: true });
+        list.scrollTop = scrollTop;
+        list.dispatchEvent(new Event('scroll'));
+        vi.advanceTimersByTime(20);
+        return list;
+      }
+
+      it('a logo error render keeps the scrolled group list in place', () => {
+        const list = scrollGroups(6400);
+        const logo = document.createElement('img');
+        logo.className = 'ch-logo';
+        logo.setAttribute('src', 'http://host/a.png');
+        el.querySelector('.sidebar-ch-item')!.appendChild(logo);
+        logo.dispatchEvent(new Event('error'));
+
+        expect(list.scrollTop).toBe(6400);
+        expect(groupItems().some(item => item.dataset.groupPos === '100')).toBe(true);
+      });
+
+      it('a refresh keeps the scrolled group list in place', () => {
+        const list = scrollGroups(6400);
+        sidebar.refresh();
+
+        expect(list.scrollTop).toBe(6400);
+        expect(groupItems().some(item => item.dataset.groupPos === '100')).toBe(true);
+      });
+
+      it('opening groups scrolls a far-down current group into view', () => {
+        scrollGroups(400 * 64);
+        groupItems().find(item => item.dataset.groupPos === '403')!
+          .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        expect(el.querySelector('.sidebar-channel-title')?.textContent?.trim())
+          .toBe('Group 400');
+        sidebar.handleAction('right');
+        expect(el.classList.contains('channels-only')).toBe(true);
+        const list = scrollGroups(0);
+
+        sidebar.handleAction('left');
+
+        const focused = el.querySelector<HTMLElement>('.sidebar-group-item.focused');
+        expect(focused?.dataset.groupPos).toBe('403');
+        expect(focused?.classList.contains('active')).toBe(true);
+        // Centered in the 640px viewport: 403 * 64 - (640 - 64) / 2.
+        expect(list.scrollTop).toBe(403 * 64 - 288);
+      });
+    });
+
     it('uses the fitted group width for the pointer dismissal boundary', () => {
       sidebar.handleAction('left');
       el.querySelector<HTMLElement>('.sidebar-group-panel')!.getBoundingClientRect = () => ({
@@ -1050,15 +1153,26 @@ describe('Sidebar', () => {
       expect(spy).toHaveBeenCalledTimes(2);
     });
 
-    it('wheel down / up moves the focus highlight', () => {
+    it('wheel scrolls natively without stepping the focus highlight', () => {
+      const logs = vi.spyOn(console, 'log');
       const wheel = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
-      el.dispatchEvent(wheel);
-      expect(items()[2].classList.contains('focused')).toBe(true);
+      items()[1].dispatchEvent(wheel);
       expect(wheel.defaultPrevented).toBe(false);
-      el.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }));
-      expect(items()[2].classList.contains('focused')).toBe(true);
-      el.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true }));
       expect(items()[1].classList.contains('focused')).toBe(true);
+      expect(items()[2].classList.contains('focused')).toBe(false);
+      items()[1].dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true }));
+      const lines = logs.mock.calls.map(args => args.join(' '))
+        .filter(line => line.includes('event=sidebar.wheel.scroll '));
+      expect(lines).toEqual([expect.stringContaining('pane=channels')]);
+    });
+
+    it('hovering a source tab scrolls it into view', () => {
+      const tab = el.querySelector<HTMLElement>('[data-sidebar-playlist="PL2"]')!;
+      const reveal = vi.fn();
+      tab.scrollIntoView = reveal;
+      tab.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      expect(tab.classList.contains('focused')).toBe(true);
+      expect(reveal).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
     });
 
     it('does not stack listeners across re-renders (single select per click)', () => {
@@ -1108,6 +1222,102 @@ describe('Sidebar', () => {
 
       sidebar.handleAction('select');
       expect(onSelect).toHaveBeenCalledWith(30, undefined, { group: 'builtin:all', playlist: undefined });
+    });
+
+    it('hover after a not-yet-reported wheel scroll keeps the scroll position', () => {
+      sidebar.show();
+      const list = el.querySelector<HTMLElement>('.sidebar-channel-list')!;
+      Object.defineProperty(list, 'clientHeight', { value: 460, configurable: true });
+      list.scrollTop = 2300;
+      list.dispatchEvent(new Event('scroll'));
+      vi.advanceTimersByTime(20);
+      // The next native scroll lands before its scroll event fires.
+      list.scrollTop = 2500;
+      const row = items().find(item => item.dataset.sidebarPos === '32')!;
+      row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+
+      expect(list.scrollTop).toBe(2500);
+      expect(el.querySelector<HTMLElement>('.sidebar-ch-item.focused')?.dataset.sidebarPos)
+        .toBe('32');
+    });
+
+    it('resumes focus in view after the focused row scrolled away', () => {
+      const logs = vi.spyOn(console, 'log');
+      sidebar.show();
+      const list = el.querySelector<HTMLElement>('.sidebar-channel-list')!;
+      Object.defineProperty(list, 'clientHeight', { value: 460, configurable: true });
+      list.scrollTop = 2300;
+      list.dispatchEvent(new Event('scroll'));
+      vi.advanceTimersByTime(20);
+
+      sidebar.handleAction('down');
+
+      expect(list.scrollTop).toBe(2300);
+      expect(el.querySelector<HTMLElement>('.sidebar-ch-item.focused')?.dataset.sidebarPos)
+        .toBe('27');
+      const lines = logs.mock.calls.map(args => args.join(' '))
+        .filter(line => line.includes('event=sidebar.focus.resumed '));
+      expect(lines).toEqual([expect.stringMatching(/pane=channels distance=27$/)]);
+
+      sidebar.handleAction('down');
+      expect(el.querySelector<HTMLElement>('.sidebar-ch-item.focused')?.dataset.sidebarPos)
+        .toBe('28');
+    });
+
+    it('OK on a scrolled-away row resumes focus instead of tuning it', () => {
+      sidebar.show();
+      const list = el.querySelector<HTMLElement>('.sidebar-channel-list')!;
+      Object.defineProperty(list, 'clientHeight', { value: 460, configurable: true });
+      list.scrollTop = 2300;
+      list.dispatchEvent(new Event('scroll'));
+      vi.advanceTimersByTime(20);
+
+      sidebar.handleAction('select');
+
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(list.scrollTop).toBe(2300);
+      expect(el.querySelector<HTMLElement>('.sidebar-ch-item.focused')?.dataset.sidebarPos)
+        .toBe('27');
+    });
+
+    it('Left then Right after a wheel scroll keeps the scrolled list in place', () => {
+      const logs = vi.spyOn(console, 'log');
+      sidebar.show();
+      const list = el.querySelector<HTMLElement>('.sidebar-channel-list')!;
+      Object.defineProperty(list, 'clientHeight', { value: 460, configurable: true });
+      list.scrollTop = 2300;
+      list.dispatchEvent(new Event('scroll'));
+      vi.advanceTimersByTime(20);
+
+      sidebar.handleAction('left');
+      expect(el.classList.contains('groups-expanded')).toBe(true);
+      sidebar.handleAction('right');
+
+      expect(el.classList.contains('channels-only')).toBe(true);
+      expect(list.scrollTop).toBe(2300);
+      expect(el.querySelector<HTMLElement>('.sidebar-ch-item.focused')?.dataset.sidebarPos)
+        .toBe('27');
+      const lines = logs.mock.calls.map(args => args.join(' '))
+        .filter(line => line.includes('event=sidebar.focus.resumed '));
+      expect(lines).toEqual([expect.stringMatching(/pane=channels distance=27$/)]);
+    });
+
+    it('opening scrolls a far-down current channel into view', () => {
+      getCurrentIndex.mockReturnValue(900);
+      sidebar.show();
+      const list = el.querySelector<HTMLElement>('.sidebar-channel-list')!;
+      const focused = el.querySelector<HTMLElement>('.sidebar-ch-item.focused');
+      expect(focused?.dataset.sidebarPos).toBe('900');
+      // Centered in the 800px fallback viewport: 900 * 88 - (800 - 88) / 2.
+      expect(list.scrollTop).toBe(78844);
+
+      sidebar.hide();
+      list.scrollTop = 0;
+      getCurrentIndex.mockReturnValue(600);
+      sidebar.show();
+      expect(el.querySelector<HTMLElement>('.sidebar-ch-item.focused')?.dataset.sidebarPos)
+        .toBe('600');
+      expect(list.scrollTop).toBe(600 * 88 - 356);
     });
 
     it('updates the rendered window when the list scrolls', () => {

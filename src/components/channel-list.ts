@@ -28,6 +28,9 @@ import { ChannelListEditor } from './channel-list-editor';
 import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard } from '../utils/virtual-scroll';
 import { CONFIG } from '../config';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('ChannelList');
 
 // Row strides mirror the fixed row geometry in css/channel-list.css:
 // .channel-item is 88px, .group-item is 60px plus its 8px vertical margin.
@@ -89,6 +92,8 @@ export class ChannelList {
   });
   private scrollFrame: number | null = null;
   private groupScrollFrame: number | null = null;
+  // A focused row that scrolled out of the rendered window, by list and position.
+  private detachedFocus: { list: 'group' | 'channel'; position: number } | null = null;
   private channelScrollbarVisible = false;
   private channelScrollbarTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly scrollGuard = new VirtualScrollGuard();
@@ -123,7 +128,10 @@ export class ChannelList {
     this.getPreviewHintState = getPreviewHintState;
     this.nav = new SpatialNav(container, (el) => {
       this.editor?.trackFocus(el);
-      if (el) this.onListFocus();
+      if (el) {
+        this.detachedFocus = null;
+        this.onListFocus();
+      }
     });
     this.container.addEventListener('nav:hover', () => this.onListFocus());
     this.container.addEventListener('click', () => this.onListFocus(), true);
@@ -167,7 +175,7 @@ export class ChannelList {
       const src = target.getAttribute('src');
       if (src && !this.failedLogos.has(src)) {
         this.failedLogos.add(src);
-        this.render();
+        this.render(false);
       }
     }, true);
     this.container.addEventListener('scroll', (e: Event) => {
@@ -260,7 +268,8 @@ export class ChannelList {
     );
     if (!showingRecent && ensureFocus && wantedPosition >= 0) {
       this.channelVirtualizer.ensureVisible(wantedPosition, viewportHeight);
-    } else if (!showingRecent && ensureFocus && !wantedKey && this.playingIndex >= 0) {
+    } else if (!showingRecent && ensureFocus && !wantedKey && !this.detachedFocus
+        && this.playingIndex >= 0) {
       wantedPosition = filteredChannels.findIndex(
         ch => PlaylistService.indexOf(ch) === this.playingIndex,
       );
@@ -268,7 +277,10 @@ export class ChannelList {
     }
     const range = this.channelVirtualizer.getRange(filteredChannels.length, viewportHeight);
     const groupViewportHeight = previousGroupList?.clientHeight || CHANNEL_VIEWPORT_FALLBACK;
-    const focusedGroupPosition = parseInt(
+    const wantedGroupPosition = wantedKey && wantedKey.indexOf('g:') === 0
+      ? groups.findIndex(group => `g:${group.id}` === wantedKey)
+      : -1;
+    const focusedGroupPosition = wantedGroupPosition >= 0 ? wantedGroupPosition : parseInt(
       this.nav.focused?.dataset.groupPosition ?? '-1',
       10,
     );
@@ -368,7 +380,8 @@ export class ChannelList {
       );
     }
     let playingChannel: HTMLElement | null = null;
-    if (!target && ensureFocus) {
+    // A detached focus waits for the next key to resume near where the list was scrolled.
+    if (!target && ensureFocus && !this.detachedFocus) {
       playingChannel = this.playingIndex >= 0
         ? this.container.querySelector<HTMLElement>(`.channel-main [data-channel-index="${this.playingIndex}"]`)
         : null;
@@ -387,7 +400,16 @@ export class ChannelList {
         target.scrollIntoView({ block: 'nearest', behavior: 'auto' });
       }
     }
-    if (!ensureFocus) this.nav.clearDetachedFocus();
+    if (!ensureFocus) {
+      const lost = this.nav.focused;
+      const detached = lost && !this.container.contains(lost) ? lost.dataset : undefined;
+      this.nav.clearDetachedFocus();
+      if (detached?.groupPosition !== undefined) {
+        this.detachedFocus = { list: 'group', position: parseInt(detached.groupPosition, 10) };
+      } else if (detached?.listPosition !== undefined) {
+        this.detachedFocus = { list: 'channel', position: parseInt(detached.listPosition, 10) };
+      }
+    }
     const main = this.container.querySelector<HTMLElement>('.channel-main');
     if (main && !showingRecent) {
       this.scrollGuard.syncOffset(main, 'vertical', this.channelVirtualizer.scrollOffset);
@@ -440,6 +462,7 @@ export class ChannelList {
 
   restoreFocus(): void {
     this.previewFocused = false;
+    if (this.resumeDetachedFocus()) return;
     if (this.nav.focused && this.container.contains(this.nav.focused)) {
       this.nav.focus(this.nav.focused);
     } else {
@@ -487,6 +510,15 @@ export class ChannelList {
   }
 
   handleAction(action: Action, event?: NumberEvent): boolean {
+    // Before the editor too: it applies these to whichever row holds focus.
+    // Up also precedes the row-0 hand-off to the tab bar; Down would move a grabbed row.
+    const resumeFirst = action === 'select' || action === 'left' || action === 'right'
+      || action === 'up' || (action === 'green' && !this.editor.isEditing)
+      || (action === 'down' && this.editor.hasGrabbed);
+    if (resumeFirst && !this.editor.ownsInput && this.resumeDetachedFocus()
+        && action !== 'left' && action !== 'right') {
+      return true;
+    }
     if (this.editor.handleAction(action)) return true;
     if (action === 'up' && this.nav.focused?.dataset.listPosition === '0') return false;
     if (this.handleRegionNavigation(action)) return true;
@@ -677,7 +709,7 @@ export class ChannelList {
            style="top:${top}px">
         <span class="group-icon">${raw(groupIcon(g.label, g.builtin))}</span>
         ${renaming
-          ? html`<input class="edit-text-input" type="text" value="${g.label}">`
+          ? html`<input class="edit-text-input" type="text" value="${this.editor.renameValue(g.label)}">`
           : html`<span class="group-name">${
               raw(liveGroupLockBadge(g.id, this.currentPlaylist))}${g.label}</span>`}
         <span class="group-count">${count}</span>
@@ -753,7 +785,7 @@ export class ChannelList {
         ${this.renderLogo(ch)}
         <div class="channel-info">
           ${renaming
-            ? html`<input class="edit-text-input" type="text" value="${ch.name}">`
+            ? html`<input class="edit-text-input" type="text" value="${this.editor.renameValue(ch.name)}">`
             : html`<div class="channel-name">${raw(channelLockBadge(ch))}${
                 showFavoriteStar ? raw(favoriteIcon(true)) : ''
               }${ch.name}</div>`}
@@ -869,7 +901,75 @@ export class ChannelList {
     this.onChannelSelect(item.channelIndex, catchup, this.currentScope());
   }
 
+  // The focused row scrolled away without the pointer following it (cursor
+  // hidden, or the wheel over the list padding). Resume at the row in view
+  // nearest to it, rather than letting the D-pad restart from the sidebar.
+  private resumeDetachedFocus(): boolean {
+    const focused = this.nav.focused;
+    const from = focused ? this.offscreenRow(focused) : this.detachedFocus;
+    if (!from) return false;
+    // A grabbed row stays the one to move or drop, so bring it back.
+    if (this.editor.refocusGrabbed(from.list)) {
+      this.render();
+      log.debug('Resumed detached focus', 'event=channel_list.focus.resumed', `list=${from.list}`,
+        'target=grabbed', `rendered=${focused ? 'yes' : 'no'}`);
+      return true;
+    }
+    const list = this.container.querySelector<HTMLElement>(
+      from.list === 'group' ? '.group-list' : '.channel-main',
+    );
+    if (!list) return false;
+    const view = this.listViewport(list, from.list);
+    let best: HTMLElement | null = null;
+    let bestDistance = Infinity;
+    for (const row of Array.from(list.querySelectorAll<HTMLElement>(
+      from.list === 'group' ? '[data-group-position]' : '[data-list-position]',
+    ))) {
+      const box = row.getBoundingClientRect();
+      if (box.top < view.top - 1 || box.bottom > view.bottom + 1) continue;
+      const position = from.list === 'group' ? row.dataset.groupPosition : row.dataset.listPosition;
+      const distance = Math.abs(parseInt(position ?? '', 10) - from.position);
+      if (distance < bestDistance) {
+        best = row;
+        bestDistance = distance;
+      }
+    }
+    if (!best) return false;
+    log.debug('Resumed detached focus', 'event=channel_list.focus.resumed', `list=${from.list}`,
+      'target=nearest', `distance=${bestDistance}`, `rendered=${focused ? 'yes' : 'no'}`);
+    this.nav.focus(best);
+    return true;
+  }
+
+  // A focused row can scroll fully out of view yet stay rendered in the
+  // virtual list's overscan; it is as lost to the user as a detached one.
+  private offscreenRow(row: HTMLElement): { list: 'group' | 'channel'; position: number } | null {
+    const kind = row.dataset.groupPosition !== undefined ? 'group'
+      : row.dataset.listPosition !== undefined ? 'channel' : null;
+    if (!kind) return null;
+    const list = row.closest<HTMLElement>(kind === 'group' ? '.group-list' : '.channel-main');
+    if (!list || !this.container.contains(list)) return null;
+    const view = this.listViewport(list, kind);
+    const box = row.getBoundingClientRect();
+    if (view.bottom <= view.top || (box.bottom > view.top && box.top < view.bottom)) return null;
+    const position = kind === 'group' ? row.dataset.groupPosition : row.dataset.listPosition;
+    return { list: kind, position: parseInt(position ?? '', 10) };
+  }
+
+  // The edit and preview hints overlay the bottom of the channel list.
+  private listViewport(list: HTMLElement, kind: 'group' | 'channel'): { top: number; bottom: number } {
+    const rect = list.getBoundingClientRect();
+    let bottom = rect.bottom;
+    const hints = kind === 'channel' ? this.container.querySelector<HTMLElement>('.edit-hints') : null;
+    const hintsRect = hints?.getBoundingClientRect();
+    if (hintsRect && hintsRect.height > 0 && hintsRect.top > rect.top) {
+      bottom = Math.min(bottom, hintsRect.top);
+    }
+    return { top: rect.top, bottom };
+  }
+
   private moveVirtualFocus(delta: number): boolean {
+    if (this.resumeDetachedFocus()) return true;
     const focused = this.nav.focused;
     const rawGroupPosition = focused?.dataset.groupPosition;
     if (rawGroupPosition !== undefined) {

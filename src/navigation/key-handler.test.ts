@@ -306,6 +306,225 @@ describe('KeyHandler', () => {
   });
 
   describe('Magic Remote pointer (mouse)', () => {
+    it('ignores hover from content moving under a resting pointer after a key press', () => {
+      const el = document.createElement('div');
+      el.setAttribute('data-focusable', '');
+      document.body.appendChild(el);
+      const onHover = vi.fn();
+      el.addEventListener('nav:hover', onHover);
+      const over = (screenX: number, screenY: number): void => {
+        el.dispatchEvent(new MouseEvent('mouseover', { screenX, screenY, bubbles: true }));
+      };
+      document.dispatchEvent(new MouseEvent('mousemove', { screenX: 300, screenY: 300, bubbles: true }));
+      press(K.DOWN);
+
+      over(300, 300);
+      expect(onHover).not.toHaveBeenCalled();
+      over(320, 300);
+      expect(onHover).toHaveBeenCalledTimes(1);
+    });
+
+    describe('after the D-pad takes over', () => {
+      let screenX = 1000;
+      const focusable = (): HTMLElement => {
+        const el = document.createElement('div');
+        el.setAttribute('data-focusable', '');
+        document.body.appendChild(el);
+        return el;
+      };
+      const pointer = (type: string, target: EventTarget, x: number): void => {
+        target.dispatchEvent(new MouseEvent(type, { screenX: x, screenY: 500, bubbles: true }));
+      };
+      // Each test starts with the pointer resting somewhere new, after a real move.
+      const restPointerOver = (target: EventTarget): number => {
+        screenX += 50;
+        pointer('mousemove', target, screenX - 10);
+        pointer('mouseover', target, screenX);
+        pointer('mousemove', target, screenX);
+        return screenX;
+      };
+
+      const scroller = (): HTMLElement => {
+        const el = document.createElement('div');
+        el.style.overflowY = 'auto';
+        Object.defineProperty(el, 'scrollHeight', { value: 1000 });
+        Object.defineProperty(el, 'clientHeight', { value: 100 });
+        document.body.appendChild(el);
+        return el;
+      };
+
+      it('follows wheel-scrolled content under the pointer again', () => {
+        const list = scroller();
+        const row = focusable();
+        list.appendChild(row);
+        const onHover = vi.fn();
+        row.addEventListener('nav:hover', onHover);
+        const x = restPointerOver(document.body);
+        press(K.DOWN);
+        const lines: string[] = [];
+        const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+          lines.push(args.map(String).join(' '));
+        });
+        pointer('mouseover', row, x);
+        expect(onHover).not.toHaveBeenCalled();
+
+        wheel(120, row);
+        pointer('mouseover', row, x);
+        spy.mockRestore();
+        expect(onHover).toHaveBeenCalledTimes(1);
+        expect(document.documentElement.classList.contains('keyboard-nav')).toBe(false);
+        expect(lines).toContainEqual(expect.stringMatching(/event=nav\.hover\.resumed via=wheel suppressed=1\b/));
+      });
+
+      it('hovers the row a wheel scroll brings under a resting pointer', () => {
+        vi.useFakeTimers();
+        const list = scroller();
+        const first = focusable();
+        const next = focusable();
+        list.append(first, next);
+        const onFirst = vi.fn();
+        const onNext = vi.fn();
+        first.addEventListener('nav:hover', onFirst);
+        next.addEventListener('nav:hover', onNext);
+        restPointerOver(first);
+        onFirst.mockClear();
+        const lines: string[] = [];
+        const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+          lines.push(args.map(String).join(' '));
+        });
+        const hitTest = vi.fn(() => next);
+        Object.defineProperty(document, 'elementFromPoint', { value: hitTest, configurable: true });
+        try {
+          wheel(120, first);
+          // No mouseover follows: the content just moves under the pointer.
+          list.dispatchEvent(new Event('scroll'));
+          vi.advanceTimersByTime(200);
+        } finally {
+          spy.mockRestore();
+          Reflect.deleteProperty(document, 'elementFromPoint');
+          vi.useRealTimers();
+        }
+        expect(onNext).toHaveBeenCalledTimes(1);
+        expect(lines).toContainEqual(expect.stringContaining('event=nav.hover.synced via=wheel'));
+      });
+
+      it('lets views with their own mouseover follow a wheel scroll', () => {
+        vi.useFakeTimers();
+        const list = scroller();
+        const cell = document.createElement('div');
+        list.appendChild(cell);
+        const onOver = vi.fn();
+        list.addEventListener('mouseover', onOver);
+        restPointerOver(cell);
+        onOver.mockClear();
+        Object.defineProperty(document, 'elementFromPoint', { value: () => cell, configurable: true });
+        try {
+          wheel(120, cell);
+          list.dispatchEvent(new Event('scroll'));
+          vi.advanceTimersByTime(200);
+        } finally {
+          Reflect.deleteProperty(document, 'elementFromPoint');
+          vi.useRealTimers();
+        }
+        expect(onOver).toHaveBeenCalledTimes(1);
+      });
+
+      it('hands control back to the pointer when the wheel turns over an icon', () => {
+        const list = scroller();
+        const row = focusable();
+        list.appendChild(row);
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        row.appendChild(icon);
+        restPointerOver(row);
+        press(K.DOWN);
+        wheel(120, icon);
+        expect(document.documentElement.classList.contains('keyboard-nav')).toBe(false);
+      });
+
+      it('leaves hover alone when the app scrolls the list', () => {
+        vi.useFakeTimers();
+        const list = scroller();
+        const row = focusable();
+        list.appendChild(row);
+        const hitTest = vi.fn(() => row);
+        Object.defineProperty(document, 'elementFromPoint', { value: hitTest, configurable: true });
+        try {
+          vi.advanceTimersByTime(2000);
+          document.documentElement.classList.remove('keyboard-nav');
+          list.dispatchEvent(new Event('scroll'));
+          vi.advanceTimersByTime(200);
+        } finally {
+          Reflect.deleteProperty(document, 'elementFromPoint');
+          vi.useRealTimers();
+        }
+        expect(hitTest).not.toHaveBeenCalled();
+      });
+
+      it('keeps the D-pad in charge when the wheel only steps channels', () => {
+        const row = focusable();
+        const onHover = vi.fn();
+        row.addEventListener('nav:hover', onHover);
+        restPointerOver(row);
+        onHover.mockClear();
+        press(K.DOWN);
+        wheel(120, row);
+        expect(onHover).not.toHaveBeenCalled();
+        expect(document.documentElement.classList.contains('keyboard-nav')).toBe(true);
+      });
+
+      it('hides suppressed hovers from components with their own mouseover', () => {
+        const panel = document.createElement('div');
+        const row = document.createElement('div');
+        panel.appendChild(row);
+        document.body.appendChild(panel);
+        const onOver = vi.fn();
+        panel.addEventListener('mouseover', onOver);
+        const x = restPointerOver(document.body);
+        press(K.DOWN);
+        pointer('mouseover', row, x);
+        expect(onOver).not.toHaveBeenCalled();
+        pointer('mouseover', row, x + 20);
+        expect(onOver).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not treat the webOS cursor appearing or hiding as a key press', () => {
+        const row = focusable();
+        const onHover = vi.fn();
+        row.addEventListener('nav:hover', onHover);
+        const x = restPointerOver(document.body);
+        press(K.CURSOR_SHOW);
+        pointer('mouseover', row, x);
+        press(K.CURSOR_HIDE);
+        expect(onHover).toHaveBeenCalledTimes(1);
+        expect(document.documentElement.classList.contains('keyboard-nav')).toBe(false);
+      });
+
+      it('unhovers the element the pointer leaves once it moves again', () => {
+        const a = focusable();
+        const b = focusable();
+        const onUnhoverA = vi.fn();
+        a.addEventListener('nav:unhover', onUnhoverA);
+        const x = restPointerOver(a);
+        press(K.DOWN);
+        pointer('mouseover', b, x + 30);
+        pointer('mousemove', b, x + 30);
+        expect(onUnhoverA).toHaveBeenCalledTimes(1);
+      });
+
+      it('re-hovers the same element when the pointer moves within it', () => {
+        const a = focusable();
+        const onHover = vi.fn();
+        a.addEventListener('nav:hover', onHover);
+        const x = restPointerOver(a);
+        onHover.mockClear();
+        press(K.DOWN);
+        pointer('mousemove', a, x + 5);
+        expect(onHover).toHaveBeenCalledTimes(1);
+        pointer('mousemove', a, x + 10);
+        expect(onHover).toHaveBeenCalledTimes(1);
+      });
+    });
+
     it('dispatches nav:hover when the pointer moves over a focusable element', () => {
       const el = document.createElement('div');
       el.setAttribute('data-focusable', '');

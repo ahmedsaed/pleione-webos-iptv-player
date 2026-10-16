@@ -170,5 +170,8 @@ export const CONFIG = {
     FORWARD: 417,
     NUM_0: 48,
     NUM_9: 57,
+    // webOS sends these as keydown when the Magic Remote cursor shows or hides.
+    CURSOR_SHOW: 1536,
+    CURSOR_HIDE: 1537,
   },
 } as const;

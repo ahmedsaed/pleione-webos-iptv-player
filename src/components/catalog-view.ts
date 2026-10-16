@@ -8,7 +8,7 @@ import type {
   WatchlistKind,
 } from '../types';
 import { SpatialNav } from '../navigation/spatial-nav';
-import { html, raw, Safe } from '../utils/dom';
+import { html, raw, Safe, withInstantScroll } from '../utils/dom';
 import { categoryLockBadge, lockBadge } from './parental-badge';
 import { SEE_ALL_ICON } from './icons';
 import { morph } from '../utils/morph';
@@ -36,19 +36,6 @@ const CATALOG_GRID_VIEWPORT_HEIGHT = 900;
 const CATEGORY_RAIL_STRIDE = 320;
 const CATEGORY_RAIL_VIEWPORT = 1760;
 const GRID_SNAP_DELAY_MS = 95;
-
-// Overrides the CSS smooth-scroll policy for one synchronous scroll. Goes
-// through setProperty, which works whether or not the engine reflects
-// `style.scrollBehavior`.
-function withInstantScroll(nodes: HTMLElement[], scroll: () => void): void {
-  const saved = nodes.map((node) => node.style.getPropertyValue('scroll-behavior'));
-  nodes.forEach((node) => node.style.setProperty('scroll-behavior', 'auto'));
-  try {
-    scroll();
-  } finally {
-    nodes.forEach((node, i) => node.style.setProperty('scroll-behavior', saved[i]));
-  }
-}
 
 // Matches the rail track's padding and its end spacer in catalog-view.css.
 const RAIL_EDGE_GUTTER = 12;
