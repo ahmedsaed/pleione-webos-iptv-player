@@ -51,7 +51,8 @@ export function sectionForView(view: string): Section | null {
 
 interface TabBarHandlers {
   onSwitch: (section: Section) => void;
-  onEnter: (section: Section) => void;
+  // `pointer`: a click on the tab, which the pointer still rests on.
+  onEnter: (section: Section, via: 'key' | 'pointer') => void;
   // The search query changed (typed / cleared); the host shows the results view
   // over the current one only while the query is non-empty.
   onSearchQuery: (query: string) => void;
@@ -69,6 +70,8 @@ interface TabBarHandlers {
   onAccountMenuClose: (reason: TabBarAccountMenuCloseReason) => void;
   // End a parental unlock session before it times out.
   onLockNow: () => void;
+  // The node is in the shown view and no prompt sits above the bar.
+  contentHas: (node: Node) => boolean;
 }
 
 // Persistent, docked top section bar (hidden on the full-screen player / EPG).
@@ -255,7 +258,17 @@ export class TabBar {
       this.active = section;
       this.focusIndex = Math.max(0, this.sections.findIndex((s) => s.id === section));
       this.dropFocus();
-      this.handlers.onEnter(section);
+      this.handlers.onEnter(section, 'pointer');
+    });
+    // The pointer on the content takes the keys there; left with the bar, the
+    // next key would switch section from under it. The open search box and
+    // account menu keep them, so typing and the menu are not cut off.
+    // KeyHandler sends no hover for content moving under a resting pointer.
+    document.addEventListener('nav:hover', (e: Event) => {
+      if (!this._focused || this.searchExpanded || this.switcher?.menuOpen) return;
+      if (!(e.target instanceof Node) || !this.handlers.contentHas(e.target)) return;
+      log.debug('Tab bar released', 'event=tab_bar.blur', 'reason=hover');
+      this.blur();
     });
   }
 
@@ -289,7 +302,7 @@ export class TabBar {
             this.handlers.onLockNow();
           } else {
             this.dropFocus();
-            this.handlers.onEnter(this.active);
+            this.handlers.onEnter(this.active, 'key');
           }
         } else if (this.onAccount()) {
           this.switcher?.openMenu('key');
@@ -298,12 +311,12 @@ export class TabBar {
           this.expandSearch('key');
         } else {
           this.dropFocus();
-          this.handlers.onEnter(this.active);
+          this.handlers.onEnter(this.active, 'key');
         }
         break;
       case 'back':
         this.dropFocus();
-        this.handlers.onEnter(this.active);
+        this.handlers.onEnter(this.active, 'key');
         break;
       case 'up':
         break; // topmost — stay on the bar
@@ -342,7 +355,7 @@ export class TabBar {
     }
     this.expandStartedAt = Date.now();
     // After sizing the box, so the host can hang recent searches from it.
-    this.handlers.onEnter('search'); // host remembers the current view + preps results
+    this.handlers.onEnter('search', mode); // host remembers the current view + preps results
     input?.focus();
   }
 

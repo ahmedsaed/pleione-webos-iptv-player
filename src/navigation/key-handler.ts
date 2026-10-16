@@ -175,8 +175,10 @@ export const KeyHandler = {
       lastHover = target;
       target?.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     };
-    const focusableAt = (e: MouseEvent): HTMLElement | null =>
-      e.target instanceof Element ? e.target.closest<HTMLElement>('[data-focusable]') : null;
+    // `data-hover-target`: an item a view lights on hover by itself (the
+    // guide's programmes), so it gets no click-to-select from here.
+    const focusableAt = (e: MouseEvent): HTMLElement | null => e.target instanceof Element
+      ? e.target.closest<HTMLElement>('[data-focusable], [data-hover-target]') : null;
 
     const resumePointer = (e: MouseEvent, via: string): void => {
       if (!root.classList.contains('keyboard-nav')) return;

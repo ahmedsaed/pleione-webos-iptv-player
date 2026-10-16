@@ -408,7 +408,8 @@ const M3U_SCREENS: Screen[] = [
   },
   {
     // A past program only offers to resume when a checkpoint exists for it;
-    // prepareM3U seeds one. RIGHT enters the program column on program 0,
+    // prepareM3U seeds one. After the pointer entry the first RIGHT only
+    // shows the focus; the next enters the program column on program 0,
     // which is the past show, and ENTER activates it.
     name: 'catchup-resume',
     budget: 0,
@@ -417,6 +418,7 @@ const M3U_SCREENS: Screen[] = [
       await p.keyboard.press('Escape');
       await enterTab(p, 'epg');
       await expect(p.locator('#epg-programmes .epg-programme-item').first()).toBeVisible();
+      await p.keyboard.press('ArrowRight');
       await p.keyboard.press('ArrowRight');
       await p.keyboard.press('Enter');
       await expect(p.locator('.catchup-resume-prompt')).toBeVisible();

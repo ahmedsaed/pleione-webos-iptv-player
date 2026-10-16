@@ -194,3 +194,126 @@ describe('FocusRing', () => {
     expect(tile.classList.contains('focused')).toBe(true);
   });
 });
+
+describe('FocusRing deferral', () => {
+  const logLines = (run: () => void): string[] => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    run();
+    const lines = spy.mock.calls.map((args) => args.join(' '));
+    spy.mockRestore();
+    return lines;
+  };
+  let row: HTMLElement;
+  beforeEach(() => {
+    row = item(lower, 'r1');
+    setRing(row, true);
+  });
+
+  it('parks the owner\'s own ring and marks the owner as waiting', async () => {
+    const lines = logLines(() => FocusRing.defer('channels'));
+    expect(row.className).toBe('item focused-parked');
+    expect(lower.getAttribute('data-ring-owner')).toBe('deferred');
+    expect(FocusRing.deferred).toBe(true);
+    expect(lines.find((l) => l.includes('event=nav.focus.deferred'))).toContain('view=channels');
+
+    // A ring the view draws later, such as a catalog that finished loading.
+    const tile = item(lower, 't1');
+    setRing(tile, true);
+    await flush();
+    expect(tile.className).toBe('item focused-parked');
+  });
+
+  it('shows the ring on a key, and consumes only a key that asks to', () => {
+    FocusRing.defer('channels');
+    let consumed = false;
+    const lines = logLines(() => { consumed = FocusRing.reveal('key', 'down', true); });
+    expect(consumed).toBe(true);
+    expect(row.className).toBe('item focused');
+    expect(lower.getAttribute('data-ring-owner')).toBe('');
+    expect(FocusRing.deferred).toBe(false);
+    expect(lines.find((l) => l.includes('event=nav.focus.shown')))
+      .toContain('via=key action=down consumed=yes');
+
+    FocusRing.defer('channels');
+    expect(FocusRing.reveal('key', 'back')).toBe(false);
+    expect(row.className).toBe('item focused');
+  });
+
+  it('lets the key act when the focused element is gone', () => {
+    FocusRing.defer('channels');
+    row.remove();
+    const lines = logLines(() => { expect(FocusRing.reveal('key', 'down', true)).toBe(false); });
+    expect(lines.find((l) => l.includes('event=nav.focus.shown'))).toContain('consumed=no');
+  });
+
+  it('does nothing once nothing is deferred', () => {
+    const lines = logLines(() => { expect(FocusRing.reveal('key', 'down', true)).toBe(false); });
+    expect(lines.some((l) => l.includes('event=nav.focus.shown'))).toBe(false);
+  });
+
+  it('ends on the wheel without consuming it', () => {
+    FocusRing.defer('channels');
+    const wheel = vi.fn();
+    document.addEventListener('wheel', wheel);
+    const lines = logLines(() => { document.body.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true })); });
+    document.removeEventListener('wheel', wheel);
+    expect(row.className).toBe('item focused');
+    expect(wheel).toHaveBeenCalledTimes(1);
+    expect(lines.find((l) => l.includes('event=nav.focus.shown'))).toContain('via=wheel');
+  });
+
+  it('ends on a hover over the owner, but not over another surface', () => {
+    FocusRing.defer('channels');
+    const tab = item(upper, 'tab');
+    tab.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    expect(FocusRing.deferred).toBe(true);
+
+    const other = item(lower, 'r2');
+    const lines = logLines(() => { other.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })); });
+    expect(FocusRing.deferred).toBe(false);
+    expect(row.className).toBe('item focused');
+    expect(lines.find((l) => l.includes('event=nav.focus.shown'))).toContain('via=hover');
+  });
+
+  it('ends when the keys move to another owner, and stays ended when they return', () => {
+    FocusRing.defer('channels');
+    owner = upper;
+    FocusRing.sync();
+    owner = lower;
+    FocusRing.sync();
+    expect(FocusRing.deferred).toBe(false);
+    expect(row.className).toBe('item focused');
+  });
+
+  it('ends on a press inside the owner, before the view handles it', () => {
+    FocusRing.defer('channels');
+    item(upper, 'tab').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(FocusRing.deferred).toBe(true);
+
+    let seen = '';
+    const other = item(lower, 'r2');
+    other.addEventListener('mousedown', () => { seen = row.className; });
+    const lines = logLines(() => { other.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(seen).toBe('item focused');
+    expect(lines.find((l) => l.includes('event=nav.focus.shown'))).toContain('via=pointer');
+  });
+
+  it('logs nothing shown for a key that moved the keys elsewhere', () => {
+    FocusRing.defer('channels');
+    // The key's handler switched the owner; the observer has not synced yet.
+    owner = upper;
+    const lines = logLines(() => { expect(FocusRing.reveal('key', 'back')).toBe(false); });
+    expect(FocusRing.deferred).toBe(false);
+    expect(lines.some((l) => l.includes('event=nav.focus.shown'))).toBe(false);
+    owner = lower;
+    FocusRing.sync();
+    expect(row.className).toBe('item focused');
+  });
+
+  it('never hides a modal prompt\'s ring', () => {
+    modal = true;
+    FocusRing.defer('channels');
+    expect(FocusRing.deferred).toBe(false);
+    expect(row.className).toBe('item focused');
+  });
+});

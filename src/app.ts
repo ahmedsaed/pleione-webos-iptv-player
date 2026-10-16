@@ -64,6 +64,13 @@ import { getLocale, initLocale, resolveLocale, setLocale, t, tp } from './i18n';
 
 const log = createLogger('App');
 
+// Keys that act on the focused item, so they only show a deferred focus. Back,
+// number entry, and the media keys still act.
+const REVEAL_ACTIONS: ReadonlySet<Action> = new Set<Action>([
+  'up', 'down', 'left', 'right', 'select', 'channel_up', 'channel_down',
+  'red', 'green', 'yellow', 'blue',
+]);
+
 type ViewName = 'channels' | 'player' | 'epg' | 'settings' | 'parental-controls' | 'reminders'
   | 'loading' | 'movies' | 'series' | 'search';
 
@@ -342,7 +349,7 @@ class App {
     });
     this.tabBar = new TabBar({
       onSwitch: (section) => this.switchSection(section),
-      onEnter: (section) => this.enterSection(section),
+      onEnter: (section, via) => this.enterSection(section, via),
       onSearchQuery: (query) => this.handleSearchQuery(query),
       onSearchLeave: () => {
         if (this.lastSearchQuery.trim()) {
@@ -365,12 +372,18 @@ class App {
         if (!this.lastSearchQuery.trim()) this.openHistoryDropdown();
       },
       onLockNow: () => ParentalControlService.lock('lock-now'),
+      contentHas: (node) => {
+        const current = this.viewStack[this.viewStack.length - 1];
+        return this.keyOwner(current).name === 'tab_bar' && this.views[current].contains(node);
+      },
     });
     this.tabBar.init();
 
     KeyHandler.init();
     KeyHandler.setHandler((action, event) => {
       this.handleKey(action, event);
+      // Any key ends a pointer entry's wait, even one that acted elsewhere.
+      FocusRing.reveal('key', action);
       FocusRing.sync();
     });
     FocusRing.install(() => {
@@ -1292,10 +1305,16 @@ class App {
     this.parentalPinPrompt.showVerify(t('settings.parentalControls'), open);
   }
 
-  // Down/Select from the bar: switch to the section and drop focus into content.
-  private enterSection(section: Section): void {
+  // Down/Select from the bar, or a click on a tab: switch to the section and
+  // drop focus into content.
+  private enterSection(section: Section, via: 'key' | 'pointer'): void {
     this.tabBar.setActive(section);
     this.switchSection(section);
+    // The pointer still rests on the tab, so the content's focus waits for a
+    // key. Search keeps the keys in its own box.
+    if (via === 'pointer' && section !== 'search') {
+      FocusRing.defer(this.viewStack[this.viewStack.length - 1]);
+    }
   }
 
   private goLive(): void {
@@ -1676,6 +1695,10 @@ class App {
         return;
       }
     }
+
+    // The first key into a section the pointer entered only shows its focus:
+    // it must not act on an item nobody has seen yet.
+    if (FocusRing.reveal('key', action, REVEAL_ACTIONS.has(action))) return;
 
     // Delegate to active view
     switch (currentView) {

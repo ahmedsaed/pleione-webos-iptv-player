@@ -45,7 +45,10 @@ Procedural workflows live in `.agents/skills/` (open Agent Skills format;
   parks every other `.focused`. A new modal or overlay goes into
   `App.keyOwner()`, which both routes keys and picks the ring; write the
   class through `setRing()`/`ringsIn()` (ESLint enforces it). Every E2E
-  test fails when a key press leaves two rings on screen.
+  test fails when a key press leaves two rings on screen. Hover never
+  moves the keys, except that the tab bar releases them to hovered
+  content; after a pointer tab click, `FocusRing.defer()` keeps the
+  content's ring hidden and the first key only shows it.
 - `bundled-service/` runs on Node.js 0.12.2: ES5/CommonJS, newer Node APIs
   via `compat.ts`, and `npm run service:smoke` after any change. Read
   `bundled-service/AGENTS.md` before changing the service or its Luna/HTTP

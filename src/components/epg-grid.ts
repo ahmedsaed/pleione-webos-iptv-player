@@ -492,11 +492,11 @@ export class EpgGrid {
               <div class="playlist-tabs epg-playlist-tabs" id="epg-playlists">
                 <div class="playlist-tab ${!this.selectedPlaylist ? 'active' : ''} ${this.focusCol === 'playlists' && this.playlistFocusIdx === 0 ? 'focused' : ''}"
                      data-key="epg-tab:"
-                     data-playlist="" data-playlist-index="0">${t('common.all')}</div>
+                     data-playlist="" data-playlist-index="0" data-hover-target>${t('common.all')}</div>
                 ${tabs.map((tab, i) => html`
                   <div class="playlist-tab ${tab.id === this.selectedPlaylist ? 'active' : ''} ${this.focusCol === 'playlists' && this.playlistFocusIdx === i + 1 ? 'focused' : ''}"
                        data-key="epg-tab:${tab.id}"
-                       data-playlist="${tab.id}" data-playlist-index="${i + 1}">${tab.name}</div>
+                       data-playlist="${tab.id}" data-playlist-index="${i + 1}" data-hover-target>${tab.name}</div>
                 `)}
               </div>
             ` : ''}
@@ -504,7 +504,7 @@ export class EpgGrid {
               <div class="epg-group-control">
                 <button type="button"
                         class="epg-filter-control epg-group-button ${this.focusCol === 'filters' && this.filterFocus === 'group' && !this.groupOpen ? 'focused' : ''} ${this.selectedGroup !== 'builtin:all' ? 'active' : ''}"
-                        data-key="epg-group-button" data-epg-group-toggle
+                        data-key="epg-group-button" data-epg-group-toggle data-hover-target
                         aria-expanded="${this.groupOpen ? 'true' : 'false'}">
                   <span class="epg-group-button-prefix">${t('common.groups')}:</span>
                   <span class="epg-group-button-label">${
@@ -523,7 +523,7 @@ export class EpgGrid {
                         return html`
                         <div class="epg-group-option ${group.id === this.selectedGroup ? 'active' : ''} ${i === this.groupFocusIdx ? 'focused' : ''}"
                              data-key="epg-group:${group.id}"
-                             data-epg-group="${group.id}" data-group-index="${i}"
+                             data-epg-group="${group.id}" data-group-index="${i}" data-hover-target
                              style="top:${this.groupVirtualizer.getItemOffset(i)}px">
                           <span class="epg-group-option-label">${group.label}</span>
                           <span class="epg-group-option-count">${group.count}</span>
@@ -563,7 +563,7 @@ export class EpgGrid {
                 <div class="epg-channel-item ${sel ? 'selected' : ''} ${foc ? 'focused' : ''}"
                      data-key="${channelKey(ch)}"
                      data-channel-idx="${globalIndex}"
-                     data-channel-pos="${itemIndex}"
+                     data-channel-pos="${itemIndex}" data-hover-target
                      style="top:${this.channelVirtualizer.getItemOffset(itemIndex)}px">
                   <span class="epg-ch-num">${globalIndex + 1}</span>
                   <span class="epg-ch-name">${raw(channelLockBadge(ch))}${ch.name}</span>
@@ -586,7 +586,7 @@ export class EpgGrid {
                   return html`
                     <div class="epg-date-item ${sel ? 'selected' : ''} ${foc ? 'focused' : ''} ${isToday ? 'today' : ''} ${dayState}"
                          data-key="${displayDayKey(d)}"
-                         data-day-index="${i}">
+                         data-day-index="${i}" data-hover-target>
                       <span class="epg-date-weekday">${lbl.weekday}</span>
                       <span class="epg-date-date">${lbl.date}</span>
                     </div>
@@ -631,7 +631,7 @@ export class EpgGrid {
                       <div class="epg-programme-item
                                   state-${state} ${current ? 'current' : ''} ${foc ? 'focused' : ''}"
                            data-key="${String(p.start.getTime())}"
-                           data-prog-idx="${i}"
+                           data-prog-idx="${i}" data-hover-target
                            style="top:${this.programmeVirtualizer.getItemOffset(i)}px">
                         <div class="epg-prog-time-col">
                           <span class="epg-prog-time">${formatTime(p.start)}</span>

@@ -12,6 +12,7 @@ let onSelectAccount: ReturnType<typeof vi.fn>;
 let onAccountMenuOpen: ReturnType<typeof vi.fn>;
 let onAccountMenuClose: ReturnType<typeof vi.fn>;
 let onLockNow: ReturnType<typeof vi.fn>;
+let contentHas: ReturnType<typeof vi.fn>;
 let bar: TabBar;
 
 beforeEach(() => {
@@ -26,9 +27,10 @@ beforeEach(() => {
   onAccountMenuOpen = vi.fn();
   onAccountMenuClose = vi.fn();
   onLockNow = vi.fn();
+  contentHas = vi.fn(() => true);
   bar = new TabBar({
     onSwitch, onEnter, onSearchQuery, onSearchLeave, onSearchClose, onSelectAccount, onAccountMenuOpen, onAccountMenuClose,
-    onLockNow,
+    onLockNow, contentHas,
   });
   bar.setSections(true); // Xtream by default
   bar.setShown(true);
@@ -97,7 +99,7 @@ describe('TabBar', () => {
     bar.focus();
     bar.handleAction('right');   // → guide (live switch)
     bar.handleAction('select');
-    expect(onEnter).toHaveBeenCalledWith('epg');
+    expect(onEnter).toHaveBeenCalledWith('epg', 'key');
     expect(bar.focused).toBe(false);
     expect(focusedLabel()).toBe(null);
   });
@@ -105,7 +107,7 @@ describe('TabBar', () => {
   it('back drops focus into the content (enters the active section)', () => {
     bar.focus();
     bar.handleAction('back');
-    expect(onEnter).toHaveBeenCalledWith('live');
+    expect(onEnter).toHaveBeenCalledWith('live', 'key');
     expect(bar.focused).toBe(false);
   });
 
@@ -150,8 +152,71 @@ describe('TabBar', () => {
     document.elementFromPoint = () => seriesBtn;
     document.dispatchEvent(new MouseEvent('click', { clientX: 250, clientY: 20, bubbles: true }));
     document.elementFromPoint = origFromPoint;
-    expect(onEnter).toHaveBeenCalledWith('series');
+    expect(onEnter).toHaveBeenCalledWith('series', 'pointer');
     expect(bar.focused).toBe(false);
+  });
+
+  describe('pointer hover on content', () => {
+    const hover = (el: Element) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    let row: HTMLElement;
+    beforeEach(() => {
+      bar.init();
+      row = document.createElement('div');
+      row.setAttribute('data-focusable', '');
+      document.body.appendChild(row);
+    });
+
+    it('releases the bar so the next key acts in the content', () => {
+      const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      bar.focus();
+      hover(row);
+      const lines = spy.mock.calls.map((args) => args.join(' '));
+      spy.mockRestore();
+      expect(bar.focused).toBe(false);
+      expect(focusedLabel()).toBe(null);
+      expect(lines.find((l) => l.includes('event=tab_bar.blur'))).toContain('reason=hover');
+      bar.handleAction('right');
+      expect(onSwitch).not.toHaveBeenCalled();
+    });
+
+    it('keeps the keys while the pointer moves on the bar', () => {
+      contentHas.mockImplementation((node: Node) => !document.querySelector('.tab-bar')!.contains(node));
+      bar.focus();
+      hover(document.querySelector('.tab-bar-item')!);
+      expect(bar.focused).toBe(true);
+    });
+
+    it('keeps the keys while the pointer moves on a prompt above the content', () => {
+      const prompt = document.createElement('button');
+      document.body.appendChild(prompt);
+      contentHas.mockImplementation((node: Node) => node !== prompt);
+      bar.focus();
+      hover(prompt);
+      expect(bar.focused).toBe(true);
+      expect(contentHas).toHaveBeenCalledWith(prompt);
+    });
+
+    it('keeps the keys in the open search box', () => {
+      bar.setActive('search');
+      bar.focus();
+      bar.handleAction('select');
+      hover(row);
+      expect(bar.focused).toBe(true);
+      expect(bar.searchOpen).toBe(true);
+    });
+
+    it('keeps the keys in the open account menu', () => {
+      bar.setAccounts([{ id: 'a1', name: 'Alpha', url: 'http://host/a', source: 'xtream',
+        xtream: { username: 'u', password: 'p' } }], 'a1');
+      bar.setActive('search');
+      bar.focus();
+      bar.handleAction('right');
+      bar.handleAction('select');
+      expect(bar.accountMenuOpen).toBe(true);
+      hover(row);
+      expect(bar.focused).toBe(true);
+      expect(bar.accountMenuOpen).toBe(true);
+    });
   });
 });
 
@@ -164,7 +229,7 @@ describe('TabBar inline search', () => {
     bar.focus();
     bar.handleAction('select');
     expect(expanded()).toBe(true);
-    expect(onEnter).toHaveBeenCalledWith('search');
+    expect(onEnter).toHaveBeenCalledWith('search', 'key');
     expect(bar.focused).toBe(true);
   });
 
@@ -488,7 +553,7 @@ describe('TabBar account switcher', () => {
       document.body.innerHTML = '';
       bar = new TabBar({
         onSwitch, onEnter, onSearchQuery, onSearchLeave, onSearchClose, onSelectAccount, onAccountMenuOpen,
-        onAccountMenuClose, onLockNow,
+        onAccountMenuClose, onLockNow, contentHas,
       });
       bar.init();
       bar.setSections(true);

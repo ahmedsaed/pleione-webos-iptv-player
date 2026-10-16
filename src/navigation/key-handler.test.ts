@@ -536,6 +536,20 @@ describe('KeyHandler', () => {
       expect(onHover).toHaveBeenCalledTimes(1);
     });
 
+    it('announces a view\'s own hover target, but leaves its click to the view', () => {
+      const el = document.createElement('div');
+      el.setAttribute('data-hover-target', '');
+      document.body.appendChild(el);
+      const onHover = vi.fn();
+      el.addEventListener('nav:hover', onHover);
+
+      el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      expect(onHover).toHaveBeenCalledTimes(1);
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      vi.runAllTimers();
+      expect(handler).not.toHaveBeenCalled();
+    });
+
     it('dispatches nav:hover once while moving within one focusable (skips its children)', () => {
       const row = document.createElement('div');
       row.setAttribute('data-focusable', '');

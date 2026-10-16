@@ -231,9 +231,11 @@ function installRingAudit(recordNone: boolean): void {
     });
     // The bare full-screen player has nothing to focus.
     const barePlayer = shown.length === 1 && shown[0] === 'view-player';
-    // A parked ring on screen with none lit means the owner never took it back.
+    // A parked ring on screen with none lit means the owner never took it back,
+    // unless the owner was entered by the pointer and waits for a key.
     const parked = rings.length === 0
-      && Array.from(document.querySelectorAll('.focused-parked')).some(visible);
+      && Array.from(document.querySelectorAll('.focused-parked'))
+        .some((el) => visible(el) && !el.closest('[data-ring-owner="deferred"]'));
     const kind = rings.length > 1 ? 'multiple'
       // Stacked prompts: the ring belongs in whichever one is on top.
       : prompts.length && !rings.some((el) => prompts.some((p) => p.contains(el))) ? 'prompt'

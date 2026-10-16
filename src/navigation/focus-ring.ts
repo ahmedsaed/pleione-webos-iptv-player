@@ -3,6 +3,10 @@
 // parked (its class swapped for a style-less twin) and comes back unchanged
 // when the keys return, so no view has to know which surface sits above it.
 
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('FocusRing');
+
 const FOCUSED = 'focused';
 const PARKED = 'focused-parked';
 
@@ -13,7 +17,8 @@ type OwnerResolver = () => RingOwner;
 // Elements a SpatialNav holds focus on: morph() must not strip their ring.
 const held = new WeakSet<Element>();
 
-// Marks the owner root so tests and on-device inspection can see who has the keys.
+// Marks the owner root so tests and on-device inspection can see who has the
+// keys: empty, `modal`, or `deferred` while its own ring waits.
 const OWNER_ATTR = 'data-ring-owner';
 const HOVER_ATTR = 'data-ring-hover';
 
@@ -23,6 +28,11 @@ let observer: MutationObserver | null = null;
 let hoverTarget: Element | null = null;
 let onHover: ((e: Event) => void) | null = null;
 let onUnhover: ((e: Event) => void) | null = null;
+let onWheel: (() => void) | null = null;
+let onPress: ((e: Event) => void) | null = null;
+// An owner entered by the pointer keeps its focus but parks the ring until the
+// remote, the wheel, or the pointer on it shows where that focus is.
+let deferredRoot: Element | null = null;
 
 function setHoverTarget(el: Element | null): void {
   hoverTarget?.removeAttribute(HOVER_ATTR);
@@ -82,8 +92,9 @@ function swap(el: Element, from: string, to: string): void {
 }
 
 function allowed(el: Element, owner: Element, modal: boolean): boolean {
-  if (owner.contains(el)) return true;
+  if (owner.contains(el)) return owner !== deferredRoot;
   // The pointer may point anywhere; what it hovers stays lit until a key.
+  // Hover never moves the keys, except that TabBar releases them to hovered content.
   return !modal && !!hoverTarget && hoverTarget.contains(el)
     && !document.documentElement.classList.contains('keyboard-nav');
 }
@@ -100,10 +111,21 @@ export const FocusRing = {
       attributes: true,
       attributeFilter: ['class'],
     });
-    onHover = (e: Event) => { setHoverTarget(e.target as Element); };
+    onHover = (e: Event) => {
+      setHoverTarget(e.target as Element);
+      if (hoverTarget && deferredRoot?.contains(hoverTarget)) FocusRing.reveal('hover');
+    };
     onUnhover = (e: Event) => { if (e.target === hoverTarget) setHoverTarget(null); };
+    // Before KeyHandler turns the step into an action, so it acts from a shown focus.
+    onWheel = () => { if (deferredRoot) FocusRing.reveal('wheel'); };
+    // Before the view's click handler, which may focus the item without a hover.
+    onPress = (e: Event) => {
+      if (e.target instanceof Node && deferredRoot?.contains(e.target)) FocusRing.reveal('pointer');
+    };
     document.addEventListener('nav:hover', onHover, true);
     document.addEventListener('nav:unhover', onUnhover, true);
+    document.addEventListener('wheel', onWheel, true);
+    document.addEventListener('mousedown', onPress, true);
     FocusRing.sync();
   },
 
@@ -113,25 +135,67 @@ export const FocusRing = {
     observer?.disconnect();
     observer = null;
     resolver = null;
+    deferredRoot = null;
     setHoverTarget(null);
     if (onHover) document.removeEventListener('nav:hover', onHover, true);
     if (onUnhover) document.removeEventListener('nav:unhover', onUnhover, true);
+    if (onWheel) document.removeEventListener('wheel', onWheel, true);
+    if (onPress) document.removeEventListener('mousedown', onPress, true);
     onHover = null;
     onUnhover = null;
+    onWheel = null;
+    onPress = null;
+  },
+
+  /** Park the current owner's own ring until a key, the wheel, or the pointer on it; ends with the owner. */
+  defer(view: string): void {
+    const resolved = resolver?.();
+    if (!resolved?.root || resolved.modal) return;
+    deferredRoot = resolved.root;
+    log.debug('Focus ring deferred', 'event=nav.focus.deferred', `view=${view}`);
+    FocusRing.sync();
+  },
+
+  get deferred(): boolean {
+    return deferredRoot !== null;
+  },
+
+  /**
+   * End a deferral and show the parked focus. With `consume`, true when there
+   * was a ring to show, so the key that showed it should do nothing else.
+   */
+  reveal(via: 'key' | 'hover' | 'wheel' | 'pointer', action = '', consume = false): boolean {
+    if (!deferredRoot) return false;
+    // A key that moved the keys elsewhere showed nothing here; the MutationObserver
+    // has not run sync() yet.
+    if (resolver?.()?.root !== deferredRoot) {
+      deferredRoot = null;
+      FocusRing.sync();
+      return false;
+    }
+    const hidden = deferredRoot.getElementsByClassName(PARKED).length > 0;
+    deferredRoot = null;
+    const consumed = consume && hidden;
+    const fields = via === 'key' ? [`action=${action}`, `consumed=${consumed ? 'yes' : 'no'}`] : [];
+    log.debug('Focus ring shown', 'event=nav.focus.shown', `via=${via}`, ...fields);
+    FocusRing.sync();
+    return consumed;
   },
 
   sync(): void {
     const resolved = resolver?.();
     const owner = resolved?.root ?? null;
     const modal = !!resolved?.modal;
+    // A deferral belongs to the owner it was made for: a view switch, the
+    // player, or an overlay ends it.
+    if (deferredRoot && deferredRoot !== owner) deferredRoot = null;
     if (owner !== marked) {
       marked?.removeAttribute(OWNER_ATTR);
       marked = owner;
     }
     if (!owner) return;
-    if (owner.getAttribute(OWNER_ATTR) !== (modal ? 'modal' : '')) {
-      owner.setAttribute(OWNER_ATTR, modal ? 'modal' : '');
-    }
+    const mark = modal ? 'modal' : owner === deferredRoot ? 'deferred' : '';
+    if (owner.getAttribute(OWNER_ATTR) !== mark) owner.setAttribute(OWNER_ATTR, mark);
     const shown = document.getElementsByClassName(FOCUSED);
     for (const el of Array.from(shown)) {
       if (!allowed(el, owner, modal)) swap(el, FOCUSED, PARKED);
