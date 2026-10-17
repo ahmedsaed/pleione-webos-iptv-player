@@ -43,14 +43,17 @@ Procedural workflows live in `.agents/skills/` (open Agent Skills format;
   `src/polyfills.ts` fixes it, so never bypass or reimplement that call.
 - Only the surface that owns the keys shows a focus ring: `FocusRing`
   parks every other `.focused`. A new modal or overlay registers a
-  scope on the `Focus` owner stack (`src/navigation/focus-scope.ts`,
-  wired in `App.initFocusScopes()`) at the right `Tier`, which both
-  routes keys and picks the ring; write the class through
-  `setRing()`/`ringsIn()` (ESLint enforces it; a legacy site carries an
-  inline `focus/*` disable that names the surface still owning it until
-  that surface moves to a focus scope; a stale disable fails lint). Every E2E
-  test fails when a key press leaves two rings on screen. Hover never
-  moves the keys, except that the tab bar releases them to hovered
+  scope on the `Focus` owner stack (`src/navigation/focus-scope.ts`)
+  at the right `Tier`, which both routes keys and picks the ring: a
+  prompt pushes itself while shown (as `ConfirmationPrompt` does), a
+  legacy surface is a layer in `App.initFocusScopes()`. A pushed
+  modal keeps the pointer's hover outside it from the surfaces below.
+  Write the class through `setRing()`/`ringsIn()` (ESLint enforces it;
+  a legacy site carries an inline `focus/*` disable that names the
+  surface still owning it until that surface moves to a focus scope; a
+  stale disable fails lint). Every E2E test fails when a key press
+  leaves two rings on screen. Hover never moves the keys, except that
+  the tab bar releases them to hovered
   content; after a pointer tab click, `FocusRing.defer()` keeps the
   content's ring hidden and the first key only shows it.
 - `bundled-service/` runs on Node.js 0.12.2: ES5/CommonJS, newer Node APIs

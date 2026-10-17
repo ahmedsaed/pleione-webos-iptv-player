@@ -64,7 +64,7 @@ export class EpgGrid {
   private dayInitialized = false;
   private focusCol: FocusCol = 'channels';
   private focusProg = 0;
-  private resumePrompt = new CatchupResumePrompt();
+  private resumePrompt = new CatchupResumePrompt('prompt.epg');
   private archiveLoadingKey = '';
   private readonly channelVirtualizer = new VirtualList({
     itemSize: CHANNEL_ROW_SIZE,
@@ -147,10 +147,6 @@ export class EpgGrid {
   focusReminderEntry(): void {
     this.focusCol = 'legend';
     this.render();
-  }
-
-  get promptRoot(): HTMLElement | null {
-    return this.resumePrompt.ringRoot;
   }
 
   /** Whether the catch-up resume prompt is currently visible. */

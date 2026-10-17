@@ -148,7 +148,7 @@ export class ParentalControls {
   private groupsByKeyFor: GroupEntry[] | null = null;
   private groupsByKey = new Map<string, GroupEntry>();
   private tab: 'rules' | 'options' = 'rules';
-  private readonly confirmationPrompt = new ConfirmationPrompt();
+  private readonly confirmationPrompt = new ConfirmationPrompt('prompt.parental');
   private readonly groupVirtualizer = new VirtualList({
     itemSize: ROW_STRIDE,
     overscan: LIST_OVERSCAN,
@@ -244,14 +244,6 @@ export class ParentalControls {
     this.requestController?.abort();
     this.requestController = null;
     this.resetItems();
-  }
-
-  get isPromptVisible(): boolean {
-    return this.confirmationPrompt.visible;
-  }
-
-  get promptRoot(): HTMLElement | null {
-    return this.confirmationPrompt.ringRoot;
   }
 
   handleAction(action: Action): void {

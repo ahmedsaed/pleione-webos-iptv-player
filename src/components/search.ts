@@ -163,7 +163,7 @@ export class Search {
   private visiblePrograms: ProgramResult[] = [];
   private visibleMovies: VodItem[] = [];
   private visibleSeries: SeriesItem[] = [];
-  private resumePrompt = new CatchupResumePrompt();
+  private resumePrompt = new CatchupResumePrompt('prompt.search');
   private readonly channelListVirtualizer = this.createVirtualizer(88, SEARCH_ROW_OVERSCAN, SEARCH_LIST_VIEWPORT);
   private readonly programVirtualizer = this.createVirtualizer(109, SEARCH_ROW_OVERSCAN, SEARCH_LIST_VIEWPORT);
   private readonly channelRailVirtualizer = this.createVirtualizer(240, SEARCH_RAIL_OVERSCAN, SEARCH_RAIL_VIEWPORT);
@@ -421,14 +421,6 @@ export class Search {
     this.releaseWorker?.();
     this.releaseWorker = null;
     this.queryPending = false;
-  }
-
-  get isPromptVisible(): boolean {
-    return this.resumePrompt.visible;
-  }
-
-  get promptRoot(): HTMLElement | null {
-    return this.resumePrompt.ringRoot;
   }
 
   handleAction(action: Action): void {

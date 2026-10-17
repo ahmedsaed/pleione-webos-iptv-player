@@ -481,7 +481,7 @@ export class Settings {
   private selectedTheme = '';
   private epgOffsets: Record<string, number> = {};
   private storedEpgOffsets: Record<string, number> = {};
-  private confirmationPrompt = new ConfirmationPrompt();
+  private confirmationPrompt = new ConfirmationPrompt('prompt.settings');
   private liveCategoryPicker = new LiveCategoryPicker();
   // Picker results waiting for Save, per card id; `account` ties each to the
   // server and username it was chosen for.
@@ -1670,9 +1670,12 @@ export class Settings {
     this.onChannelsChanged();
   }
 
-  get promptRoot(): HTMLElement | null {
-    return this.confirmationPrompt.visible
-      ? this.confirmationPrompt.ringRoot : this.liveCategoryPicker.ringRoot;
+  get categoryPickerRoot(): HTMLElement | null {
+    return this.liveCategoryPicker.ringRoot;
+  }
+
+  get isCategoryPickerVisible(): boolean {
+    return this.liveCategoryPicker.visible;
   }
 
   get isPromptVisible(): boolean {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { PlaylistEntry, Programme } from '../types';
 import type { SearchIndexRequest, SearchQueryRequest } from '../workers/tasks';
 
@@ -92,6 +92,7 @@ vi.mock('../workers/app-worker-client', async () => {
 
 import { Search } from './search';
 import { CONFIG } from '../config';
+import { Focus } from '../navigation/focus-scope';
 
 const account: PlaylistEntry = {
   id: 'x1', name: 'X', url: 'http://host:8080', source: 'xtream', xtream: { username: 'u', password: 'p' },
@@ -169,6 +170,8 @@ async function openWith(opts: { vod?: unknown[]; series?: unknown[] } = {}) {
   await indexReady(view);
   return { view, handlers };
 }
+
+afterEach(() => Focus.uninstall());
 
 describe('Search', () => {
   it('renders results-only and empty on open (no in-view query box, no hint)', async () => {

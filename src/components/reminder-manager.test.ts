@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Reminder } from '../types';
 
 const { state, reminderMock, toastMock } = vi.hoisted(() => {
@@ -25,6 +25,7 @@ vi.mock('./toast', () => ({ showToast: toastMock }));
 import { ReminderManager } from './reminder-manager';
 import { setLocale } from '../i18n';
 import { setDisplayTz } from '../utils/time';
+import { Focus } from '../navigation/focus-scope';
 
 const reminder = (over: Partial<Reminder> = {}): Reminder => ({
   channelKey: 'ch1',
@@ -56,6 +57,8 @@ function click(selector: string): void {
   container.querySelector<HTMLElement>(selector)!
     .dispatchEvent(new MouseEvent('click', { bubbles: true }));
 }
+
+afterEach(() => Focus.uninstall());
 
 describe('ReminderManager', () => {
   it('renders sorted upcoming reminders with escaped provider text', () => {

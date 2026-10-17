@@ -83,6 +83,7 @@ vi.mock('../workers/app-worker-client', async () => {
 
 import { EpgGrid } from './epg-grid';
 import { setLocale } from '../i18n';
+import { Focus } from '../navigation/focus-scope';
 
 const Y = 2024, M = 5, D = 15; // Sat Jun 15 2024, 12:00 local = "now"
 
@@ -140,6 +141,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  Focus.uninstall();
 });
 
 const channelItems = () => Array.from(container.querySelectorAll('.epg-channel-item'));

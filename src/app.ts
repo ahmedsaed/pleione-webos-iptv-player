@@ -388,6 +388,7 @@ class App {
       FocusRing.sync();
       Focus.input();
     });
+    // Focus first: its hover gate must run before FocusRing's hover listener.
     this.initFocusScopes();
     FocusRing.install(() => {
       const owner = Focus.owner();
@@ -1069,6 +1070,7 @@ class App {
     this.epgGrid.dismissPrompt(); // never let the catch-up prompt linger across a view change
     this.search.dismissPrompt();
     this.settings.dismissPrompt();
+    this.reminderManager.dismissPrompt();
     for (const [key, el] of Object.entries(this.views)) {
       if (key === 'loading') continue;
       if (key === name) show(el);
@@ -1527,11 +1529,11 @@ class App {
   // The one answer to "who gets the next key": handleKey routes by the owner,
   // the key diagnostic timeline names it, and FocusRing lets only its root
   // show a ring. A "button does nothing" report is usually an unexpected
-  // owner. Layers win by tier, then in the order registered here, above the
-  // shown view.
+  // owner. Prompts push themselves while shown; the layers here win by tier,
+  // then in the order registered, above the shown view.
   private initFocusScopes(): void {
     const current = () => this.viewStack[this.viewStack.length - 1];
-    let tier: number = Tier.critical;
+    let tier: number = Tier.prompt;
     const layer = (
       id: string,
       root: () => HTMLElement | null,
@@ -1541,28 +1543,8 @@ class App {
     ) => Focus.layer(Focus.register({ id, root, restrict, onAction, tier }), active);
     const playerPart = (selector: string) => () => $(selector, this.views.player);
 
-    layer('prompt.parental_pin', () => this.parentalPinPrompt.ringRoot,
-      () => this.parentalPinPrompt.visible, 'self-only',
-      (action, event) => this.parentalPinPrompt.handleAction(action, event));
-    tier = Tier.prompt;
-    layer('prompt.reminder', () => this.reminderPrompt.ringRoot,
-      () => this.reminderPrompt.visible, 'self-only', (action) => this.reminderPrompt.handleAction(action));
-    // The catch-up resume prompt is body-mounted but logically inside the EPG.
-    layer('prompt.epg', () => this.epgGrid.promptRoot,
-      () => this.epgGrid.isPromptVisible, 'self-only',
-      (action, event) => this.epgGrid.handleAction(action, event));
-    layer('prompt.settings', () => this.settings.promptRoot,
-      () => this.settings.isPromptVisible, 'self-only', (action) => this.settings.handleAction(action));
-    layer('prompt.reminder_manager', () => this.reminderManager.promptRoot,
-      () => this.reminderManager.isPromptVisible, 'self-only',
-      (action) => this.reminderManager.handleAction(action));
-    layer('prompt.parental', () => this.parentalControls.promptRoot,
-      () => current() === 'parental-controls' && this.parentalControls.isPromptVisible, 'self-only',
-      (action) => this.parentalControls.handleAction(action));
-    // Like the EPG's, Search's catch-up resume prompt also takes the color keys.
-    layer('prompt.search', () => this.search.promptRoot,
-      () => current() === 'search' && this.search.isPromptVisible, 'self-only',
-      (action) => this.search.handleAction(action));
+    layer('prompt.live_categories', () => this.settings.categoryPickerRoot,
+      () => this.settings.isCategoryPickerVisible, 'self-only', (action) => this.settings.handleAction(action));
     tier = Tier.bar;
     layer('tabbar', () => this.tabBar.ringRoot, () => this.tabBar.focused, 'self-first',
       (action) => this.tabBar.handleAction(action));

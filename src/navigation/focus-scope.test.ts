@@ -125,6 +125,24 @@ describe('Focus owner stack', () => {
     expect(Focus.owner()).toBeNull();
   });
 
+  it('takes the ring off a popped scope and keeps it registered for the next push', () => {
+    list(prompt, ['p1', 'p2']);
+    const p = logical('prompt.a', prompt, { restrict: 'self-only' });
+    Focus.push(p);
+    p.focus('p2', 'key');
+    Focus.flush();
+    expect(shown()).toEqual(['p2']);
+
+    Focus.pop(p);
+    expect(shown()).toEqual([]);
+    expect(() => Focus.register({ id: 'prompt.a', root: prompt })).toThrow(/already registered/);
+
+    Focus.push(p);
+    Focus.flush();
+    expect(Focus.owner()).toBe(p);
+    expect(shown()).toEqual(['p2']);
+  });
+
   it('routes keys to the owner only when it has a handler', () => {
     const onAction = vi.fn();
     const withHandler = Focus.register({ id: 'prompt.pin', root: prompt, onAction });
@@ -364,6 +382,56 @@ describe('Focus reconcile', () => {
     row(view, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     await Promise.resolve();
     expect(shown()).toEqual(['r2']);
+  });
+
+  it('keeps hover behind a pushed modal from the surfaces below', () => {
+    list(view, ['r1', 'r2']);
+    list(prompt, ['ok', 'cancel']);
+    const a = logical('live.channels', view);
+    const modal = logical('prompt.confirm', prompt, { restrict: 'self-only' });
+    Focus.setBase(() => a);
+    Focus.install();
+    const hovered: string[] = [];
+    const record = (e: Event) => hovered.push((e.target as HTMLElement).getAttribute('data-key')!);
+    document.addEventListener('nav:hover', record);
+    Focus.push(modal);
+    row(view, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    row(prompt, 'cancel').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    expect(hovered).toEqual(['cancel']);
+
+    Focus.pop(modal);
+    row(view, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    expect(hovered).toEqual(['cancel', 'r2']);
+    document.removeEventListener('nav:hover', record);
+  });
+
+  it('marks no hover behind a pushed modal for the ring', () => {
+    list(view, ['r1', 'r2']);
+    list(prompt, ['ok', 'cancel']);
+    const a = logical('live.channels', view);
+    const modal = logical('prompt.confirm', prompt, { restrict: 'self-only' });
+    Focus.setBase(() => a);
+    Focus.install();
+    installRing();
+    Focus.push(modal);
+    row(view, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    expect(document.querySelectorAll('[data-ring-hover]')).toHaveLength(0);
+
+    row(prompt, 'cancel').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    expect(row(prompt, 'cancel').hasAttribute('data-ring-hover')).toBe(true);
+  });
+
+  it('leaves hover alone under a modal that is only a compat layer', () => {
+    list(view, ['r1', 'r2']);
+    const a = logical('live.channels', view);
+    const menu = Focus.register({ id: 'menu', root: prompt, restrict: 'self-only' });
+    Focus.layer(menu, () => true);
+    Focus.setBase(() => a);
+    Focus.install();
+    const hovered = vi.fn();
+    view.addEventListener('nav:hover', hovered);
+    row(view, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    expect(hovered).toHaveBeenCalledTimes(1);
   });
 
   describe('keeping the ring in view', () => {

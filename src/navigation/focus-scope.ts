@@ -188,8 +188,6 @@ class Scope implements FocusScope {
     Focus.pop(this);
     layers = layers.filter((layer) => layer.scope !== this);
     registry.delete(this.id);
-    if (this.painted) setRing(this.painted, false);
-    this.painted = null;
   }
 }
 
@@ -298,6 +296,16 @@ function onHoverInput(): void {
   Focus.input('hover');
 }
 
+// A pushed modal keeps the pointer's hover outside it from reaching the
+// surfaces below, so nothing behind it moves focus or lights up. Installed
+// before FocusRing, so stopping it here also keeps FocusRing's hover mark off.
+function onHoverGate(e: Event): void {
+  const owner = Focus.owner() as Scope | null;
+  if (!owner?.modal || stack.indexOf(owner) < 0) return;
+  const root = owner.root();
+  if (root && e.target instanceof Node && !root.contains(e.target)) e.stopImmediatePropagation();
+}
+
 function onLeave(e: MouseEvent): void {
   if (InputMode.current === 'keys') return;
   const owner = Focus.owner() as Scope | null;
@@ -324,9 +332,13 @@ export const Focus = {
     Focus.reconcile();
   },
 
+  /** Take a pushed scope off the stack; it keeps its registration but no ring. */
   pop(scope: FocusScope): void {
+    const s = scope as Scope;
     const before = stack.length;
-    stack = stack.filter((entry) => entry !== scope);
+    stack = stack.filter((entry) => entry !== s);
+    if (s.painted) setRing(s.painted, false);
+    s.painted = null;
     if (stack.length !== before) Focus.reconcile();
   },
 
@@ -402,6 +414,7 @@ export const Focus = {
   install(): void {
     if (listening) return;
     listening = true;
+    document.addEventListener('nav:hover', onHoverGate, true);
     document.addEventListener('nav:hover', onHoverInput);
     document.addEventListener('click', onInput);
     document.addEventListener('nav:wheel', onWheel);
@@ -410,6 +423,7 @@ export const Focus = {
 
   uninstall(): void {
     if (listening) {
+      document.removeEventListener('nav:hover', onHoverGate, true);
       document.removeEventListener('nav:hover', onHoverInput);
       document.removeEventListener('click', onInput);
       document.removeEventListener('nav:wheel', onWheel);

@@ -23,7 +23,7 @@ interface ReminderDayGroup {
 
 export class ReminderManager {
   private nav: SpatialNav;
-  private confirmationPrompt = new ConfirmationPrompt();
+  private confirmationPrompt = new ConfirmationPrompt('prompt.reminder_manager');
   private now = Date.now();
 
   constructor(
@@ -40,18 +40,14 @@ export class ReminderManager {
     });
   }
 
-  get promptRoot(): HTMLElement | null {
-    return this.confirmationPrompt.ringRoot;
-  }
-
-  get isPromptVisible(): boolean {
-    return this.confirmationPrompt.visible;
-  }
-
   open(now = Date.now()): void {
     this.now = now;
     this.render();
     this.focusFirst();
+  }
+
+  dismissPrompt(): void {
+    this.confirmationPrompt.hide();
   }
 
   handleAction(action: Action): void {

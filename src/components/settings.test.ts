@@ -237,6 +237,7 @@ import { PlaylistService } from '../services/playlist-service';
 import { EpgService } from '../services/epg-service';
 import { channelKey, legacyChannelKey } from '../utils/channel';
 import { morph } from '../utils/morph';
+import { Focus } from '../navigation/focus-scope';
 
 let container: HTMLElement;
 let onSave: ReturnType<typeof vi.fn>;
@@ -283,6 +284,8 @@ function click(selector: string): void {
   container.querySelector<HTMLElement>(selector)!
     .dispatchEvent(new MouseEvent('click', { bubbles: true }));
 }
+
+afterEach(() => Focus.uninstall());
 
 describe('Settings.render', () => {
   it('renders the category sidebar with General first', () => {
