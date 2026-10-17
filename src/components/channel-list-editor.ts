@@ -103,6 +103,7 @@ export class ChannelListEditor {
     this.container.addEventListener('mousedown', (event: MouseEvent) => {
       this.onPointerDown(event);
     });
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the channel list editor moves to a focus scope
     this.container.addEventListener('mousemove', (event: MouseEvent) => {
       if (event.target instanceof HTMLElement) this.updateEpgPointerHover(event.target);
       this.onPointerMove(event);

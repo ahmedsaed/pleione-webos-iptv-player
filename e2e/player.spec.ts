@@ -813,7 +813,7 @@ test('direct channel entry lands in the tv-diag input timeline', async ({ page }
   expect(text).toContain('event=key.down code=51 action=number');
   expect(text).toContain('event=key.number number=3');
   expect(text).toContain(
-    'event=key.action action=number view=player consumer=view_player number=3',
+    'event=key.action action=number view=player owner=view.player number=3',
   );
   expect(text).toContain('event=key.number.accepted number=3 index=2');
 });

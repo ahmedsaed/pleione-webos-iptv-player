@@ -116,6 +116,7 @@ export class AccountSwitcher {
     });
     // Pointer hover moves the highlight onto the row under the cursor, so the
     // mouse and D-pad share one selection (OK then picks the hovered row).
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the account menu moves to a focus scope
     document.addEventListener('mouseover', (e: MouseEvent) => {
       if (!this.open) return;
       const row = (e.target as HTMLElement | null)?.closest<HTMLElement>('.account-menu-item');

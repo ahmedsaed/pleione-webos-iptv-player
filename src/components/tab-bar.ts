@@ -504,6 +504,7 @@ export class TabBar {
     const input = wrap.querySelector<HTMLInputElement>('.tab-bar-search-input')!;
     input.placeholder = this.searchPlaceholder();
     const btn = wrap.querySelector<HTMLElement>('.search-icon')!;
+    // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the tab bar moves to a focus scope
     setRing(btn, iconFocused);
     btn.classList.toggle('active', this.active === 'search');
   }

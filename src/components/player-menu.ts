@@ -190,6 +190,7 @@ export class PlayerMenu {
     }
 
     items.forEach((item, i) => {
+      // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the player menu moves to a focus scope
       setRing(item, i === this.focusIdx);
     });
     this.scrollFocusedIntoView();
@@ -461,12 +462,14 @@ export class PlayerMenu {
     });
 
     // Hover moves focus
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the player menu moves to a focus scope
     el.addEventListener('mouseover', (e: MouseEvent) => {
       const btn = (e.target as HTMLElement).closest<HTMLElement>('.menu-item');
       if (btn) {
         const items = el.querySelectorAll<HTMLElement>('.menu-item');
         items.forEach((item, i) => {
           if (item === btn) this.focusIdx = i;
+          // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the player menu moves to a focus scope
           setRing(item, item === btn);
         });
         this.resetTimer();

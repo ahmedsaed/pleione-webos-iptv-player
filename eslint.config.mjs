@@ -1,6 +1,7 @@
 import compat from 'eslint-plugin-compat';
 import tsParser from '@typescript-eslint/parser';
 import { ALLOWLIST, DENYLIST } from './scripts/compat-gate.mjs';
+import { focusRules } from './scripts/eslint-focus-rules.mjs';
 
 const entryByKind = new Map(DENYLIST.map((entry) => [entry.kind, entry]));
 const callOptions = DENYLIST.filter((entry) => entry.kind === 'call-option');
@@ -47,6 +48,15 @@ const unsupportedPatterns = {
     };
   },
 };
+
+// Focus handling lives in src/navigation/. A legacy site carries an inline
+// disable saying which surface still owns it until it moves to a focus scope;
+// an unused disable is an error, so deleting a site must delete its comment.
+export const FOCUS_RULE_FILES = {
+  files: ['src/**/*.ts'],
+  ignores: ['src/**/*.test.ts', 'src/test/**', 'src/navigation/**'],
+};
+export const FOCUS_RULES = ['no-ring-writer', 'no-raw-pointer-listener', 'no-scroll-into-view'];
 
 // webOS 4 ships Chromium 53. esbuild down-levels post-53 *syntax* (optional
 // chaining, etc.) but it does NOT polyfill missing *APIs*, which would silently
@@ -125,5 +135,11 @@ export default [
       'compat/compat': 'off',
       'no-restricted-syntax': 'off',
     },
+  },
+  {
+    ...FOCUS_RULE_FILES,
+    plugins: { focus: { rules: focusRules } },
+    linterOptions: { reportUnusedDisableDirectives: 'error' },
+    rules: Object.fromEntries(FOCUS_RULES.map((rule) => [`focus/${rule}`, 'error'])),
   },
 ];

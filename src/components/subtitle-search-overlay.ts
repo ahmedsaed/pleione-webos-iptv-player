@@ -126,6 +126,7 @@ export class SubtitleSearchOverlay {
   private focusList(): void {
     this.focusIdx = 0;
     this.render();
+    // eslint-disable-next-line focus/no-scroll-into-view -- legacy scrollIntoView call until subtitle search moves to a focus scope
     this.el.querySelector<HTMLElement>('.subs-row.focused')?.scrollIntoView?.({ block: 'nearest' });
   }
 
@@ -143,6 +144,7 @@ export class SubtitleSearchOverlay {
       if (this.focusIdx === 0 && input) { input.focus(); return; } // top → search box
       this.focusIdx = Math.max(0, this.focusIdx - 1);
       this.render();
+      // eslint-disable-next-line focus/no-scroll-into-view -- legacy scrollIntoView call until subtitle search moves to a focus scope
       this.el.querySelector<HTMLElement>('.subs-row.focused')?.scrollIntoView?.({ block: 'nearest' });
       return;
     }
@@ -151,6 +153,7 @@ export class SubtitleSearchOverlay {
     if (action === 'down') this.focusIdx = Math.min(this.results.length - 1, this.focusIdx + 1);
     else if (action === 'select') { this.pick(this.focusIdx); return; }
     this.render();
+    // eslint-disable-next-line focus/no-scroll-into-view -- legacy scrollIntoView call until subtitle search moves to a focus scope
     this.el.querySelector<HTMLElement>('.subs-row.focused')?.scrollIntoView?.({ block: 'nearest' });
   }
 

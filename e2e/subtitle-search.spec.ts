@@ -149,6 +149,18 @@ test('"Search online…" opens the results overlay, ranked and provider-labeled'
   await expect(rows.nth(1)).toContainText('Rare Release');
 });
 
+test('the menu keeps the keys over the overlay until Back closes it', async ({ page }) => {
+  await seedVod(page);
+  await routeAssrtSearch(page, () => []);
+  await startVodPlayback(page);
+  await openSearchOverlay(page);
+  const owner = page.locator('[data-ring-owner]');
+  await expect(owner).toHaveAttribute('data-focus-scope', 'player.menu');
+
+  await dismissMenuBehindOverlay(page);
+  await expect(owner).toHaveAttribute('data-focus-scope', 'player.subtitle_search');
+});
+
 test('picking a result downloads it into the application subtitle track', async ({ page }) => {
   await seedVod(page);
   await routeAssrtSearch(page, () => [

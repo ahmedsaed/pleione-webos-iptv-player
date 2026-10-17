@@ -570,10 +570,12 @@ export class Settings {
     // Pointer theme preview: hovering a swatch previews that theme app-wide;
     // moving the pointer off the swatches restores the currently selected theme
     // immediately (no deferring until focus lands elsewhere).
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until Settings moves to a focus scope
     this.container.addEventListener('mouseover', (e: MouseEvent) => {
       const sw = (e.target as HTMLElement).closest<HTMLElement>('.theme-swatch');
       if (sw?.dataset.themeId) previewTheme(sw.dataset.themeId);
     });
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until Settings moves to a focus scope
     this.container.addEventListener('mouseout', (e: MouseEvent) => {
       if (!(e.target as HTMLElement).closest('.theme-swatch')) return;
       const rel = e.relatedTarget as HTMLElement | null;
@@ -1701,8 +1703,10 @@ export class Settings {
   }
 
   private onNavFocus(el: HTMLElement | null): void {
+    // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until Settings moves to a focus scope
     ringsIn(this.container, '.settings-advanced-row').forEach(row => setRing(row, false));
     const row = el?.closest('.settings-advanced-row');
+    // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until Settings moves to a focus scope
     if (row) setRing(row, true);
     if (el?.dataset.themeId) previewTheme(el.dataset.themeId);
     else previewTheme(this.selectedTheme);
@@ -1735,6 +1739,7 @@ export class Settings {
         maxScrollTop,
       ),
     );
+    // eslint-disable-next-line focus/no-scroll-into-view -- legacy scrollIntoView call until Settings moves to a focus scope
     target.scrollIntoView({
       block: 'start',
       inline: 'nearest',

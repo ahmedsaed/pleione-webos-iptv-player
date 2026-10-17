@@ -1,6 +1,7 @@
 import { Safe } from './dom';
 import { createLogger } from './logger';
 import { isRingAttr, keepRingClass } from '../navigation/focus-ring';
+import { Focus } from '../navigation/focus-scope';
 
 const log = createLogger('morph');
 
@@ -21,6 +22,7 @@ export function morph(parent: HTMLElement, next: Safe): void {
   const tmpl = document.createElement('template');
   tmpl.innerHTML = next.value;
   patchChildren(parent, Array.from(tmpl.content.childNodes));
+  Focus.afterMorph(parent);
 }
 
 const ELEMENT = 1;

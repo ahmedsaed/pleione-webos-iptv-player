@@ -212,6 +212,7 @@ export class Search {
 
   constructor(private container: HTMLElement, private handlers: SearchHandlers) {
     this.nav = new SpatialNav(container);
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until Search moves to a focus scope
     this.container.addEventListener('mouseleave', () => this.nav.clearHighlight());
     // Activate the result under the pointer by coordinate hit-test, so it lands
     // here regardless of D-pad focus; the container is marked `data-self-activate`

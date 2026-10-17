@@ -51,6 +51,7 @@ import { truncate } from './utils/text';
 import { $, show, hide } from './utils/dom';
 import { createLogger, installGlobalErrorHandlers, logEnvironment } from './utils/logger';
 import { FocusRing } from './navigation/focus-ring';
+import { Focus, Tier, type FocusScope } from './navigation/focus-scope';
 import type {
   Action,
   NumberEvent,
@@ -374,7 +375,7 @@ class App {
       onLockNow: () => ParentalControlService.lock('lock-now'),
       contentHas: (node) => {
         const current = this.viewStack[this.viewStack.length - 1];
-        return this.keyOwner(current).name === 'tab_bar' && this.views[current].contains(node);
+        return Focus.owner()?.id === 'tabbar' && this.views[current].contains(node);
       },
     });
     this.tabBar.init();
@@ -385,10 +386,12 @@ class App {
       // Any key ends a pointer entry's wait, even one that acted elsewhere.
       FocusRing.reveal('key', action);
       FocusRing.sync();
+      Focus.input();
     });
+    this.initFocusScopes();
     FocusRing.install(() => {
-      const owner = this.keyOwner(this.viewStack[this.viewStack.length - 1]);
-      return { root: owner.root, modal: !owner.name.startsWith('view_') && owner.name !== 'tab_bar' };
+      const owner = Focus.owner();
+      return { root: owner?.root() ?? null, modal: !!owner?.modal, id: owner?.id };
     });
     KeyHandler.setChannelCount(() => PlaylistService.channels.length);
 
@@ -1521,45 +1524,80 @@ class App {
     }, concealed !== null);
   }
 
-  // The one answer to "who gets the next key": handleKey routes by it, the
-  // key diagnostic timeline names it, and FocusRing lets only its root show a
-  // ring. A "button does nothing" report is usually an unexpected owner.
-  private keyOwner(currentView: ViewName): { name: string; root: HTMLElement | null } {
-    if (this.parentalPinPrompt.visible) {
-      return { name: 'parental_pin_prompt', root: this.parentalPinPrompt.ringRoot };
+  // The one answer to "who gets the next key": handleKey routes by the owner,
+  // the key diagnostic timeline names it, and FocusRing lets only its root
+  // show a ring. A "button does nothing" report is usually an unexpected
+  // owner. Layers win by tier, then in the order registered here, above the
+  // shown view.
+  private initFocusScopes(): void {
+    const current = () => this.viewStack[this.viewStack.length - 1];
+    let tier: number = Tier.critical;
+    const layer = (
+      id: string,
+      root: () => HTMLElement | null,
+      active: () => boolean,
+      restrict: 'self-only' | 'self-first',
+      onAction?: (action: Action, event?: NumberEvent) => void,
+    ) => Focus.layer(Focus.register({ id, root, restrict, onAction, tier }), active);
+    const playerPart = (selector: string) => () => $(selector, this.views.player);
+
+    layer('prompt.parental_pin', () => this.parentalPinPrompt.ringRoot,
+      () => this.parentalPinPrompt.visible, 'self-only',
+      (action, event) => this.parentalPinPrompt.handleAction(action, event));
+    tier = Tier.prompt;
+    layer('prompt.reminder', () => this.reminderPrompt.ringRoot,
+      () => this.reminderPrompt.visible, 'self-only', (action) => this.reminderPrompt.handleAction(action));
+    // The catch-up resume prompt is body-mounted but logically inside the EPG.
+    layer('prompt.epg', () => this.epgGrid.promptRoot,
+      () => this.epgGrid.isPromptVisible, 'self-only',
+      (action, event) => this.epgGrid.handleAction(action, event));
+    layer('prompt.settings', () => this.settings.promptRoot,
+      () => this.settings.isPromptVisible, 'self-only', (action) => this.settings.handleAction(action));
+    layer('prompt.reminder_manager', () => this.reminderManager.promptRoot,
+      () => this.reminderManager.isPromptVisible, 'self-only',
+      (action) => this.reminderManager.handleAction(action));
+    layer('prompt.parental', () => this.parentalControls.promptRoot,
+      () => current() === 'parental-controls' && this.parentalControls.isPromptVisible, 'self-only',
+      (action) => this.parentalControls.handleAction(action));
+    // Like the EPG's, Search's catch-up resume prompt also takes the color keys.
+    layer('prompt.search', () => this.search.promptRoot,
+      () => current() === 'search' && this.search.isPromptVisible, 'self-only',
+      (action) => this.search.handleAction(action));
+    tier = Tier.bar;
+    layer('tabbar', () => this.tabBar.ringRoot, () => this.tabBar.focused, 'self-first',
+      (action) => this.tabBar.handleAction(action));
+    tier = Tier.overlay;
+    // Recent searches drop over the current view and take its input.
+    layer('search.history', () => this.historyDropdown.ringRoot,
+      () => this.historyDropdown.isOpen, 'self-only', (action) => this.historyDropdown.handleAction(action));
+    layer('player.subtitle_offset', playerPart('#subtitle-offset'),
+      () => current() === 'player' && this.player.subtitleOffsetOpen(), 'self-only',
+      (action) => this.player.handleSubtitleOffsetAction(action));
+    // The player's overlays own the ring, but the player view still routes
+    // their keys; the menu keeps the D-pad while the subtitle search sits above it.
+    layer('player.sidebar', playerPart('#player-sidebar'),
+      () => current() === 'player' && this.sidebar.visible, 'self-first');
+    layer('player.menu', playerPart('#player-menu'),
+      () => current() === 'player' && this.menu.visible, 'self-first');
+    layer('player.subtitle_search', playerPart('#subtitle-search'), () => {
+      const search = current() === 'player' ? $('#subtitle-search', this.views.player) : null;
+      return !!search && !search.classList.contains('hidden');
+    }, 'self-first');
+
+    const views = new Map<ViewName, FocusScope>();
+    for (const name of Object.keys(this.views) as ViewName[]) {
+      views.set(name, Focus.register({ id: `view.${name}`, root: this.views[name] }));
     }
-    if (this.reminderPrompt.visible) return { name: 'reminder_prompt', root: this.reminderPrompt.ringRoot };
-    if (this.epgGrid.isPromptVisible) return { name: 'epg_prompt', root: this.epgGrid.promptRoot };
-    if (this.settings.isPromptVisible) return { name: 'settings_prompt', root: this.settings.promptRoot };
-    if (this.reminderManager.isPromptVisible) {
-      return { name: 'reminder_manager_prompt', root: this.reminderManager.promptRoot };
-    }
-    if (currentView === 'parental-controls' && this.parentalControls.isPromptVisible) {
-      return { name: 'parental_prompt', root: this.parentalControls.promptRoot };
-    }
-    if (currentView === 'search' && this.search.isPromptVisible) {
-      return { name: 'search_prompt', root: this.search.promptRoot };
-    }
-    if (this.tabBar.focused) return { name: 'tab_bar', root: this.tabBar.ringRoot };
-    if (this.historyDropdown.isOpen) return { name: 'search_history', root: this.historyDropdown.ringRoot };
-    const view = this.views[currentView];
-    if (currentView === 'player') {
-      if (this.player.subtitleOffsetOpen()) return { name: 'subtitle_offset', root: $('#subtitle-offset', view) };
-      // The menu keeps the D-pad while the subtitle search sits above it.
-      if (this.sidebar.visible) return { name: 'view_player', root: $('#player-sidebar', view) };
-      if (this.menu.visible) return { name: 'view_player', root: $('#player-menu', view) };
-      const search = $('#subtitle-search', view);
-      if (search && !search.classList.contains('hidden')) return { name: 'view_player', root: search };
-    }
-    return { name: `view_${currentView}`, root: view };
+    Focus.setBase(() => views.get(current()) ?? null);
+    Focus.install();
   }
 
   private handleKey(action: Action, event?: NumberEvent): void {
     const currentView = this.viewStack[this.viewStack.length - 1];
-    const owner = this.keyOwner(currentView);
+    const owner = Focus.owner();
 
     log.debug('Key routed', 'event=key.action', `action=${action}`,
-      `view=${currentView}`, `consumer=${owner.name}`,
+      `view=${currentView}`, `owner=${owner?.id ?? 'none'}`,
       `number=${event ? String(event.number) : 'none'}`);
 
     // The digit OSD is body-mounted and outlives every view, so an abandoned
@@ -1569,42 +1607,8 @@ class App {
       return;
     }
 
-    // Modal layers take every key; their order lives in keyOwner().
-    switch (owner.name) {
-      case 'parental_pin_prompt':
-        this.parentalPinPrompt.handleAction(action, event);
-        return;
-      case 'reminder_prompt':
-        this.reminderPrompt.handleAction(action);
-        return;
-      // The catch-up resume prompt is body-mounted but logically inside the EPG.
-      case 'epg_prompt':
-        this.epgGrid.handleAction(action, event);
-        return;
-      case 'settings_prompt':
-        this.settings.handleAction(action);
-        return;
-      case 'reminder_manager_prompt':
-        this.reminderManager.handleAction(action);
-        return;
-      case 'parental_prompt':
-        this.parentalControls.handleAction(action);
-        return;
-      // Like the EPG's, Search's catch-up resume prompt also takes the color keys.
-      case 'search_prompt':
-        this.search.handleAction(action);
-        return;
-      case 'tab_bar':
-        this.tabBar.handleAction(action);
-        return;
-      // Recent searches drop over the current view and take its input.
-      case 'search_history':
-        this.historyDropdown.handleAction(action);
-        return;
-      case 'subtitle_offset':
-        this.player.handleSubtitleOffsetAction(action);
-        return;
-    }
+    // Layers above the view take every key; their order lives in initFocusScopes().
+    if (owner?.handle(action, event)) return;
 
     // Direct channel entry: echo the digits while KeyHandler buffers them, in
     // the two views that act on them (the guide and prompts ignore numbers).

@@ -90,6 +90,7 @@ export class ConfirmationPrompt {
   }
 
   private bindEvents(): void {
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until this prompt moves to a focus scope
     this.el!.addEventListener('mouseover', (event: MouseEvent) => {
       const button = (event.target as HTMLElement).closest<HTMLElement>('[data-confirm-action]');
       if (!button) return;

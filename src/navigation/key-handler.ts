@@ -1,6 +1,7 @@
 import { CONFIG } from '../config';
 import { StorageService } from '../services/storage-service';
 import { createLogger } from '../utils/logger';
+import { InputMode, setInputMode } from './input-mode';
 import type { Action, NumberEvent } from '../types';
 
 type ActionHandler = (action: Action, event?: NumberEvent) => void;
@@ -160,7 +161,6 @@ export const KeyHandler = {
     // CSS scopes pointer-hover looks to `html:not(.keyboard-nav)`. Compare
     // coordinates: Chromium fires a synthetic mousemove when content moves
     // under a resting cursor, and the first one only seeds the position.
-    const root = document.documentElement;
     let pointerX: number | null = null;
     let pointerY: number | null = null;
 
@@ -181,8 +181,8 @@ export const KeyHandler = {
       ? e.target.closest<HTMLElement>('[data-focusable], [data-hover-target]') : null;
 
     const resumePointer = (e: MouseEvent, via: string): void => {
-      if (!root.classList.contains('keyboard-nav')) return;
-      root.classList.remove('keyboard-nav');
+      if (InputMode.current !== 'keys') return;
+      setInputMode('pointer');
       if (suppressedHovers > 0) {
         log.debug('Hover resumed', 'event=nav.hover.resumed', `via=${via}`,
           `suppressed=${suppressedHovers}`);
@@ -203,7 +203,7 @@ export const KeyHandler = {
       // webOS reports its cursor appearing or hiding as a key press; neither
       // is the D-pad taking over.
       if (e.keyCode === K.CURSOR_SHOW || e.keyCode === K.CURSOR_HIDE) return;
-      root.classList.add('keyboard-nav');
+      setInputMode('keys');
       rehoverPending = true;
     }, true);
     let pointerClientX = 0;
@@ -238,7 +238,7 @@ export const KeyHandler = {
       if (hoverSyncTimer !== null) clearTimeout(hoverSyncTimer);
       hoverSyncTimer = setTimeout(() => {
         hoverSyncTimer = null;
-        if (root.classList.contains('keyboard-nav')) return;
+        if (InputMode.current === 'keys') return;
         const hit = document.elementFromPoint(pointerClientX, pointerClientY);
         if (!hit) return;
         log.debug('Hover synced after scroll', 'event=nav.hover.synced', 'via=wheel');
@@ -256,7 +256,7 @@ export const KeyHandler = {
     // mouseover too; following them would pull focus back under the pointer.
     // Capture phase, so components with their own mouseover never see them.
     document.addEventListener('mouseover', (e: MouseEvent) => {
-      if (root.classList.contains('keyboard-nav')
+      if (InputMode.current === 'keys'
           && e.screenX === pointerX && e.screenY === pointerY) {
         suppressedHovers++;
         e.stopImmediatePropagation();

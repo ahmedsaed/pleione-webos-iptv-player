@@ -69,6 +69,7 @@ export class PlayerOsd {
     // they sit over the video plane. The persistent container is marked so the
     // global click handler skips this self-activating subtree.
     container.setAttribute('data-self-activate', '');
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- OSD auto-hide is an activity signal, not focus
     container.addEventListener('mousemove', (e: MouseEvent) => {
       this.pointerX = e.clientX;
       this.pointerY = e.clientY;

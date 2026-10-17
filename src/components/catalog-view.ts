@@ -108,6 +108,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
     this.layers = { browse: layer('browse'), grid: layer('grid'), detail: layer('detail') };
     this.nav = new SpatialNav(container, (el) => this.onFocusChanged(el));
     this.nav.setRestrict(this.layers.browse);
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the catalog view moves to a focus scope
     this.container.addEventListener('mouseleave', () => this.nav.clearHighlight());
     this.container.addEventListener('scroll', (event: Event) => {
       const target = event.target as HTMLElement;

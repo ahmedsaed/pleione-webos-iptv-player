@@ -525,11 +525,13 @@ export class Sidebar {
   }
 
   private clearRings(selector: string): void {
+    // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the sidebar moves to a focus scope
     if (this.el) ringsIn(this.el, selector).forEach(n => setRing(n, false));
   }
 
   /** Drop the hover highlight; next hover/d-pad re-shows it (see hoverCleared). */
   private clearHover(): void {
+    // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the sidebar moves to a focus scope
     if (this.el) ringsIn(this.el).forEach(n => setRing(n, false));
     this.hoverCleared = true;
   }
@@ -548,17 +550,21 @@ export class Sidebar {
         items = this.el.querySelectorAll<HTMLElement>('.sidebar-ch-item');
       }
       items.forEach((item) => {
+        // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the sidebar moves to a focus scope
         setRing(item, parseInt(item.dataset.sidebarPos || '-2', 10) === this.channelFocusIdx);
       });
       const input = this.el?.querySelector('.sidebar-search-input');
+      // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the sidebar moves to a focus scope
       if (input) setRing(input, this.channelFocusIdx === -1);
       this.clearRings('.sidebar-group-item, .sidebar-tab');
     } else if (this.activePane === 'sources') {
       this.clearRings('.sidebar-search-input, .sidebar-ch-item, .sidebar-group-item');
       this.el?.querySelectorAll<HTMLElement>('.sidebar-tab').forEach((item, index) => {
+        // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the sidebar moves to a focus scope
         setRing(item, index === this.sourceFocusIdx);
       });
       if (reveal) {
+        // eslint-disable-next-line focus/no-scroll-into-view -- legacy scrollIntoView call until the sidebar moves to a focus scope
         this.el?.querySelector('.sidebar-tab.focused')
           ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       }
@@ -569,9 +575,11 @@ export class Sidebar {
       }
       this.clearRings('.sidebar-search-input, .sidebar-ch-item, .sidebar-tab');
       this.el?.querySelectorAll<HTMLElement>('.sidebar-group-item').forEach((item) => {
+        // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the sidebar moves to a focus scope
         setRing(item, parseInt(item.dataset.groupPos || '-1', 10) === this.groupFocusIdx);
       });
       if (reveal) {
+        // eslint-disable-next-line focus/no-scroll-into-view -- legacy scrollIntoView call until the sidebar moves to a focus scope
         this.el?.querySelector('.sidebar-group-item.focused')
           ?.scrollIntoView({ block: 'nearest' });
       }
@@ -1231,6 +1239,7 @@ export class Sidebar {
     });
 
     // Hover moves the highlight within the pane under the pointer.
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the sidebar moves to a focus scope
     el.addEventListener('mouseover', (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const groupItem = target.closest<HTMLElement>('[data-group-pos]');
@@ -1275,6 +1284,7 @@ export class Sidebar {
 
     // Cursor left the sidebar: drop the hover highlight. Focus is kept so a
     // later d-pad press or hover re-shows it.
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the sidebar moves to a focus scope
     el.addEventListener('mouseleave', () => this.clearHover());
 
     el.addEventListener('scroll', (e: Event) => {
@@ -1303,6 +1313,7 @@ export class Sidebar {
 
     // The wheel scrolls natively and hover moves the highlight. Stepping focus
     // here raced the scroll event and yanked the list back to the stale offset.
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the sidebar moves to a focus scope
     el.addEventListener('wheel', (e: WheelEvent) => {
       e.stopPropagation();
       const now = Date.now();

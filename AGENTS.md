@@ -42,9 +42,13 @@ Procedural workflows live in `.agents/skills/` (open Agent Skills format;
 - Chromium 53 treats a `scrollIntoView` options object as `true`;
   `src/polyfills.ts` fixes it, so never bypass or reimplement that call.
 - Only the surface that owns the keys shows a focus ring: `FocusRing`
-  parks every other `.focused`. A new modal or overlay goes into
-  `App.keyOwner()`, which both routes keys and picks the ring; write the
-  class through `setRing()`/`ringsIn()` (ESLint enforces it). Every E2E
+  parks every other `.focused`. A new modal or overlay registers a
+  scope on the `Focus` owner stack (`src/navigation/focus-scope.ts`,
+  wired in `App.initFocusScopes()`) at the right `Tier`, which both
+  routes keys and picks the ring; write the class through
+  `setRing()`/`ringsIn()` (ESLint enforces it; a legacy site carries an
+  inline `focus/*` disable that names the surface still owning it until
+  that surface moves to a focus scope; a stale disable fails lint). Every E2E
   test fails when a key press leaves two rings on screen. Hover never
   moves the keys, except that the tab bar releases them to hovered
   content; after a pointer tab click, `FocusRing.defer()` keeps the
@@ -146,8 +150,10 @@ build constant; `scripts/sync-version.mjs` runs on `npm version`.
   `[data-nav-container]`); `KeyHandler` also wires pointer/Magic Remote and
   desktop mouse/wheel input. `FocusRing` (`focus-ring.ts`) gates rings to
   the key owner and keeps a `SpatialNav` ring through `morph()` re-renders;
-  it marks the owner root `data-ring-owner` and the hover target
-  `data-ring-hover`, which the E2E ring audit reads.
+  it marks the owner root `data-ring-owner` and `data-focus-scope` and
+  the hover target `data-ring-hover`, which the E2E ring audit reads.
+  `InputMode` (`input-mode.ts`) is the keys/pointer mode, written only
+  by `KeyHandler`.
 - **Parsers** (`src/parsers/`) — `parseM3U` / `parseXMLTV` are pure
   functions; keep them tolerant of messy real-world feeds.
 - **Config** (`src/config.ts`) — `CONFIG` holds key codes, refresh

@@ -4,6 +4,7 @@
 // when the keys return, so no view has to know which surface sits above it.
 
 import { createLogger } from '../utils/logger';
+import { InputMode } from './input-mode';
 
 const log = createLogger('FocusRing');
 
@@ -11,7 +12,8 @@ const FOCUSED = 'focused';
 const PARKED = 'focused-parked';
 
 // `modal`: a prompt over everything, where even the pointer's hover stays dark.
-export interface RingOwner { root: Element | null; modal?: boolean }
+// `id`: the owning focus scope, marked on the root for tests and diagnostics.
+export interface RingOwner { root: Element | null; modal?: boolean; id?: string }
 type OwnerResolver = () => RingOwner;
 
 // Elements a SpatialNav holds focus on: morph() must not strip their ring.
@@ -21,6 +23,9 @@ const held = new WeakSet<Element>();
 // keys: empty, `modal`, or `deferred` while its own ring waits.
 const OWNER_ATTR = 'data-ring-owner';
 const HOVER_ATTR = 'data-ring-hover';
+const SCOPE_ATTR = 'data-focus-scope';
+// Set by the reconcile pass on a migrated owner whose logical focus resolves to nothing.
+export const UNRESOLVED_ATTR = 'data-focus-unresolved';
 
 let resolver: OwnerResolver | null = null;
 let marked: Element | null = null;
@@ -71,9 +76,14 @@ export function hasRing(el: Element): boolean {
   return el.classList.contains(FOCUSED) || el.classList.contains(PARKED);
 }
 
+/** Whether `el` shows a ring, not a parked one. */
+export function ringShown(el: Element): boolean {
+  return el.classList.contains(FOCUSED);
+}
+
 /** Whether `name` is a marker FocusRing writes, which a template never carries. */
 export function isRingAttr(name: string): boolean {
-  return name === OWNER_ATTR || name === HOVER_ATTR;
+  return name === OWNER_ATTR || name === HOVER_ATTR || name === SCOPE_ATTR || name === UNRESOLVED_ATTR;
 }
 
 /** The template's `class` for a re-rendered node, keeping a held node's ring. */
@@ -96,7 +106,7 @@ function allowed(el: Element, owner: Element, modal: boolean): boolean {
   // The pointer may point anywhere; what it hovers stays lit until a key.
   // Hover never moves the keys, except that TabBar releases them to hovered content.
   return !modal && !!hoverTarget && hoverTarget.contains(el)
-    && !document.documentElement.classList.contains('keyboard-nav');
+    && InputMode.current !== 'keys';
 }
 
 export const FocusRing = {
@@ -131,6 +141,7 @@ export const FocusRing = {
 
   uninstall(): void {
     marked?.removeAttribute(OWNER_ATTR);
+    marked?.removeAttribute(SCOPE_ATTR);
     marked = null;
     observer?.disconnect();
     observer = null;
@@ -191,11 +202,15 @@ export const FocusRing = {
     if (deferredRoot && deferredRoot !== owner) deferredRoot = null;
     if (owner !== marked) {
       marked?.removeAttribute(OWNER_ATTR);
+      marked?.removeAttribute(SCOPE_ATTR);
       marked = owner;
     }
     if (!owner) return;
     const mark = modal ? 'modal' : owner === deferredRoot ? 'deferred' : '';
     if (owner.getAttribute(OWNER_ATTR) !== mark) owner.setAttribute(OWNER_ATTR, mark);
+    const id = resolved?.id;
+    if (id === undefined) owner.removeAttribute(SCOPE_ATTR);
+    else if (owner.getAttribute(SCOPE_ATTR) !== id) owner.setAttribute(SCOPE_ATTR, id);
     const shown = document.getElementsByClassName(FOCUSED);
     for (const el of Array.from(shown)) {
       if (!allowed(el, owner, modal)) swap(el, FOCUSED, PARKED);

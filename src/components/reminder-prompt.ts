@@ -79,6 +79,7 @@ export class ReminderPrompt {
   }
 
   private bindEvents(): void {
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until this prompt moves to a focus scope
     this.el!.addEventListener('mouseover', (e: MouseEvent) => {
       const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-reminder-action]');
       if (!btn) return;

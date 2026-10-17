@@ -153,6 +153,7 @@ export class ChannelList {
     });
 
     // Cursor left the view: drop the hover highlight.
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the channel list moves to a focus scope
     this.container.addEventListener('mouseleave', () => {
       this.nav.clearHighlight();
       this.editor.finishPointerDrag();
@@ -398,6 +399,7 @@ export class ChannelList {
         && this.nav.focused === target;
       this.nav.focus(target);
       if (restoreRecentFocus) {
+        // eslint-disable-next-line focus/no-scroll-into-view -- legacy scrollIntoView call until the channel list moves to a focus scope
         target.scrollIntoView({ block: 'nearest', behavior: 'auto' });
       }
     }

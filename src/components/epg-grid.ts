@@ -811,6 +811,7 @@ export class EpgGrid {
       }
     });
 
+    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the Guide grid moves to a focus scope
     this.container.addEventListener('mouseover', (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const groupItem = target.closest<HTMLElement>('[data-epg-group]');
@@ -853,8 +854,10 @@ export class EpgGrid {
       if (menuWasOpen) {
         this.render();
       } else {
+        // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the Guide grid moves to a focus scope
         ringsIn(this.container, '.epg-group-button').forEach(el => setRing(el, false));
         const search = this.container.querySelector('.epg-search-wrap');
+        // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the Guide grid moves to a focus scope
         if (search) setRing(search, true);
       }
     });
@@ -898,8 +901,10 @@ export class EpgGrid {
 
   private setProgFocusLight(idx: number): void {
     if (this.focusProg === idx && this.focusCol === 'programmes') return;
+    // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the Guide grid moves to a focus scope
     ringsIn(this.container, '.epg-programme-item').forEach(el => setRing(el, false));
     const next = this.container.querySelector<HTMLElement>(`[data-prog-idx="${idx}"]`);
+    // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the Guide grid moves to a focus scope
     if (next) setRing(next, true);
     this.focusProg = idx;
     if (this.focusCol !== 'programmes') {
@@ -931,6 +936,7 @@ export class EpgGrid {
 
   private scrollFocusedIntoView(): void {
     if (this.groupOpen) {
+      // eslint-disable-next-line focus/no-scroll-into-view -- legacy scrollIntoView call until the Guide grid moves to a focus scope
       this.container.querySelector<HTMLElement>('.epg-group-option.focused')
         ?.scrollIntoView({ block: 'nearest' });
       return;
@@ -944,6 +950,7 @@ export class EpgGrid {
       programmes: '.epg-programme-item.focused',
     };
     const el = this.container.querySelector<HTMLElement>(map[this.focusCol]);
+    // eslint-disable-next-line focus/no-scroll-into-view -- legacy scrollIntoView call until the Guide grid moves to a focus scope
     el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
