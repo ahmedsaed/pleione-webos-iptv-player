@@ -1575,8 +1575,7 @@ class App {
       (action) => this.player.handleSubtitleOffsetAction(action));
     // The player's overlays own the ring, but the player view still routes
     // their keys; the menu keeps the D-pad while the subtitle search sits above it.
-    layer('player.sidebar', playerPart('#player-sidebar'),
-      () => current() === 'player' && this.sidebar.visible, 'self-first');
+    Focus.layer(this.sidebar.focusScope, () => current() === 'player' && this.sidebar.visible);
     layer('player.menu', playerPart('#player-menu'),
       () => current() === 'player' && this.menu.visible, 'self-first');
     layer('player.subtitle_search', playerPart('#subtitle-search'), () => {

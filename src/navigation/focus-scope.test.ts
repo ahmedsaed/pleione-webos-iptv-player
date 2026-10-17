@@ -411,7 +411,7 @@ describe('Focus reconcile', () => {
 
     it('uses the scope\'s own reveal when it has one', () => {
       setInputMode('keys');
-      const reveal = vi.fn();
+      const reveal = vi.fn(() => true);
       const a = logical('live.channels', view, { reveal });
       Focus.setBase(() => a);
       a.focus('r2', 'key');
@@ -451,5 +451,163 @@ describe('Focus reconcile', () => {
       expect(row(scroller, 'r2').scrollIntoView).toHaveBeenCalledTimes(1);
       expect(repairs()).toEqual([]);
     });
+
+    it('falls back to the geometric reveal when the scope\'s own declines', () => {
+      const reveal = vi.fn(() => false);
+      const a = logical('live.channels', view, { reveal });
+      Focus.setBase(() => a);
+      a.focus('r2', 'key');
+      Focus.flush();
+      expect(reveal).toHaveBeenCalledWith('r2');
+      expect(row(scroller, 'r2').scrollIntoView).toHaveBeenCalledTimes(1);
+    });
+
+    it('reveals a key the pointer rests on only where the scope asks for it', () => {
+      const a = logical('live.channels', view, { revealOnHover: (key) => key === 'r2' });
+      Focus.setBase(() => a);
+      Focus.install();
+      for (const key of ['r1', 'r2']) {
+        a.focus(key, 'pointer');
+        row(scroller, key).dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+        Focus.flush();
+      }
+      const revealed = () => vi.mocked(Element.prototype.scrollIntoView).mock.contexts
+        .map((el) => (el as Element).getAttribute('data-key'));
+      expect(revealed()).toEqual(['r2']);
+      // A wheel or a click over it is no reason to scroll.
+      clip = true;
+      document.dispatchEvent(new CustomEvent('nav:wheel', { cancelable: true }));
+      Focus.flush();
+      expect(revealed()).toEqual(['r2']);
+    });
+
+    it('lets a wheel reveal in key mode only when no surface claimed it', () => {
+      const a = logical('live.channels', view);
+      Focus.setBase(() => a);
+      Focus.install();
+      setInputMode('pointer');
+      a.focus('r2', 'pointer');
+      Focus.flush();
+      setInputMode('keys');
+      const claim = (e: Event) => e.preventDefault();
+      scroller.addEventListener('nav:wheel', claim);
+      row(scroller, 'r2').dispatchEvent(new CustomEvent('nav:wheel', { bubbles: true, cancelable: true }));
+      Focus.flush();
+      expect(row(scroller, 'r2').scrollIntoView).not.toHaveBeenCalled();
+      scroller.removeEventListener('nav:wheel', claim);
+      row(scroller, 'r2').dispatchEvent(new CustomEvent('nav:wheel', { bubbles: true, cancelable: true }));
+      Focus.flush();
+      expect(row(scroller, 'r2').scrollIntoView).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not reveal a hovered item just because the hover arrived in key mode', () => {
+      const reveal = vi.fn(() => false);
+      const a = logical('live.channels', view, { reveal });
+      Focus.setBase(() => a);
+      Focus.install();
+      setInputMode('keys');
+      a.focus('r2', 'pointer');
+      row(scroller, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      Focus.flush();
+      expect(reveal).not.toHaveBeenCalled();
+      expect(row(scroller, 'r2').scrollIntoView).not.toHaveBeenCalled();
+      // A key in the same pass still reveals.
+      Focus.input('hover');
+      Focus.input();
+      Focus.flush();
+      expect(reveal).toHaveBeenCalledWith('r2');
+    });
+
+    it('resumes scrolled-away focus where it is and reports it', () => {
+      setInputMode('keys');
+      const a = logical('live.channels', view, { reveal: () => false });
+      Focus.setBase(() => a);
+      a.resume('r2', 3);
+      Focus.flush();
+      expect(shown()).toEqual(['r2']);
+      expect(row(scroller, 'r2').scrollIntoView).not.toHaveBeenCalled();
+      expect(repairs()).toEqual([
+        expect.stringContaining('reason=detached scope=live.channels distance=3'),
+      ]);
+    });
+  });
+});
+
+describe('Focus kept by a component', () => {
+  let rows: string[];
+  let current: string;
+  let scope: FocusScope;
+
+  function render(): void {
+    list(view, rows);
+    scope.track(current);
+  }
+
+  beforeEach(() => {
+    rows = ['r1', 'r2'];
+    current = 'r1';
+    scope = logical('player.sidebar', view, {
+      defaultKey: () => current,
+      has: (key) => key === current,
+      concealOnLeave: true,
+    });
+    Focus.layer(scope, () => true);
+    Focus.install();
+    render();
+    Focus.flush();
+  });
+
+  it('waits for an unrendered key the model still has, without repairing it', () => {
+    current = 'r9';
+    render();
+    Focus.flush();
+    expect(shown()).toEqual([]);
+    expect(scope.focusKey).toBe('r9');
+    expect(view.hasAttribute('data-focus-unresolved')).toBe(false);
+    expect(repairs()).toEqual([]);
+  });
+
+  it('paints an unrendered key once its reveal renders it', () => {
+    Focus.uninstall();
+    scope = logical('player.sidebar', view, {
+      defaultKey: () => current,
+      has: (key) => key === current,
+      reveal: (key) => {
+        rows = ['r8', 'r9'];
+        list(view, rows);
+        return key === 'r9';
+      },
+    });
+    Focus.layer(scope, () => true);
+    current = 'r9';
+    scope.focus('r9', 'key');
+    Focus.flush();
+    expect(shown()).toEqual(['r9']);
+    expect(repairs()).toEqual([]);
+  });
+
+  it('conceals the ring once the pointer leaves the root, and keeps it hidden across renders', () => {
+    expect(shown()).toEqual(['r1']);
+    row(view, 'r1').dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: prompt }));
+    Focus.flush();
+    expect(shown()).toEqual([]);
+    current = 'r2';
+    render();
+    Focus.flush();
+    expect(shown()).toEqual([]);
+    expect(scope.focusKey).toBe('r2');
+    scope.focus('r2', 'pointer');
+    Focus.flush();
+    expect(shown()).toEqual(['r2']);
+  });
+
+  it('keeps the ring while the pointer moves within the root or the keys drive', () => {
+    row(view, 'r1').dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: row(view, 'r2') }));
+    Focus.flush();
+    expect(shown()).toEqual(['r1']);
+    setInputMode('keys');
+    row(view, 'r1').dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: prompt }));
+    Focus.flush();
+    expect(shown()).toEqual(['r1']);
   });
 });

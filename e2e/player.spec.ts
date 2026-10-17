@@ -429,6 +429,71 @@ test('Magic Remote pointer opens groups and filters the channel panel', async ({
   await expect(sidebar.locator('.sidebar-ch-item')).toContainText('Delta Sports');
 });
 
+async function gotoLongSidebar(page: Page): Promise<void> {
+  const lines = ['#EXTM3U'];
+  for (let index = 0; index < 40; index++) {
+    lines.push(`#EXTINF:-1 group-title="Group",Channel ${String(index)}`, `http://host/${String(index)}.m3u8`);
+  }
+  await routePlaylist(page, lines.join('\n'));
+  await routeLiveManifest(page);
+  await neuterVideo(page);
+  await seedPlaylist(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-player')).toBeVisible();
+  // The pointer rests over the video before the keys take over.
+  await page.mouse.move(1500, 900);
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#player-sidebar .sidebar-ch-item.focused')).toHaveCount(1);
+  // Aim only once the panel has slid in.
+  const left = () => page.locator('#player-sidebar').evaluate(element => element.getBoundingClientRect().left);
+  let last = NaN;
+  await expect.poll(async () => {
+    const now = await left();
+    const settled = now === last;
+    last = now;
+    return settled;
+  }, { intervals: [100] }).toBe(true);
+}
+
+test('the first pointer move after a key lights a half-hidden row without scrolling', async ({ page }) => {
+  await gotoLongSidebar(page);
+  const list = page.locator('#player-sidebar .sidebar-channel-list');
+  const target = await list.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const row = Array.from(element.querySelectorAll<HTMLElement>('.sidebar-ch-item')).find((item) => {
+      const rect = item.getBoundingClientRect();
+      return rect.top < box.bottom - 8 && rect.bottom > box.bottom + 8;
+    });
+    if (!row) throw new Error('No half-hidden row');
+    const rect = row.getBoundingClientRect();
+    return { key: row.dataset.key!, x: rect.left + rect.width / 2, y: (rect.top + box.bottom) / 2, top: element.scrollTop };
+  });
+
+  await page.mouse.move(target.x, target.y);
+  await expect(list.locator(`[data-key="${target.key}"]`)).toHaveClass(/focused/);
+  await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 400)));
+  expect(await list.evaluate(element => element.scrollTop)).toBe(target.top);
+});
+
+test('the first pointer move after a key that leaves the sidebar hides its ring', async ({ page }) => {
+  await gotoLongSidebar(page);
+  const sidebar = page.locator('#player-sidebar');
+  const row = sidebar.locator('.sidebar-ch-item').nth(2);
+  const box = (await row.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(row).toHaveClass(/focused/);
+  await page.keyboard.press('ArrowDown');
+  await expect(sidebar.locator('.sidebar-ch-item').nth(3)).toHaveClass(/focused/);
+
+  // Just past its edge, inside the margin that keeps it open.
+  const panel = (await sidebar.boundingBox())!;
+  await page.mouse.move(panel.x + panel.width + 4, 540);
+  await expect(sidebar).toBeVisible();
+  await expect(sidebar.locator('.focused')).toHaveCount(0);
+});
+
 test('Magic Remote dwell expands groups and stages pointer dismissal', async ({ page }) => {
   await gotoGroupedPlayer(page);
   const sidebar = page.locator('#player-sidebar');
@@ -439,6 +504,7 @@ test('Magic Remote dwell expands groups and stages pointer dismissal', async ({ 
   await page.mouse.move(800, 540);
   await expect(sidebar).toHaveClass(/channels-only/);
   await expect(sidebar).toBeVisible();
+  await expect(sidebar.locator('.focused')).toHaveCount(0);
   await page.mouse.move(300, 540);
   await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 550)));
   await expect(sidebar).toBeVisible();

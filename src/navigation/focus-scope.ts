@@ -25,7 +25,7 @@ export const Tier = {
   prompt: 30,   // modal prompts
   critical: 40, // the parental PIN, which must outrank a prompt that a timer raises
 } as const;
-type RepairReason = 'two_rings' | 'outside_owner' | 'unresolved' | 'clipped';
+type RepairReason = 'two_rings' | 'outside_owner' | 'unresolved' | 'clipped' | 'detached';
 
 export interface ScopeSpec {
   id: string;
@@ -42,7 +42,16 @@ export interface ScopeSpec {
   defaultKey?: () => string | null;
   enterTo?: EnterTo | ((via: Via) => EnterTo);
   resolve?: (key: string) => HTMLElement | null;
-  reveal?: (key: string) => void;
+  // A key still in the model but not rendered, such as a virtual list row
+  // scrolled away: no fallback and no ring until a reveal renders it.
+  has?: (key: string) => boolean;
+  // Asked on every pass that may reveal, since a virtual list knows its own
+  // scroll better than geometry; false falls back to the geometric check.
+  reveal?: (key: string) => boolean;
+  // The pointer resting on such a key may reveal it, such as a half-hidden tab.
+  revealOnHover?: (key: string) => boolean;
+  // Hide the ring, keeping the key, once the pointer leaves the root.
+  concealOnLeave?: boolean;
 }
 
 export interface FocusScope {
@@ -55,6 +64,12 @@ export interface FocusScope {
   handle(action: Action, event?: NumberEvent): boolean;
   /** Request focus on `key`; reconcile paints it. */
   focus(key: string | null, via: Via): void;
+  /** Follow a key the component's state moved to without an input: no reveal, ring stays concealed. */
+  track(key: string | null): void;
+  /** Move focus that the user scrolled away to `key`, in view, and report the repair. */
+  resume(key: string, distance: number): void;
+  /** Hide the ring but keep the key, until the next focus request. */
+  conceal(): void;
   /** Apply the scope's `enterTo` rule. */
   enter(via: Via): void;
   dispose(): void;
@@ -106,6 +121,9 @@ class Scope implements FocusScope {
   painted: Element | null = null;
   // The key the last reconcile settled on, so a clip of unchanged focus shows.
   settledKey: string | null = null;
+  // A focus request other than the pointer's, which may reveal its key.
+  requested = false;
+  concealed = false;
 
   constructor(readonly spec: ScopeSpec) {}
 
@@ -134,8 +152,28 @@ class Scope implements FocusScope {
 
   focus(key: string | null, via: Via): void {
     this.focusKey = key;
+    this.concealed = false;
     // A pointer request lights the item where it is; any other may reveal it.
-    if (via !== 'pointer') revealWanted = true;
+    this.requested = via !== 'pointer';
+    Focus.reconcile();
+  }
+
+  track(key: string | null): void {
+    this.focusKey = key;
+    Focus.reconcile();
+  }
+
+  resume(key: string, distance: number): void {
+    this.focusKey = key;
+    this.concealed = false;
+    this.requested = false;
+    repaired('detached', this, `distance=${String(distance)}`);
+    Focus.reconcile();
+  }
+
+  conceal(): void {
+    this.concealed = true;
+    this.requested = false;
     Focus.reconcile();
   }
 
@@ -161,40 +199,78 @@ let layers: { scope: Scope; active: () => boolean }[] = [];
 let base: (() => FocusScope | null) | null = null;
 let scheduled = false;
 let listening = false;
-// Set by an input or a focus request, so only those may scroll the ring into
+// Set by an input, so only it (or a focus request) may scroll the ring into
 // view; a pass after a re-render (or mid smooth scroll) never does.
-let revealWanted = false;
+// A hover reveals only where the scope asks for it.
+let pendingHover = false;
+let pendingOther = false;
 let lastOwner: string | null = null;
 
-function repaired(reason: RepairReason, scope: Scope): void {
-  log.debug('Focus repaired', 'event=nav.focus.repaired', `reason=${reason}`, `scope=${scope.id}`);
+function repaired(reason: RepairReason, scope: Scope, ...fields: string[]): void {
+  log.debug('Focus repaired', 'event=nav.focus.repaired', `reason=${reason}`, `scope=${scope.id}`,
+    ...fields);
+}
+
+function within(root: HTMLElement, el: HTMLElement | null): HTMLElement | null {
+  return el && root.contains(el) ? el : null;
 }
 
 function run(): void {
-  const reveal = revealWanted;
-  revealWanted = false;
+  const hovered = pendingHover;
+  const other = pendingOther;
+  pendingHover = pendingOther = false;
   const owner = Focus.owner() as Scope | null;
   if (!owner || !owner.logical) return;
+  const requested = owner.requested;
+  owner.requested = false;
   const root = owner.root();
   if (!root) return;
+  const spec = owner.spec;
+
+  if (owner.concealed) {
+    for (const other of ringsIn(root)) setRing(other, false);
+    owner.painted = null;
+    root.removeAttribute(UNRESOLVED_ATTR);
+    FocusRing.sync();
+    return;
+  }
 
   let key = owner.focusKey;
   let el = key !== null ? owner.element(key) : null;
+  let pending = false;
   let reason: RepairReason | null = null;
   if (el && !root.contains(el)) {
     el = null;
     reason = 'outside_owner';
   } else if (key !== null && !el) {
-    reason = 'unresolved';
+    if (spec.has?.(key)) pending = true;
+    else reason = 'unresolved';
   }
-  if (!el) {
-    key = owner.spec.defaultKey!();
-    const next = key !== null ? owner.element(key) : null;
-    el = next && root.contains(next) ? next : null;
+  if (!el && !pending) {
+    key = spec.defaultKey!();
+    el = key !== null ? within(root, owner.element(key)) : null;
   }
   if (reason) repaired(reason, owner);
   owner.focusKey = key;
-  if (key !== null && !el) root.setAttribute(UNRESOLVED_ATTR, '');
+
+  const unchanged = key === owner.settledKey;
+  owner.settledKey = key;
+  const allowed = key !== null && !FocusRing.deferred && (requested
+    || (other && InputMode.current === 'keys')
+    || (hovered && !!spec.revealOnHover?.(key)));
+  if (allowed && key !== null && (el || pending)) {
+    let revealed = !!spec.reveal?.(key);
+    if (revealed) {
+      el = within(root, owner.element(key));
+    } else if (el && clipped(el)) {
+      // The polyfill makes this mean `nearest` on Chromium 53 too.
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      revealed = true;
+    }
+    if (revealed && unchanged && !pending) repaired('clipped', owner);
+  }
+
+  if (key !== null && !el && !pending) root.setAttribute(UNRESOLVED_ATTR, '');
   else root.removeAttribute(UNRESOLVED_ATTR);
 
   let stray = false;
@@ -207,19 +283,29 @@ function run(): void {
   if (el && !hasRing(el)) setRing(el, true);
   owner.painted = el;
   FocusRing.sync();
+}
 
-  const unchanged = key === owner.settledKey;
-  owner.settledKey = key;
-  if (!reveal || !el || key === null || FocusRing.deferred) return;
-  if (InputMode.current !== 'keys' || !clipped(el)) return;
-  if (owner.spec.reveal) owner.spec.reveal(key);
-  // The polyfill makes this mean `nearest` on Chromium 53 too.
-  else el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  if (unchanged) repaired('clipped', owner);
+// A wheel a surface claimed (canceled nav:wheel) moved nothing of ours.
+function onWheel(e: Event): void {
+  if (!e.defaultPrevented) Focus.input();
 }
 
 function onInput(): void {
   Focus.input();
+}
+
+function onHoverInput(): void {
+  Focus.input('hover');
+}
+
+function onLeave(e: MouseEvent): void {
+  if (InputMode.current === 'keys') return;
+  const owner = Focus.owner() as Scope | null;
+  if (!owner?.logical || !owner.spec.concealOnLeave) return;
+  const root = owner.root();
+  if (!root || !(e.target instanceof Node) || !root.contains(e.target)) return;
+  if (e.relatedTarget instanceof Node && root.contains(e.relatedTarget)) return;
+  owner.conceal();
 }
 
 export const Focus = {
@@ -280,8 +366,9 @@ export const Focus = {
   },
 
   /** Note an input (key, hover, click, wheel): the next pass may reveal the ring. */
-  input(): void {
-    revealWanted = true;
+  input(kind: 'hover' | 'other' = 'other'): void {
+    if (kind === 'hover') pendingHover = true;
+    else pendingOther = true;
     Focus.reconcile();
   },
 
@@ -315,16 +402,18 @@ export const Focus = {
   install(): void {
     if (listening) return;
     listening = true;
-    document.addEventListener('nav:hover', onInput);
+    document.addEventListener('nav:hover', onHoverInput);
     document.addEventListener('click', onInput);
-    document.addEventListener('wheel', onInput);
+    document.addEventListener('nav:wheel', onWheel);
+    document.addEventListener('mouseout', onLeave);
   },
 
   uninstall(): void {
     if (listening) {
-      document.removeEventListener('nav:hover', onInput);
+      document.removeEventListener('nav:hover', onHoverInput);
       document.removeEventListener('click', onInput);
-      document.removeEventListener('wheel', onInput);
+      document.removeEventListener('nav:wheel', onWheel);
+      document.removeEventListener('mouseout', onLeave);
     }
     listening = false;
     for (const scope of Array.from(registry.values())) scope.dispose();
@@ -332,7 +421,7 @@ export const Focus = {
     layers = [];
     base = null;
     scheduled = false;
-    revealWanted = false;
+    pendingHover = pendingOther = false;
     lastOwner = null;
   },
 };

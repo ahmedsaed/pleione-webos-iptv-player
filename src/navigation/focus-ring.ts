@@ -40,9 +40,18 @@ let onPress: ((e: Event) => void) | null = null;
 let deferredRoot: Element | null = null;
 
 function setHoverTarget(el: Element | null): void {
+  if (el === hoverTarget) return;
   hoverTarget?.removeAttribute(HOVER_ATTR);
   hoverTarget = el;
   hoverTarget?.setAttribute(HOVER_ATTR, '');
+}
+
+// The hover target is an input of the gate, so moving it re-gates every ring
+// at once: one the pointer lands on lights, one it leaves outside the owner parks.
+function hoverMoved(el: Element | null): void {
+  if (el === hoverTarget) return;
+  setHoverTarget(el);
+  FocusRing.sync();
 }
 
 export function holdRing(el: Element): void {
@@ -122,10 +131,10 @@ export const FocusRing = {
       attributeFilter: ['class'],
     });
     onHover = (e: Event) => {
-      setHoverTarget(e.target as Element);
+      hoverMoved(e.target as Element);
       if (hoverTarget && deferredRoot?.contains(hoverTarget)) FocusRing.reveal('hover');
     };
-    onUnhover = (e: Event) => { if (e.target === hoverTarget) setHoverTarget(null); };
+    onUnhover = (e: Event) => { if (e.target === hoverTarget) hoverMoved(null); };
     // Before KeyHandler turns the step into an action, so it acts from a shown focus.
     onWheel = () => { if (deferredRoot) FocusRing.reveal('wheel'); };
     // Before the view's click handler, which may focus the item without a hover.

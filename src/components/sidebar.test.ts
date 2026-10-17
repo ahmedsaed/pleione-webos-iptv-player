@@ -85,6 +85,8 @@ vi.mock('../workers/app-worker-client', async () => {
 
 import { Sidebar } from './sidebar';
 import { setLocale } from '../i18n';
+import { Focus } from '../navigation/focus-scope';
+import { setInputMode } from '../navigation/input-mode';
 import { PlaylistService } from '../services/playlist-service';
 
 let container: HTMLElement;
@@ -116,18 +118,33 @@ beforeEach(() => {
   toastMock.mockClear();
   healthMock.records = {};
   sidebar = new Sidebar(container, getCurrentIndex, onSelect, getCurrentCatchupStart);
+  Focus.layer(sidebar.focusScope, () => sidebar.visible);
+  Focus.install();
 });
 
 afterEach(() => {
+  Focus.uninstall();
   vi.useRealTimers();
+  setInputMode('pointer');
   document.body.innerHTML = '';
 });
 
+function hover(target: Element): void {
+  target.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+}
+
+function ringed(): Element[] {
+  Focus.flush();
+  return Array.from(el.querySelectorAll('.focused'));
+}
+
 function items(): HTMLElement[] {
+  Focus.flush();
   return Array.from(el.querySelectorAll<HTMLElement>('.sidebar-ch-item'));
 }
 
 function groupItems(): HTMLElement[] {
+  Focus.flush();
   return Array.from(el.querySelectorAll<HTMLElement>('.sidebar-group-item'));
 }
 
@@ -591,8 +608,8 @@ describe('Sidebar', () => {
         expect(el.querySelector<HTMLElement>('.sidebar-group-item.focused')?.dataset.groupPos)
           .toBe('100');
         const lines = logs.mock.calls.map(args => args.join(' '))
-          .filter(line => line.includes('event=sidebar.focus.resumed '));
-        expect(lines).toEqual([expect.stringMatching(/pane=groups distance=100$/)]);
+          .filter(line => line.includes('event=nav.focus.repaired reason=detached '));
+        expect(lines).toEqual([expect.stringMatching(/scope=player.sidebar distance=100$/)]);
       } finally {
         PlaylistService.getGroupsForPlaylist = originalGroups;
         PlaylistService.getGroupCount = originalCount;
@@ -1087,6 +1104,28 @@ describe('Sidebar', () => {
       expect(sidebar.visible).toBe(false);
     });
 
+    it('keeps the ring hidden and the list still while the pointer exit closes the groups', () => {
+      sidebar.handleAction('left');
+      hover(groupItems()[1]);
+      groupItems()[1].dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: container }));
+      expect(ringed()).toEqual([]);
+      const reveal = vi.mocked(Element.prototype.scrollIntoView);
+      reveal.mockClear();
+      sidebar.handlePointerMove(741, false);
+      expect(el.classList.contains('channels-only')).toBe(true);
+      expect(ringed()).toEqual([]);
+      expect(reveal).not.toHaveBeenCalled();
+    });
+
+    it('Back still closes the groups onto a lit channel', () => {
+      sidebar.handleAction('left');
+      groupItems()[1].dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: container }));
+      sidebar.handleBack();
+      const lit = ringed();
+      expect(lit).toHaveLength(1);
+      expect(items()).toContain(lit[0]);
+    });
+
     it('cancels the pending close when the pointer returns to channels', () => {
       sidebar.handleAction('left');
       sidebar.handlePointerMove(741, false);
@@ -1113,66 +1152,141 @@ describe('Sidebar', () => {
     });
 
     it('hovering an item moves the focus highlight', () => {
-      items()[2].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      expect(items()[2].classList.contains('focused')).toBe(true);
+      hover(items()[2]);
+      expect(ringed()).toEqual([items()[2]]);
     });
 
     it('hovering up onto the search box highlights it and clears the channel', () => {
-      items()[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      expect(items()[1].classList.contains('focused')).toBe(true);
+      hover(items()[1]);
+      expect(ringed()).toEqual([items()[1]]);
       const search = el.querySelector<HTMLElement>('.sidebar-search-input')!;
-      search.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      expect(items().some(i => i.classList.contains('focused'))).toBe(false);
-      expect(search.classList.contains('focused')).toBe(true);
+      hover(search);
+      expect(ringed()).toEqual([search]);
+    });
+
+    it('marks every item it lights on hover as a hover target', () => {
+      sidebar.handleAction('left');
+      const lit = [
+        el.querySelector('.sidebar-search-input')!,
+        ...Array.from(el.querySelectorAll('.sidebar-tab, .sidebar-group-item, .sidebar-ch-item')),
+      ];
+      for (const item of lit) {
+        expect(item.matches('[data-focusable], [data-hover-target]')).toBe(true);
+      }
     });
 
     it('clears the highlight when the cursor leaves the sidebar', () => {
-      items()[2].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      expect(items()[2].classList.contains('focused')).toBe(true);
-      el.dispatchEvent(new MouseEvent('mouseleave'));
-      expect(el.querySelectorAll('.focused')).toHaveLength(0);
+      hover(items()[2]);
+      expect(ringed()).toEqual([items()[2]]);
+      items()[2].dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: container }));
+      expect(ringed()).toEqual([]);
+    });
+
+    it('keeps the highlight while the cursor moves between its items', () => {
+      hover(items()[2]);
+      items()[2].dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: items()[1] }));
+      expect(ringed()).toEqual([items()[2]]);
     });
 
     it('re-shows the highlight when the cursor returns to the same row', () => {
-      items()[2].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      el.dispatchEvent(new MouseEvent('mouseleave'));
-      items()[2].dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); // same row
-      expect(items()[2].classList.contains('focused')).toBe(true);
+      hover(items()[2]);
+      items()[2].dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: container }));
+      hover(items()[2]);
+      expect(ringed()).toEqual([items()[2]]);
     });
 
-    it('hover only re-highlights when the position changes', () => {
-      const spy = vi.spyOn(sidebar as unknown as { updateFocus: () => void }, 'updateFocus');
-      const row = items()[2];
-      row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      expect(spy).toHaveBeenCalledTimes(1);
-      // Sweeping across a child of the same row must not re-run updateFocus.
-      row.querySelector('.ch-name')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      expect(spy).toHaveBeenCalledTimes(1);
-      // A different row does.
-      items()[0].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      expect(spy).toHaveBeenCalledTimes(2);
+    it('re-shows the highlight on the next key after the cursor left', () => {
+      hover(items()[2]);
+      items()[2].dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: container }));
+      sidebar.handleAction('up');
+      expect(ringed()).toEqual([items()[1]]);
     });
 
-    it('wheel scrolls natively without stepping the focus highlight', () => {
+    it('claims the wheel so it scrolls the list instead of stepping channels', () => {
       const logs = vi.spyOn(console, 'log');
-      const wheel = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
-      items()[1].dispatchEvent(wheel);
-      expect(wheel.defaultPrevented).toBe(false);
-      expect(items()[1].classList.contains('focused')).toBe(true);
-      expect(items()[2].classList.contains('focused')).toBe(false);
-      items()[1].dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true }));
+      const wheel = () => new CustomEvent('nav:wheel', { bubbles: true, cancelable: true, detail: { step: false } });
+      const first = wheel();
+      items()[1].dispatchEvent(first);
+      expect(first.defaultPrevented).toBe(true);
+      expect(ringed()).toEqual([items()[1]]);
+      items()[1].dispatchEvent(wheel());
       const lines = logs.mock.calls.map(args => args.join(' '))
         .filter(line => line.includes('event=sidebar.wheel.scroll '));
       expect(lines).toEqual([expect.stringContaining('pane=channels')]);
     });
 
-    it('hovering a source tab scrolls it into view', () => {
+    it('hovering a half-hidden source tab scrolls it into view', () => {
+      const strip = el.querySelector<HTMLElement>('.sidebar-tabs')!;
+      strip.style.overflowX = 'auto';
+      vi.spyOn(strip, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 40));
+      Object.defineProperty(strip, 'clientWidth', { value: 100 });
+      Object.defineProperty(strip, 'clientHeight', { value: 40 });
       const tab = el.querySelector<HTMLElement>('[data-sidebar-playlist="PL2"]')!;
+      vi.spyOn(tab, 'getBoundingClientRect').mockReturnValue(new DOMRect(90, 0, 60, 40));
       const reveal = vi.fn();
       tab.scrollIntoView = reveal;
-      tab.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      expect(tab.classList.contains('focused')).toBe(true);
+      hover(tab);
+      expect(ringed()).toEqual([tab]);
       expect(reveal).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+    });
+
+    it('lights a half-hidden row under the pointer where it is', () => {
+      const list = el.querySelector<HTMLElement>('.sidebar-channel-list')!;
+      list.style.overflowY = 'auto';
+      vi.spyOn(list, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
+      Object.defineProperty(list, 'clientWidth', { value: 100 });
+      Object.defineProperty(list, 'clientHeight', { value: 100 });
+      const row = items()[2];
+      vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 80, 100, 84));
+      const reveal = vi.fn();
+      row.scrollIntoView = reveal;
+      hover(row);
+      expect(ringed()).toEqual([row]);
+      expect(reveal).not.toHaveBeenCalled();
+    });
+
+    it('re-hovering the same row after a key brings the ring back under the pointer', () => {
+      hover(items()[2]);
+      expect(ringed()).toEqual([items()[2]]);
+      sidebar.handleAction('up');
+      expect(ringed()).toEqual([items()[1]]);
+      hover(items()[2]);
+      expect(ringed()).toEqual([items()[2]]);
+    });
+
+    it('a key cancels the edge dwell', () => {
+      sidebar.handlePointerMove(30, true);
+      finishOpening();
+      vi.advanceTimersByTime(200);
+      setInputMode('keys');
+      vi.advanceTimersByTime(500);
+      expect(el.classList.contains('groups-expanded')).toBe(false);
+    });
+
+    it('a key cancels the edge dwell of a cursor that never left key mode', () => {
+      setInputMode('keys');
+      sidebar.handlePointerMove(30, true);
+      finishOpening();
+      vi.advanceTimersByTime(200);
+      sidebar.handleAction('down');
+      vi.advanceTimersByTime(500);
+      expect(el.classList.contains('groups-expanded')).toBe(false);
+    });
+
+    it('a cursor resting at the edge in key mode still opens the groups', () => {
+      setInputMode('keys');
+      sidebar.handlePointerMove(30, true);
+      finishOpening();
+      vi.advanceTimersByTime(500);
+      expect(el.classList.contains('groups-expanded')).toBe(true);
+    });
+
+    it('a key cancels the close that the pointer leaving started', () => {
+      sidebar.handleAction('left');
+      sidebar.handlePointerMove(741, false);
+      setInputMode('keys');
+      vi.advanceTimersByTime(500);
+      expect(sidebar.visible).toBe(true);
     });
 
     it('does not stack listeners across re-renders (single select per click)', () => {
@@ -1234,7 +1348,8 @@ describe('Sidebar', () => {
       // The next native scroll lands before its scroll event fires.
       list.scrollTop = 2500;
       const row = items().find(item => item.dataset.sidebarPos === '32')!;
-      row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      hover(row);
+      Focus.flush();
 
       expect(list.scrollTop).toBe(2500);
       expect(el.querySelector<HTMLElement>('.sidebar-ch-item.focused')?.dataset.sidebarPos)
@@ -1256,8 +1371,8 @@ describe('Sidebar', () => {
       expect(el.querySelector<HTMLElement>('.sidebar-ch-item.focused')?.dataset.sidebarPos)
         .toBe('27');
       const lines = logs.mock.calls.map(args => args.join(' '))
-        .filter(line => line.includes('event=sidebar.focus.resumed '));
-      expect(lines).toEqual([expect.stringMatching(/pane=channels distance=27$/)]);
+        .filter(line => line.includes('event=nav.focus.repaired reason=detached '));
+      expect(lines).toEqual([expect.stringMatching(/scope=player.sidebar distance=27$/)]);
 
       sidebar.handleAction('down');
       expect(el.querySelector<HTMLElement>('.sidebar-ch-item.focused')?.dataset.sidebarPos)
@@ -1298,8 +1413,8 @@ describe('Sidebar', () => {
       expect(el.querySelector<HTMLElement>('.sidebar-ch-item.focused')?.dataset.sidebarPos)
         .toBe('27');
       const lines = logs.mock.calls.map(args => args.join(' '))
-        .filter(line => line.includes('event=sidebar.focus.resumed '));
-      expect(lines).toEqual([expect.stringMatching(/pane=channels distance=27$/)]);
+        .filter(line => line.includes('event=nav.focus.repaired reason=detached '));
+      expect(lines).toEqual([expect.stringMatching(/scope=player.sidebar distance=27$/)]);
     });
 
     it('opening scrolls a far-down current channel into view', () => {

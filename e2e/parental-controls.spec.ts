@@ -215,6 +215,9 @@ test('channels hidden from the list are locked with their source', async ({ page
     keyCode,
   );
   await expect(page.locator('.channel-main .channel-item')).toHaveCount(2);
+  // Seed the pointer: before its first move, a mouseover can't be told
+  // from content sliding under it, so it is ignored after a key.
+  await page.mouse.move(1, 1);
   await pressKey(405);
   const second = page.locator('.channel-main .channel-item').nth(1);
   await second.hover();

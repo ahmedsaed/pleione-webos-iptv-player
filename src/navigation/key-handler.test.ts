@@ -52,6 +52,18 @@ describe('KeyHandler', () => {
       document.dispatchEvent(new MouseEvent('mousemove', { screenX, screenY, bubbles: true }));
     };
 
+    it('ignores a mouseover before the pointer ever moved, and still seeds on the next mousemove', () => {
+      const el = document.createElement('div');
+      el.setAttribute('data-focusable', '');
+      document.body.appendChild(el);
+      const onHover = vi.fn();
+      el.addEventListener('nav:hover', onHover);
+      press(K.DOWN);
+      el.dispatchEvent(new MouseEvent('mouseover', { screenX: 100, screenY: 100, bubbles: true }));
+      expect(onHover).not.toHaveBeenCalled();
+      expect(root.classList.contains('keyboard-nav')).toBe(true);
+    });
+
     it('keeps keyboard-nav through the first synthetic mousemove after startup', () => {
       press(K.DOWN);
       expect(root.classList.contains('keyboard-nav')).toBe(true);
@@ -353,6 +365,36 @@ describe('KeyHandler', () => {
         return el;
       };
 
+      it('leaves key mode on the mouseout and mouseover of a real move, before its mousemove', () => {
+        const from = focusable();
+        const to = focusable();
+        const x = restPointerOver(from);
+        press(K.DOWN);
+        const seen: string[] = [];
+        const mode = () => (document.documentElement.classList.contains('keyboard-nav') ? 'keys' : 'pointer');
+        const onOut = () => seen.push(`out:${mode()}`);
+        document.addEventListener('mouseout', onOut);
+        to.addEventListener('nav:hover', () => seen.push(`hover:${mode()}`));
+        pointer('mouseout', from, x + 20);
+        press(K.DOWN);
+        pointer('mouseover', to, x + 20);
+        document.removeEventListener('mouseout', onOut);
+        expect(seen).toEqual(['out:pointer', 'hover:pointer']);
+      });
+
+      it('still ignores the mouseout and mouseover of content moving under a resting pointer', () => {
+        const from = focusable();
+        const to = focusable();
+        const x = restPointerOver(from);
+        press(K.DOWN);
+        const onHover = vi.fn();
+        to.addEventListener('nav:hover', onHover);
+        pointer('mouseout', from, x);
+        pointer('mouseover', to, x);
+        expect(onHover).not.toHaveBeenCalled();
+        expect(document.documentElement.classList.contains('keyboard-nav')).toBe(true);
+      });
+
       it('follows wheel-scrolled content under the pointer again', () => {
         const list = scroller();
         const row = focusable();
@@ -522,6 +564,49 @@ describe('KeyHandler', () => {
         expect(onHover).toHaveBeenCalledTimes(1);
         pointer('mousemove', a, x + 10);
         expect(onHover).toHaveBeenCalledTimes(1);
+      });
+
+      it('re-hovers the same element when the pointer moves onto another of its children', () => {
+        const row = focusable();
+        const child = document.createElement('span');
+        row.appendChild(child);
+        const onHover = vi.fn();
+        row.addEventListener('nav:hover', onHover);
+        const x = restPointerOver(row);
+        onHover.mockClear();
+        press(K.UP);
+        pointer('mouseover', child, x + 5);
+        pointer('mousemove', child, x + 5);
+        expect(onHover).toHaveBeenCalledTimes(1);
+      });
+
+      it('re-hovers the same element when the pointer moves after a wheel step', () => {
+        const a = focusable();
+        const onHover = vi.fn();
+        a.addEventListener('nav:hover', onHover);
+        const x = restPointerOver(a);
+        onHover.mockClear();
+        wheel(-120, a);
+        expect(handler).toHaveBeenLastCalledWith('channel_up');
+        pointer('mousemove', a, x + 5);
+        expect(onHover).toHaveBeenCalledTimes(1);
+        pointer('mousemove', a, x + 10);
+        expect(onHover).toHaveBeenCalledTimes(1);
+      });
+
+      it('lets a surface claim the wheel so it scrolls instead of stepping channels', () => {
+        const panel = document.createElement('div');
+        document.body.appendChild(panel);
+        const claim = vi.fn((e: Event) => e.preventDefault());
+        panel.addEventListener('nav:wheel', claim);
+        restPointerOver(panel);
+        const e = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
+        panel.dispatchEvent(e);
+        wheel(120, panel);
+        expect(claim).toHaveBeenCalledTimes(2);
+        expect(handler).not.toHaveBeenCalled();
+        // The surface scrolls natively.
+        expect(e.defaultPrevented).toBe(false);
       });
     });
 

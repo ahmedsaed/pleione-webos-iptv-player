@@ -167,54 +167,60 @@ export const KeyHandler = {
     // Mouse support for desktop preview. Skip re-dispatching when the focusable hasn't changed.
     let lastHover: HTMLElement | null = null;
     let suppressedHovers = 0;
-    let rehoverPending = false;
+    // A key or a wheel step moves focus without the pointer, so the hover it
+    // left behind is stale: the next pointer use re-hovers even the same element.
+    let hoverStale = false;
     const setHoverTarget = (target: HTMLElement | null): void => {
-      rehoverPending = false;
-      if (target === lastHover) return;
-      lastHover?.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
-      lastHover = target;
-      target?.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      if (target === lastHover && !(hoverStale && target)) return;
+      if (target !== lastHover) {
+        lastHover?.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+        lastHover = target;
+      }
+      if (!target) return;
+      hoverStale = false;
+      target.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     };
     // `data-hover-target`: an item a view lights on hover by itself (the
     // guide's programmes), so it gets no click-to-select from here.
     const focusableAt = (e: MouseEvent): HTMLElement | null => e.target instanceof Element
       ? e.target.closest<HTMLElement>('[data-focusable], [data-hover-target]') : null;
 
-    const resumePointer = (e: MouseEvent, via: string): void => {
-      if (InputMode.current !== 'keys') return;
+    const leaveKeys = (via: string): void => {
       setInputMode('pointer');
       if (suppressedHovers > 0) {
         log.debug('Hover resumed', 'event=nav.hover.resumed', `via=${via}`,
           `suppressed=${suppressedHovers}`);
         suppressedHovers = 0;
       }
-      const target = focusableAt(e);
-      // The D-pad moved focus away, so hovering the same element again must
-      // still re-dispatch nav:hover to pull focus back under the pointer.
-      if (rehoverPending && target && target === lastHover) {
-        rehoverPending = false;
-        target.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-      } else {
-        setHoverTarget(target);
-      }
     };
+    const resumePointer = (e: MouseEvent, via: string): void => {
+      if (InputMode.current !== 'keys') return;
+      leaveKeys(via);
+      setHoverTarget(focusableAt(e));
+    };
+    // Chromium fires mouseout and mouseover before the mousemove of the same
+    // step, so those must already see pointer mode.
+    const movedFrom = (e: MouseEvent): boolean => pointerX !== null
+      && (e.screenX !== pointerX || e.screenY !== pointerY);
 
     document.addEventListener('keydown', (e: KeyboardEvent) => {
       // webOS reports its cursor appearing or hiding as a key press; neither
       // is the D-pad taking over.
       if (e.keyCode === K.CURSOR_SHOW || e.keyCode === K.CURSOR_HIDE) return;
       setInputMode('keys');
-      rehoverPending = true;
+      hoverStale = true;
     }, true);
     let pointerClientX = 0;
     let pointerClientY = 0;
     document.addEventListener('mousemove', (e: MouseEvent) => {
-      const moved = pointerX !== null && (e.screenX !== pointerX || e.screenY !== pointerY);
+      const moved = movedFrom(e);
       pointerX = e.screenX;
       pointerY = e.screenY;
       pointerClientX = e.clientX;
       pointerClientY = e.clientY;
-      if (moved) resumePointer(e, 'move');
+      if (!moved) return;
+      if (InputMode.current === 'keys') resumePointer(e, 'move');
+      else if (hoverStale) setHoverTarget(focusableAt(e));
     }, true);
     // Scrolling content with the wheel is pointer use even with the cursor at
     // rest; the hovers it causes must follow the pointer again. A wheel that
@@ -256,11 +262,18 @@ export const KeyHandler = {
     // mouseover too; following them would pull focus back under the pointer.
     // Capture phase, so components with their own mouseover never see them.
     document.addEventListener('mouseover', (e: MouseEvent) => {
-      if (InputMode.current === 'keys'
-          && e.screenX === pointerX && e.screenY === pointerY) {
+      if (InputMode.current !== 'keys') return;
+      if (movedFrom(e)) {
+        resumePointer(e, 'move');
+      } else if (pointerX === null || (e.screenX === pointerX && e.screenY === pointerY)) {
+        // A pointer that never moved yet can't tell a real move from content
+        // sliding under it; its first mousemove only seeds the position.
         suppressedHovers++;
         e.stopImmediatePropagation();
       }
+    }, true);
+    document.addEventListener('mouseout', (e: MouseEvent) => {
+      if (InputMode.current === 'keys' && movedFrom(e)) leaveKeys('move');
     }, true);
     document.addEventListener('mouseover', (e: MouseEvent) => setHoverTarget(focusableAt(e)));
     // Cursor left the window: forget the last hover so returning to the same
@@ -272,7 +285,13 @@ export const KeyHandler = {
     // focus would snap back to the cursor as content scrolls underneath it.
     // First scroll after pointer was hidden just reactivates the cursor.
     document.addEventListener('wheel', (e: WheelEvent) => {
-      if (hasScrollableAncestor(e.target as Element)) return;
+      const scrolls = hasScrollableAncestor(e.target as Element);
+      // A surface that handles the wheel itself cancels nav:wheel.
+      const at = e.target instanceof Element ? e.target : document;
+      const claimed = !at.dispatchEvent(new CustomEvent('nav:wheel', {
+        bubbles: true, cancelable: true, detail: { step: !scrolls },
+      }));
+      if (claimed || scrolls) return;
       e.preventDefault();
 
       // Reset idle timer — if no scroll for 5s, next scroll is swallowed
@@ -286,6 +305,7 @@ export const KeyHandler = {
 
       if (!activeHandler || e.deltaY === 0) return;
       dispatchingWheel = true;
+      hoverStale = true;
       try {
         activeHandler(e.deltaY < 0 ? 'channel_up' : 'channel_down');
       } finally {

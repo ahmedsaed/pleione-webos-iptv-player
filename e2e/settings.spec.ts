@@ -80,6 +80,10 @@ test.describe('Settings navigation', () => {
     const dropdown = page.locator('#app-language');
     const trigger = dropdown.locator('.dropdown-trigger');
     const outside = page.locator('[data-settings-target="appearance"]');
+    await expect(trigger).toBeVisible();
+    // Seed the pointer: before its first move, a mouseover can't be told
+    // from content sliding under it, so it is ignored after a key.
+    await page.mouse.move(1, 1);
 
     await trigger.evaluate(el => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
     await page.keyboard.press('Enter');

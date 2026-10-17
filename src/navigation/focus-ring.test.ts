@@ -165,6 +165,27 @@ describe('FocusRing', () => {
     expect(tile.classList.contains('focused')).toBe(false);
   });
 
+  it('lights a parked ring as soon as the pointer hovers it', async () => {
+    const tile = item(upper, 't1');
+    setRing(tile, true);
+    FocusRing.sync();
+    expect(tile.classList.contains('focused')).toBe(false);
+    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    await flush();
+    expect(tile.classList.contains('focused')).toBe(true);
+  });
+
+  it('parks a hovered ring outside the owner once the pointer leaves it', async () => {
+    const tile = item(upper, 't1');
+    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    setRing(tile, true);
+    FocusRing.sync();
+    expect(tile.classList.contains('focused')).toBe(true);
+    tile.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    await flush();
+    expect(tile.classList.contains('focused')).toBe(false);
+  });
+
   it('keeps the hover dark behind a modal prompt', () => {
     const row = item(lower, 'r1');
     row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));

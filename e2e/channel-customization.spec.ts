@@ -47,6 +47,9 @@ async function boot(page: Page): Promise<void> {
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
   await expect(page.locator('.channel-main .channel-item')).toHaveCount(4);
+  // Seed the pointer: before its first move, a mouseover can't be told
+  // from content sliding under it, so it is ignored after a key.
+  await page.mouse.move(1, 1);
 }
 
 /** Move focus onto a channel row by pointer, as the Magic Remote would. */

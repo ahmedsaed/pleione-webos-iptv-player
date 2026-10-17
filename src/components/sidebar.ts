@@ -26,7 +26,8 @@ import { VirtualScrollGuard } from '../utils/virtual-scroll';
 import { WorkerListSearch } from '../workers/list-search-client';
 import { createLogger } from '../utils/logger';
 import { ChannelHealthService } from '../services/channel-health';
-import { ringsIn, setRing } from '../navigation/focus-ring';
+import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
+import { InputMode } from '../navigation/input-mode';
 
 const log = createLogger('Sidebar');
 
@@ -80,7 +81,7 @@ export class Sidebar {
   private playlist = ''; // '' = All
   private searchQuery = '';
   keyboardOn = false; // while on, the sidebar never auto-hides
-  private hoverCleared = false; // highlight removed on mouseleave; next hover re-shows it
+  readonly focusScope: FocusScope;
   private lastWheelAt = 0;
   private opening = false;
   private readonly channelVirtualizer = new VirtualList({
@@ -139,6 +140,22 @@ export class Sidebar {
     this.onSelectChannel = onSelectChannel;
     this.getCurrentCatchupStart = getCurrentCatchupStart;
     this.el = $('#player-sidebar', container);
+    // The pane indices stay as the virtual lists' cache; the scope holds the
+    // focused item's data-key and owns its ring and reveal.
+    this.focusScope = Focus.register({
+      id: 'player.sidebar',
+      root: () => this.el,
+      restrict: 'self-first',
+      defaultKey: () => this.stateKey(),
+      has: (key) => key === this.stateKey(),
+      reveal: (key) => this.reveal(key),
+      revealOnHover: (key) => key.startsWith('tab:'),
+      concealOnLeave: true,
+    });
+    // The D-pad taking over cancels what the pointer had started.
+    InputMode.onChange((mode) => {
+      if (mode === 'keys') this.dropPointerIntent();
+    });
     this.bindEvents();
   }
 
@@ -180,7 +197,7 @@ export class Sidebar {
     }
 
     if (this.groupsExpanded && !overSidebar && clientX > this.pointerDismissX) {
-      this.collapseGroups();
+      this.collapseGroups(true);
       this.pointerExitPending = true;
       this.pointerExitTimer = setTimeout(() => {
         this.pointerExitTimer = null;
@@ -223,6 +240,7 @@ export class Sidebar {
       this.syncPanelState();
     }
     this.render();
+    this.paint('resume');
     if (this.el) {
       this.el.classList.remove('hidden');
       this.el.classList.add('visible');
@@ -276,7 +294,7 @@ export class Sidebar {
     if (visible) {
       this.activePane = 'channels';
       this.channelFocusIdx = -1;
-      this.updateFocus();
+      this.paint('key');
       this.resetTimer();
     } else if (this.channelFocusIdx < 0) {
       this.hide();
@@ -287,11 +305,15 @@ export class Sidebar {
 
   handleAction(action: Action): void {
     if (!this.el) return;
+    // A cursor resting at the edge leaves the mode on keys, so a key must
+    // cancel the dwell itself too.
+    this.dropPointerIntent();
+    if (this.applyAction(action)) this.paint('key');
+  }
 
-    if (this.activePane === 'sources') {
-      this.handleSourceAction(action);
-      return;
-    }
+  // Updates the pane state; true when focus should then be painted.
+  private applyAction(action: Action): boolean {
+    if (this.activePane === 'sources') return this.handleSourceAction(action);
 
     // Left/Right still run after a resume so they don't reveal a stale row.
     if (action === 'left' || action === 'right') this.resumeDetachedFocus();
@@ -301,32 +323,31 @@ export class Sidebar {
         this.openGroups();
       } else if (this.activePane === 'channels') {
         this.activePane = 'groups';
-        this.updateFocus();
       }
       this.resetTimer();
-      return;
+      return true;
     }
 
     if (action === 'right') {
-      if (this.groupsExpanded) this.collapseGroups();
-      else this.hide();
-      return;
+      if (this.groupsExpanded) {
+        this.collapseGroups();
+      } else {
+        this.hide();
+      }
+      return false;
     }
 
     if ((action === 'up' || action === 'down' || action === 'channel_up'
         || action === 'channel_down' || action === 'select') && this.resumeDetachedFocus()) {
       this.resetTimer();
-      return;
+      return false;
     }
 
-    if (this.activePane === 'groups') {
-      this.handleGroupAction(action);
-      return;
-    }
+    if (this.activePane === 'groups') return this.handleGroupAction(action);
 
     if (action === 'select' && this.channelFocusIdx === -1) {
       this.openSearchInput(); // OK on the search box
-      return;
+      return false;
     }
 
     const len = this.getChannelCount();
@@ -335,25 +356,24 @@ export class Sidebar {
     if (action === 'up' || action === 'channel_up') {
       if (this.channelFocusIdx === 0 && this.hasSourceTabs()) {
         this.focusActiveSource();
-        return;
+        return true;
       }
       this.channelFocusIdx = this.channelFocusIdx <= 0 ? -1 : this.channelFocusIdx - 1;
     } else if (action === 'down' || action === 'channel_down') {
       if (this.channelFocusIdx === -1 && this.hasSourceTabs()) {
         this.focusActiveSource();
-        return;
+        return true;
       }
       if (this.channelFocusIdx < len - 1) this.channelFocusIdx += 1;
     } else if (action === 'select') {
       const entry = this.getChannelEntry(this.channelFocusIdx);
       if (entry) this.selectEntry(entry);
-      return;
+      return false;
     }
-
-    this.updateFocus();
+    return true;
   }
 
-  private handleSourceAction(action: Action): void {
+  private handleSourceAction(action: Action): boolean {
     const sources = this.getSourceIds();
     this.resetTimer();
     if (action === 'left') {
@@ -361,7 +381,6 @@ export class Sidebar {
         this.sourceFocusIdx -= 1;
       } else {
         this.openGroups();
-        return;
       }
     } else if (action === 'right') {
       this.sourceFocusIdx = Math.min(sources.length - 1, this.sourceFocusIdx + 1);
@@ -374,9 +393,8 @@ export class Sidebar {
     } else if (action === 'select') {
       const playlist = sources[this.sourceFocusIdx];
       if (playlist !== undefined) this.selectPlaylist(playlist);
-      return;
     }
-    this.updateFocus();
+    return true;
   }
 
   handleBack(): boolean {
@@ -385,7 +403,7 @@ export class Sidebar {
     return true;
   }
 
-  private handleGroupAction(action: Action): void {
+  private handleGroupAction(action: Action): boolean {
     const groups = this.getGroups();
     this.resetTimer();
     if (action === 'up' || action === 'channel_up') {
@@ -395,9 +413,8 @@ export class Sidebar {
     } else if (action === 'select') {
       const group = groups[this.groupFocusIdx];
       if (group) this.selectGroup(group.id);
-      return;
     }
-    this.updateFocus();
+    return true;
   }
 
   private getChannelSource(): SidebarSource {
@@ -519,71 +536,50 @@ export class Sidebar {
   private exitSearchToList(): void {
     this.channelFocusIdx = 0;
     this.setChannelScrollTop(0);
-    this.updateFocus();
+    this.paint('key');
     this.el?.querySelector<HTMLInputElement>('.sidebar-search-input')?.blur();
     this.resetTimer();
   }
 
-  private clearRings(selector: string): void {
-    // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the sidebar moves to a focus scope
-    if (this.el) ringsIn(this.el, selector).forEach(n => setRing(n, false));
+  private entryKey({ globalIdx, recent }: SidebarEntry): string {
+    return recent?.kind === 'catchup'
+      ? `recent:catchup:${String(globalIdx)}:${String(recent.progress.progStart)}`
+      : `ch:${String(globalIdx)}`;
   }
 
-  /** Drop the hover highlight; next hover/d-pad re-shows it (see hoverCleared). */
-  private clearHover(): void {
-    // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the sidebar moves to a focus scope
-    if (this.el) ringsIn(this.el).forEach(n => setRing(n, false));
-    this.hoverCleared = true;
-  }
-
-  // Pointer focus skips reveal: the row is already under the pointer, and the
-  // virtualizer offset may lag a native wheel scroll.
-  private updateFocus(items?: NodeListOf<HTMLElement>, reveal = true): void {
-    this.hoverCleared = false;
-    if (this.activePane === 'channels') {
-      if (reveal && this.ensureFocusVisible()) {
-        this.render();
-        return;
-      }
-      if (!items) {
-        if (!this.el) return;
-        items = this.el.querySelectorAll<HTMLElement>('.sidebar-ch-item');
-      }
-      items.forEach((item) => {
-        // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the sidebar moves to a focus scope
-        setRing(item, parseInt(item.dataset.sidebarPos || '-2', 10) === this.channelFocusIdx);
-      });
-      const input = this.el?.querySelector('.sidebar-search-input');
-      // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the sidebar moves to a focus scope
-      if (input) setRing(input, this.channelFocusIdx === -1);
-      this.clearRings('.sidebar-group-item, .sidebar-tab');
-    } else if (this.activePane === 'sources') {
-      this.clearRings('.sidebar-search-input, .sidebar-ch-item, .sidebar-group-item');
-      this.el?.querySelectorAll<HTMLElement>('.sidebar-tab').forEach((item, index) => {
-        // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the sidebar moves to a focus scope
-        setRing(item, index === this.sourceFocusIdx);
-      });
-      if (reveal) {
-        // eslint-disable-next-line focus/no-scroll-into-view -- legacy scrollIntoView call until the sidebar moves to a focus scope
-        this.el?.querySelector('.sidebar-tab.focused')
-          ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      }
-    } else {
-      if (reveal && this.ensureGroupFocusVisible()) {
-        this.render();
-        return;
-      }
-      this.clearRings('.sidebar-search-input, .sidebar-ch-item, .sidebar-tab');
-      this.el?.querySelectorAll<HTMLElement>('.sidebar-group-item').forEach((item) => {
-        // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the sidebar moves to a focus scope
-        setRing(item, parseInt(item.dataset.groupPos || '-1', 10) === this.groupFocusIdx);
-      });
-      if (reveal) {
-        // eslint-disable-next-line focus/no-scroll-into-view -- legacy scrollIntoView call until the sidebar moves to a focus scope
-        this.el?.querySelector('.sidebar-group-item.focused')
-          ?.scrollIntoView({ block: 'nearest' });
-      }
+  // The data-key of the item the pane indices point at.
+  private stateKey(): string | null {
+    if (this.activePane === 'sources') {
+      const id = this.getSourceIds()[this.sourceFocusIdx];
+      return id === undefined ? null : `tab:${id}`;
     }
+    if (this.activePane === 'groups') {
+      const group = this.getGroups()[this.groupFocusIdx];
+      return group ? `group:${group.id}` : null;
+    }
+    if (this.channelFocusIdx < 0) return 'search';
+    // A rendered row has its key at hand; resolving an entry walks the playlist.
+    const row = this.el?.querySelector<HTMLElement>(
+      `.sidebar-ch-item[data-sidebar-pos="${String(this.channelFocusIdx)}"]`);
+    if (row?.dataset.key) return row.dataset.key;
+    const entry = this.getChannelEntry(this.channelFocusIdx);
+    return entry ? this.entryKey(entry) : null;
+  }
+
+  private paint(via: Via): void {
+    this.focusScope.focus(this.stateKey(), via);
+    Focus.flush();
+  }
+
+  // Scroll a virtual list to the focused row and render it; the tab strip is
+  // not virtual, so it takes the geometric reveal.
+  private reveal(key: string): boolean {
+    if (key !== this.stateKey() || this.activePane === 'sources') return false;
+    const moved = this.activePane === 'groups'
+      ? this.ensureGroupFocusVisible()
+      : this.ensureFocusVisible();
+    if (moved) this.render();
+    return moved;
   }
 
   private getSourceIds(): string[] {
@@ -599,7 +595,6 @@ export class Sidebar {
     const selected = sources.indexOf(this.playlist);
     this.sourceFocusIdx = selected >= 0 ? selected : 0;
     this.activePane = 'sources';
-    this.updateFocus();
   }
 
   // The wheel scrolls without moving focus, so the focused row is lost when the
@@ -627,10 +622,10 @@ export class Sidebar {
     const target = index < first ? first : last;
     if (channels) this.channelFocusIdx = target;
     else this.groupFocusIdx = target;
-    log.debug('Resumed detached focus', 'event=sidebar.focus.resumed',
-      `pane=${this.activePane}`, `distance=${String(Math.abs(target - index))}`);
     this.render();
-    this.updateFocus(undefined, false);
+    const key = this.stateKey();
+    if (key !== null) this.focusScope.resume(key, Math.abs(target - index));
+    Focus.flush();
     return true;
   }
 
@@ -747,11 +742,14 @@ export class Sidebar {
     this.render(true, true);
   }
 
-  private collapseGroups(): void {
+  // A pointer collapse only follows the state: it neither scrolls nor
+  // brings back a ring the pointer leaving concealed.
+  private collapseGroups(byPointer = false): void {
     this.groupsExpanded = false;
     this.activePane = 'channels';
     this.syncPanelState();
-    this.updateFocus();
+    if (byPointer) this.focusScope.track(this.stateKey());
+    else this.paint('back');
     this.resetTimer();
   }
 
@@ -785,6 +783,12 @@ export class Sidebar {
     this.el?.classList.toggle('channels-only', !this.groupsExpanded);
   }
 
+  private dropPointerIntent(): void {
+    this.pointerAtGroupEdge = false;
+    this.clearGroupDwell();
+    this.clearPointerExit();
+  }
+
   private clearGroupDwell(): void {
     if (!this.groupDwellTimer) return;
     clearTimeout(this.groupDwellTimer);
@@ -798,6 +802,7 @@ export class Sidebar {
       if (this.isVisible && !this.groupsExpanded && !this.keyboardOn
           && this.pointerAtGroupEdge) {
         this.openGroups();
+        this.paint('pointer');
         this.resetTimer();
       }
     }, GROUP_DWELL_MS);
@@ -811,7 +816,7 @@ export class Sidebar {
   }
 
   // Only opening the groups pane reveals its focus; key moves reveal through
-  // updateFocus, and background renders keep the user's scroll offset.
+  // the focus scope, and background renders keep the user's scroll offset.
   private render(measureMarquees = true, revealGroup = false): void {
     const el = this.el;
     if (!el) return;
@@ -871,9 +876,9 @@ export class Sidebar {
           ${groups.slice(groupRange.start, groupRange.end).map((item, offset) => {
             const i = groupRange.start + offset;
             return html`
-            <div class="sidebar-group-item ${item.id === this.group ? 'active' : ''}
-                        ${this.activePane === 'groups' && i === this.groupFocusIdx ? 'focused' : ''}"
+            <div class="sidebar-group-item ${item.id === this.group ? 'active' : ''}"
                  data-key="group:${item.id}" data-group-id="${item.id}" data-group-pos="${i}"
+                 data-hover-target
                  style="top:${this.groupVirtualizer.getItemOffset(i)}px">
               <span class="sidebar-group-icon">${raw(groupIcon(item.label, item.builtin))}</span>
               <span class="sidebar-group-name">${
@@ -892,23 +897,18 @@ export class Sidebar {
             ${raw(CHEVRON_LEFT_ICON)}
           </span>
         </button>
-        <input type="text"
-               class="sidebar-search-input ${this.activePane === 'channels' && this.channelFocusIdx === -1 ? 'focused' : ''}"
+        <input type="text" class="sidebar-search-input" data-hover-target
                data-key="search" aria-label="${t('search.ariaChannels')}"
                data-search-query="${this.channelSearchResultQuery}"
                data-search-pending="${this.channelSearchPending ? 'true' : 'false'}"
                placeholder="${searchPlaceholder}" value="${this.searchQuery}">
         ${showTabs ? html`
           <div class="sidebar-tabs">
-            <div class="sidebar-tab ${!this.playlist ? 'active' : ''} ${
-              this.activePane === 'sources' && this.sourceFocusIdx === 0 ? 'focused' : ''}"
+            <div class="sidebar-tab ${!this.playlist ? 'active' : ''}" data-hover-target
                  data-key="tab:"
                  data-sidebar-playlist="">${t('common.all')}</div>
-            ${tabs.map((tab, index) => html`
-              <div class="sidebar-tab ${tab.id === this.playlist ? 'active' : ''} ${
-                this.activePane === 'sources' && this.sourceFocusIdx === index + 1
-                  ? 'focused'
-                  : ''}"
+            ${tabs.map((tab) => html`
+              <div class="sidebar-tab ${tab.id === this.playlist ? 'active' : ''}" data-hover-target
                    data-key="tab:${tab.id}"
                    data-sidebar-playlist="${tab.id}">${tab.name}</div>
             `)}
@@ -917,11 +917,11 @@ export class Sidebar {
         <div class="sidebar-channel-list" data-key="channel-list">
           <div class="sidebar-channel-spacer" data-key="channel-spacer"
                style="height:${this.channelVirtualizer.getTotalSize(entryCount)}px">
-          ${visibleEntries.map(({ ch, globalIdx, recent }, offset) => {
+          ${visibleEntries.map((entry, offset) => {
+            const { ch, globalIdx, recent } = entry;
             const i = range.start + offset;
             const epgId = EpgService.findChannelId(ch);
             const nowPlaying = epgId ? EpgService.getNowPlaying(epgId) : null;
-            const isFocused = this.activePane === 'channels' && i === this.channelFocusIdx;
             const catchup = recent?.kind === 'catchup' ? recent : null;
             const isPlaying = globalIdx === currentIdx && (catchup
               ? catchup.progress.progStart === currentCatchupStart
@@ -934,10 +934,8 @@ export class Sidebar {
                 })
               : nowPlaying?.title;
             return html`
-              <div class="sidebar-ch-item ${isPlaying ? 'playing' : ''} ${isFocused ? 'focused' : ''}"
-                   data-key="${catchup
-                     ? `recent:catchup:${String(globalIdx)}:${String(catchup.progress.progStart)}`
-                     : `ch:${String(globalIdx)}`}"
+              <div class="sidebar-ch-item ${isPlaying ? 'playing' : ''}"
+                   data-key="${this.entryKey(entry)}"
                    data-focusable data-sidebar-index="${globalIdx}" data-sidebar-pos="${i}"
                    style="top:${this.channelVirtualizer.getItemOffset(i)}px">
                 <span class="ch-num">${globalIdx + 1}</span>
@@ -961,6 +959,7 @@ export class Sidebar {
     this.applyGroupScrollOffset();
     const search = el.querySelector<HTMLInputElement>('.sidebar-search-input');
     if (search && search.value !== this.searchQuery) search.value = this.searchQuery;
+    this.focusScope.track(this.stateKey());
 
     scrolling.forEach(({ span, dist }) => {
       if (!el.contains(span)) return;
@@ -1214,7 +1213,7 @@ export class Sidebar {
     el.addEventListener('click', (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest('[data-open-groups]')) {
-        if (this.groupsExpanded) this.collapseGroups();
+        if (this.groupsExpanded) this.collapseGroups(true);
         else this.openGroups();
         this.resetTimer();
         return;
@@ -1238,54 +1237,28 @@ export class Sidebar {
       }
     });
 
-    // Hover moves the highlight within the pane under the pointer.
-    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the sidebar moves to a focus scope
-    el.addEventListener('mouseover', (e: MouseEvent) => {
+    // Hover moves focus within the pane under the pointer.
+    el.addEventListener('nav:hover', (e: Event) => {
       const target = e.target as HTMLElement;
       const groupItem = target.closest<HTMLElement>('[data-group-pos]');
-      if (groupItem) {
-        const pos = parseInt(groupItem.dataset.groupPos!, 10);
-        if (this.activePane !== 'groups' || pos !== this.groupFocusIdx || this.hoverCleared) {
-          this.activePane = 'groups';
-          this.groupFocusIdx = pos;
-          this.updateFocus(undefined, false);
-        }
-        this.resetTimer();
-        return;
-      }
       const sourceItem = target.closest<HTMLElement>('[data-sidebar-playlist]');
-      if (sourceItem) {
-        const sourceItems = Array.from(
-          el.querySelectorAll<HTMLElement>('[data-sidebar-playlist]'),
-        );
-        const position = sourceItems.indexOf(sourceItem);
-        if (this.activePane !== 'sources' || position !== this.sourceFocusIdx
-            || this.hoverCleared) {
-          this.activePane = 'sources';
-          this.sourceFocusIdx = position;
-          // The tab strip isn't virtualized, so revealing a half-hidden tab is safe.
-          this.updateFocus();
-        }
-        this.resetTimer();
+      const item = target.closest<HTMLElement>('[data-sidebar-pos]');
+      if (groupItem) {
+        this.activePane = 'groups';
+        this.groupFocusIdx = parseInt(groupItem.dataset.groupPos!, 10);
+      } else if (sourceItem) {
+        this.activePane = 'sources';
+        this.sourceFocusIdx = Array.from(el.querySelectorAll('[data-sidebar-playlist]'))
+          .indexOf(sourceItem);
+      } else if (item || target.closest('.sidebar-search-input')) {
+        this.activePane = 'channels';
+        this.channelFocusIdx = item ? parseInt(item.dataset.sidebarPos!, 10) : -1;
+      } else {
         return;
       }
-      const item = target.closest<HTMLElement>('[data-sidebar-pos]');
-      const pos = item
-        ? parseInt(item.dataset.sidebarPos!, 10)
-        : (target.closest('.sidebar-search-input') ? -1 : null);
-      if (pos === null) return;
-      if (this.activePane !== 'channels' || pos !== this.channelFocusIdx || this.hoverCleared) {
-        this.activePane = 'channels';
-        this.channelFocusIdx = pos;
-        this.updateFocus(undefined, false);
-      }
+      this.paint('pointer');
       this.resetTimer();
     });
-
-    // Cursor left the sidebar: drop the hover highlight. Focus is kept so a
-    // later d-pad press or hover re-shows it.
-    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the sidebar moves to a focus scope
-    el.addEventListener('mouseleave', () => this.clearHover());
 
     el.addEventListener('scroll', (e: Event) => {
       const list = e.target as HTMLElement;
@@ -1311,11 +1284,11 @@ export class Sidebar {
       });
     }, true);
 
-    // The wheel scrolls natively and hover moves the highlight. Stepping focus
-    // here raced the scroll event and yanked the list back to the stale offset.
-    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the sidebar moves to a focus scope
-    el.addEventListener('wheel', (e: WheelEvent) => {
-      e.stopPropagation();
+    // The wheel scrolls natively and hover moves focus. Claiming it keeps the
+    // channel step away; stepping focus here raced the scroll event and yanked
+    // the list back to the stale offset.
+    el.addEventListener('nav:wheel', (e: Event) => {
+      e.preventDefault();
       const now = Date.now();
       if (now - this.lastWheelAt > 500) {
         const pane = (e.target as HTMLElement).closest('.sidebar-group-panel')
@@ -1324,7 +1297,7 @@ export class Sidebar {
       }
       this.lastWheelAt = now;
       this.resetTimer();
-    }, { passive: false });
+    });
   }
 
   private selectEntry(entry: SidebarEntry): void {
