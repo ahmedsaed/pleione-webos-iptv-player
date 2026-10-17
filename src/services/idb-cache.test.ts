@@ -15,6 +15,7 @@ import {
   flushCacheWrites,
   getCacheUsage,
   getCachedCatalog,
+  getCachedCatalogMetadata,
   getCachedEpg,
   getCachedPlaylist,
   getCachedStreamMime,
@@ -27,6 +28,7 @@ import {
   playlistCacheToken,
   scheduleCachedPlaylist,
   setCachedCatalog,
+  setCachedCatalogState,
   setCachedEpg,
   setCachedPlaylist,
   setCachedStreamMime,
@@ -281,6 +283,226 @@ describe('idb-cache', () => {
       selection: null,
       samples: { indices: [1], documents: [['Bravo']] },
     })).toEqual(['alpha', 'bravo']);
+  });
+
+  it('keeps partial catalog freshness separate from the worker record timestamp', async () => {
+    const items = [{ name: 'Alpha' }];
+    const state = { complete: false, refreshAfter: Date.now() + 60_000 };
+    await setCachedCatalog('x1|vod_all', items, null, state);
+
+    const cached = await getCachedCatalog('x1|vod_all');
+    expect(cached?.state).toEqual(state);
+    expect(cacheRecordRef(items)).toEqual({
+      store: 'catalog-cache', key: 'x1|vod_all', timestamp: cached?.timestamp,
+    });
+    const record = cacheRecordRef(items)!;
+    const raw = await new IdbSearchCacheReader(indexedDB).read(record, 1200);
+    expect(cachedNameDocuments(buildSourceIndex(record, raw), {
+      record,
+      length: 1,
+      selection: null,
+      samples: { indices: [0], documents: [['Alpha']] },
+    })).toEqual(['alpha']);
+  });
+
+  it('updates catalog retry metadata without writing the payload or changing its source version', async () => {
+    const items = [{ name: 'Alpha' }];
+    await setCachedCatalog('x1|vod_all', items, null, {
+      complete: false, refreshAfter: Date.now() + 60_000,
+    });
+    const ref = cacheRecordRef(items)!;
+    const state = { complete: false, refreshAfter: Date.now() + 120_000 };
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put');
+    try {
+      expect(await setCachedCatalogState('x1|vod_all', ref.timestamp, state)).toBe(true);
+      expect(await getCachedCatalog('x1|vod_all')).toMatchObject({
+        timestamp: ref.timestamp, data: items, state,
+      });
+      expect(put.mock.calls.filter(([record], index) =>
+        put.mock.contexts[index]?.name === CATALOG_STORE
+        && (record as { key?: unknown }).key === 'x1|vod_all')).toHaveLength(0);
+      expect(cacheRecordRef(items)).toEqual(ref);
+    } finally {
+      put.mockRestore();
+    }
+  });
+
+  it('reads renewed catalog freshness without reading the catalog payload', async () => {
+    const state = { complete: false, refreshAfter: Date.now() + 60_000 };
+    const items = [{ name: 'Alpha' }];
+    await setCachedCatalog('x1|vod_all', items, null, state);
+    const timestamp = cacheRecordRef(items)!.timestamp;
+    const get = vi.spyOn(IDBObjectStore.prototype, 'get');
+    try {
+      expect(await getCachedCatalogMetadata('x1|vod_all')).toEqual({ timestamp, state });
+      const renewed = { complete: true, refreshAfter: Date.now() + 60_000, freshSince: Date.now() };
+      expect(await setCachedCatalogState('x1|vod_all', timestamp, renewed, null)).toBe(true);
+      expect(await getCachedCatalogMetadata('x1|vod_all')).toEqual({ timestamp, state: renewed });
+      expect(await getCachedCatalogMetadata('x1|missing')).toBeNull();
+      expect(get.mock.calls.filter((_, index) => get.mock.contexts[index]?.name === CATALOG_STORE))
+        .toHaveLength(0);
+    } finally {
+      get.mockRestore();
+    }
+    expect(await getCachedCatalog('x1|vod_all')).toMatchObject({ timestamp, state: { complete: true } });
+  });
+
+  it.each(['payload', 'metadata'] as const)('handles metadata read failure during a %s lookup', async mode => {
+    const items = [{ name: 'Alpha' }];
+    const state = { complete: false, refreshAfter: Date.now() + 60_000 };
+    await setCachedCatalog('x1|vod_all', items, null, state);
+    const timestamp = cacheRecordRef(items)!.timestamp;
+    const error = new Error('metadata read failed');
+    const get = IDBObjectStore.prototype.get;
+    const getSpy = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (
+      this: IDBObjectStore, key: IDBValidKey | IDBKeyRange,
+    ) {
+      if (this.name === CACHE_META_STORE && key === 'entry:catalog-cache:x1|vod_all') throw error;
+      return get.call(this, key);
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      if (mode === 'payload') {
+        await expect(getCachedCatalog('x1|vod_all')).resolves.toMatchObject({
+          timestamp, data: items, state,
+        });
+      } else {
+        await expect(getCachedCatalogMetadata('x1|vod_all')).resolves.toBeNull();
+      }
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        '[CacheStorage]', 'Catalog metadata read failed', 'event=xtream.cache.read.failed',
+        'operation=read', 'category=catalog', 'reason=metadata', error,
+      );
+    } finally {
+      getSpy.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it('backfills a legacy catalog version before using metadata-only freshness reads', async () => {
+    await setCachedCatalog('x1|vod_all', [{ name: 'Alpha' }]);
+    const db = (await openPersistenceDb())!;
+    const read = db.transaction(CACHE_META_STORE, 'readonly');
+    const legacy = await requestResult(
+      read.objectStore(CACHE_META_STORE).get('entry:catalog-cache:x1|vod_all'),
+    ) as Record<string, unknown>;
+    const timestamp = legacy.timestamp;
+    delete legacy.timestamp;
+    const write = db.transaction(CACHE_META_STORE, 'readwrite');
+    write.objectStore(CACHE_META_STORE).put(legacy);
+    await transactionDone(write);
+
+    expect(await getCachedCatalogMetadata('x1|vod_all')).toEqual({ timestamp });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const get = vi.spyOn(IDBObjectStore.prototype, 'get');
+    try {
+      expect(await getCachedCatalogMetadata('x1|vod_all')).toEqual({ timestamp });
+      expect(get.mock.calls.filter((_, index) => get.mock.contexts[index]?.name === CATALOG_STORE))
+        .toHaveLength(0);
+    } finally {
+      get.mockRestore();
+    }
+  });
+
+  it('reports a failed catalog metadata renewal without changing the existing state', async () => {
+    const items = [{ name: 'Alpha' }];
+    const state = { complete: false, refreshAfter: Date.now() + 60_000 };
+    await setCachedCatalog('x1|vod_all', items, null, state);
+    const timestamp = cacheRecordRef(items)!.timestamp;
+    const transaction = IDBDatabase.prototype.transaction;
+    const transactionSpy = vi.spyOn(IDBDatabase.prototype, 'transaction').mockImplementation(function (
+      this: IDBDatabase,
+      storeNames: string | string[],
+      mode?: IDBTransactionMode,
+    ) {
+      if (storeNames === CACHE_META_STORE && mode === 'readwrite') throw new Error('write failed');
+      return transaction.call(this, storeNames, mode);
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(await setCachedCatalogState('x1|vod_all', timestamp, {
+        complete: true, refreshAfter: Date.now() + 120_000,
+      })).toBe(false);
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        '[CacheStorage]', 'Catalog cache write failed', 'event=xtream.cache.write.failed',
+        'operation=write', 'category=catalog', expect.any(Error),
+      );
+    } finally {
+      transactionSpy.mockRestore();
+      warn.mockRestore();
+    }
+    expect(await getCachedCatalogMetadata('x1|vod_all')).toEqual({ timestamp, state });
+  });
+
+  it('rejects stale catalog state updates after a replacement or cache clear', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    try {
+      const oldState = { complete: false, refreshAfter: 2000 };
+      await setCachedCatalog('x1|vod_all', [{ name: 'Alpha' }], null, oldState);
+      expect(await setCachedCatalogState('x1|vod_all', 1000, {
+        complete: false, refreshAfter: 3000,
+      })).toBe(true);
+      clock.mockReturnValue(1001);
+      const nextState = { complete: true, refreshAfter: 4000, freshSince: 1001 };
+      await setCachedCatalog('x1|vod_all', [{ name: 'Bravo' }], null, nextState);
+
+      expect(await setCachedCatalogState('x1|vod_all', 1000, oldState)).toBe(false);
+      expect((await getCachedCatalog('x1|vod_all'))?.state).toEqual(nextState);
+      await clearCachedCatalog();
+      expect(await setCachedCatalogState('x1|vod_all', 1001, nextState)).toBe(false);
+      expect((await getCacheUsage()).categories.catalog.entries).toBe(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('keeps a renewed catalog out of expired eviction without changing its payload version', async () => {
+    const hour = 60 * 60 * 1000;
+    const initial = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(initial);
+    const storageDescriptor = Object.getOwnPropertyDescriptor(navigator, 'storage');
+    try {
+      const items = [{ name: 'Alpha' }];
+      await setCachedCatalog('x1|vod_all', items, hour, {
+        complete: true, freshSince: initial, refreshAfter: initial + hour,
+      });
+      await setCachedCatalog('x1|expired', ['x'.repeat(8 * 1024 * 1024)], 2 * hour);
+      const ref = cacheRecordRef(items)!;
+      clock.mockReturnValue(initial + 7 * hour);
+      const renewed = {
+        complete: true, freshSince: Date.now(), refreshAfter: Date.now() + 24 * hour,
+      };
+      expect(await setCachedCatalogState('x1|vod_all', ref.timestamp, renewed, 24 * hour)).toBe(true);
+      expect(await getCachedCatalog('x1|vod_all')).toMatchObject({
+        timestamp: ref.timestamp, data: items, state: renewed,
+      });
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const db = (await openPersistenceDb())!;
+      const tx = db.transaction(CACHE_META_STORE, 'readonly');
+      const metadata = await requestResult(
+        tx.objectStore(CACHE_META_STORE).get('entry:catalog-cache:x1|vod_all'),
+      );
+      expect(metadata).toMatchObject({
+        timestamp: ref.timestamp, expiresAt: renewed.refreshAfter,
+      });
+
+      const used = (await getCacheUsage()).total.bytes;
+      Object.defineProperty(navigator, 'storage', {
+        configurable: true,
+        value: { estimate: async () => ({ usage: 0, quota: 2 * (used - 1024 * 1024) }) },
+      });
+      await setCachedCatalog('x1|vod_categories', [{ id: '1', name: 'Cat A' }]);
+
+      expect(await getCachedCatalog('x1|expired')).toBeNull();
+      expect(await getCachedCatalog('x1|vod_all')).toMatchObject({
+        timestamp: ref.timestamp, data: items, state: renewed,
+      });
+    } finally {
+      clock.mockRestore();
+      if (storageDescriptor) Object.defineProperty(navigator, 'storage', storageDescriptor);
+      else delete (navigator as Navigator & { storage?: StorageManager }).storage;
+    }
   });
 
   it('evaluates playlist freshness against the current refresh interval', async () => {

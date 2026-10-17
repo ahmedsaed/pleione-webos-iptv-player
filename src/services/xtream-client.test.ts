@@ -349,6 +349,35 @@ describe('XtreamClient VOD', () => {
       .rejects.toMatchObject({ code: 'invalid_json' });
   });
 
+  it.each([{ user_info: { auth: 0 } }, [{ error: 'unavailable' }], null])(
+    'rejects catalog error objects and malformed arrays instead of treating them as empty (%j)',
+    async payload => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        fetchTextMock.mockResolvedValue(JSON.stringify(payload));
+        const client = createXtreamClient(creds);
+        await expect(client.getVodCategories()).rejects.toMatchObject({ code: 'request_failed' });
+        await expect(client.getVodStreams('1')).rejects.toMatchObject({ code: 'request_failed' });
+        await expect(client.getSeriesCategories()).rejects.toMatchObject({ code: 'request_failed' });
+        await expect(client.getSeries('1')).rejects.toMatchObject({ code: 'request_failed' });
+        expect(warn).toHaveBeenCalledWith(
+          '[Xtream]',
+          'Xtream request failed',
+          'event=xtream.request.failed',
+          'endpoint=get_vod_streams',
+          'code=request_failed',
+          'timeoutMs=30000',
+          `limitBytes=${CONFIG.XTREAM.CATALOG_MAX_BYTES}`,
+        );
+        fetchTextMock.mockResolvedValue('[]');
+        expect(await client.getVodStreams('1')).toEqual([]);
+        expect(await client.getSeries('1')).toEqual([]);
+      } finally {
+        warn.mockRestore();
+      }
+    },
+  );
+
   it('bounds catalog responses and forwards cancellation', async () => {
     const controller = new AbortController();
     fetchTextMock.mockResolvedValue('[]');

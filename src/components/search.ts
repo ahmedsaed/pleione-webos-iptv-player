@@ -125,6 +125,17 @@ function captureCatalogLoad<T>(promise: Promise<T>): Promise<CatalogLoadResult<T
   );
 }
 
+function sameCatalogSource(left: SearchCachedNames | null, right: SearchCachedNames | null): boolean {
+  if (!left || !right || left.record.key !== right.record.key
+    || left.record.timestamp !== right.record.timestamp || left.length !== right.length) return false;
+  if (!left.selection || !right.selection) return left.selection === right.selection;
+  if (left.selection.length !== right.selection.length) return false;
+  for (let i = 0; i < left.selection.length; i++) {
+    if (left.selection[i] !== right.selection[i]) return false;
+  }
+  return true;
+}
+
 // The Search section: one query box over Channels / Programs / Movies / Series.
 // Results are relevance-ranked and capped; movies and series match the account's
 // full catalogs, loaded once on open and cached.
@@ -208,7 +219,7 @@ export class Search {
     this.container.setAttribute('data-self-activate', '');
     this.container.addEventListener('click', (e: MouseEvent) => this.onPointerRelease(e.clientX, e.clientY));
     this.container.addEventListener('scroll', (e: Event) => this.onVirtualScroll(e), true);
-    onCatalogListRefreshed(key => this.onCatalogRefreshed(key));
+    onCatalogListRefreshed((key, changed) => this.onCatalogRefreshed(key, changed));
   }
 
   private onPointerRelease(x: number, y: number): void {
@@ -243,6 +254,7 @@ export class Search {
     this.render();
     if (reuseWorkerIndex) {
       this.logIndexReady('reused');
+      if (account && Date.now() >= this.catalogExpiresAt) this.refreshCatalogIndex(account);
       return;
     }
 
@@ -472,12 +484,14 @@ export class Search {
       captureCatalogLoad(loadAllVodStreams(account, signal)),
       captureCatalogLoad(loadAllSeries(account, signal)),
     ]);
-    if (signal.aborted || this.account?.id !== account.id) return { movies: false, series: false };
+    if (signal.aborted || this.account?.id !== account.id
+      || this.catalogController?.signal !== signal) return { movies: false, series: false };
     const concealing = ParentalControlService.concealing;
     if (vod.ok) {
       const visible = selectCatalogItems(vod.data, concealing, isVodConcealed);
-      this.allVod = visible.items;
-      this.vodCache = cachedNamesRequest(vod.data, visible.items, visible.selection);
+      const cache = cachedNamesRequest(vod.data, visible.items, visible.selection);
+      if (!sameCatalogSource(this.vodCache, cache)) this.allVod = visible.items;
+      this.vodCache = cache;
     } else {
       log.error(
         'Movie search catalog load failed',
@@ -488,8 +502,9 @@ export class Search {
     }
     if (series.ok) {
       const visible = selectCatalogItems(series.data, concealing, isSeriesConcealed);
-      this.allSeries = visible.items;
-      this.seriesCache = cachedNamesRequest(series.data, visible.items, visible.selection);
+      const cache = cachedNamesRequest(series.data, visible.items, visible.selection);
+      if (!sameCatalogSource(this.seriesCache, cache)) this.allSeries = visible.items;
+      this.seriesCache = cache;
     } else {
       log.error(
         'Series search catalog load failed',
@@ -500,7 +515,8 @@ export class Search {
     }
     if (vod.ok && series.ok) {
       const expiresAt = await getSearchCatalogExpiresAt(account.id) ?? 0;
-      if (signal.aborted || this.account?.id !== account.id) return { movies: false, series: false };
+      if (signal.aborted || this.account?.id !== account.id
+        || this.catalogController?.signal !== signal) return { movies: false, series: false };
       this.loadedFor = account.id;
       this.catalogExpiresAt = expiresAt;
       log.debug(
@@ -523,14 +539,28 @@ export class Search {
 
   // A stale catalog was served at once and has now been re-fetched: index the
   // new copy for an open Search, or leave it for the next open.
-  private onCatalogRefreshed(key: string): void {
+  private onCatalogRefreshed(key: string, changed = true): void {
     const account = this.account;
     if (!account || this.loadedFor !== account.id) return;
     if (key !== `${account.id}|vod_all` && key !== `${account.id}|series_all`) return;
+    if (!changed) {
+      void getSearchCatalogExpiresAt(account.id).then(expiresAt => {
+        if (this.account?.id === account.id && this.loadedFor === account.id) {
+          this.catalogExpiresAt = expiresAt ?? 0;
+        }
+      }).catch((error: unknown) => {
+        log.error('Search catalog refresh failed', 'event=search.worker.index.failed', 'scope=catalog', error);
+      });
+      return;
+    }
     this.loadedFor = null;
     this.catalogExpiresAt = 0;
-    if (this.catalogLoad?.accountId === account.id) this.catalogLoad = null;
+    this.abortCatalogLoad();
     if (!this.active || this.pendingIndex) return;
+    this.refreshCatalogIndex(account);
+  }
+
+  private refreshCatalogIndex(account: PlaylistEntry): void {
     const sessionId = this.workerSession;
     const refreshed = async (indexed: boolean, reason = 'rejected'): Promise<void> => {
       if (!this.active || sessionId !== this.workerSession || this.account?.id !== account.id) return;
@@ -540,7 +570,9 @@ export class Search {
     };
     void this.loadCatalog(account).then(async (sources) => {
       if (!this.active || sessionId !== this.workerSession || this.account?.id !== account.id) return;
-      await refreshed(await this.indexCatalog(sessionId, sources.movies, sources.series));
+      const movies = sources.movies && this.indexedVod !== this.allVod;
+      const series = sources.series && this.indexedSeries !== this.allSeries;
+      if (movies || series) await refreshed(await this.indexCatalog(sessionId, movies, series));
     }).catch(async (error: unknown) => {
       log.error('Search catalog refresh failed', 'event=search.worker.index.failed', 'scope=catalog', error);
       await refreshed(false, 'error');
@@ -1250,7 +1282,6 @@ export class Search {
       && this.workerIndexedAccountId === (account?.id ?? null)
       && (!account
         || (this.loadedFor === account.id
-          && Date.now() < this.catalogExpiresAt
           && this.workerIndexedVod === this.allVod
           && this.workerIndexedSeries === this.allSeries));
   }

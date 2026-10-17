@@ -62,6 +62,7 @@ interface CacheEntryMeta {
   lastAccessedAt: number;
   /** The record's own timestamp, so the app worker can tell its version cheaply. */
   timestamp?: number;
+  state?: CatalogListState;
 }
 
 interface CacheCandidate {
@@ -99,10 +100,20 @@ export interface CachedEpgEntry {
   filter?: CachedEpgFilter | null;
 }
 
-export interface CachedCatalogEntry<T = unknown> {
-  key: string;
+export interface CachedCatalogMetadata {
   timestamp: number;
+  state?: CatalogListState;
+}
+
+export interface CachedCatalogEntry<T = unknown> extends CachedCatalogMetadata {
+  key: string;
   data: T;
+}
+
+export interface CatalogListState {
+  complete: boolean;
+  refreshAfter: number;
+  freshSince?: number;
 }
 
 interface StreamMimeEntry {
@@ -436,6 +447,7 @@ function entryMeta(
   record: StoredRecord,
   lastAccessedAt = record.lastAccessedAt,
 ): CacheEntryMeta {
+  const state = store === CATALOG_STORE ? catalogListState(record.state) : undefined;
   return {
     category: entryMetaId(store, key),
     cacheCategory: categoryForStore(store),
@@ -445,6 +457,7 @@ function entryMeta(
     expiresAt: record.expiresAt,
     lastAccessedAt,
     timestamp: cacheRecordTimestamp(record),
+    ...(state ? { state } : {}),
   };
 }
 
@@ -557,7 +570,18 @@ async function touchRecord(store: CacheStore, record: StoredRecord): Promise<voi
   if (!db) return;
   try {
     const tx = db.transaction(META_STORE, 'readwrite');
-    tx.objectStore(META_STORE).put(entryMeta(store, key, record, now));
+    const metadata = tx.objectStore(META_STORE);
+    const request = metadata.get(id);
+    request.onsuccess = () => {
+      const current: unknown = request.result;
+      if (isCacheEntryMeta(current) && current.timestamp !== undefined) {
+        if (current.timestamp === cacheRecordTimestamp(record)) {
+          metadata.put({ ...current, lastAccessedAt: now });
+        }
+      } else {
+        metadata.put(entryMeta(store, key, record, now));
+      }
+    };
     await transactionDone(tx);
   } catch {
     // Access-time bookkeeping must not turn a valid cache hit into a miss.
@@ -1197,17 +1221,61 @@ export async function clearCachedEpg(): Promise<void> {
   }
 }
 
+async function readCatalogMetadata(key: string): Promise<CacheEntryMeta | null> {
+  try {
+    await ensureMetadata();
+    return await readEntryMeta(CATALOG_STORE, key);
+  } catch (error) {
+    log.warn(
+      'Catalog metadata read failed',
+      'event=xtream.cache.read.failed',
+      'operation=read',
+      'category=catalog',
+      'reason=metadata',
+      error,
+    );
+    return null;
+  }
+}
+
 export async function getCachedCatalog<T = unknown>(
   key: string,
 ): Promise<CachedCatalogEntry<T> | null> {
   const raw = await readRaw(CATALOG_STORE, key);
   if (!raw) return null;
   const timestamp = cacheRecordTimestamp(raw);
+  const metadata = await readCatalogMetadata(key);
+  const state = (metadata?.timestamp === timestamp ? catalogListState(metadata.state) : undefined)
+    ?? catalogListState(raw.state);
   rememberRecord(raw.data, { store: CATALOG_STORE, key, timestamp });
   return {
     key,
     timestamp,
     data: raw.data as T,
+    ...(state ? { state } : {}),
+  };
+}
+
+export async function getCachedCatalogMetadata(key: string): Promise<CachedCatalogMetadata | null> {
+  const metadata = await readCatalogMetadata(key);
+  if (!metadata) return null;
+  if (metadata.timestamp === undefined) {
+    const cached = await getCachedCatalog(key);
+    return cached ? { timestamp: cached.timestamp, ...(cached.state ? { state: cached.state } : {}) } : null;
+  }
+  const state = catalogListState(metadata.state);
+  return { timestamp: metadata.timestamp, ...(state ? { state } : {}) };
+}
+
+function catalogListState(value: unknown): CatalogListState | undefined {
+  const state = value as Partial<CatalogListState> | null | undefined;
+  if (typeof state?.complete !== 'boolean'
+    || typeof state.refreshAfter !== 'number' || !Number.isFinite(state.refreshAfter)) return undefined;
+  return {
+    complete: state.complete,
+    refreshAfter: state.refreshAfter,
+    ...(typeof state.freshSince === 'number' && Number.isFinite(state.freshSince)
+      ? { freshSince: state.freshSince } : {}),
   };
 }
 
@@ -1215,15 +1283,62 @@ export async function setCachedCatalog(
   key: string,
   data: unknown,
   ttlMs: number | null = CONFIG.XTREAM.DEFAULT_CATALOG_REFRESH_INTERVAL_MS,
+  state?: CatalogListState,
 ): Promise<void> {
   const timestamp = Date.now();
   const stored = await putRaw(CATALOG_STORE, {
     key,
     timestamp,
     data,
+    ...(state ? { state } : {}),
     expiresAt: ttlMs === null ? null : timestamp + ttlMs,
   });
   if (stored) rememberRecord(data, { store: CATALOG_STORE, key, timestamp });
+}
+
+export function setCachedCatalogState(
+  key: string,
+  sourceTimestamp: number,
+  state: CatalogListState,
+  ttlMs: number | null = CONFIG.XTREAM.DEFAULT_CATALOG_REFRESH_INTERVAL_MS,
+): Promise<boolean> {
+  const generation = catalogGeneration;
+  return enqueueMutation(async () => {
+    await ensureMetadata();
+    if (generation !== catalogGeneration) return false;
+    const db = await openDb();
+    if (!db) return false;
+    try {
+      const now = Date.now();
+      const tx = db.transaction(META_STORE, 'readwrite');
+      const metadata = tx.objectStore(META_STORE);
+      const request = metadata.get(entryMetaId(CATALOG_STORE, key));
+      let accepted = false;
+      request.onsuccess = () => {
+        const source: unknown = request.result;
+        if (generation !== catalogGeneration || !isCacheEntryMeta(source)
+          || source.timestamp !== sourceTimestamp) return;
+        metadata.put({
+          ...source,
+          state,
+          expiresAt: ttlMs === null ? null : now + ttlMs,
+          lastAccessedAt: now,
+        } satisfies CacheEntryMeta);
+        accepted = true;
+      };
+      await transactionDone(tx);
+      return accepted;
+    } catch (error) {
+      log.warn(
+        'Catalog cache write failed',
+        'event=xtream.cache.write.failed',
+        'operation=write',
+        'category=catalog',
+        error,
+      );
+      return false;
+    }
+  });
 }
 
 let catalogGeneration = 0;

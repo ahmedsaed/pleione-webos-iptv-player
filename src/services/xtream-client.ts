@@ -177,6 +177,22 @@ async function fetchJson(
   }
 }
 
+async function fetchCatalogArray(
+  url: string,
+  maxBytes: number,
+  idField: 'category_id' | 'stream_id' | 'series_id',
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>[]> {
+  const data = await fetchJsonStrict(url, CATALOG_TIMEOUT, maxBytes, signal);
+  const items = asArray(data);
+  if (!Array.isArray(data) || (data.length && !items.some(item => toStr(item[idField]) !== ''))) {
+    const error = new XtreamRequestError('request_failed', 'Xtream catalog response was not a valid list');
+    logRequestFailure(url, error, CATALOG_TIMEOUT, maxBytes);
+    throw error;
+  }
+  return items;
+}
+
 // Coerce an unknown JSON value to an array of plain objects (empty if not an array).
 function asArray(v: unknown): Record<string, unknown>[] {
   return Array.isArray(v)
@@ -368,12 +384,12 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
     },
 
     async getVodCategories(signal?: AbortSignal): Promise<VodCategory[]> {
-      const arr = asArray(await fetchJsonStrict(
+      const arr = await fetchCatalogArray(
         xtreamPlayerApi(creds, 'get_vod_categories'),
-        CATALOG_TIMEOUT,
         CONFIG.XTREAM.CATEGORY_MAX_BYTES,
+        'category_id',
         signal,
-      ));
+      );
       return arr
         .map((c) => ({ id: toStr(c.category_id), name: toStr(c.category_name) }))
         .filter((c) => c.id !== '');
@@ -381,12 +397,12 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
 
     async getVodStreams(categoryId?: string, signal?: AbortSignal): Promise<VodItem[]> {
       const params = categoryId ? { category_id: categoryId } : undefined;
-      const arr = asArray(await fetchJsonStrict(
+      const arr = await fetchCatalogArray(
         xtreamPlayerApi(creds, 'get_vod_streams', params),
-        CATALOG_TIMEOUT,
         CONFIG.XTREAM.CATALOG_MAX_BYTES,
+        'stream_id',
         signal,
-      ));
+      );
       return arr
         .map((s) => ({
           accountId,
@@ -427,12 +443,12 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
     },
 
     async getSeriesCategories(signal?: AbortSignal): Promise<SeriesCategory[]> {
-      const arr = asArray(await fetchJsonStrict(
+      const arr = await fetchCatalogArray(
         xtreamPlayerApi(creds, 'get_series_categories'),
-        CATALOG_TIMEOUT,
         CONFIG.XTREAM.CATEGORY_MAX_BYTES,
+        'category_id',
         signal,
-      ));
+      );
       return arr
         .map((c) => ({ id: toStr(c.category_id), name: toStr(c.category_name) }))
         .filter((c) => c.id !== '');
@@ -440,12 +456,12 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
 
     async getSeries(categoryId?: string, signal?: AbortSignal): Promise<SeriesItem[]> {
       const params = categoryId ? { category_id: categoryId } : undefined;
-      const arr = asArray(await fetchJsonStrict(
+      const arr = await fetchCatalogArray(
         xtreamPlayerApi(creds, 'get_series', params),
-        CATALOG_TIMEOUT,
         CONFIG.XTREAM.CATALOG_MAX_BYTES,
+        'series_id',
         signal,
-      ));
+      );
       return arr
         .map((s) => ({
           accountId,

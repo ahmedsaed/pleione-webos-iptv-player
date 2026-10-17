@@ -217,6 +217,98 @@ describe('Search', () => {
     expect(container.textContent).not.toContain('Old Movie');
   });
 
+  it('keeps the ready worker index while an expired catalog is retried without content changes', async () => {
+    const movies = [vod('10', 'Alpha Movie')];
+    const series = [ser('20', 'Alpha Series')];
+    const movieRef = { store: 'catalog-cache', key: 'x1|vod_all', timestamp: 1303 };
+    const seriesRef = { store: 'catalog-cache', key: 'x1|series_all', timestamp: 1304 };
+    cacheMock.refs.set(movies, movieRef);
+    cacheMock.refs.set(series, seriesRef);
+    cacheMock.records.set('catalog-cache|x1|vod_all', { timestamp: 1303, data: movies });
+    cacheMock.records.set('catalog-cache|x1|series_all', { timestamp: 1304, data: series });
+    catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(Date.now() - 1);
+    const { view } = await openWith({ vod: movies, series });
+    const indexed = workerMock.run.mock.calls.filter(([task]) => task === 'search.index').length;
+    const copiedMovies = movies.map(item => ({ ...item }));
+    const copiedSeries = series.map(item => ({ ...item }));
+    cacheMock.refs.set(copiedMovies, movieRef);
+    cacheMock.refs.set(copiedSeries, seriesRef);
+    catalogMock.loadAllVodStreams.mockResolvedValue(copiedMovies);
+    catalogMock.loadAllSeries.mockResolvedValue(copiedSeries);
+    catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(Date.now() + 60_000);
+
+    view.deactivate();
+    await view.open(account);
+    await vi.waitFor(() => expect(catalogMock.loadAllVodStreams).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(catalogMock.getSearchCatalogExpiresAt).toHaveBeenCalledTimes(2));
+    await view.setQuery('alpha');
+
+    expect(workerMock.run.mock.calls.filter(([task]) => task === 'search.index')).toHaveLength(indexed);
+    expect(container.textContent).toContain('Alpha Movie');
+    expect(container.textContent).toContain('Alpha Series');
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as
+      (key: string, changed?: boolean) => void;
+    refreshed('x1|vod_all', false);
+    await vi.waitFor(() => expect(catalogMock.getSearchCatalogExpiresAt).toHaveBeenCalledTimes(3));
+    expect(catalogMock.loadAllVodStreams).toHaveBeenCalledTimes(2);
+    expect(workerMock.run.mock.calls.filter(([task]) => task === 'search.index')).toHaveLength(indexed);
+  });
+
+  it('ignores a superseded refresh for the same account', async () => {
+    catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(Date.now() - 1);
+    const { view } = await openWith({ vod: [vod('10', 'Old Movie')] });
+    let finishStale: (value: unknown[]) => void = () => undefined;
+    const stale = new Promise<unknown[]>(resolve => { finishStale = resolve; });
+    catalogMock.loadAllVodStreams.mockReturnValueOnce(stale);
+
+    view.deactivate();
+    await view.open(account);
+    await vi.waitFor(() => expect(catalogMock.loadAllVodStreams).toHaveBeenCalledTimes(2));
+    catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(Date.now() + 60_000);
+    catalogMock.loadAllVodStreams.mockResolvedValue([vod('11', 'New Movie')]);
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    refreshed('x1|vod_all');
+    await view.setQuery('movie');
+    await vi.waitFor(() => expect(container.textContent).toContain('New Movie'));
+
+    finishStale([vod('10', 'Old Movie')]);
+    await stale;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await view.setQuery('movie');
+
+    expect(container.textContent).toContain('New Movie');
+    expect(container.textContent).not.toContain('Old Movie');
+  });
+
+  it('does not mark an inactive stale load fresh after a changed catalog notification', async () => {
+    catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(Date.now() - 1);
+    const { view } = await openWith({ vod: [vod('10', 'Old Movie')] });
+    let finishExpiry: (value: number) => void = () => undefined;
+    const staleExpiry = new Promise<number>(resolve => { finishExpiry = resolve; });
+    catalogMock.getSearchCatalogExpiresAt.mockReturnValueOnce(staleExpiry);
+
+    view.deactivate();
+    await view.open(account);
+    await vi.waitFor(() => expect(catalogMock.getSearchCatalogExpiresAt).toHaveBeenCalledTimes(2));
+    view.deactivate();
+    catalogMock.loadAllVodStreams.mockResolvedValue([vod('11', 'New Movie')]);
+    const expiresAt = Date.now() + 60_000;
+    catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(expiresAt);
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    refreshed('x1|vod_all');
+    finishExpiry(expiresAt);
+    await staleExpiry;
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    await view.open(account);
+    await indexReady(view);
+    await view.setQuery('movie');
+
+    expect(container.textContent).toContain('New Movie');
+    expect(container.textContent).not.toContain('Old Movie');
+    expect(catalogMock.loadAllVodStreams).toHaveBeenCalledTimes(3);
+  });
+
   it('reloads the account catalog after its natural TTL expires', async () => {
     catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(Date.now() - 1);
     const { view } = await openWith({ vod: [vod('10', 'Old Movie')] });
@@ -229,7 +321,7 @@ describe('Search', () => {
     await view.setQuery('movie');
 
     expect(catalogMock.loadAllVodStreams).toHaveBeenCalledTimes(2);
-    expect(container.textContent).toContain('New Movie');
+    await vi.waitFor(() => expect(container.textContent).toContain('New Movie'));
     expect(container.textContent).not.toContain('Old Movie');
   });
 
