@@ -902,3 +902,75 @@ describe('Focus kept by a component', () => {
     expect(shown()).toEqual(['r1']);
   });
 });
+
+describe('Focus requested by the pointer outside the owner', () => {
+  it('lights what the pointer rests on, and only that, until the scope owns the keys', () => {
+    list(view, ['r1', 'r2']);
+    list(prompt, ['p1']);
+    const below = logical('view.catalog', view);
+    const bar = logical('bar', prompt, { tier: Tier.bar });
+    let barActive = true;
+    Focus.layer(bar, () => barActive);
+    Focus.setBase(() => below);
+    installRing();
+    Focus.install();
+    Focus.flush();
+    expect(shown()).toEqual(['p1']);
+
+    row(view, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    below.focus('r2', 'pointer');
+    expect(shown()).toEqual(['r2', 'p1']);
+    row(view, 'r1').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    below.focus('r1', 'pointer');
+    expect(shown()).toEqual(['r1', 'p1']);
+    below.track('r2');
+    expect(shown()).toEqual(['r1', 'p1']);
+
+    barActive = false;
+    Focus.flush();
+    expect(shown()).toEqual(['r2']);
+  });
+
+  it('leaves a pointer request for an item the pointer is not on until the keys come', () => {
+    list(view, ['r1', 'r2']);
+    list(prompt, ['p1']);
+    const reveal = vi.fn(() => true);
+    const below = logical('view.catalog', view, { reveal });
+    const bar = logical('bar', prompt, { tier: Tier.bar });
+    let barActive = true;
+    Focus.layer(bar, () => barActive);
+    Focus.setBase(() => below);
+    installRing();
+    Focus.install();
+    Focus.flush();
+    below.focus('r1', 'resume');
+
+    below.focus('r2', 'pointer');
+    expect(shown()).toEqual(['p1']);
+    expect(below.focusKey).toBe('r2');
+
+    barActive = false;
+    Focus.flush();
+    expect(reveal).toHaveBeenCalledWith('r2');
+    expect(shown()).toEqual(['r2']);
+  });
+
+  it('keeps the ring of an owner nested in its root when it lights a hovered item', () => {
+    list(view, ['r1', 'r2']);
+    const panel = document.createElement('div');
+    view.appendChild(panel);
+    list(panel, ['p1']);
+    const below = logical('view.catalog', view);
+    const inner = logical('panel', panel);
+    Focus.push(inner);
+    Focus.setBase(() => below);
+    installRing();
+    Focus.install();
+    Focus.flush();
+    expect(shown()).toEqual(['p1']);
+
+    row(view, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    below.focus('r2', 'pointer');
+    expect(shown()).toEqual(['r2', 'p1']);
+  });
+});

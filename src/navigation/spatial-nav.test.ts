@@ -357,6 +357,14 @@ describe('SpatialNav', () => {
       expect(nav.focused).toBe(visible);
     });
 
+    it('first names where focusFirst would land without moving focus', () => {
+      const collapsed = focusable({ x: 0, y: 0, w: 0, h: 0 });
+      const visible = focusable({ x: 0, y: 100 });
+      const nav = new SpatialNav(makeContainer(collapsed, visible));
+      expect(nav.first()).toBe(visible);
+      expect(nav.focused).toBeNull();
+    });
+
     // A view seeded with focus before it is shown measures zero everywhere;
     // filtering all of it out would leave focus nowhere.
     it('falls back to unmeasured elements when nothing has been laid out', () => {

@@ -358,10 +358,15 @@ export class SpatialNav {
     return true;
   }
 
+  // Where focusFirst() would land, without moving focus.
+  first(): HTMLElement | null {
+    return this.getCandidates()[0]?.el ?? null;
+  }
+
   focusFirst(): boolean {
-    const candidates = this.getCandidates();
-    if (!candidates.length) return false;
-    this.focus(candidates[0].el);
+    const first = this.first();
+    if (!first) return false;
+    this.focus(first);
     return true;
   }
 

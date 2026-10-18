@@ -198,9 +198,16 @@ export class SubtitleSearchOverlay {
     Focus.flush();
   }
 
+  // A scope that does not own the keys only follows the state, so no reveal
+  // waits in it and nothing lights under the owner.
   private focusList(): void {
-    this.moveTo(Math.max(0, Math.min(this.focusIdx, this.results.length - 1)),
-      InputMode.current === 'keys' ? 'key' : 'pointer');
+    const i = Math.max(0, Math.min(this.focusIdx, this.results.length - 1));
+    if (this.scope && Focus.owner() !== this.scope) {
+      this.focusIdx = i;
+      this.scope.track(this.keyAt(i), true);
+      return;
+    }
+    this.moveTo(i, InputMode.current === 'keys' ? 'key' : 'pointer');
   }
 
   handleAction(action: Action): void {

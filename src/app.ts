@@ -1323,6 +1323,12 @@ class App {
         this.settings.resumeFocus();
         return;
       }
+      // The catalog resumes its tile even when a wheel-scrolled rail no
+      // longer renders it; enter('resume') would fall back to the first.
+      if (section === 'movies' || section === 'series') {
+        (section === 'movies' ? this.movies : this.series).resumeFocus();
+        return;
+      }
       // A legacy layer keeps its own DOM focus and has no key to resume.
       const owner = Focus.owner();
       if (owner?.logical) owner.enter('resume');
@@ -1565,7 +1571,9 @@ class App {
         : name === 'channels' ? this.channelList.focusScope
           : name === 'settings' ? this.settings.focusScope
             : name === 'parental-controls' ? this.parentalControls.focusScope
-              : Focus.register({ id: `view.${name}`, root: this.views[name] }));
+              : name === 'movies' ? this.movies.focusScope
+                : name === 'series' ? this.series.focusScope
+                  : Focus.register({ id: `view.${name}`, root: this.views[name] }));
     }
     Focus.setBase(() => views.get(current()) ?? null);
     Focus.install();

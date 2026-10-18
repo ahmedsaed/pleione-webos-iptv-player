@@ -25,7 +25,7 @@ export class VirtualScrollGuard {
     return this.readOffset(element, axis);
   }
 
-  syncOffset(element: HTMLElement, axis: VirtualScrollAxis, offset: number): void {
+  syncOffset(element: HTMLElement, axis: VirtualScrollAxis, offset: number, instant = false): void {
     const safeOffset = Math.max(0, offset);
     const current = this.readOffset(element, axis);
     if (current === safeOffset) {
@@ -39,7 +39,7 @@ export class VirtualScrollGuard {
       axis,
       offset: safeOffset,
       token: ++this.nextToken,
-      instant: this.needsInstantJump(element, axis, Math.abs(safeOffset - current)),
+      instant: instant || this.needsInstantJump(element, axis, Math.abs(safeOffset - current)),
     };
     this.expected.set(element, state);
     this.writeOffset(element, state);

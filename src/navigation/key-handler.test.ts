@@ -858,6 +858,26 @@ describe('KeyHandler', () => {
       expect(onUnhoverBefore).toHaveBeenCalledTimes(1);
     });
 
+    it('hovers afresh a row hovered before it opened, after settling with the pointer on no row', () => {
+      // A row of the panel slid under the pointer before the panel owned the keys.
+      row('b').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      Focus.push(scope);
+      scope.focus('a', 'key');
+      hit = root;
+      settle();
+      expect(row('a').classList.contains('focused')).toBe(true);
+
+      // Chromium still counts the pointer on that row, so moving onto it
+      // fires no mouseover.
+      screen += 7;
+      row('b').dispatchEvent(new MouseEvent('mousemove', {
+        clientX: 50, clientY: 50, screenX: screen, screenY: screen, bubbles: true,
+      }));
+      Focus.flush();
+      expect(row('b').classList.contains('focused')).toBe(true);
+      expect(row('a').classList.contains('focused')).toBe(false);
+    });
+
     it.each([
       ['the cursor-hide key', () => press(K.CURSOR_HIDE)],
       ['a hidden cursor state', () => document.dispatchEvent(

@@ -1,4 +1,5 @@
 import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab } from './helpers';
+import { seedXtream } from './fixtures/xtream';
 
 // Seed one Xtream account (enables the tab bar) and stub the player_api.php
 // series calls + the get.php/xmltv.php the live path uses.
@@ -169,4 +170,71 @@ test('Down from the tab bar resumes the Series detail Up left', async ({ page })
   await page.keyboard.press('ArrowDown');
   await expect(season).toBeVisible();
   await expect(page.locator('#view-series .focused')).toHaveCount(1);
+});
+
+const settled = (page: import('@playwright/test').Page) => page.evaluate(() =>
+  new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+// How far the element sticks out of the catalog's vertical scroller, in px.
+const overhang = (el: Element): number => {
+  let scroller = el.parentElement;
+  while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) {
+    scroller = scroller.parentElement;
+  }
+  const box = el.getBoundingClientRect();
+  const clip = scroller?.getBoundingClientRect() ?? { top: 0, bottom: innerHeight };
+  return Math.max(0, clip.top - box.top, box.bottom - Math.min(clip.bottom, innerHeight));
+};
+
+test('a key that only shows the ring brings a clipped tile into view', async ({ page }) => {
+  await seedXtream(page, { catalog: 'large' });
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'series');
+  const tile = page.locator('#view-series .catalog-tile').first();
+  await expect(tile).toBeVisible();
+  await settled(page);
+
+  // The rails rest at the top, which leaves the tile hanging off the bottom
+  // of the screen, and the pointer rests on what is left of it.
+  const clip = await tile.evaluate((el) => {
+    const rails = el.closest<HTMLElement>('.catalog-rails')!;
+    rails.style.scrollBehavior = 'auto';
+    rails.scrollTop = 0;
+    rails.style.scrollBehavior = '';
+    return el.getBoundingClientRect().bottom - innerHeight;
+  });
+  expect(clip).toBeGreaterThan(8);
+  await settled(page);
+  const box = (await tile.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 20);
+  await expect(tile).toHaveClass(/\bfocused\b/);
+  const key = await tile.getAttribute('data-key');
+  await settled(page);
+
+  await page.keyboard.press('ArrowRight');
+  const focused = page.locator('#view-series .focused');
+  await expect(focused).toHaveCount(1);
+  await expect.poll(() => focused.evaluate(overhang)).toBeLessThanOrEqual(1);
+  expect(await focused.getAttribute('data-key')).toBe(key);
+});
+
+test('opening the section with the pointer leaves the catalog where it loads', async ({ page }) => {
+  await seedXtream(page, { catalog: 'large' });
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'series');
+  const first = page.locator('#view-series .catalog-tile').first();
+  await expect(first).toBeVisible();
+  await settled(page);
+  await settled(page);
+
+  expect(await page.locator('#view-series .catalog-rails').evaluate((el) => el.scrollTop)).toBe(0);
+  // Focus waits on the first tile, without a ring, for the first key.
+  await expect(page.locator('#view-series .focused')).toHaveCount(0);
+  const parked = page.locator('#view-series .focused-parked');
+  await expect(parked).toHaveCount(1);
+  expect(await parked.getAttribute('data-key')).toBe(await first.getAttribute('data-key'));
 });

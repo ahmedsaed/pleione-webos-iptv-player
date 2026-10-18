@@ -1216,7 +1216,11 @@ export class Sidebar {
     el.addEventListener('focusout', (e: FocusEvent) => {
       if (!(e.target as HTMLElement).classList.contains('sidebar-search-input')) return;
       this.setKeyboardVisible(false);
-      if (this.isVisible) this.paint(InputMode.current === 'keys' ? 'key' : 'pointer');
+      if (!this.isVisible) return;
+      // A scope that does not own the keys only follows the state, so no
+      // reveal waits in it and nothing lights under the owner.
+      if (Focus.owner() !== this.focusScope) this.focusScope.track(this.stateKey(), true);
+      else this.paint(InputMode.current === 'keys' ? 'key' : 'pointer');
     });
 
     // webOS: authoritative keyboard signal (independent of the lingering caret).

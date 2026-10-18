@@ -187,12 +187,13 @@ export const KeyHandler = {
       ? el.closest<HTMLElement>('[data-focusable], [data-hover-target]') : null;
     const focusableAt = (e: MouseEvent): HTMLElement | null => closestFocusable(e.target);
     // A panel that settled under the resting pointer: hover what lies there.
-    // It opened after any hover the pointer gave it, so even the same item
-    // is hovered afresh.
+    // It moved since any hover the pointer gave it, so that hover is stale:
+    // even the same item is hovered afresh, and with no item under the
+    // pointer the next move hovers wherever it lands, mouseover or not.
     Focus.setHoverAt((x, y, within) => {
       const target = closestFocusable(document.elementFromPoint(x, y));
-      if (!target || !within.contains(target)) return;
-      if (target === lastHover) hoverStale = true;
+      if (target && !within.contains(target)) return;
+      hoverStale = true;
       setHoverTarget(target);
     });
 

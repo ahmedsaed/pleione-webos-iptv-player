@@ -3,6 +3,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { SubtitleSearchOverlay } from './subtitle-search-overlay';
 import { Focus, Tier } from '../navigation/focus-scope';
+import { setInputMode } from '../navigation/input-mode';
 import type { OnlineSubtitleResult } from '../services/subtitle-search/types';
 
 function res(over: Partial<OnlineSubtitleResult>): OnlineSubtitleResult {
@@ -11,6 +12,7 @@ function res(over: Partial<OnlineSubtitleResult>): OnlineSubtitleResult {
 
 afterEach(() => {
   Focus.uninstall();
+  setInputMode('pointer');
   document.body.innerHTML = '';
 });
 
@@ -209,6 +211,33 @@ describe('SubtitleSearchOverlay', () => {
     expect(document.activeElement).not.toBe(input);
     Focus.pop(above);
     Focus.flush();
+    expect(container.querySelector('.subs-row')!.classList.contains('focused')).toBe(true);
+  });
+
+  it('leaves no reveal waiting when the caret leaves while another scope owns the keys', () => {
+    setInputMode('keys');
+    const container = document.createElement('div');
+    const menu = document.createElement('div');
+    document.body.append(container, menu);
+    const overlay = new SubtitleSearchOverlay(container, vi.fn(), vi.fn(), vi.fn());
+    overlay.open([res({ id: 'a' }), res({ id: 'b' })], '', 'Title');
+    overlay.handleAction('up');
+    Focus.flush();
+    const row = container.querySelector<HTMLElement>('.subs-row')!;
+    // Below the fold, so a reveal would scroll it.
+    row.getBoundingClientRect = () =>
+      ({ top: 2000, bottom: 2050, left: 0, right: 100, width: 100, height: 50 } as DOMRect);
+    const scrolled = vi.fn();
+    row.scrollIntoView = scrolled;
+    const above = Focus.register({ id: 'test.menu', root: menu, tier: Tier.overlay });
+    Focus.push(above);
+    Focus.flush();
+    expect(document.activeElement).not.toBe(container.querySelector('.subs-search-input'));
+
+    Focus.pop(above);
+    Focus.flush();
+
+    expect(scrolled).not.toHaveBeenCalled();
     expect(container.querySelector('.subs-row')!.classList.contains('focused')).toBe(true);
   });
 

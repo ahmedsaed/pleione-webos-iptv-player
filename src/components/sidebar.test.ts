@@ -85,7 +85,7 @@ vi.mock('../workers/app-worker-client', async () => {
 
 import { Sidebar } from './sidebar';
 import { setLocale } from '../i18n';
-import { Focus } from '../navigation/focus-scope';
+import { Focus, Tier } from '../navigation/focus-scope';
 import { setInputMode } from '../navigation/input-mode';
 import { PlaylistService } from '../services/playlist-service';
 
@@ -1062,6 +1062,32 @@ describe('Sidebar', () => {
 
     it('lets an unhandled key (typing) reach the global handler', () => {
       expect(pressInSearch({ key: 'a' })).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves no reveal waiting when the caret leaves while another scope owns the keys', () => {
+      sidebar.show();
+      highlightSearch();
+      sidebar.handleAction('select');
+      const search = el.querySelector<HTMLInputElement>('.sidebar-search-input')!;
+      expect(document.activeElement).toBe(search);
+      // The pointer notes a row while the box has the caret; then the keys
+      // take over and a prompt opens above.
+      hover(items()[1]);
+      setInputMode('keys');
+      const prompt = document.createElement('div');
+      document.body.appendChild(prompt);
+      const above = Focus.register({ id: 'test.prompt', root: prompt, tier: Tier.prompt });
+      Focus.push(above);
+      Focus.flush();
+      const reveal = vi.spyOn(sidebar as unknown as { reveal(key: string): boolean }, 'reveal');
+
+      search.blur();
+      Focus.pop(above);
+      Focus.flush();
+
+      expect(sidebar.visible).toBe(true);
+      expect(reveal).not.toHaveBeenCalled();
+      expect(ringed()).toEqual([items()[1]]);
     });
   });
 

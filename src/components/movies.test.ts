@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { PlaylistEntry, WatchlistEntry, WatchlistKind } from '../types';
+import type { Action, PlaylistEntry, WatchlistEntry, WatchlistKind } from '../types';
 
 const { catalogMock, storageMock, watchlistState, toastMock } = vi.hoisted(() => {
   const watchlistState = { entries: [] as WatchlistEntry[] };
@@ -31,6 +31,8 @@ vi.mock('../services/storage-service', () => ({ StorageService: storageMock }));
 vi.mock('./toast', () => ({ showToast: toastMock.showToast }));
 
 import { Movies } from './movies';
+import { Focus, Tier } from '../navigation/focus-scope';
+import { FocusRing } from '../navigation/focus-ring';
 import { VirtualGrid } from '../utils/virtual-grid';
 import { ParentalControlService } from '../services/parental-control';
 
@@ -46,7 +48,17 @@ function eventLines(spy: { mock: { calls: unknown[][] } }, code: string): string
   return spy.mock.calls.map((args) => args.join(' ')).filter((l) => l.includes(`event=${code} `));
 }
 
+// A key as the app routes it: the view acts, then the focus scope reconciles.
+function pressKey(view: { handleAction(action: Action): void }, action: Action): void {
+  document.documentElement.classList.add('keyboard-nav');
+  view.handleAction(action);
+  Focus.input();
+  Focus.flush();
+}
+
 beforeEach(() => {
+  document.documentElement.classList.remove('keyboard-nav');
+  Focus.uninstall();
   Element.prototype.scrollIntoView = vi.fn();
   vi.clearAllMocks();
   // clearAllMocks clears calls but not implementations; re-establish the default
@@ -63,6 +75,7 @@ async function openWith(cats = [{ id: '1', name: 'Cat A' }], streams = [vod('10'
   catalogMock.loadVodStreams.mockResolvedValue(streams);
   const handlers = { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() };
   const view = new Movies(container, handlers);
+  Focus.setBase(() => view.focusScope);
   await view.open(account);
   return { view, handlers };
 }
@@ -204,6 +217,7 @@ describe('Movies browse + grid', () => {
     const warns = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const view = new Movies(container, { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
+    Focus.setBase(() => view.focusScope);
     await view.open(account);
 
     for (const id of ['1', '2', '4', '5', '6']) {
@@ -323,7 +337,11 @@ describe('Movies browse + grid', () => {
     const back = vi.fn();
     await view.openItem(account, vod('99', 'Found Movie'), back);
     expect(container.querySelector('.movies-detail')).not.toBeNull();
+    const logs = vi.spyOn(console, 'log');
     view.handleAction('back');
+    Focus.flush();
+    expect(eventLines(logs, 'nav.focus.repaired')).toEqual([]);
+    logs.mockRestore();
 
     expect(back).toHaveBeenCalled();
     expect(container.querySelector('.catalog-layer-browse')!.classList)
@@ -340,10 +358,15 @@ describe('Movies browse + grid', () => {
     catalogMock.loadVodCategories.mockReturnValueOnce(new Promise(() => {}));
     catalogMock.loadVodStreams.mockResolvedValue([vod('10', 'Movie One')]);
     const view = new Movies(container, { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
+    Focus.setBase(() => view.focusScope);
     void view.open(account);
     await view.openItem(account, vod('99', 'Found Movie'), vi.fn());
     catalogMock.loadVodCategories.mockResolvedValue([{ id: '1', name: 'Cat A' }]);
+    const backLogs = vi.spyOn(console, 'log');
     view.handleAction('back');
+    Focus.flush();
+    expect(eventLines(backLogs, 'nav.focus.repaired')).toEqual([]);
+    backLogs.mockRestore();
     await Promise.resolve(); await Promise.resolve();
     // Not behind Search: only once the section is shown again.
     expect(catalogMock.loadVodCategories).toHaveBeenCalledTimes(1);
@@ -358,6 +381,85 @@ describe('Movies browse + grid', () => {
     expect(container.querySelector('.catalog-tile[data-item-id="10"]')).not.toBeNull();
   });
 
+  // A bar above the catalog that holds the keys while it is open.
+  function openBar(): { close(): void } {
+    const bar = document.createElement('div');
+    bar.innerHTML = '<button data-focusable data-key="b1"></button>';
+    document.body.appendChild(bar);
+    let open = true;
+    Focus.layer(Focus.register({ id: 'bar', root: bar, tier: Tier.bar }), () => open);
+    Focus.flush();
+    return { close: () => { open = false; Focus.flush(); } };
+  }
+
+  it('keeps a tile dark once the pointer left it under an open bar', async () => {
+    await openWith([{ id: '1', name: 'Cat A' }], [vod('10', 'Movie One'), vod('11', 'Movie Two')]);
+    FocusRing.install(() => ({ root: Focus.owner()?.root() ?? null }));
+    try {
+      const bar = openBar();
+      const tile = container.querySelector<HTMLElement>('.catalog-tile[data-item-id="11"]')!;
+      tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      expect(tile.classList.contains('focused')).toBe(true);
+      tile.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+
+      bar.close();
+      expect(container.querySelectorAll('.focused')).toHaveLength(0);
+    } finally {
+      FocusRing.uninstall();
+    }
+  });
+
+  it('brings the remembered tile back in view when the section resumes', async () => {
+    const { view } = await openWith([{ id: '1', name: 'Cat A' }], [vod('10', 'Movie One'), vod('11', 'Movie Two')]);
+    const tile = container.querySelector<HTMLElement>('.catalog-tile[data-item-id="11"]')!;
+    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    Focus.flush();
+    const key = view.focusScope.focusKey;
+    expect(tile.classList.contains('focused')).toBe(true);
+    tile.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    Focus.flush();
+    expect(tile.classList.contains('focused')).toBe(false);
+
+    const reveal = vi.spyOn(view as unknown as { revealKey(k: string): boolean | null }, 'revealKey');
+    view.resumeFocus();
+    Focus.flush();
+    expect(view.focusScope.focusKey).toBe(key);
+    expect(reveal).toHaveBeenCalledWith(key);
+    expect(tile.classList.contains('focused')).toBe(true);
+  });
+
+  it('lands on the first shown detail button when the focused one is gone', async () => {
+    catalogMock.loadVodInfo.mockResolvedValue({
+      plot: '', cast: '', director: '', genre: '', releaseDate: '', durationSecs: 0,
+      poster: '', imdbId: '', tmdbId: '', year: 0,
+    });
+    storageMock.getResume.mockReturnValue({ position: 60, duration: 600 } as never);
+    const { view } = await openWith();
+    await view.openItem(account, vod('99', 'Found Movie'), vi.fn());
+    const button = (key: string) =>
+      container.querySelector<HTMLElement>(`.movies-detail [data-key="${key}"]`)!;
+    button('resume').style.display = 'none';
+    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const shown = !(this as HTMLElement).closest('[style*="display: none"], .catalog-layer-hidden');
+      return { x: 0, y: 0, top: 0, left: 0, right: shown ? 100 : 0, bottom: shown ? 40 : 0,
+        width: shown ? 100 : 0, height: shown ? 40 : 0, toJSON: () => ({}) } as DOMRect;
+    });
+    try {
+      document.documentElement.classList.add('keyboard-nav');
+      view.focusScope.track(JSON.stringify(['detail', '', 'gone']));
+      Focus.flush();
+      expect(button('play').classList.contains('focused')).toBe(true);
+
+      view.focusScope.track(null);
+      view.focusScope.enter('key');
+      Focus.flush();
+      expect(button('play').classList.contains('focused')).toBe(true);
+      expect(button('resume').classList.contains('focused')).toBe(false);
+    } finally {
+      rect.mockRestore();
+    }
+  });
+
   it('rings a detail opened from Search after the pointer left the last one', async () => {
     catalogMock.loadVodInfo.mockResolvedValue({
       plot: '', cast: '', director: '', genre: '', releaseDate: '', durationSecs: 0,
@@ -367,10 +469,12 @@ describe('Movies browse + grid', () => {
     await view.openItem(account, vod('98', 'First Find'), vi.fn());
     container.querySelector('.movies-detail .focused')!
       .dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    Focus.flush();
     expect(container.querySelector('.movies-detail .focused')).toBeNull();
 
     await view.openItem(account, vod('99', 'Second Find'), vi.fn());
     expect(container.querySelector('.movies-detail')?.textContent).toContain('Second Find');
+    Focus.flush();
     expect(container.querySelector('.movies-detail .focused')).not.toBeNull();
   });
 
@@ -383,6 +487,7 @@ describe('Movies browse + grid', () => {
     const resume = container.querySelector('.movies-detail [data-key="resume"]') as HTMLElement;
     resume.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     resume.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    Focus.flush();
     expect(container.querySelector('.movies-detail .focused')).toBeNull();
 
     storageMock.getResume.mockReturnValue(null);
@@ -392,6 +497,7 @@ describe('Movies browse + grid', () => {
     });
     await vi.waitFor(() =>
       expect(container.querySelector('.movies-detail [data-key="resume"]')).toBeNull());
+    Focus.flush();
     expect(container.querySelector('.movies-detail .focused')).toBeNull();
   });
 
@@ -402,6 +508,7 @@ describe('Movies browse + grid', () => {
     });
     catalogMock.loadVodCategories.mockReturnValueOnce(new Promise(() => {}));
     const view = new Movies(container, { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
+    Focus.setBase(() => view.focusScope);
     void view.open(account);
     await view.openItem(account, vod('98', 'First Find'), vi.fn());
     view.handleAction('back');
@@ -484,6 +591,7 @@ describe('Movies browse + grid', () => {
     catalogMock.loadVodStreams.mockImplementation((_account: PlaylistEntry, categoryId: string) =>
       Promise.resolve(Array.from({ length: 50 }, (_, i) => vod(`${categoryId}-${String(i)}`, `Movie ${String(i)}`, categoryId))));
     const view = new Movies(container, { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
+    Focus.setBase(() => view.focusScope);
     await view.open(account);
     return view;
   };
@@ -601,6 +709,7 @@ describe('Movies browse + grid', () => {
     catalogMock.loadVodCategories.mockResolvedValue(cats);
     catalogMock.loadVodStreams.mockResolvedValue([]);
     const view = new Movies(container, { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
+    Focus.setBase(() => view.focusScope);
     await view.open(account);
     container.querySelector<HTMLElement>('.catalog-cat[data-category-id="1"]')!
       .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
@@ -635,24 +744,29 @@ describe('Movies browse + grid', () => {
       return { track, tile, writes };
     };
     const keyboard = (on: boolean) => document.documentElement.classList.toggle('keyboard-nav', on);
+    // The pointer rests on the tile and leaves; the first key only shows
+    // the ring there, and brings the tile into view.
+    const keyOnto = (view: Movies, tile: HTMLElement) => {
+      tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      tile.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+      Focus.flush();
+      pressKey(view, 'right');
+      keyboard(false);
+    };
 
     it('nudges a flush, fully visible tile instantly', async () => {
-      await eightFullCategories();
-      keyboard(true);
+      const view = await eightFullCategories();
       const { track, tile, writes } = stubRail(1280); // ends exactly at 1500
-      tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-      keyboard(false);
+      keyOnto(view, tile);
       expect(writes).toEqual([{ value: 1512 - 1000, behavior: 'auto' }]);
       expect(track.style.scrollBehavior).toBe('smooth');
+      expect(focusedKey()).toBe(tile.dataset.key);
     });
 
     it('retargets the smooth scroll for a tile still out of view', async () => {
-      await eightFullCategories();
-      keyboard(true);
-      const { writes } = stubRail(1400);
-      container.querySelector<HTMLElement>('[data-rail-key="cat:1"] .catalog-tile[data-item-id="1-3"]')!
-        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-      keyboard(false);
+      const view = await eightFullCategories();
+      const { tile, writes } = stubRail(1400);
+      keyOnto(view, tile);
       expect(writes).toEqual([{ value: 1632 - 1000, behavior: 'smooth' }]);
     });
 
@@ -719,6 +833,15 @@ describe('Movies browse + grid', () => {
     return view;
   };
 
+  it('leaves the scope key alone when a hidden layer reports a hover', async () => {
+    const view = await openGrid();
+    const key = view.focusScope.focusKey;
+    expect(key).not.toBeNull();
+    container.querySelector<HTMLElement>('.catalog-layer-hidden .catalog-tile[data-item-id]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    expect(view.focusScope.focusKey).toBe(key);
+  });
+
   it('moves focus inside the window without re-rendering the grid', async () => {
     const view = await openGrid();
     const rendered = vi.spyOn(VirtualGrid.prototype, 'getTotalSize');
@@ -743,6 +866,48 @@ describe('Movies browse + grid', () => {
     expect(container.querySelector(
       '[data-grid-index="14"] [data-focusable].focused',
     )).not.toBeNull();
+    rendered.mockRestore();
+  });
+
+  it('renders the window once per step while Down is held, keeping one ring', async () => {
+    const view = await openGrid();
+    const grid = container.querySelector<HTMLElement>('.catalog-grid')!;
+    const track = container.querySelector<HTMLElement>('.catalog-grid-track')!;
+    // A smooth scroll still on its way: the live offset trails each write
+    // by one step.
+    let writes = 0;
+    let live = 0;
+    let target = 0;
+    Object.defineProperty(grid, 'scrollTop', {
+      configurable: true,
+      get: () => live,
+      set: (value: number) => { writes++; live = target; target = value; },
+    });
+    grid.getBoundingClientRect = () => ({ top: 0 } as DOMRect);
+    track.getBoundingClientRect = () => ({ top: 126 - grid.scrollTop } as DOMRect);
+    const rendered = vi.spyOn(VirtualGrid.prototype, 'getTotalSize');
+    pressKey(view, 'down');
+    pressKey(view, 'down');
+    const perRender = rendered.mock.calls.length;
+    expect(perRender).toBeGreaterThan(0);
+    for (let step = 0; step < 4; step++) {
+      rendered.mockClear();
+      writes = 0;
+      pressKey(view, 'down');
+      expect(rendered.mock.calls.length).toBeLessThanOrEqual(perRender);
+      expect(writes).toBeLessThanOrEqual(1);
+      expect(container.querySelectorAll('.catalog-grid .focused')).toHaveLength(1);
+    }
+    expect(live).toBeLessThan(target);
+
+    // The row in view by the window's own offset needs no scroll, however
+    // far the live offset trails.
+    rendered.mockClear();
+    writes = 0;
+    pressKey(view, 'right');
+    expect(rendered).not.toHaveBeenCalled();
+    expect(writes).toBe(0);
+    expect(container.querySelectorAll('.catalog-grid .focused')).toHaveLength(1);
     rendered.mockRestore();
   });
 
@@ -830,6 +995,7 @@ describe('Movies detail', () => {
       accountId: 'x1', kind: 'vod', itemId: '10', name: 'Movie One',
     }));
     expect(container.querySelector('[data-action="watchlist"]')?.textContent).toContain('Remove from Watchlist');
+    Focus.flush();
     expect(container.querySelector('.focused')?.getAttribute('data-key')).toBe('watchlist');
     expect(toastMock.showToast).toHaveBeenLastCalledWith('Added to Watchlist');
 
@@ -962,12 +1128,17 @@ describe('Movies deep-link (openItem)', () => {
     const handlers = { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() };
     const onDetailBack = vi.fn();
     const view = new Movies(container, handlers);
+    Focus.setBase(() => view.focusScope);
     await view.openItem(account, vod('42', 'Deep Movie', '9'), onDetailBack);
     expect(container.querySelector('.movies-detail')).not.toBeNull();
     expect(container.textContent).toContain('Deep Movie');
     // No browse is loaded underneath; Back returns to Search via the callback.
     expect(container.querySelector('.catalog-browse')).toBeNull();
+    const logs = vi.spyOn(console, 'log');
     view.handleAction('back');
+    Focus.flush();
+    expect(eventLines(logs, 'nav.focus.repaired')).toEqual([]);
+    logs.mockRestore();
     expect(onDetailBack).toHaveBeenCalledTimes(1);
     expect(handlers.onBack).not.toHaveBeenCalled(); // did not fall through to Live
   });
@@ -992,6 +1163,7 @@ describe('Movies account-switch race', () => {
 
     const handlers = { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() };
     const view = new Movies(container, handlers);
+    Focus.setBase(() => view.focusScope);
 
     // Start both opens concurrently; neither has resolved yet.
     const p1 = view.open(a1);

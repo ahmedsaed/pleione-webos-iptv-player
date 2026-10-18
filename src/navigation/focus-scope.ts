@@ -76,8 +76,11 @@ export interface FocusScope {
   handle(action: Action, event?: NumberEvent): boolean;
   /** Request focus on `key`; reconcile paints it. Off the keys, a pointer request lights it while hovered. */
   focus(key: string | null, via: Via): void;
-  /** Follow a key the component's state moved to without an input: no reveal, ring stays concealed. */
-  track(key: string | null): void;
+  /**
+   * Follow a key the component's state moved to without an input: no reveal,
+   * and the ring stays concealed unless `show`.
+   */
+  track(key: string | null, show?: boolean): void;
   /** Move focus that the user scrolled away to `key`, in view, and report the repair. */
   resume(key: string, distance: number, ...fields: string[]): void;
   /** Hide the ring but keep the key, until the next focus request. */
@@ -166,25 +169,41 @@ class Scope implements FocusScope {
     this.focusKey = key;
     this.concealed = false;
     // A pointer request lights the item where it is; any other may reveal it.
-    this.requested = via !== 'pointer';
-    if (via === 'pointer') this.lightHovered();
+    // Off the keys, one the pointer is not on waits for them, keeping a
+    // reveal already asked for.
+    if (via !== 'pointer') this.requested = true;
+    else if (this.lightHovered() || Focus.owner() === this) this.requested = false;
     Focus.reconcile();
   }
 
   // Off the keys, as under an open bar menu, the pointer's pick lights only
-  // while the pointer rests on it; FocusRing parks it once the pointer goes.
-  private lightHovered(): void {
-    if (!this.logical || Focus.owner() === this) return;
-    const el = !this.concealed && this.focusKey !== null ? this.element(this.focusKey) : null;
+  // while the pointer rests on it, and only it; FocusRing parks it once the
+  // pointer goes.
+  private lightHovered(): boolean {
+    if (!this.logical || Focus.owner() === this) return false;
     const root = this.root();
-    const lit = el && root?.contains(el) && isHovered(el) ? el : null;
-    if (this.painted && this.painted !== lit) setRing(this.painted, false);
-    if (lit && !hasRing(lit)) setRing(lit, true);
-    this.painted = lit;
+    const el = root && !this.concealed && this.focusKey !== null
+      ? within(root, this.element(this.focusKey)) : null;
+    if (!root || !el || !isHovered(el)) {
+      if (this.painted) setRing(this.painted, false);
+      this.painted = null;
+      return false;
+    }
+    // An owner nested in this root keeps its ring.
+    const ownerRoot = Focus.owner()?.root() ?? null;
+    const kept = ownerRoot && root.contains(ownerRoot) ? ownerRoot : null;
+    for (const other of ringsIn(root)) {
+      if (other !== el && !kept?.contains(other)) setRing(other, false);
+    }
+    setRing(el, true);
+    this.painted = el;
+    FocusRing.sync();
+    return true;
   }
 
-  track(key: string | null): void {
+  track(key: string | null, show = false): void {
     this.focusKey = key;
+    if (show) this.concealed = false;
     Focus.reconcile();
   }
 

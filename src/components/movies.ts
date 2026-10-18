@@ -16,6 +16,7 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
   protected get kicker(): string { return t('common.movies'); }
   protected readonly resumeKind: ResumeKind = 'vod';
   protected readonly parentalKind = 'vod' as const;
+  protected scopeName(): string { return 'movies'; }
   protected get emptyMessage(): string { return t('catalog.noMovies'); }
   protected get gridEmptyMessage(): string { return t('catalog.noMoviesCategory'); }
   protected itemCount(count: number): string { return tp('catalog.movieCount', count); }
@@ -235,8 +236,6 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
     const meta = [year, mins, info?.genre, vod.rating].filter((s) => !!s);
     const watchlisted = StorageService.isWatchlisted(a.id, 'vod', vod.streamId);
 
-    const prevKey = this.nav.focused?.getAttribute('data-key') ?? null;
-    const wasHidden = this.nav.isHighlightHidden;
     morph(this.layer('detail'), html`
       <div class="catalog-view movies-detail" data-nav-container>
         <div class="detail-poster-wrap">${this.posterCell(vod.name, poster)}</div>
@@ -262,6 +261,6 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
         </div>
       </div>
     `);
-    this.restoreDetailFocus(prevKey, wasHidden);
+    this.settleDetailFocus();
   }
 }

@@ -613,6 +613,38 @@ test.describe('Down from the tab bar resumes Movies as Up left it', () => {
     await expect(gridFocus(page)).toHaveAttribute('data-item-id', '101');
   });
 
+  test('with the tile it left scrolled half out of view', async ({ page }) => {
+    await seedXtream(page, { catalog: 'large' });
+    await page.goto('/');
+    await expect(page.locator('#view-channels')).toBeVisible();
+    await enterTab(page, 'movies');
+    const tile = page.locator('#view-movies .catalog-tile').first();
+    await tile.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+    await expect(tile).toHaveClass(/\bfocused\b/);
+    await upToTabBar(page);
+    // Scroll the parked tile half under the top edge of the catalog.
+    const left = page.locator('#view-movies .focused-parked');
+    await expect(left).toHaveCount(1);
+    const clipped = await left.evaluate((el) => {
+      let scroller = el.parentElement;
+      while (scroller && scroller.scrollHeight <= scroller.clientHeight) scroller = scroller.parentElement;
+      if (!scroller) return false;
+      const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      scroller.scrollTop += top + el.getBoundingClientRect().height / 2;
+      return el.getBoundingClientRect().top < scroller.getBoundingClientRect().top;
+    });
+    expect(clipped).toBe(true);
+
+    await page.keyboard.press('ArrowDown');
+    const focused = page.locator('#view-movies .focused');
+    await expect(focused).toHaveCount(1);
+    await expect.poll(() => focused.evaluate((el) => {
+      let scroller = el.parentElement;
+      while (scroller && scroller.scrollHeight <= scroller.clientHeight) scroller = scroller.parentElement;
+      return el.getBoundingClientRect().top >= (scroller?.getBoundingClientRect().top ?? 0) - 1;
+    })).toBe(true);
+  });
+
   test('in a category grid Search was opened over', async ({ page }) => {
     await openCategoryGrid(page);
     await enterTab(page, 'search');
@@ -624,4 +656,50 @@ test.describe('Down from the tab bar resumes Movies as Up left it', () => {
     await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
     await expect(gridFocus(page)).toHaveAttribute('data-item-id', '101');
   });
+});
+
+async function openAccountMenuOverMovies(page: Page): Promise<void> {
+  await seedXtream(page, { catalog: 'large' });
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  // Reach Movies from the tab bar with keys alone.
+  await page.keyboard.press('ArrowLeft');
+  for (let i = 0; i < 8 && !(await page.locator('.tab-bar-item.focused').count()); i++) {
+    await page.keyboard.press('ArrowUp');
+  }
+  for (let i = 0; i < 6 && !(await page.locator('.tab-bar-item[data-section="movies"].focused').count()); i++) {
+    await page.keyboard.press('ArrowRight');
+  }
+  await expect(page.locator('.tab-bar-item[data-section="movies"].focused')).toHaveCount(1);
+  await expect(page.locator('#view-movies .catalog-tile').first()).toBeVisible();
+  const avatar = (await page.locator('.account-avatar').boundingBox())!;
+  await page.mouse.click(avatar.x + avatar.width / 2, avatar.y + avatar.height / 2);
+  await expect(page.locator('.account-menu')).toBeVisible();
+}
+
+test('a tile lights under the pointer while the account menu stays open', async ({ page }) => {
+  await openAccountMenuOverMovies(page);
+  const tile = page.locator('#view-movies .catalog-tile').first();
+  const box = (await tile.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 40);
+
+  await expect(tile).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.account-menu')).toBeVisible();
+});
+
+test('a tile the pointer left under the account menu stays dark once the menu closes', async ({ page }) => {
+  await openAccountMenuOverMovies(page);
+  const tile = page.locator('#view-movies .catalog-tile').first();
+  const box = (await tile.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 40);
+  await expect(tile).toHaveClass(/\bfocused\b/);
+  // Off the tiles onto empty catalog space, then the avatar closes the menu.
+  await page.mouse.move(960, 300);
+  const avatar = (await page.locator('.account-avatar').boundingBox())!;
+  await page.mouse.click(avatar.x + avatar.width / 2, avatar.y + avatar.height / 2);
+  await expect(page.locator('.account-menu')).toBeHidden();
+  await page.evaluate(() => new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(page.locator('#view-movies .focused:not(.focused-parked)')).toHaveCount(0);
 });

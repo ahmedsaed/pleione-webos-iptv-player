@@ -26,6 +26,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
   protected get kicker(): string { return t('common.series'); }
   protected readonly resumeKind: ResumeKind = 'episode';
   protected readonly parentalKind = 'series' as const;
+  protected scopeName(): string { return 'series'; }
   protected get emptyMessage(): string { return t('catalog.noSeries'); }
   protected get gridEmptyMessage(): string { return t('catalog.noSeriesCategory'); }
   protected itemCount(count: number): string { return tp('catalog.seriesCount', count); }
@@ -43,6 +44,8 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     fallbackViewportSize: EPISODE_VIEWPORT_FALLBACK,
   });
   private episodeScrollFrame: number | null = null;
+  // A held key's reveal writes the list's offset without a smooth scroll.
+  private instantEpisodeScroll = false;
 
   constructor(container: HTMLElement, handlers: CatalogHandlers) {
     super(container, handlers);
@@ -302,8 +305,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       this.episodeVirtualizer.setItemSizes(episodes.map(ep =>
         ep.plot ? EPISODE_PLOT_ESTIMATE : EPISODE_NO_PLOT_ESTIMATE));
     }
-    const prevKey = this.nav.focused?.getAttribute('data-key') ?? null;
-    const wasHidden = this.nav.isHighlightHidden;
+    const focusedKey = this.focusedKey();
     const watchlisted = StorageService.isWatchlisted(a.id, 'series', series.seriesId);
     const previousScroller = this.layer('detail').querySelector<HTMLElement>('.series-detail');
     const previousEpisodes = this.layer('detail').querySelector<HTMLElement>('.series-episodes');
@@ -314,14 +316,10 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       this.episodeVirtualizer.setScrollOffset(previousScroller.scrollTop);
     }
     const episodeViewport = previousScroller?.clientHeight || EPISODE_VIEWPORT_FALLBACK;
-    const focusedEpisodeIndex = this.nav.focused
-      ?.closest<HTMLElement>('[data-episode-index]')
-      ?.dataset.episodeIndex;
-    if (restoreFocus && focusedEpisodeIndex !== undefined) {
-      this.episodeFocusIndex = parseInt(focusedEpisodeIndex, 10);
-    }
+    const focusedEpisodeIndex = focusedKey === null ? -1 : this.episodeIndexOf(focusedKey);
+    if (restoreFocus && focusedEpisodeIndex >= 0) this.episodeFocusIndex = focusedEpisodeIndex;
     this.episodeFocusIndex = Math.max(0, Math.min(this.episodeFocusIndex, episodes.length - 1));
-    if (restoreFocus && prevKey?.indexOf('ep:') === 0 && episodes.length) {
+    if (restoreFocus && focusedEpisodeIndex >= 0 && episodes.length) {
       this.episodeVirtualizer.ensureVisible(this.episodeFocusIndex, episodeViewport);
     }
     const episodeRange = this.episodeVirtualizer.getRange(episodes.length, episodeViewport);
@@ -408,22 +406,51 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
         scroller,
         'vertical',
         this.episodeVirtualizer.scrollOffset,
+        this.instantEpisodeScroll,
       );
     }
-    if (!restoreFocus) {
-      this.nav.clearDetachedFocus();
-      return;
+    if (restoreFocus) this.settleDetailFocus();
+  }
+
+  private selectedEpisodes(): Episode[] {
+    return this.currentInfo?.episodesBySeason[this.selectedSeason] ?? [];
+  }
+
+  private episodeIndexOf(key: string): number {
+    return this.selectedEpisodes().findIndex((ep) => `ep:${ep.id}` === key);
+  }
+
+  protected hasExtraKey(key: string): boolean {
+    return this.episodeIndexOf(key) >= 0;
+  }
+
+  // An episode the list scrolled away renders again before it is shown.
+  protected revealExtraKey(key: string, instant: boolean): boolean | null | undefined {
+    const index = this.episodeIndexOf(key);
+    if (index < 0 || this.layer('detail').querySelector(`[data-episode-index="${index}"]`)) {
+      return undefined;
     }
-    this.restoreDetailFocus(prevKey, wasHidden);
+    const list = this.layer('detail').querySelector<HTMLElement>('.series-detail');
+    const viewport = list?.clientHeight || EPISODE_VIEWPORT_FALLBACK;
+    this.episodeFocusIndex = index;
+    this.episodeVirtualizer.ensureVisible(index, viewport);
+    if (instant) this.instantEpisodeScroll = true;
+    try {
+      this.renderDetail(false);
+      // The render measured the rows the estimate had placed it by.
+      if (this.episodeVirtualizer.ensureVisible(index, viewport)) this.renderDetail(false);
+    } finally {
+      this.instantEpisodeScroll = false;
+    }
+    return true;
   }
 
   protected moveExtraFocus(action: Action): boolean {
     if (this.mode !== 'detail' || (action !== 'up' && action !== 'down')) return false;
-    const focused = this.nav.focused;
-    const rawIndex = focused?.closest<HTMLElement>('[data-episode-index]')?.dataset.episodeIndex;
-    if (rawIndex === undefined) return false;
-    const episodes = this.currentInfo?.episodesBySeason[this.selectedSeason] ?? [];
-    const current = parseInt(rawIndex, 10);
+    const key = this.focusedKey();
+    const current = key === null ? -1 : this.episodeIndexOf(key);
+    if (current < 0) return false;
+    const episodes = this.selectedEpisodes();
     const next = current + (action === 'up' ? -1 : 1);
     if (next < 0 || next >= episodes.length) return false;
     const list = this.layer('detail').querySelector<HTMLElement>('.series-detail');
@@ -433,10 +460,11 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       list?.clientHeight || EPISODE_VIEWPORT_FALLBACK,
     );
     this.renderDetail(false);
-    this.nav.focus(
+    this.place(
       this.layer('detail').querySelector<HTMLElement>(
         `[data-episode-index="${next}"] [data-focusable]`,
       ),
+      'key',
     );
     return true;
   }
