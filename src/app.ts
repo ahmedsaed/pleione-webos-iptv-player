@@ -1248,7 +1248,7 @@ class App {
   private openEpg(): void {
     this.epgGrid.focusChannel(this.player.getCurrentIndex());
     this.showView('epg');
-    this.epgGrid.render();
+    this.epgGrid.render(true);
     const renderEpg = () => {
       this.refreshEpgDependentViews();
       this.epgGrid.render();
@@ -1425,7 +1425,7 @@ class App {
     }
     const current = this.viewStack[this.viewStack.length - 1];
     if (current === 'channels') this.channelList.render();
-    else if (current === 'epg') this.epgGrid.render(false);
+    else if (current === 'epg') this.epgGrid.render();
     // The search box can be open over another view, with Search still live behind it.
     if (current === 'search' || this.tabBar.searchOpen) {
       if (concealmentChanged) void this.search.refreshConcealment();
@@ -1556,7 +1556,9 @@ class App {
 
     const views = new Map<ViewName, FocusScope>();
     for (const name of Object.keys(this.views) as ViewName[]) {
-      views.set(name, Focus.register({ id: `view.${name}`, root: this.views[name] }));
+      views.set(name, name === 'epg'
+        ? this.epgGrid.focusScope
+        : Focus.register({ id: `view.${name}`, root: this.views[name] }));
     }
     Focus.setBase(() => views.get(current()) ?? null);
     Focus.install();

@@ -84,6 +84,7 @@ vi.mock('../workers/app-worker-client', async () => {
 import { EpgGrid } from './epg-grid';
 import { setLocale } from '../i18n';
 import { Focus } from '../navigation/focus-scope';
+import { setInputMode } from '../navigation/input-mode';
 
 const Y = 2024, M = 5, D = 15; // Sat Jun 15 2024, 12:00 local = "now"
 
@@ -137,6 +138,7 @@ beforeEach(() => {
   onSelect = vi.fn();
   onManageReminders = vi.fn();
   grid = new EpgGrid(container, onSelect, undefined, onManageReminders);
+  Focus.setBase(() => grid.focusScope);
 });
 
 afterEach(() => {
@@ -151,6 +153,7 @@ describe('entry channel focus', () => {
   it('focuses the channel that was playing before the guide opened', () => {
     grid.focusChannel(1);
     grid.render();
+    Focus.flush();
 
     expect(container.querySelector('.epg-channel-item.focused')
       ?.getAttribute('data-channel-idx')).toBe('1');
@@ -159,6 +162,7 @@ describe('entry channel focus', () => {
   it('falls back to the first visible channel when the playing channel is missing', () => {
     grid.focusChannel(99);
     grid.render();
+    Focus.flush();
 
     expect(container.querySelector('.epg-channel-item.focused')
       ?.getAttribute('data-channel-idx')).toBe('0');
@@ -197,10 +201,11 @@ describe('EpgGrid.render', () => {
     expect(container.querySelector('.epg-reminder-entry')).not.toBeNull();
   });
 
-  it('does not force focused-item layout on the initial render', () => {
+  it('does not force focused-item layout on a render', () => {
     expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
     grid.render();
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalledOnce();
+    Focus.flush();
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 
   it('flags the currently airing program with a NOW badge', () => {
@@ -251,6 +256,23 @@ describe('EpgGrid.render', () => {
     } finally {
       Element.prototype.getBoundingClientRect = original;
     }
+  });
+
+  it('leaves a list the user scrolled where it is on a background refresh', () => {
+    state.channels = Array.from({ length: 200 }, (_, index) => ({
+      name: `Channel ${String(index)}`,
+      group: 'Group A',
+      url: `http://host/${String(index)}`,
+      playlistIds: [],
+    }));
+    grid.focusChannel(0);
+    grid.render(true);
+    const list = container.querySelector<HTMLElement>('.epg-channel-list')!;
+    list.scrollTop = 2000;
+
+    grid.render();
+
+    expect(list.scrollTop).toBe(2000);
   });
 
   it('renders bounded windows for 50,000 channels and programs', () => {
@@ -567,6 +589,159 @@ describe('EpgGrid group and channel filters', () => {
     expect(channelItems()[0].querySelector('.epg-ch-name')!.textContent).toBe('Chan B');
   });
 
+  it('takes the keys and the only ring into the open group menu', () => {
+    grid.handleAction('left');
+    grid.handleAction('down');
+
+    expect(Focus.owner()?.id).toBe('guide.groups');
+    const option = container.querySelector('[data-group-index="1"]')!;
+    expect(option.classList.contains('focused')).toBe(true);
+    expect(container.querySelectorAll('.focused')).toHaveLength(1);
+
+    grid.handleAction('back');
+    expect(Focus.owner()?.id).toBe('guide.grid');
+    expect(container.querySelector('.epg-group-button')!.classList.contains('focused')).toBe(true);
+    expect(container.querySelectorAll('.focused')).toHaveLength(1);
+  });
+
+  it('pops the group menu scope when the reminders bell is clicked', () => {
+    grid.handleAction('left');
+    expect(Focus.owner()?.id).toBe('guide.groups');
+    const pop = vi.spyOn(Focus, 'pop');
+
+    container.querySelector<HTMLElement>('[data-epg-reminders]')!.click();
+
+    // Its `when` already hides the shut menu; the stack must drop it as well.
+    expect(pop.mock.calls.map(([scope]) => scope.id)).toContain('guide.groups');
+    pop.mockRestore();
+  });
+
+  it('keeps the hover behind the open group menu from moving the Guide', () => {
+    Focus.install();
+    grid.handleAction('left');
+    container.querySelector<HTMLElement>('[data-prog-idx="1"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    container.querySelector<HTMLElement>('[data-group-index="2"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+
+    expect(container.querySelector('[data-group-index="2"]')!.classList.contains('focused')).toBe(true);
+    expect(container.querySelectorAll('.focused')).toHaveLength(1);
+
+    grid.handleAction('back');
+    expect(container.querySelector('.epg-group-button')!.classList.contains('focused')).toBe(true);
+    expect(container.querySelector('[data-prog-idx="1"]')!.classList.contains('focused')).toBe(false);
+  });
+
+  it('keeps the only ring on the search box while it has the caret', () => {
+    grid.handleAction('yellow');
+    const input = container.querySelector<HTMLInputElement>('.epg-search-input')!;
+    container.querySelector<HTMLElement>('[data-prog-idx="1"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    Focus.flush();
+
+    expect(container.querySelector('.epg-search-wrap')!.classList.contains('focused')).toBe(true);
+    expect(container.querySelectorAll('.focused')).toHaveLength(1);
+
+    input.blur();
+    Focus.flush();
+    expect(container.querySelector('[data-prog-idx="1"]')!.classList.contains('focused')).toBe(true);
+    expect(container.querySelectorAll('.focused')).toHaveLength(1);
+  });
+
+  it('keeps Channel Up and Down from moving a programme hovered while typing', () => {
+    grid.handleAction('yellow');
+    const input = container.querySelector<HTMLInputElement>('.epg-search-input')!;
+    container.querySelector<HTMLElement>('[data-prog-idx="1"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    grid.handleAction('channel_down');
+    grid.handleAction('channel_up');
+    grid.handleAction('channel_down');
+
+    input.blur();
+    Focus.flush();
+    expect(container.querySelector('[data-prog-idx="1"]')!.classList.contains('focused')).toBe(true);
+  });
+
+  it.each([
+    ['Back', { key: 'Escape' }],
+    ['OK', { key: 'Enter' }],
+  ])('reveals no programme hovered while typing when %s leaves the search box', (_name, init) => {
+    grid.handleAction('yellow');
+    const input = container.querySelector<HTMLInputElement>('.epg-search-input')!;
+    container.querySelector<HTMLElement>('[data-prog-idx="1"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    const reveal = vi.spyOn(grid as unknown as { revealGridKey: (key: string) => boolean | null },
+      'revealGridKey');
+
+    setInputMode('keys');
+    input.dispatchEvent(new KeyboardEvent('keydown', { ...init, bubbles: true }));
+    Focus.flush();
+    setInputMode('pointer');
+
+    expect(document.activeElement).not.toBe(input);
+    expect(reveal.mock.calls.filter(([key]) => key.startsWith('prog:'))).toEqual([]);
+  });
+
+  it('reveals no programme hovered while typing when the Back button leaves the search box', () => {
+    grid.handleAction('yellow');
+    const input = container.querySelector<HTMLInputElement>('.epg-search-input')!;
+    container.querySelector<HTMLElement>('[data-prog-idx="1"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    const reveal = vi.spyOn(grid as unknown as { revealGridKey: (key: string) => boolean | null },
+      'revealGridKey');
+
+    setInputMode('keys');
+    grid.handleAction('back');
+    Focus.flush();
+    setInputMode('pointer');
+
+    expect(document.activeElement).not.toBe(input);
+    expect(reveal.mock.calls.filter(([key]) => key.startsWith('prog:'))).toEqual([]);
+  });
+
+  it('drops the search caret when a prompt takes the keys', () => {
+    const prompt = document.createElement('div');
+    document.body.appendChild(prompt);
+    const scope = Focus.register({ id: 'test.prompt', root: prompt, restrict: 'self-only' });
+    grid.handleAction('yellow');
+    const input = container.querySelector<HTMLInputElement>('.epg-search-input')!;
+    expect(document.activeElement).toBe(input);
+
+    Focus.push(scope);
+    Focus.owner();
+
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it('leaves no reveal pending once Up hands the keys to the tab bar', () => {
+    Focus.uninstall();
+    const tabBar = document.createElement('div');
+    document.body.appendChild(tabBar);
+    const tabScope = Focus.register({ id: 'test.tabbar', root: tabBar });
+    grid = new EpgGrid(container, onSelect, () => Focus.push(tabScope), onManageReminders);
+    Focus.setBase(() => grid.focusScope);
+    grid.render();
+    Focus.flush();
+    const reveal = vi.spyOn(grid as unknown as { revealGridKey: (key: string) => boolean | null },
+      'revealGridKey');
+
+    grid.handleAction('up');
+    grid.handleAction('up');
+    expect(Focus.owner()?.id).toBe('test.tabbar');
+    reveal.mockClear();
+    Focus.pop(tabScope);
+    Focus.owner();
+    Focus.flush();
+
+    expect(reveal).not.toHaveBeenCalled();
+  });
+
+  it('hands the keys back to the grid when the filters deactivate', () => {
+    grid.handleAction('left');
+    grid.deactivateFilters();
+    expect(Focus.owner()?.id).toBe('guide.grid');
+  });
+
   it('rebuilds cached group labels after a language change', () => {
     container.querySelector<HTMLElement>('[data-epg-group-toggle]')!
       .dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -626,15 +801,16 @@ describe('EpgGrid morph lifecycle', () => {
     const c = document.createElement('div');
     document.body.appendChild(c);
     const spy = vi.spyOn(c, 'addEventListener');
+    Focus.uninstall();
     const g = new EpgGrid(c, vi.fn());
     g.render();
     g.handleAction('down');
     g.handleAction('right');
     g.handleAction('down');
     const clicks = spy.mock.calls.filter(([t]) => t === 'click').length;
-    const mouseovers = spy.mock.calls.filter(([t]) => t === 'mouseover').length;
+    const hovers = spy.mock.calls.filter(([t]) => t === 'nav:hover').length;
     expect(clicks).toBe(1);
-    expect(mouseovers).toBe(1);
+    expect(hovers).toBe(1);
   });
 });
 
@@ -1014,16 +1190,32 @@ describe('EpgGrid click pointer activation', () => {
     const c = document.createElement('div');
     document.body.appendChild(c);
     const spy = vi.spyOn(c, 'addEventListener');
+    Focus.uninstall();
     new EpgGrid(c, vi.fn());
     const clicks = spy.mock.calls.filter(([t]) => t === 'click').length;
     expect(clicks).toBe(1);
     spy.mockRestore();
   });
 
-  it('mouseover still updates focus without full render', () => {
+  it('hover still updates focus without full render', () => {
     const item1 = container.querySelector<HTMLElement>('[data-prog-idx="1"]')!;
-    item1.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    const render = vi.spyOn(grid, 'render');
+    item1.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     expect(item1.classList.contains('focused')).toBe(true);
+    expect(render).not.toHaveBeenCalled();
+  });
+
+  it('hovering a programme takes the ring off the channel, which stays selected', () => {
+    Focus.flush();
+    const channel = container.querySelector<HTMLElement>('[data-channel-idx="0"]')!;
+    expect(channel.classList.contains('focused')).toBe(true);
+
+    container.querySelector<HTMLElement>('[data-prog-idx="1"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+
+    expect(channel.classList.contains('selected')).toBe(true);
+    expect(channel.classList.contains('focused')).toBe(false);
+    expect(container.querySelectorAll('.focused')).toHaveLength(1);
   });
 
   it('measures variable programme rows only after the first paint', () => {

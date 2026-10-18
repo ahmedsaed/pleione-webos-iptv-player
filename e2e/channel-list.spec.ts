@@ -908,3 +908,36 @@ test('Down from the tab bar resumes in view after the list scrolled meanwhile', 
   if (!box) throw new Error('no layout');
   expect(rowInView(box, list)).toBe(true);
 });
+
+test('the Live tab clicked from another section shows the far channel that is playing', async ({ page }) => {
+  const lines = ['#EXTM3U'];
+  for (let index = 1; index <= 200; index++) {
+    lines.push(`#EXTINF:-1 group-title="Group",Channel ${String(index)}`, `http://host/${String(index)}.m3u8`);
+  }
+  await routePlaylist(page, lines.join('\n'));
+  await routeLiveManifest(page);
+  await seedPlaylist(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await page.keyboard.press('1');
+  await page.keyboard.press('5');
+  await page.keyboard.press('0');
+  await expect(page.locator('.osd-channel-number')).toHaveText('150');
+  await page.evaluate(() =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  await enterTab(page, 'settings');
+  await expect(page.locator('#view-settings')).toBeVisible();
+  await enterTab(page, 'live');
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  const playing = page.locator('.channel-main .channel-item.playing');
+  await expect(playing).toContainText('Channel 150');
+  await expect(playing).toHaveClass(/focused/);
+  const list = page.locator('.channel-main');
+  await expect.poll(async () => {
+    const [r, l] = await Promise.all([playing.boundingBox(), list.boundingBox()]);
+    return !!r && !!l && r.y >= l.y - 1 && r.y + r.height <= l.y + l.height + 1;
+  }).toBe(true);
+});

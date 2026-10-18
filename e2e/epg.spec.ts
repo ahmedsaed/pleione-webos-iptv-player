@@ -1,8 +1,10 @@
 import {
   test,
   expect,
+  enterTab,
   isChromium53,
   type Page,
+  routeLiveManifest,
   routePlaylist,
   seedPlaylist,
 } from './helpers';
@@ -332,4 +334,223 @@ test('Down from the tab bar resumes the Guide on the day and channel Up left', a
   await page.keyboard.press('ArrowDown');
   await expect(date).toHaveText(label ?? '');
   await expect(channel).toHaveAttribute('data-channel-idx', '1');
+});
+
+test.describe('Guide pointer and keys', () => {
+  // A day of half-hour programmes on two channels, so the programme column
+  // runs past the bottom of the screen.
+  async function openGuide(page: Page, describe?: (i: number) => string): Promise<void> {
+    const at = (slot: number) => {
+      const d = new Date(Date.UTC(2024, 2, 9) + slot * 30 * 60 * 1000);
+      return `${d.toISOString().replace(/[-:T]/g, '').slice(0, 14)} +0000`;
+    };
+    const programmes = ['ch1', 'ch2'].flatMap((ch) => Array.from({ length: 48 }, (_, i) =>
+      `<programme channel="${ch}" start="${at(i)}" stop="${at(i + 1)}"><title>Show ${i}</title>${
+        describe ? `<desc>${describe(i)}</desc>` : ''}</programme>`));
+    await routePlaylist(page, [
+      '#EXTM3U',
+      '#EXTINF:-1 tvg-id="ch1",Channel 1',
+      'http://host/ch1.m3u8',
+      '#EXTINF:-1 tvg-id="ch2",Channel 2',
+      'http://host/ch2.m3u8',
+    ].join('\n'));
+    await page.route('**/epg.xml', (r) => r.fulfill({ status: 200, contentType: 'application/xml',
+      body: `<?xml version="1.0" encoding="UTF-8"?><tv><channel id="ch1"/><channel id="ch2"/>${programmes.join('')}</tv>` }));
+    await page.clock.setFixedTime(new Date('2024-03-09T12:00:00Z'));
+    await page.addInitScript(() => {
+      localStorage.setItem('iptv_playlists', JSON.stringify([{ name: 'P', url: 'http://host/playlist.m3u' }]));
+      localStorage.setItem('iptv_epg_url', JSON.stringify('http://host/epg.xml'));
+      localStorage.setItem('iptv_tz_mode', JSON.stringify('device'));
+    });
+    await page.goto('/');
+    await expect(page.locator('#view-channels .channel-item').first()).toHaveClass(/\bfocused\b/);
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('#view-epg .epg-channel-item.selected')).toHaveClass(/\bfocused\b/);
+  }
+
+  // Programme rows are measured two frames after they render, which can shift
+  // them; wait until the column holds rows and stops moving.
+  async function programmesSettled(page: Page): Promise<void> {
+    await expect.poll(() => page.locator('#epg-programmes .epg-programme-item').count()).toBeGreaterThan(0);
+    let last = '';
+    await expect.poll(async () => {
+      const now = await page.evaluate(() => new Promise<string>((done) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const list = document.querySelector('#epg-programmes')!;
+          const rows = Array.from(list.querySelectorAll('.epg-programme-item'));
+          done(`${String(list.scrollTop)}:${rows.map((el) => el.getBoundingClientRect().top).join(',')}`);
+        }));
+      }));
+      const still = now === last;
+      last = now;
+      return still;
+    }).toBe(true);
+  }
+
+  test('hovering a programme moves the ring off the channel, which stays selected', async ({ page }) => {
+    await openGuide(page);
+    const channel = page.locator('#view-epg .epg-channel-item.selected');
+    const programme = page.locator('#epg-programmes .epg-programme-item').nth(1);
+    const box = (await programme.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 2 });
+
+    await expect(programme).toHaveClass(/\bfocused\b/);
+    await expect(channel).toHaveClass(/\bselected\b/);
+    await expect(channel).not.toHaveClass(/\bfocused\b/);
+    await expect(page.locator('#view-epg .focused')).toHaveCount(1);
+  });
+
+  test('a key that leaves a clipped programme focused brings it into view', async ({ page }) => {
+    await openGuide(page);
+    await programmesSettled(page);
+    const list = page.locator('#epg-programmes');
+    const listBox = (await list.boundingBox())!;
+    const items = page.locator('#epg-programmes .epg-programme-item');
+    let progIdx = '';
+    await expect.poll(async () => {
+      progIdx = await items.evaluateAll((items, bottom) => items.find((el) => {
+        const r = el.getBoundingClientRect();
+        return r.top < bottom - 8 && r.bottom > bottom;
+      })?.getAttribute('data-prog-idx') ?? '', listBox.y + listBox.height);
+      return progIdx;
+    }).not.toBe('');
+    const programme = page.locator(`#epg-programmes .epg-programme-item[data-prog-idx="${progIdx}"]`);
+    const box = (await programme.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + 4, { steps: 2 });
+    await expect(programme).toHaveClass(/\bfocused\b/);
+
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(async () => {
+      const r = (await programme.boundingBox())!;
+      return r.y + r.height <= listBox.y + listBox.height + 1;
+    }).toBe(true);
+    await expect(programme).toHaveClass(/\bfocused\b/);
+  });
+
+  test('Down on the last programme brings it into view when clipped', async ({ page }) => {
+    await openGuide(page);
+    const list = page.locator('#epg-programmes');
+    const last = page.locator('#epg-programmes .epg-programme-item', { hasText: 'Show 47' });
+    await expect.poll(async () => {
+      await list.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      return last.isVisible();
+    }).toBe(true);
+    const box = (await last.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 2 });
+    await expect(last).toHaveClass(/\bfocused\b/);
+    await list.evaluate((el, h) => { el.scrollTop -= h / 2; }, box.height);
+    const listBox = (await list.boundingBox())!;
+    expect((await last.boundingBox())!.y + box.height).toBeGreaterThan(listBox.y + listBox.height + 1);
+
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(async () => {
+      const r = (await last.boundingBox())!;
+      return r.y + r.height <= listBox.y + listBox.height + 1;
+    }).toBe(true);
+    await expect(last).toHaveClass(/\bfocused\b/);
+  });
+
+  test('a page jump keeps the programme in view once its neighbors are measured', async ({ page }) => {
+    // Odd rows run to two lines, even rows to one, so no row matches its estimate.
+    await openGuide(page, (i) => (i % 2 ? 'Words of a longer synopsis. '.repeat(12) : 'Short.'));
+    const list = page.locator('#epg-programmes');
+    const last = page.locator('#epg-programmes .epg-programme-item', { hasText: 'Show 47' });
+    await expect.poll(async () => {
+      await list.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      return last.isVisible();
+    }).toBe(true);
+    const lastBox = (await last.boundingBox())!;
+    await page.mouse.move(lastBox.x + lastBox.width / 2, lastBox.y + lastBox.height / 2, { steps: 2 });
+    await expect(last).toHaveClass(/\bfocused\b/);
+    const focused = page.locator('#epg-programmes .epg-programme-item.focused');
+    for (let jump = 0; jump < 3; jump++) {
+      await page.keyboard.press('PageUp');
+      await expect(focused).toHaveCount(1);
+      await programmesSettled(page);
+      await expect.poll(async () => {
+        const [listBox, box] = await Promise.all([list.boundingBox(), focused.boundingBox()]);
+        return !!listBox && !!box && box.y >= listBox.y - 1 && box.y + box.height <= listBox.y + listBox.height + 1;
+      }).toBe(true);
+    }
+  });
+
+  test('the group filter lights under the pointer', async ({ page }) => {
+    await openGuide(page);
+    const filter = page.locator('#view-epg .epg-filter-control').first();
+    const idle = await filter.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await filter.hover();
+    await expect.poll(() => filter.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(idle);
+  });
+
+  test('opening the Guide again lands on the channel with the group menu shut', async ({ page }) => {
+    await openGuide(page);
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.locator('#view-epg .epg-group-option.focused')).toHaveCount(1);
+
+    await page.locator('.tab-bar-item[data-section="live"]').click();
+    await expect(page.locator('#view-channels')).toBeVisible();
+    await page.locator('.tab-bar-item[data-section="epg"]').click();
+    await expect(page.locator('#view-epg')).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+
+    await expect(page.locator('#view-epg .epg-group-menu')).toHaveCount(0);
+    await expect(page.locator('#view-epg .epg-channel-item.selected')).toHaveClass(/\bfocused\b/);
+    await expect(page.locator('#view-epg .focused')).toHaveCount(1);
+  });
+
+  for (const via of ['pointer', 'Red key'] as const) test(`opening the Guide by ${via} shows the far channel that was playing`, async ({ page }) => {
+    const lines = ['#EXTM3U'];
+    for (let i = 1; i <= 200; i++) {
+      lines.push(`#EXTINF:-1 tvg-id="ch${String(i)}",Channel ${String(i)}`, `http://host/ch${String(i)}.m3u8`);
+    }
+    await routePlaylist(page, lines.join('\n'));
+    await routeLiveManifest(page);
+    // The guide data lands only after the Guide has opened.
+    let releaseEpg!: () => void;
+    const epgGate = new Promise<void>((resolve) => { releaseEpg = resolve; });
+    await page.route('**/epg.xml', async (r) => {
+      await epgGate;
+      await r.fulfill({ status: 200, contentType: 'application/xml',
+        body: '<?xml version="1.0" encoding="UTF-8"?><tv><channel id="ch150"/>'
+          + '<programme channel="ch150" start="20240309110000 +0000" stop="20240309130000 +0000">'
+          + '<title>Show</title></programme></tv>' });
+    });
+    await page.clock.setFixedTime(new Date('2024-03-09T12:00:00Z'));
+    await page.addInitScript(() => {
+      localStorage.setItem('iptv_playlists', JSON.stringify([{ name: 'P', url: 'http://host/playlist.m3u' }]));
+      localStorage.setItem('iptv_epg_url', JSON.stringify('http://host/epg.xml'));
+      localStorage.setItem('iptv_tz_mode', JSON.stringify('device'));
+    });
+    await page.goto('/');
+    await expect(page.locator('#view-channels .channel-item').first()).toHaveClass(/\bfocused\b/);
+    await page.keyboard.press('1');
+    await page.keyboard.press('5');
+    await page.keyboard.press('0');
+    await expect(page.locator('.osd-channel-name')).toHaveText('Channel 150');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#view-channels')).toBeVisible();
+
+    if (via === 'pointer') {
+      await enterTab(page, 'epg');
+    } else {
+      await page.evaluate(() =>
+        document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
+    }
+    const list = page.locator('#view-epg .epg-channel-list');
+    const row = page.locator('#epg-channels [data-channel-idx="149"]');
+    const inView = async () => {
+      const r = await row.boundingBox();
+      const l = await list.boundingBox();
+      return !!r && !!l && r.y >= l.y - 1 && r.y + r.height <= l.y + l.height + 1;
+    };
+    await expect(row).toHaveClass(/\bselected\b/);
+    await expect(row).toHaveClass(/\bfocused\b/);
+    await expect.poll(inView).toBe(true);
+
+    releaseEpg();
+    await expect(page.locator('#epg-programmes .epg-programme-item')).toHaveCount(1);
+    await expect.poll(inView).toBe(true);
+  });
 });

@@ -1206,3 +1206,55 @@ test('a press swallowed by the search box is still logged, without its code',
     await expect.poll(() => keyLogs().filter((line) => line.includes('target=text_input')))
       .toEqual([expect.stringContaining('event=key.down code=hidden')]);
   });
+
+async function playFarChannel(page: Page): Promise<void> {
+  const lines = ['#EXTM3U'];
+  for (let index = 1; index <= 200; index++) {
+    lines.push(`#EXTINF:-1 group-title="Group",Channel ${String(index)}`, `http://host/${String(index)}.m3u8`);
+  }
+  await routePlaylist(page, lines.join('\n'));
+  await routeLiveManifest(page);
+  await neuterVideo(page);
+  await seedPlaylist(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await page.keyboard.press('1');
+  await page.keyboard.press('5');
+  await page.keyboard.press('0');
+  await expect(page.locator('.osd-channel-name')).toHaveText('Channel 150');
+}
+
+async function expectInList(row: ReturnType<Page['locator']>, list: ReturnType<Page['locator']>): Promise<void> {
+  await expect.poll(async () => {
+    const [r, l] = await Promise.all([row.boundingBox(), list.boundingBox()]);
+    return !!r && !!l && r.y >= l.y - 1 && r.y + r.height <= l.y + l.height + 1;
+  }).toBe(true);
+}
+
+test('the channel panel opened by key shows the far channel that is playing', async ({ page }) => {
+  await playFarChannel(page);
+  await page.keyboard.press('ArrowLeft');
+  const sidebar = page.locator('#player-sidebar');
+  await panelSettled(sidebar);
+  const playing = sidebar.locator('.sidebar-ch-item.playing');
+  await expect(playing).toContainText('Channel 150');
+  await expect(playing).toHaveClass(/focused/);
+  await expectInList(playing, sidebar.locator('.sidebar-channel-list'));
+  await expect(page.locator('.focused')).toHaveCount(1);
+});
+
+test('the channel panel opened by pointer shows the far channel that is playing', async ({ page }) => {
+  await playFarChannel(page);
+  const sidebar = page.locator('#player-sidebar');
+  await noHoverWithoutMove(page);
+  await page.mouse.move(960, 540);
+  await page.mouse.move(30, 540);
+  await expect(sidebar).toBeVisible();
+  await panelSettled(sidebar);
+  const playing = sidebar.locator('.sidebar-ch-item.playing');
+  await expect(playing).toContainText('Channel 150');
+  await expectInList(playing, sidebar.locator('.sidebar-channel-list'));
+  // The ring follows the resting pointer, which sits over a row of this window.
+  await expect(page.locator('.focused')).toHaveCount(1);
+  await expect(sidebar.locator('.sidebar-ch-item.focused')).toHaveCount(1);
+});
