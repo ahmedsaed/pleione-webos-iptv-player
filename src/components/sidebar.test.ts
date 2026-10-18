@@ -118,7 +118,6 @@ beforeEach(() => {
   toastMock.mockClear();
   healthMock.records = {};
   sidebar = new Sidebar(container, getCurrentIndex, onSelect, getCurrentCatchupStart);
-  Focus.layer(sidebar.focusScope, () => sidebar.visible);
   Focus.install();
 });
 
@@ -1162,6 +1161,68 @@ describe('Sidebar', () => {
       const search = el.querySelector<HTMLElement>('.sidebar-search-input')!;
       hover(search);
       expect(ringed()).toEqual([search]);
+    });
+
+    it('lights the search box under the pointer while it has the caret', () => {
+      const search = el.querySelector<HTMLInputElement>('.sidebar-search-input')!;
+      search.focus();
+      expect(ringed()).toEqual([]);
+      hover(items()[2]);
+      expect(ringed()).toEqual([]);
+      hover(search);
+      expect(ringed()).toEqual([search]);
+      hover(items()[2]);
+      expect(ringed()).toEqual([]);
+      search.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      expect(ringed()).toEqual([items()[0]]);
+    });
+
+    it('lights the search box clicked under a still pointer', () => {
+      const search = el.querySelector<HTMLInputElement>('.sidebar-search-input')!;
+      hover(items()[2]);
+      const matches = search.matches.bind(search);
+      vi.spyOn(search, 'matches').mockImplementation(s => s === ':hover' || matches(s));
+      search.focus();
+      expect(ringed()).toEqual([search]);
+      hover(items()[2]);
+      expect(ringed()).toEqual([]);
+      search.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      expect(ringed()).toEqual([items()[0]]);
+    });
+
+    it('keeps the ring concealed when the keys focus the search box under the pointer', () => {
+      const search = el.querySelector<HTMLInputElement>('.sidebar-search-input')!;
+      const matches = search.matches.bind(search);
+      vi.spyOn(search, 'matches').mockImplementation(s => s === ':hover' || matches(s));
+      setInputMode('keys');
+      search.focus();
+      expect(ringed()).toEqual([]);
+    });
+
+    it('lights the search box clicked under a still pointer while it already has the caret', () => {
+      const search = el.querySelector<HTMLInputElement>('.sidebar-search-input')!;
+      const matches = search.matches.bind(search);
+      vi.spyOn(search, 'matches').mockImplementation(s => s === ':hover' || matches(s));
+      setInputMode('keys');
+      search.focus();
+      expect(ringed()).toEqual([]);
+      search.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(ringed()).toEqual([search]);
+      search.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      expect(ringed()).toEqual([items()[0]]);
+    });
+
+    it.each([
+      ['a group', () => groupItems()[1]],
+      ['a source tab', () => el.querySelector<HTMLElement>('[data-sidebar-playlist="PL2"]')!],
+    ])('Down from the search box lands on the first channel after hovering %s', (_, target) => {
+      sidebar.handleAction('left');
+      const search = el.querySelector<HTMLInputElement>('.sidebar-search-input')!;
+      search.focus();
+      hover(target());
+      expect(ringed()).toEqual([]);
+      search.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      expect(ringed()).toEqual([items()[0]]);
     });
 
     it('marks every item it lights on hover as a hover target', () => {

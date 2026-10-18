@@ -787,14 +787,6 @@ export class Player {
     this.tracks.openSubtitleOffset();
   }
 
-  subtitleOffsetOpen(): boolean {
-    return this.tracks.subtitleOffsetOpen();
-  }
-
-  handleSubtitleOffsetAction(action: Action): void {
-    this.tracks.handleSubtitleOffsetAction(action);
-  }
-
   closeSubtitleOffset(): void {
     this.tracks.closeSubtitleOffset();
   }

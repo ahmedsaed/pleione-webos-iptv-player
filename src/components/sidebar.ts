@@ -11,7 +11,7 @@ import { CONFIG } from '../config';
 import { PlaylistService } from '../services/playlist-service';
 import { EpgService } from '../services/epg-service';
 import { RecentlyWatchedService, type RecentlyWatchedItem } from '../services/recently-watched';
-import { $, html, onceTransitionEnd, raw, type Safe } from '../utils/dom';
+import { $, html, inShownView, onceTransitionEnd, raw, type Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { rankChannels } from '../utils/channel-search';
 import { groupDisplayLabel } from '../utils/channel';
@@ -144,8 +144,10 @@ export class Sidebar {
     // focused item's data-key and owns its ring and reveal.
     this.focusScope = Focus.register({
       id: 'player.sidebar',
+      hoverOnSettle: true,
       root: () => this.el,
       restrict: 'self-first',
+      when: () => !this.el || inShownView(this.el),
       defaultKey: () => this.stateKey(),
       has: (key) => key === this.stateKey(),
       reveal: (key) => this.reveal(key),
@@ -217,6 +219,7 @@ export class Sidebar {
   show(): void {
     if (this.isVisible) return;
     this.isVisible = true;
+    Focus.push(this.focusScope);
     this.cancelHide?.();
     this.cancelHide = null;
     this.keyboardOn = false;
@@ -251,6 +254,7 @@ export class Sidebar {
   hide(): void {
     if (!this.isVisible) return;
     this.isVisible = false;
+    Focus.pop(this.focusScope);
     this.channelSearchGeneration++;
     this.channelSearch.release();
     this.channelSearchPending = false;
@@ -534,6 +538,8 @@ export class Sidebar {
 
   // Down/Enter: into the list. Focus is set before blur so keyboard-off keeps it open.
   private exitSearchToList(): void {
+    // A hovered group or tab is only tracked while the box has the caret.
+    this.activePane = 'channels';
     this.channelFocusIdx = 0;
     this.setChannelScrollTop(0);
     this.paint('key');
@@ -564,6 +570,11 @@ export class Sidebar {
     if (row?.dataset.key) return row.dataset.key;
     const entry = this.getChannelEntry(this.channelFocusIdx);
     return entry ? this.entryKey(entry) : null;
+  }
+
+  private searchFocused(): boolean {
+    const input = this.el?.querySelector('.sidebar-search-input');
+    return !!input && document.activeElement === input;
   }
 
   private paint(via: Via): void {
@@ -1175,13 +1186,37 @@ export class Sidebar {
     });
 
     // Desktop fallback for the keyboard signal: the input's focus.
+    // While the box has the caret it is lit while the pointer last rested on
+    // it (a click lights it at once; no hover follows a still pointer);
+    // otherwise its native focus stands in for the ring, and the ring comes
+    // back on the item it rests on however the caret leaves.
+    const lightSearchUnderPointer = (input: HTMLElement): boolean => {
+      if (!input.matches(':hover')) return false;
+      this.activePane = 'channels';
+      this.channelFocusIdx = -1;
+      this.paint('pointer');
+      return true;
+    };
     el.addEventListener('focusin', (e: FocusEvent) => {
-      if (!(e.target as HTMLElement).classList.contains('sidebar-search-input')) return;
+      const input = e.target as HTMLElement;
+      if (!input.classList.contains('sidebar-search-input')) return;
       this.setKeyboardVisible(true);
+      if (InputMode.current !== 'pointer' || !lightSearchUnderPointer(input)) {
+        this.focusScope.conceal();
+      }
+    });
+    // A click on a box that already has the caret fires no focusin, and a
+    // still pointer leaves the input mode on the keys.
+    el.addEventListener('click', (e: MouseEvent) => {
+      const input = e.target as HTMLElement;
+      if (input.classList.contains('sidebar-search-input') && this.searchFocused()) {
+        lightSearchUnderPointer(input);
+      }
     });
     el.addEventListener('focusout', (e: FocusEvent) => {
       if (!(e.target as HTMLElement).classList.contains('sidebar-search-input')) return;
       this.setKeyboardVisible(false);
+      if (this.isVisible) this.paint(InputMode.current === 'keys' ? 'key' : 'pointer');
     });
 
     // webOS: authoritative keyboard signal (independent of the lingering caret).
@@ -1256,7 +1291,16 @@ export class Sidebar {
       } else {
         return;
       }
-      this.paint('pointer');
+      // While the box has the caret, only the box itself lights; any other
+      // item is only noted.
+      const key = this.stateKey();
+      if (this.searchFocused() && key !== 'search') {
+        this.focusScope.conceal();
+        this.focusScope.track(key);
+        Focus.flush();
+      } else {
+        this.paint('pointer');
+      }
       this.resetTimer();
     });
 

@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import { CONFIG } from '../config';
 import { StorageService } from '../services/storage-service';
 import type { Action, NumberEvent } from '../types';
+import { Focus, type FocusScope } from './focus-scope';
 
 // KeyHandler attaches its listeners to `document` and keeps module-level singleton
 // state. init() must run only once (re-running would stack duplicate listeners),
@@ -786,6 +787,90 @@ describe('KeyHandler', () => {
 
       wheel(120, child);
       expect(handler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a panel settling under the resting pointer', () => {
+    let hit: Element | null;
+    let root: HTMLElement;
+    let scope: FocusScope;
+    let screen = 0;
+    const row = (key: string) => root.querySelector<HTMLElement>(`[data-key="${key}"]`)!;
+    const moveTo = (x: number, y: number): void => {
+      screen += 7;
+      document.dispatchEvent(new MouseEvent('mousemove', {
+        clientX: x, clientY: y, screenX: screen, screenY: screen, bubbles: true,
+      }));
+    };
+    const settle = (): void => {
+      Focus.flush();
+      vi.advanceTimersByTime(100);
+      Focus.flush();
+    };
+
+    beforeEach(() => {
+      vi.useRealTimers();
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date', 'requestAnimationFrame', 'cancelAnimationFrame'] });
+      hit = null;
+      Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => hit });
+      root = document.createElement('div');
+      root.innerHTML = '<div data-focusable data-key="a"></div><div data-focusable data-key="b"></div>';
+      root.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100);
+      document.body.appendChild(root);
+      scope = Focus.register({ id: 'panel', root, hoverOnSettle: true, defaultKey: () => 'a' });
+      root.addEventListener('nav:hover', (e) => {
+        scope.focus((e.target as HTMLElement).getAttribute('data-key'), 'pointer');
+      });
+      moveTo(5, 5);
+      moveTo(6, 6);
+    });
+
+    afterEach(() => {
+      Focus.uninstall();
+      delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+    });
+
+    it('hovers the row it settles under as the one KeyHandler tracks', () => {
+      const before = document.createElement('div');
+      before.setAttribute('data-focusable', '');
+      document.body.appendChild(before);
+      before.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      const onUnhoverBefore = vi.fn();
+      before.addEventListener('nav:unhover', onUnhoverBefore);
+      const onHover = vi.fn();
+      const onUnhover = vi.fn();
+      row('b').addEventListener('nav:hover', onHover);
+      row('b').addEventListener('nav:unhover', onUnhover);
+
+      hit = row('b');
+      Focus.push(scope);
+      settle();
+      expect(row('b').classList.contains('focused')).toBe(true);
+      expect(onHover).toHaveBeenCalledTimes(1);
+      expect(onUnhoverBefore).toHaveBeenCalledTimes(1);
+
+      // Chromium's own late mouseover on the same row is no second hover.
+      row('b').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      expect(onHover).toHaveBeenCalledTimes(1);
+      // Leaving the panel unhovers the settled row.
+      document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      expect(onUnhover).toHaveBeenCalledTimes(1);
+      expect(onUnhoverBefore).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['the cursor-hide key', () => press(K.CURSOR_HIDE)],
+      ['a hidden cursor state', () => document.dispatchEvent(
+        new CustomEvent('cursorStateChange', { detail: { visibility: false } }))],
+      ['the pointer leaving the window', () => document.documentElement.dispatchEvent(
+        new MouseEvent('mouseleave'))],
+    ])('keeps its default after %s', (_name, gone) => {
+      gone();
+      hit = row('b');
+      Focus.push(scope);
+      settle();
+      expect(row('a').classList.contains('focused')).toBe(true);
+      expect(row('b').classList.contains('focused')).toBe(false);
     });
   });
 });

@@ -186,14 +186,6 @@ export class PlayerTracks {
     if (overlay) overlay.open(this.subtitleOffsetS);
   }
 
-  subtitleOffsetOpen(): boolean {
-    return this.offsetOverlay?.visible === true;
-  }
-
-  handleSubtitleOffsetAction(action: Action): void {
-    this.offsetOverlay?.handleAction(action);
-  }
-
   /** Dismiss the subtitle-sync adjuster (called on every view transition). */
   closeSubtitleOffset(): void {
     this.offsetOverlay?.close();

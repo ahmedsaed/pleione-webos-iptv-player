@@ -21,6 +21,7 @@ vi.mock('../services/playlist-service', () => ({
 }));
 
 import { PlayerMenu } from './player-menu';
+import { Focus } from '../navigation/focus-scope';
 import type { PlaybackRateState } from '../services/playback-rate';
 
 // Number of colour actions before the "Audio Track" row in the main menu.
@@ -73,6 +74,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Focus.uninstall();
   vi.useRealTimers();
   document.body.innerHTML = '';
 });
@@ -156,8 +158,18 @@ describe('PlayerMenu', () => {
 
     it('hovering moves the focus highlight', () => {
       el.querySelector<HTMLElement>('[data-menu-action="yellow"]')!
-        .dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
       expect(items()[2].classList.contains('focused')).toBe(true);
+      expect(el.querySelectorAll('.focused')).toHaveLength(1);
+      menu.handleAction('down');
+      expect(items()[3].classList.contains('focused')).toBe(true);
+    });
+
+    it('leaves a raw mouseover, which a resting pointer fires in key mode, to the key handler', () => {
+      el.querySelector<HTMLElement>('[data-menu-action="yellow"]')!
+        .dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      expect(items()[0].classList.contains('focused')).toBe(true);
+      expect(items()[2].classList.contains('focused')).toBe(false);
     });
 
     it('does not stack listeners across re-renders (single emit per click)', () => {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Channel, VodPlayback } from '../types';
 import { channelKey, legacyChannelKey } from '../utils/channel';
 import { StorageService } from '../services/storage-service';
@@ -60,6 +60,7 @@ vi.mock('../services/idb-cache', () => ({
   setCachedSubtitle: vi.fn(),
 }));
 
+import { Focus } from '../navigation/focus-scope';
 import { getCachedSubtitle } from '../services/idb-cache';
 
 const CHANNEL: Channel = {
@@ -112,6 +113,10 @@ function vodRequest(overrides: Partial<VodPlayback> = {}): VodPlayback {
 function trackInternals(instance: PlayerTracks): Record<string, unknown> {
   return instance as unknown as Record<string, unknown>;
 }
+
+afterEach(() => {
+  Focus.uninstall();
+});
 
 describe('PlayerTracks', () => {
   let video: HTMLVideoElement;

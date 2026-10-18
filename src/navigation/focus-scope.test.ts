@@ -99,6 +99,131 @@ describe('Focus owner stack', () => {
     expect(Focus.owner()).toBe(confirm);
   });
 
+  it('keeps an overlay above a panel pushed after it, such as the menu over the subtitle search', () => {
+    const menu = Focus.register({ id: 'player.menu', root: view });
+    const search = Focus.register({ id: 'player.subtitle_search', root: prompt, tier: Tier.panel });
+    Focus.push(menu);
+    Focus.push(search);
+    expect(Focus.owner()).toBe(menu);
+    Focus.pop(menu);
+    expect(Focus.owner()).toBe(search);
+  });
+
+  it('tells a scope once when it stops owning the keys', () => {
+    const onRelease = vi.fn();
+    const search = Focus.register({ id: 'player.subtitle_search', root: view, tier: Tier.panel, onRelease });
+    const menu = Focus.register({ id: 'player.menu', root: prompt });
+    Focus.push(search);
+    expect(Focus.owner()).toBe(search);
+    expect(onRelease).not.toHaveBeenCalled();
+    Focus.push(menu);
+    expect(Focus.owner()).toBe(menu);
+    expect(Focus.owner()).toBe(menu);
+    expect(onRelease).toHaveBeenCalledTimes(1);
+    Focus.pop(menu);
+    expect(Focus.owner()).toBe(search);
+    expect(onRelease).toHaveBeenCalledTimes(1);
+  });
+
+  describe('a pushed scope opening under a resting pointer', () => {
+    let hit: Element | null;
+    let left: number;
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
+      hit = null;
+      left = 0;
+      prompt.getBoundingClientRect = () => new DOMRect(left, 0, 100, 100);
+      Focus.setHoverAt((_x, _y, within) => {
+        if (hit && within.contains(hit)) hit.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      Focus.setHoverAt(null);
+    });
+
+    function panel(extra: Partial<ScopeSpec> = { hoverOnSettle: true }): FocusScope {
+      list(prompt, ['a', 'b', 'c']);
+      const scope = logical('panel', prompt, extra);
+      prompt.addEventListener('nav:hover', (e) => {
+        scope.focus((e.target as HTMLElement).getAttribute('data-key'), 'pointer');
+      });
+      return scope;
+    }
+
+    it('lights the row under the pointer once it settles, over its default', () => {
+      const scope = panel();
+      Focus.pointer(5, 5);
+      hit = row(prompt, 'b');
+      Focus.push(scope);
+      Focus.flush();
+      expect(Focus.owner()).toBe(scope);
+      expect(shown()).toEqual(['a']);
+      vi.advanceTimersByTime(100);
+      Focus.flush();
+      expect(shown()).toEqual(['b']);
+    });
+
+    it('waits for a panel still off to the side to slide out under the pointer', () => {
+      const scope = panel();
+      Focus.pointer(5, 5);
+      hit = row(prompt, 'b');
+      left = 200;
+      Focus.push(scope);
+      Focus.flush();
+      vi.advanceTimersByTime(100);
+      Focus.flush();
+      expect(shown()).toEqual(['a']);
+      left = 0;
+      vi.advanceTimersByTime(100);
+      Focus.flush();
+      expect(shown()).toEqual(['b']);
+    });
+
+    it('leaves the default alone under the D-pad, or with the pointer outside it', () => {
+      const scope = panel();
+      Focus.pointer(5, 5);
+      hit = row(prompt, 'b');
+      setInputMode('keys');
+      Focus.push(scope);
+      vi.advanceTimersByTime(100);
+      Focus.flush();
+      expect(shown()).toEqual(['a']);
+
+      Focus.pop(scope);
+      setInputMode('pointer');
+      list(view, ['x']);
+      hit = row(view, 'x');
+      Focus.push(scope);
+      vi.advanceTimersByTime(100);
+      Focus.flush();
+      expect(shown()).toEqual(['a']);
+    });
+
+    it('keeps a prompt on its default under a resting pointer', () => {
+      const scope = panel({ restrict: 'self-only' });
+      Focus.pointer(5, 5);
+      hit = row(prompt, 'b');
+      Focus.push(scope);
+      Focus.flush();
+      vi.advanceTimersByTime(100);
+      Focus.flush();
+      expect(shown()).toEqual(['a']);
+    });
+
+    it('keeps the default once the pointer is gone', () => {
+      const scope = panel();
+      Focus.pointer(5, 5);
+      Focus.pointerGone();
+      hit = row(prompt, 'b');
+      Focus.push(scope);
+      Focus.flush();
+      vi.advanceTimersByTime(100);
+      Focus.flush();
+      expect(shown()).toEqual(['a']);
+    });
+  });
+
   it('skips a pushed scope while its view is not shown, and restores it after', () => {
     let shownView = 'player';
     const base = Focus.register({ id: 'view.a', root: view });
@@ -528,6 +653,21 @@ describe('Focus reconcile', () => {
       Focus.flush();
       expect(reveal).toHaveBeenCalledWith('r2');
       expect(row(scroller, 'r2').scrollIntoView).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips the geometric reveal, and reports no clip, when the scope keeps its key in view', () => {
+      setInputMode('keys');
+      const reveal = vi.fn((): boolean | null => null);
+      const a = logical('live.channels', view, { reveal });
+      Focus.setBase(() => a);
+      a.focus('r2', 'key');
+      Focus.flush();
+      a.focus('r2', 'key');
+      Focus.flush();
+      expect(reveal).toHaveBeenCalledTimes(2);
+      expect(row(scroller, 'r2').scrollIntoView).not.toHaveBeenCalled();
+      expect(row(scroller, 'r2').classList.contains('focused')).toBe(true);
+      expect(repairs()).toEqual([]);
     });
 
     it('reveals a key the pointer rests on only where the scope asks for it', () => {

@@ -1,5 +1,5 @@
 import type { Action, AudioTrackOption, Channel, SubtitleTrackOption } from '../types';
-import { $, html, onceTransitionEnd, raw } from '../utils/dom';
+import { $, html, inShownView, onceTransitionEnd, raw } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { AUDIO_ICON, SPEED_ICON, SUBTITLE_ICON } from './icons';
 import { t } from '../i18n';
@@ -8,7 +8,7 @@ import {
   type PlaybackRate,
   type PlaybackRateState,
 } from '../services/playback-rate';
-import { setRing } from '../navigation/focus-ring';
+import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
 
 const AUTO_HIDE_MS = 5000;
 
@@ -60,6 +60,8 @@ export class PlayerMenu {
   private focusIdx = 0;
   private mode: 'main' | 'audio' | 'subtitles' | 'speed' = 'main';
   private cancelHide: (() => void) | null = null;
+  // Registered on the first show; focusIdx stays the model, the scope paints it.
+  private scope: FocusScope | null = null;
 
   constructor(
     container: HTMLElement,
@@ -94,6 +96,18 @@ export class PlayerMenu {
 
   show(): void {
     if (this.isVisible) return;
+    if (!this.scope && this.el) {
+      const el = this.el;
+      this.scope = Focus.register({
+        id: 'player.menu',
+        hoverOnSettle: true,
+        root: el,
+        restrict: 'self-first',
+        when: () => inShownView(el),
+        defaultKey: () => this.keyAt(this.focusIdx),
+        reveal: (key) => this.revealRow(key),
+      });
+    }
     this.isVisible = true;
     this.cancelHide?.();
     this.cancelHide = null;
@@ -105,12 +119,15 @@ export class PlayerMenu {
       this.el.offsetHeight;
       this.el.classList.add('visible');
     }
+    if (this.scope) Focus.push(this.scope);
+    this.moveTo(0, 'key');
     this.resetTimer();
   }
 
   hide(): void {
     if (!this.isVisible) return;
     this.isVisible = false;
+    if (this.scope) Focus.pop(this.scope);
     const el = this.el;
     if (el) {
       el.classList.remove('visible');
@@ -134,20 +151,18 @@ export class PlayerMenu {
       return;
     }
     if (this.mode !== 'main' || !this.el) return;
-    const rows = (): HTMLElement[] => Array.from(this.el!.querySelectorAll<HTMLElement>('.menu-item'));
-    const focusedAction = rows()[this.focusIdx]?.dataset.menuAction;
+    const focusedAction = this.rows()[this.focusIdx]?.dataset.menuAction;
     this.render();
     // Keep focus on the same action. If its row went away, follow the pointer
     // if it rests on a row, else step to the row above.
-    const idx = rows().findIndex(row => row.dataset.menuAction === focusedAction);
-    const hovered = rows().indexOf(this.el.querySelector<HTMLElement>('.menu-item:hover')!);
-    const next = idx >= 0 ? idx
+    const rows = this.rows();
+    const idx = rows.findIndex(row => row.dataset.menuAction === focusedAction);
+    const hovered = rows.indexOf(this.el.querySelector<HTMLElement>('.menu-item:hover')!);
+    this.focusIdx = idx >= 0 ? idx
       : hovered >= 0 ? hovered
-        : Math.max(0, Math.min(this.focusIdx - 1, rows().length - 1));
-    if (next !== this.focusIdx) {
-      this.focusIdx = next;
-      this.render();
-    }
+        : Math.max(0, Math.min(this.focusIdx - 1, rows.length - 1));
+    this.scope?.track(this.keyAt(this.focusIdx));
+    Focus.flush();
   }
 
   resetTimer(): void {
@@ -173,44 +188,55 @@ export class PlayerMenu {
 
   handleAction(action: Action): void {
     if (!this.el) return;
-    const items = this.el.querySelectorAll<HTMLElement>('.menu-item');
+    const items = this.rows();
     const len = items.length;
     if (!len) return;
 
     this.resetTimer();
 
     if (action === 'up') {
-      this.focusIdx = Math.max(0, this.focusIdx - 1);
+      this.moveTo(Math.max(0, this.focusIdx - 1), 'key');
     } else if (action === 'down') {
-      this.focusIdx = Math.min(len - 1, this.focusIdx + 1);
+      this.moveTo(Math.min(len - 1, this.focusIdx + 1), 'key');
     } else if (action === 'select') {
       const item = items[this.focusIdx];
       if (item) this.selectItem(item);
-      return;
     }
-
-    items.forEach((item, i) => {
-      // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the player menu moves to a focus scope
-      setRing(item, i === this.focusIdx);
-    });
-    this.scrollFocusedIntoView();
   }
 
-  // Keep the focused row visible when D-pad navigation moves past the scroll
-  // viewport of a long track list. (Magic-Remote wheel scrolling is native — the
-  // wheel handler lets `.menu-items` scroll itself; see key-handler.ts.)
-  private scrollFocusedIntoView(): void {
+  private rows(): HTMLElement[] {
+    return this.el ? Array.from(this.el.querySelectorAll<HTMLElement>('.menu-item')) : [];
+  }
+
+  private keyAt(idx: number): string | null {
+    return this.rows()[idx]?.dataset.key ?? null;
+  }
+
+  private moveTo(idx: number, via: Via): void {
+    this.focusIdx = idx;
+    this.scope?.focus(this.keyAt(idx), via);
+    Focus.flush();
+  }
+
+  // Scroll only the menu's list to a row past its viewport, never the page:
+  // mid slide-in the panel is off-screen, and a scrollIntoView would shift the
+  // whole view. (Magic-Remote wheel scrolling is native — the wheel handler
+  // lets `.menu-items` scroll itself; see key-handler.ts.)
+  private revealRow(key: string): boolean | null {
     const list = this.el?.querySelector<HTMLElement>('.menu-items');
-    const focused = list?.querySelector<HTMLElement>('.menu-item.focused');
-    if (!list || !focused) return;
+    const row = this.rows().find(item => item.dataset.key === key);
+    if (!list || !row) return null;
 
     const listRect = list.getBoundingClientRect();
-    const focusedRect = focused.getBoundingClientRect();
-    if (focusedRect.top < listRect.top) {
-      list.scrollTop -= listRect.top - focusedRect.top;
-    } else if (focusedRect.bottom > listRect.bottom) {
-      list.scrollTop += focusedRect.bottom - listRect.bottom;
+    const rowRect = row.getBoundingClientRect();
+    if (rowRect.top < listRect.top) {
+      list.scrollTop -= listRect.top - rowRect.top;
+    } else if (rowRect.bottom > listRect.bottom) {
+      list.scrollTop += rowRect.bottom - listRect.bottom;
+    } else {
+      return null;
     }
+    return true;
   }
 
   /** Route a selected/clicked row by its data-menu-action. */
@@ -253,8 +279,8 @@ export class PlayerMenu {
     this.mode = 'audio';
     const tracks = this.getAudioTracks();
     const active = tracks.findIndex(t => t.active);
-    this.focusIdx = active >= 0 ? active + 1 : 0; // +1 for the Back row
     this.render();
+    this.moveTo(active >= 0 ? active + 1 : 0, 'key'); // +1 for the Back row
     this.resetTimer();
   }
 
@@ -263,23 +289,23 @@ export class PlayerMenu {
     const tracks = this.getSubtitleTracks();
     const active = tracks.findIndex(t => t.active);
     // Rows: Back (0), Off (1), then tracks. Focus the active track, else Off.
-    this.focusIdx = active >= 0 ? active + 2 : 1;
     this.render();
+    this.moveTo(active >= 0 ? active + 2 : 1, 'key');
     this.resetTimer();
   }
 
   private openSpeed(): void {
     this.mode = 'speed';
     const active = PLAYBACK_RATES.indexOf(this.getPlaybackRateState().rate);
-    this.focusIdx = active >= 0 ? active + 1 : 1;
     this.render();
+    this.moveTo(active >= 0 ? active + 1 : 1, 'key');
     this.resetTimer();
   }
 
   private openMain(): void {
     this.mode = 'main';
-    this.focusIdx = 0;
     this.render();
+    this.moveTo(0, 'key');
     this.resetTimer();
   }
 
@@ -288,7 +314,6 @@ export class PlayerMenu {
     else if (this.mode === 'subtitles') this.renderSubtitles();
     else if (this.mode === 'speed') this.renderSpeed();
     else this.renderMain();
-    this.scrollFocusedIntoView();
   }
 
   private renderMain(): void {
@@ -304,10 +329,7 @@ export class PlayerMenu {
     const activeSub = subtitles.find(t => t.active);
     const speed = this.getPlaybackRateState();
 
-    const speedRowIdx = rows.length;
     const audioShown = tracks.length >= 2;
-    const audioRowIdx = rows.length + (speed.available ? 1 : 0);
-    const subsRowIdx = audioRowIdx + (audioShown ? 1 : 0);
 
     morph(el, html`
       <div class="menu-header">
@@ -315,8 +337,8 @@ export class PlayerMenu {
         ${chName ? html`<div class="menu-subtitle">${t('player.playing', { name: chName })}</div>` : ''}
       </div>
       <div class="menu-items">
-        ${rows.map((item, i) => html`
-          <div class="menu-item ${i === this.focusIdx ? 'focused' : ''}"
+        ${rows.map((item) => html`
+          <div class="menu-item"
                data-key="${item.action}"
                data-focusable data-menu-action="${item.action}">
             <span class="menu-dot ${item.color}"></span>
@@ -324,7 +346,7 @@ export class PlayerMenu {
           </div>
         `)}
         ${speed.available ? html`
-          <div class="menu-item ${speedRowIdx === this.focusIdx ? 'focused' : ''}"
+          <div class="menu-item"
                data-key="${OPEN_SPEED}"
                data-focusable data-menu-action="${OPEN_SPEED}">
             <span class="menu-icon speed">${raw(SPEED_ICON)}</span>
@@ -333,7 +355,7 @@ export class PlayerMenu {
           </div>
         ` : ''}
         ${audioShown ? html`
-          <div class="menu-item ${audioRowIdx === this.focusIdx ? 'focused' : ''}"
+          <div class="menu-item"
                data-key="${OPEN_AUDIO}"
                data-focusable data-menu-action="${OPEN_AUDIO}">
             <span class="menu-icon audio">${raw(AUDIO_ICON)}</span>
@@ -342,7 +364,7 @@ export class PlayerMenu {
           </div>
         ` : ''}
         ${subtitles.length >= 1 ? html`
-          <div class="menu-item ${subsRowIdx === this.focusIdx ? 'focused' : ''}"
+          <div class="menu-item"
                data-key="${OPEN_SUBS}"
                data-focusable data-menu-action="${OPEN_SUBS}">
             <span class="menu-icon subtitle">${raw(SUBTITLE_ICON)}</span>
@@ -364,13 +386,13 @@ export class PlayerMenu {
         <h2>${t('player.playbackSpeed')}</h2>
       </div>
       <div class="menu-items">
-        <div class="menu-item ${this.focusIdx === 0 ? 'focused' : ''}"
+        <div class="menu-item" data-key="${BACK}"
              data-focusable data-menu-action="${BACK}">
           <span class="menu-check menu-back">‹</span>
           <span class="menu-item-label">${t('common.back')}</span>
         </div>
-        ${PLAYBACK_RATES.map((rate, i) => html`
-          <div class="menu-item ${this.focusIdx === i + 1 ? 'focused' : ''}"
+        ${PLAYBACK_RATES.map((rate) => html`
+          <div class="menu-item" data-key="speed:${rate}"
                data-focusable data-menu-action="${PICK_SPEED}"
                data-playback-rate="${rate}">
             <span class="menu-check">${rate === active ? '✓' : ''}</span>
@@ -392,13 +414,13 @@ export class PlayerMenu {
         <h2>${t('player.audioTrack')}</h2>
       </div>
       <div class="menu-items">
-        <div class="menu-item ${this.focusIdx === 0 ? 'focused' : ''}"
+        <div class="menu-item" data-key="${BACK}"
              data-focusable data-menu-action="${BACK}">
           <span class="menu-check menu-back">‹</span>
           <span class="menu-item-label">${t('common.back')}</span>
         </div>
-        ${tracks.map((t, i) => html`
-          <div class="menu-item ${this.focusIdx === i + 1 ? 'focused' : ''} ${t.available === false ? 'unavailable' : ''}"
+        ${tracks.map((t) => html`
+          <div class="menu-item ${t.available === false ? 'unavailable' : ''}" data-key="audio:${t.index}"
                data-focusable data-menu-action="${PICK_AUDIO}" data-track-index="${t.index}">
             <span class="menu-check">${t.active ? '✓' : ''}</span>
             <span class="menu-track-label">${t.label}</span>
@@ -420,18 +442,18 @@ export class PlayerMenu {
         <h2>${t('player.subtitles')}</h2>
       </div>
       <div class="menu-items">
-        <div class="menu-item ${this.focusIdx === 0 ? 'focused' : ''}"
+        <div class="menu-item" data-key="${BACK}"
              data-focusable data-menu-action="${BACK}">
           <span class="menu-check menu-back">‹</span>
           <span class="menu-item-label">${t('common.back')}</span>
         </div>
-        <div class="menu-item ${this.focusIdx === 1 ? 'focused' : ''}"
+        <div class="menu-item" data-key="sub:-1"
              data-focusable data-menu-action="${PICK_SUB}" data-track-index="-1">
           <span class="menu-check">${anyActive ? '' : '✓'}</span>
           <span class="menu-track-label">${t('common.off')}</span>
         </div>
-        ${tracks.map((t, i) => html`
-          <div class="menu-item ${this.focusIdx === i + 2 ? 'focused' : ''} ${t.available === false ? 'unavailable' : ''}"
+        ${tracks.map((t) => html`
+          <div class="menu-item ${t.available === false ? 'unavailable' : ''}" data-key="sub:${t.index}"
                data-focusable data-menu-action="${PICK_SUB}" data-track-index="${t.index}">
             <span class="menu-check">${t.active ? '✓' : ''}</span>
             <span class="menu-track-label">${t.label}</span>
@@ -440,7 +462,7 @@ export class PlayerMenu {
         ${(() => {
           const st = this.getSubtitleOffsetState();
           return st.available ? html`
-            <div class="menu-item ${this.focusIdx === tracks.length + 2 ? 'focused' : ''}"
+            <div class="menu-item" data-key="${OPEN_OFFSET}"
                  data-focusable data-menu-action="${OPEN_OFFSET}">
               <span class="menu-check"></span>
               <span class="menu-track-label">${t('player.subtitleSync')}</span>
@@ -462,18 +484,12 @@ export class PlayerMenu {
     });
 
     // Hover moves focus
-    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the player menu moves to a focus scope
-    el.addEventListener('mouseover', (e: MouseEvent) => {
+    el.addEventListener('nav:hover', (e: Event) => {
       const btn = (e.target as HTMLElement).closest<HTMLElement>('.menu-item');
-      if (btn) {
-        const items = el.querySelectorAll<HTMLElement>('.menu-item');
-        items.forEach((item, i) => {
-          if (item === btn) this.focusIdx = i;
-          // eslint-disable-next-line focus/no-ring-writer -- legacy ring writer until the player menu moves to a focus scope
-          setRing(item, item === btn);
-        });
-        this.resetTimer();
-      }
+      const idx = btn ? this.rows().indexOf(btn) : -1;
+      if (idx < 0) return;
+      this.moveTo(idx, 'pointer');
+      this.resetTimer();
     });
   }
 }

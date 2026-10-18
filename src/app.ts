@@ -1529,8 +1529,10 @@ class App {
   // The one answer to "who gets the next key": handleKey routes by the owner,
   // the key diagnostic timeline names it, and FocusRing lets only its root
   // show a ring. A "button does nothing" report is usually an unexpected
-  // owner. Prompts push themselves while shown; the layers here win by tier,
-  // then in the order registered, above the shown view.
+  // owner. Prompts, the sidebar, and the player's overlays push themselves
+  // while shown (the player view still routes the menu's and the subtitle
+  // search's keys); the layers here win by tier, then in the order
+  // registered, above the shown view.
   private initFocusScopes(): void {
     const current = () => this.viewStack[this.viewStack.length - 1];
     let tier: number = Tier.prompt;
@@ -1541,7 +1543,6 @@ class App {
       restrict: 'self-only' | 'self-first',
       onAction?: (action: Action, event?: NumberEvent) => void,
     ) => Focus.layer(Focus.register({ id, root, restrict, onAction, tier }), active);
-    const playerPart = (selector: string) => () => $(selector, this.views.player);
 
     layer('prompt.live_categories', () => this.settings.categoryPickerRoot,
       () => this.settings.isCategoryPickerVisible, 'self-only', (action) => this.settings.handleAction(action));
@@ -1552,18 +1553,6 @@ class App {
     // Recent searches drop over the current view and take its input.
     layer('search.history', () => this.historyDropdown.ringRoot,
       () => this.historyDropdown.isOpen, 'self-only', (action) => this.historyDropdown.handleAction(action));
-    layer('player.subtitle_offset', playerPart('#subtitle-offset'),
-      () => current() === 'player' && this.player.subtitleOffsetOpen(), 'self-only',
-      (action) => this.player.handleSubtitleOffsetAction(action));
-    // The player's overlays own the ring, but the player view still routes
-    // their keys; the menu keeps the D-pad while the subtitle search sits above it.
-    Focus.layer(this.sidebar.focusScope, () => current() === 'player' && this.sidebar.visible);
-    layer('player.menu', playerPart('#player-menu'),
-      () => current() === 'player' && this.menu.visible, 'self-first');
-    layer('player.subtitle_search', playerPart('#subtitle-search'), () => {
-      const search = current() === 'player' ? $('#subtitle-search', this.views.player) : null;
-      return !!search && !search.classList.contains('hidden');
-    }, 'self-first');
 
     const views = new Map<ViewName, FocusScope>();
     for (const name of Object.keys(this.views) as ViewName[]) {
@@ -1780,10 +1769,13 @@ class App {
       // (title + seek bar) is pointer-revealable; suppress the channel sidebar
       // and the live player menu.
       const vod = this.player.isVod();
+      // A modal over the player, such as the subtitle sync adjuster, keeps
+      // the edge panels shut.
+      const modal = !!Focus.owner()?.modal;
 
       // Protect the full-width area beside and below the OSD too: its edge
       // controls sit next to margins where an imprecise cursor can open a panel.
-      if (!overOsd && !vod && e.clientX < 80 && !this.menu.visible) {
+      if (!overOsd && !vod && !modal && e.clientX < 80 && !this.menu.visible) {
         this.sidebar.show();
         this.sidebar.handlePointerMove(e.clientX, false);
       } else if (this.sidebar.visible) {
@@ -1800,7 +1792,7 @@ class App {
       // Right menu. Live/catch-up and VOD alike; for VOD it shows the VOD action
       // set (Info, Settings) plus any audio/subtitle tracks — the channel rows
       // are hidden, so it's never empty.
-      if (!overOsd && e.clientX > 1840 && !this.sidebar.visible) {
+      if (!overOsd && !modal && e.clientX > 1840 && !this.sidebar.visible) {
         this.menu.show();
       } else if (this.menu.visible) {
         const overMenu = !!(e.target as HTMLElement).closest('.player-menu');

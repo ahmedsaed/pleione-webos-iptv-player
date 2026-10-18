@@ -20,6 +20,7 @@ export type EnterTo = 'last' | 'default';
 // Who wins when several scopes want the keys: the higher tier, then within a
 // tier the latest push, then layers in registration order.
 export const Tier = {
+  panel: 5,     // a player panel the menus open over: the subtitle search
   overlay: 10,  // dropdowns and player overlays
   bar: 20,      // the tab bar
   prompt: 30,   // modal prompts
@@ -46,12 +47,20 @@ export interface ScopeSpec {
   // scrolled away: no fallback and no ring until a reveal renders it.
   has?: (key: string) => boolean;
   // Asked on every pass that may reveal, since a virtual list knows its own
-  // scroll better than geometry; false falls back to the geometric check.
-  reveal?: (key: string) => boolean;
+  // scroll better than geometry: true when it scrolled, false to fall back
+  // to the geometric check, null when it keeps the key in view itself.
+  reveal?: (key: string) => boolean | null;
   // The pointer resting on such a key may reveal it, such as a half-hidden tab.
   revealOnHover?: (key: string) => boolean;
   // Hide the ring, keeping the key, once the pointer leaves the root.
   concealOnLeave?: boolean;
+  // Called once the scope stops owning the keys, such as to drop a caret
+  // that would otherwise keep the arrow keys from the new owner.
+  onRelease?: () => void;
+  // A panel that slides out under a resting pointer hovers what settles
+  // under it, as a move would. Off for prompts: their safe default must
+  // not yield to a cursor that merely rests, or hides, where they open.
+  hoverOnSettle?: boolean;
 }
 
 export interface FocusScope {
@@ -203,6 +212,12 @@ let listening = false;
 let pendingHover = false;
 let pendingOther = false;
 let lastOwner: string | null = null;
+// Where the pointer last rested (client coordinates), from KeyHandler.
+let pointerAt: { x: number; y: number } | null = null;
+let settleFrame: number | null = null;
+// KeyHandler's hover, so a settled panel's hover is one it tracks.
+let hoverAt: ((x: number, y: number, within: HTMLElement) => void) | null = null;
+const SETTLE_MAX_FRAMES = 60;
 
 function repaired(reason: RepairReason, scope: Scope, ...fields: string[]): void {
   log.debug('Focus repaired', 'event=nav.focus.repaired', `reason=${reason}`, `scope=${scope.id}`,
@@ -257,10 +272,11 @@ function run(): void {
     || (other && InputMode.current === 'keys')
     || (hovered && !!spec.revealOnHover?.(key)));
   if (allowed && key !== null && (el || pending)) {
-    let revealed = !!spec.reveal?.(key);
+    const own = spec.reveal ? spec.reveal(key) : false;
+    let revealed = own === true;
     if (revealed) {
       el = within(root, owner.element(key));
-    } else if (el && clipped(el)) {
+    } else if (own === false && el && clipped(el)) {
       // The polyfill makes this mean `nearest` on Chromium 53 too.
       el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       revealed = true;
@@ -281,6 +297,38 @@ function run(): void {
   if (el && !hasRing(el)) setRing(el, true);
   owner.painted = el;
   FocusRing.sync();
+}
+
+function cancelSettle(): void {
+  if (settleFrame !== null) cancelAnimationFrame(settleFrame);
+  settleFrame = null;
+}
+
+// A panel that slides out under a resting pointer gets no mouseover, so once
+// it stops moving, hover what now lies under the pointer, as a move would.
+// It must also cover the pointer: before its slide starts, it holds still
+// off to the side. The mode is read once it settles: the move that opened
+// it may not have reached the input mode yet.
+function hoverUnderPointer(scope: Scope): void {
+  cancelSettle();
+  if (!hoverAt || typeof requestAnimationFrame !== 'function') return;
+  let last = '';
+  let frames = 0;
+  const step = (): void => {
+    settleFrame = null;
+    const root = scope.root();
+    if (!root || !pointerAt || InputMode.current !== 'pointer' || lastOwner !== scope.id) return;
+    const r = root.getBoundingClientRect();
+    const rect = `${r.left},${r.top},${r.width},${r.height}`;
+    const covers = pointerAt.x >= r.left && pointerAt.x < r.right && pointerAt.y >= r.top && pointerAt.y < r.bottom;
+    if ((rect !== last || !covers) && ++frames < SETTLE_MAX_FRAMES) {
+      last = rect;
+      settleFrame = requestAnimationFrame(step);
+      return;
+    }
+    hoverAt?.(pointerAt.x, pointerAt.y, root);
+  };
+  settleFrame = requestAnimationFrame(step);
 }
 
 // A wheel a surface claimed (canceled nav:wheel) moved nothing of ours.
@@ -371,10 +419,30 @@ export const Focus = {
     // input: whoever asks first (FocusRing.sync) triggers the pass.
     const id = owner ? owner.id : null;
     if (id !== lastOwner) {
+      const released = lastOwner !== null ? registry.get(lastOwner) : undefined;
       lastOwner = id;
       Focus.reconcile();
+      released?.spec.onRelease?.();
+      if (best && best.spec.hoverOnSettle && stack.indexOf(best) >= 0) hoverUnderPointer(best);
+      else cancelSettle();
     }
     return owner;
+  },
+
+  /** Note where the pointer rests, in client coordinates. */
+  pointer(x: number, y: number): void {
+    pointerAt = { x, y };
+  },
+
+  /** The cursor hid or left the window: nothing rests anywhere. */
+  pointerGone(): void {
+    pointerAt = null;
+    cancelSettle();
+  },
+
+  /** Hover the item at a point, if it lies within the given root. */
+  setHoverAt(hook: ((x: number, y: number, within: HTMLElement) => void) | null): void {
+    hoverAt = hook;
   },
 
   /** Note an input (key, hover, click, wheel): the next pass may reveal the ring. */
@@ -437,5 +505,7 @@ export const Focus = {
     scheduled = false;
     pendingHover = pendingOther = false;
     lastOwner = null;
+    pointerAt = null;
+    cancelSettle();
   },
 };

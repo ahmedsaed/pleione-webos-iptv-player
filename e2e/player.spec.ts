@@ -556,6 +556,248 @@ test('the right-edge player menu opens and lists its color actions', async ({ pa
   await expect(menu.locator('.menu-item').nth(1)).toHaveClass(/focused/);
 });
 
+async function gotoLivePlayer(page: Page): Promise<void> {
+  await routePlaylist(page);
+  await routeLiveManifest(page);
+  await neuterVideo(page);
+  await seedPlaylist(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-player')).toBeVisible();
+}
+
+async function moveOnto(page: Page, row: ReturnType<Page['locator']>, dx = 0): Promise<void> {
+  const box = await row.boundingBox();
+  if (!box) throw new Error('row has no bounding box');
+  await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2);
+}
+
+test('the player menu reopens with one ring, on its first row', async ({ page }) => {
+  await gotoLivePlayer(page);
+  const menu = page.locator('#player-menu');
+  const rows = menu.locator('.menu-item');
+  await page.keyboard.press('ArrowRight');
+  await expect(menu).toHaveClass(/visible/);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(rows.nth(2)).toHaveClass(/focused/);
+  await pressRemoteBack(page);
+  await expect(menu).not.toHaveClass(/visible/);
+  await expect(page.locator('[data-ring-owner]')).toHaveAttribute('data-focus-scope', 'view.player');
+
+  await page.keyboard.press('ArrowRight');
+  await expect(menu).toHaveClass(/visible/);
+  await expect(page.locator('[data-ring-owner]')).toHaveAttribute('data-focus-scope', 'player.menu');
+  await expect(rows.nth(0)).toHaveClass(/focused/);
+  await expect(page.locator('.focused')).toHaveCount(1);
+});
+
+test('the player menu ring follows the pointer and the D-pad, and returns to the row it rests on', async ({ page }) => {
+  await gotoLivePlayer(page);
+  await page.mouse.move(1900, 540);
+  const menu = page.locator('#player-menu');
+  const rows = menu.locator('.menu-item');
+  await expect(menu).toHaveClass(/visible/);
+  // Let the panel finish sliding in before aiming at a row.
+  await expect.poll(() => menu.evaluate((el) => el.getBoundingClientRect().right)).toBe(1920);
+
+  await moveOnto(page, rows.nth(1));
+  await expect(rows.nth(1)).toHaveClass(/focused/);
+  await page.keyboard.press('ArrowDown');
+  await expect(rows.nth(2)).toHaveClass(/focused/);
+  await expect(page.locator('.focused')).toHaveCount(1);
+  // A small move that stays on the same row takes the ring back to it.
+  await moveOnto(page, rows.nth(1), 2);
+  await expect(rows.nth(1)).toHaveClass(/focused/);
+  await expect(page.locator('.focused')).toHaveCount(1);
+});
+
+// webOS fires no mouseover as a panel slides in under a resting cursor;
+// desktop Chromium sends one late, from its own hover update.
+async function noHoverWithoutMove(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.addEventListener('mouseover', (e) => { if (e.isTrusted) e.stopImmediatePropagation(); }, true);
+  });
+}
+
+async function panelSettled(panel: ReturnType<Page['locator']>): Promise<void> {
+  let last = '';
+  await expect.poll(async () => {
+    const now = await panel.evaluate((el) => JSON.stringify(el.getBoundingClientRect()));
+    const still = now === last;
+    last = now;
+    return still;
+  }, { intervals: [100] }).toBe(true);
+}
+
+test('the player menu lights the row it slides out under', async ({ page }) => {
+  await gotoLivePlayer(page);
+  const menu = page.locator('#player-menu');
+  const rows = menu.locator('.menu-item');
+  await page.mouse.move(960, 300);
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => menu.evaluate((el) => el.getBoundingClientRect().right)).toBe(1920);
+  const box = await rows.nth(2).boundingBox();
+  if (!box) throw new Error('row has no bounding box');
+  await page.keyboard.press('Escape');
+  await expect(menu).not.toHaveClass(/visible/);
+  // Let it finish sliding out, or the pointer lands on a row still on screen.
+  await expect.poll(() => menu.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    return rect.width === 0 || rect.left >= 1920;
+  })).toBe(true);
+
+  // From the D-pad, the pointer stops at the edge and the panel slides in beneath it.
+  await noHoverWithoutMove(page);
+  await page.mouse.move(1860, box.y + box.height / 2);
+  await expect(menu).toHaveClass(/visible/);
+  await expect(rows.nth(2)).toHaveClass(/focused/);
+  await expect(page.locator('.focused')).toHaveCount(1);
+});
+
+test('the channel panel lights the channel it slides out under', async ({ page }) => {
+  const lines = ['#EXTM3U'];
+  for (let index = 0; index < 200; index++) {
+    lines.push(`#EXTINF:-1 group-title="Group",Channel ${String(index)}`, `http://host/${String(index)}.m3u8`);
+  }
+  await routePlaylist(page, lines.join('\n'));
+  await routeLiveManifest(page);
+  await neuterVideo(page);
+  await seedPlaylist(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-player')).toBeVisible();
+  const sidebar = page.locator('#player-sidebar');
+  const target = sidebar.locator('.sidebar-ch-item[data-sidebar-index="3"]');
+  await page.mouse.move(960, 300);
+  await page.keyboard.press('ArrowLeft');
+  await expect(sidebar.locator('.sidebar-ch-item.focused')).toContainText('Channel 0');
+  await panelSettled(sidebar);
+  const box = await target.boundingBox();
+  if (!box) throw new Error('row has no bounding box');
+  await page.keyboard.press('Escape');
+  await expect(sidebar).not.toBeVisible();
+
+  // From the D-pad, the pointer stops at the edge and the panel slides in beneath it.
+  await noHoverWithoutMove(page);
+  // Inside the 80 px open edge, but past the 48 px dwell that opens the groups.
+  await page.mouse.move(64, box.y + box.height / 2);
+  await expect(sidebar).toBeVisible();
+  await expect(target).toHaveClass(/focused/);
+  await expect(page.locator('.focused')).toHaveCount(1);
+  // Resting there neither opens the groups nor takes the ring away.
+  await page.waitForTimeout(1000);
+  await expect(sidebar).not.toHaveClass(/groups-expanded/);
+  await expect(target).toHaveClass(/focused/);
+});
+
+test('the channel panel keeps one ring while its search box has the caret', async ({ page }) => {
+  await gotoGroupedPlayer(page);
+  const sidebar = page.locator('#player-sidebar');
+  const search = page.locator('.sidebar-search-input');
+  await page.keyboard.press('ArrowLeft');
+  await panelSettled(sidebar);
+  // A pointer that never moved can't tell itself from the D-pad; seed it first.
+  await moveOnto(page, sidebar.locator('.sidebar-ch-item').first());
+  await search.click();
+  await expect(search).toBeFocused();
+  // The box under the pointer that clicked it is lit.
+  await page.waitForTimeout(100);
+  await expect(search).toHaveClass(/focused/);
+  await expect(page.locator('.focused')).toHaveCount(1);
+
+  // Another hovered row is only tracked: the box goes dark and nothing lights.
+  await moveOnto(page, sidebar.locator('.sidebar-ch-item').filter({ hasText: 'Alpha News' }));
+  await page.waitForTimeout(100);
+  await expect(sidebar.locator('.sidebar-ch-item.focused')).toHaveCount(0);
+  await expect(page.locator('.focused')).toHaveCount(0);
+  // Down leaves the box for the first channel, not the hovered row.
+  await page.keyboard.press('ArrowDown');
+  await expect(search).not.toBeFocused();
+  await expect(sidebar.locator('.sidebar-ch-item').first()).toHaveClass(/focused/);
+  await expect(page.locator('.focused')).toHaveCount(1);
+});
+
+test('the channel panel search box lights when clicked under a still pointer after OK gave it the caret', async ({ page }) => {
+  await gotoGroupedPlayer(page);
+  const sidebar = page.locator('#player-sidebar');
+  const search = page.locator('.sidebar-search-input');
+  await page.keyboard.press('ArrowLeft');
+  // Under load the slide may not have started when the panel first holds still.
+  await expect(search).toBeInViewport({ ratio: 1 });
+  await panelSettled(sidebar);
+  // A pointer that never moved can't tell itself from the D-pad; seed it first.
+  await moveOnto(page, sidebar.locator('.sidebar-ch-item').first());
+  await moveOnto(page, search);
+  await expect(search).toHaveClass(/focused/);
+  // OK gives the box the caret from the keys; its ring stays concealed.
+  await page.keyboard.press('Enter');
+  await expect(search).toBeFocused();
+  await expect(page.locator('.focused')).toHaveCount(0);
+  // A click without a move fires no focusin, yet lights the box.
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(search).toBeFocused();
+  await expect(search).toHaveClass(/focused/);
+  await expect(page.locator('.focused')).toHaveCount(1);
+  await page.keyboard.press('ArrowDown');
+  await expect(search).not.toBeFocused();
+  await expect(sidebar.locator('.sidebar-ch-item').first()).toHaveClass(/focused/);
+  await expect(page.locator('.focused')).toHaveCount(1);
+});
+
+test('the live subtitle sync adjuster keeps the channel panel shut at the screen edge', async ({ page }) => {
+  // The webOS native path self-renders a manifest subtitle, which is what makes
+  // Subtitle Sync available on a live channel.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Web0S Chrome/53.0' });
+    // Native Chromium cannot decode the synthetic stream; keep it from zapping.
+    document.addEventListener('error', (event) => {
+      if (event.isTrusted && event.target instanceof HTMLMediaElement) event.stopImmediatePropagation();
+    }, true);
+  });
+  await routePlaylist(page);
+  await routeLiveManifest(page);
+  await page.route('**/one.m3u8', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/vnd.apple.mpegurl',
+    body: [
+      '#EXTM3U',
+      '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="s",NAME="Track 1",LANGUAGE="l1",URI="http://host/s1.m3u8"',
+      '#EXT-X-STREAM-INF:BANDWIDTH=1,SUBTITLES="s"',
+      'http://host/v.m3u8',
+    ].join('\n'),
+  }));
+  await neuterVideo(page);
+  await seedPlaylist(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-player')).toBeVisible();
+  const menu = page.locator('#player-menu');
+  const sidebar = page.locator('#player-sidebar');
+  await page.mouse.move(1900, 540);
+  await expect(menu).toHaveClass(/visible/);
+  await expect.poll(() => menu.evaluate((el) => el.getBoundingClientRect().right)).toBe(1920);
+  await menu.locator('[data-menu-action="__subs_open__"]').click();
+  await menu.locator('[data-menu-action="__subs_track__"][data-track-index="0"]').click();
+  await menu.locator('[data-menu-action="__subs_open__"]').click();
+  await menu.locator('[data-menu-action="__subs_offset__"]').click();
+  await expect(page.locator('#subtitle-offset:not(.hidden)')).toBeVisible();
+  const owner = page.locator('[data-ring-owner]');
+  await expect(owner).toHaveAttribute('data-focus-scope', 'player.subtitle_offset');
+
+  await page.mouse.move(400, 540);
+  await page.mouse.move(10, 540);
+  // Past the slide-in, read once: a retrying check would also pass once the
+  // panel closes on its own.
+  await page.waitForTimeout(400);
+  expect(await sidebar.isVisible()).toBe(false);
+  await expect(owner).toHaveAttribute('data-focus-scope', 'player.subtitle_offset');
+});
+
 test('the OSD band keeps its edge controls ahead of pointer-triggered panels', async ({ page }) => {
   await routePlaylist(page);
   await routeLiveManifest(page);

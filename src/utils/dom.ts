@@ -22,6 +22,12 @@ export function hide(el: HTMLElement | null): void {
   el.classList.add('hidden');
 }
 
+/** Whether `el` sits in the shown view, or outside every view. */
+export function inShownView(el: Element): boolean {
+  const view = el.closest('.view');
+  return !view || !view.classList.contains('hidden');
+}
+
 // --- Transition end ------------------------------------------------------
 // `addEventListener(…, { once: true })` is Chrome 55+; Chromium 53 ignores
 // `once` and keeps the listener, so remove it by hand.

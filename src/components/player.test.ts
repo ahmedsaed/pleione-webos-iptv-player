@@ -50,6 +50,7 @@ vi.mock('../services/subtitle-search/subtitle-search-service', () => ({
 }));
 
 import { Player } from './player';
+import { Focus } from '../navigation/focus-scope';
 import {
   containerMime,
   diagnosticStreamUrl,
@@ -247,6 +248,7 @@ beforeEach(() => {
   player.init(video);
 });
 afterEach(() => {
+  Focus.uninstall();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -2061,10 +2063,14 @@ describe('Player subtitle-offset overlay', () => {
     p.init(fakeVideo(0));
     (p as unknown as { currentChannel: unknown }).currentChannel = { ...CHANNEL };
     p.openSubtitleOffset();
-    expect(p.subtitleOffsetOpen()).toBe(true);
-    p.handleSubtitleOffsetAction('right');
-    p.handleSubtitleOffsetAction('back');
-    expect(p.subtitleOffsetOpen()).toBe(false);
+    const offset = document.getElementById('subtitle-offset')!;
+    expect(offset.classList.contains('hidden')).toBe(false);
+    // The overlay owns its keys while open, ahead of the player view.
+    expect(Focus.owner()?.id).toBe('player.subtitle_offset');
+    expect(Focus.owner()?.handle('right')).toBe(true);
+    expect(Focus.owner()?.handle('back')).toBe(true);
+    expect(offset.classList.contains('hidden')).toBe(true);
+    expect(Focus.owner()).toBeNull();
   });
 });
 

@@ -1,6 +1,7 @@
 import { CONFIG } from '../config';
 import { StorageService } from '../services/storage-service';
 import { createLogger } from '../utils/logger';
+import { Focus } from './focus-scope';
 import { InputMode, setInputMode } from './input-mode';
 import type { Action, NumberEvent } from '../types';
 
@@ -182,8 +183,18 @@ export const KeyHandler = {
     };
     // `data-hover-target`: an item a view lights on hover by itself (the
     // guide's programmes), so it gets no click-to-select from here.
-    const focusableAt = (e: MouseEvent): HTMLElement | null => e.target instanceof Element
-      ? e.target.closest<HTMLElement>('[data-focusable], [data-hover-target]') : null;
+    const closestFocusable = (el: unknown): HTMLElement | null => el instanceof Element
+      ? el.closest<HTMLElement>('[data-focusable], [data-hover-target]') : null;
+    const focusableAt = (e: MouseEvent): HTMLElement | null => closestFocusable(e.target);
+    // A panel that settled under the resting pointer: hover what lies there.
+    // It opened after any hover the pointer gave it, so even the same item
+    // is hovered afresh.
+    Focus.setHoverAt((x, y, within) => {
+      const target = closestFocusable(document.elementFromPoint(x, y));
+      if (!target || !within.contains(target)) return;
+      if (target === lastHover) hoverStale = true;
+      setHoverTarget(target);
+    });
 
     const leaveKeys = (via: string): void => {
       setInputMode('pointer');
@@ -206,6 +217,7 @@ export const KeyHandler = {
     document.addEventListener('keydown', (e: KeyboardEvent) => {
       // webOS reports its cursor appearing or hiding as a key press; neither
       // is the D-pad taking over.
+      if (e.keyCode === K.CURSOR_HIDE) Focus.pointerGone();
       if (e.keyCode === K.CURSOR_SHOW || e.keyCode === K.CURSOR_HIDE) return;
       setInputMode('keys');
       hoverStale = true;
@@ -218,6 +230,7 @@ export const KeyHandler = {
       pointerY = e.screenY;
       pointerClientX = e.clientX;
       pointerClientY = e.clientY;
+      Focus.pointer(e.clientX, e.clientY);
       if (!moved) return;
       if (InputMode.current === 'keys') resumePointer(e, 'move');
       else if (hoverStale) setHoverTarget(focusableAt(e));
@@ -231,6 +244,7 @@ export const KeyHandler = {
       if (e.target instanceof Element && hasScrollableAncestor(e.target)) {
         pointerClientX = e.clientX;
         pointerClientY = e.clientY;
+        Focus.pointer(e.clientX, e.clientY);
         wheelScrollUntil = Date.now() + WHEEL_SCROLL_WINDOW_MS;
         resumePointer(e, 'wheel');
       }
@@ -278,7 +292,14 @@ export const KeyHandler = {
     document.addEventListener('mouseover', (e: MouseEvent) => setHoverTarget(focusableAt(e)));
     // Cursor left the window: forget the last hover so returning to the same
     // element re-dispatches nav:hover (re-showing a cleared highlight).
-    document.documentElement.addEventListener('mouseleave', () => setHoverTarget(null));
+    document.documentElement.addEventListener('mouseleave', () => {
+      Focus.pointerGone();
+      setHoverTarget(null);
+    });
+    document.addEventListener('cursorStateChange', (e: Event) => {
+      const detail = (e as CustomEvent<{ visibility?: boolean } | null>).detail;
+      if (detail && detail.visibility === false) Focus.pointerGone();
+    });
 
     // Magic Remote scroll wheel / desktop mouse wheel
     // Let any scrollable ancestor scroll natively — otherwise mouseover-driven
