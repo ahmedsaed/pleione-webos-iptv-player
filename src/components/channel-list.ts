@@ -10,6 +10,8 @@ import type {
 } from '../types';
 import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { KeyHandler } from '../navigation/key-handler';
+import { InputMode } from '../navigation/input-mode';
+import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
 import { html, raw, type Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { channelKey, groupDisplayLabel } from '../utils/channel';
@@ -29,9 +31,6 @@ import { ChannelListEditor } from './channel-list-editor';
 import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard } from '../utils/virtual-scroll';
 import { CONFIG } from '../config';
-import { createLogger } from '../utils/logger';
-
-const log = createLogger('ChannelList');
 
 // Row strides mirror the fixed row geometry in css/channel-list.css:
 // .channel-item is 88px, .group-item is 60px plus its 8px vertical margin.
@@ -41,6 +40,9 @@ const CHANNEL_OVERSCAN = 12;
 const CHANNEL_VIEWPORT_FALLBACK = 900;
 
 type PreviewHintState = 'off' | 'ready' | 'active';
+type RowList = 'group' | 'channel';
+
+let liveList: ChannelList | null = null;
 type ChannelSelectionMode = 'expand-current' | 'fullscreen';
 
 export interface ChannelListOptions {
@@ -93,8 +95,15 @@ export class ChannelList {
   });
   private scrollFrame: number | null = null;
   private groupScrollFrame: number | null = null;
-  // A focused row that scrolled out of the rendered window, by list and position.
-  private detachedFocus: { list: 'group' | 'channel'; position: number } | null = null;
+  // A channel tuned from outside the list since it was last entered.
+  private playingMoved = false;
+  // The list's own key while a live-preview control holds the scope's.
+  private listKey: string | null = null;
+  // The focusable the pointer rests on, from the last hover.
+  private hovered: HTMLElement | null = null;
+  // A Recently Watched row the list itself re-rendered or re-entered.
+  private recentToReveal: string | null = null;
+  readonly focusScope: FocusScope;
   private channelScrollbarVisible = false;
   private channelScrollbarTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly scrollGuard = new VirtualScrollGuard();
@@ -127,14 +136,43 @@ export class ChannelList {
     this.onEnterPreview = onEnterPreview;
     this.onListFocus = onListFocus;
     this.getPreviewHintState = getPreviewHintState;
+    // One list per app; a new instance takes the id over.
+    liveList?.dispose();
+    liveList = this;
+    this.focusScope = Focus.register({
+      id: 'live.channels',
+      root: () => this.container.closest<HTMLElement>('.view') ?? this.container,
+      defaultKey: () => this.defaultKey(),
+      has: (key) => this.rowPosition(key) !== null,
+      reveal: (key) => this.reveal(key),
+      enterTo: (via) => {
+        this.prepareEntry(via);
+        return 'last';
+      },
+      onRelease: () => this.editor.blurTextInput(),
+      onAcquire: () => {
+        this.editor.focusTextInput();
+        // A hover that landed while another scope held the keys lights now.
+        if (InputMode.current === 'pointer' && this.hovered && this.hovered === this.nav.focused) {
+          this.syncScope('pointer');
+        }
+      },
+    });
     this.nav = new SpatialNav(container, (el) => {
       this.editor?.trackFocus(el);
-      if (el) {
-        this.detachedFocus = null;
-        this.onListFocus();
-      }
+      if (el) this.onListFocus();
+      this.syncScope();
     });
-    this.container.addEventListener('nav:hover', () => this.onListFocus());
+    this.container.addEventListener('nav:hover', (e: Event) => {
+      const target = e.target as HTMLElement;
+      this.hovered = target.hasAttribute('data-focusable') ? target : null;
+      this.onListFocus();
+    });
+    // After SpatialNav's own listener, which hides the ring the pointer left.
+    this.container.addEventListener('nav:unhover', (e: Event) => {
+      if (e.target === this.hovered) this.hovered = null;
+      this.syncScope();
+    });
     this.container.addEventListener('click', () => this.onListFocus(), true);
     this.editor = new ChannelListEditor(container, this.nav, {
       render: () => this.render(),
@@ -146,17 +184,11 @@ export class ChannelList {
       getCurrentGroup: () => this.currentGroup,
       getCurrentPlaylist: () => this.currentPlaylist,
       requestEditMode: group => this.enterEditMode(group),
+      rowPosition: key => this.rowPosition(key)?.position ?? -1,
       setLocation: (group, playlist) => {
         this.currentGroup = group;
         this.currentPlaylist = playlist;
       },
-    });
-
-    // Cursor left the view: drop the hover highlight.
-    // eslint-disable-next-line focus/no-raw-pointer-listener -- legacy pointer listener until the channel list moves to a focus scope
-    this.container.addEventListener('mouseleave', () => {
-      this.nav.clearHighlight();
-      this.editor.finishPointerDrag();
     });
 
     // Activate the item under the pointer by coordinate hit-test, so a click plays
@@ -270,7 +302,7 @@ export class ChannelList {
     );
     if (!showingRecent && ensureFocus && wantedPosition >= 0) {
       this.channelVirtualizer.ensureVisible(wantedPosition, viewportHeight);
-    } else if (!showingRecent && ensureFocus && !wantedKey && !this.detachedFocus
+    } else if (!showingRecent && ensureFocus && !wantedKey && !this.detachedKey()
         && this.playingIndex >= 0) {
       wantedPosition = filteredChannels.findIndex(
         ch => PlaylistService.indexOf(ch) === this.playingIndex,
@@ -383,7 +415,7 @@ export class ChannelList {
     }
     let playingChannel: HTMLElement | null = null;
     // A detached focus waits for the next key to resume near where the list was scrolled.
-    if (!target && ensureFocus && !this.detachedFocus) {
+    if (!target && ensureFocus && !this.detachedKey()) {
       playingChannel = this.playingIndex >= 0
         ? this.container.querySelector<HTMLElement>(`.channel-main [data-channel-index="${this.playingIndex}"]`)
         : null;
@@ -393,26 +425,9 @@ export class ChannelList {
       target = playingChannel ?? target0;
       if (!target) this.nav.focusFirst();
     }
-    if (target) {
-      const restoreRecentFocus = showingRecent
-        && target.closest('.channel-main') !== null
-        && this.nav.focused === target;
-      this.nav.focus(target);
-      if (restoreRecentFocus) {
-        // eslint-disable-next-line focus/no-scroll-into-view -- legacy scrollIntoView call until the channel list moves to a focus scope
-        target.scrollIntoView({ block: 'nearest', behavior: 'auto' });
-      }
-    }
-    if (!ensureFocus) {
-      const lost = this.nav.focused;
-      const detached = lost && !this.container.contains(lost) ? lost.dataset : undefined;
-      this.nav.clearDetachedFocus();
-      if (detached?.groupPosition !== undefined) {
-        this.detachedFocus = { list: 'group', position: parseInt(detached.groupPosition, 10) };
-      } else if (detached?.listPosition !== undefined) {
-        this.detachedFocus = { list: 'channel', position: parseInt(detached.listPosition, 10) };
-      }
-    }
+    if (target) this.nav.focus(target);
+    // The scope keeps the key of a row scrolled out of the rendered window.
+    if (!ensureFocus) this.nav.clearDetachedFocus();
     const main = this.container.querySelector<HTMLElement>('.channel-main');
     if (main && !showingRecent) {
       this.scrollGuard.syncOffset(main, 'vertical', this.channelVirtualizer.scrollOffset);
@@ -424,8 +439,10 @@ export class ChannelList {
     }
 
     // An inline rename / new-group field owns the keyboard while it is open.
-    this.editor.focusTextInput();
+    if (Focus.owner() === this.focusScope) this.editor.focusTextInput();
     if (this.previewFocused) this.nav.clearHighlight();
+    if (ensureFocus && showingRecent) this.recentToReveal = this.nav.focused?.dataset.key ?? null;
+    this.syncScope(ensureFocus ? 'key' : 'pointer');
   }
 
   private showChannelScrollbar(main: HTMLElement): void {
@@ -458,27 +475,51 @@ export class ChannelList {
     thumb.style.transform = `translateY(${Math.max(0, Math.min(track - height, offset))}px)`;
   }
 
-  setPreviewFocused(focused: boolean): void {
+  // `key` names the preview control that takes the ring.
+  setPreviewFocused(focused: boolean, key?: string): void {
     this.previewFocused = focused;
     if (focused) this.nav.clearHighlight();
+    if (focused && key) this.setScopeKey(key, 'pointer');
+    else this.syncScope();
   }
 
   restoreFocus(): void {
     this.previewFocused = false;
-    if (this.resumeDetachedFocus()) return;
+    if (this.resumeScrolledAway()) return;
     if (this.nav.focused && this.container.contains(this.nav.focused)) {
       this.nav.focus(this.nav.focused);
+      this.syncScope('key');
     } else {
       this.highlightEntryPoint();
     }
   }
 
-  // Back from the tab bar: the list may have scrolled the held row off or
-  // virtualized it away while the bar had the keys.
-  resumeFocus(): void {
-    const focused = this.nav.focused;
-    if (focused && this.container.contains(focused) && !this.offscreenRow(focused)) return;
-    this.restoreFocus();
+  // Mirror SpatialNav's focus into the scope, which paints and gates the ring.
+  private syncScope(via: Via = 'pointer'): void {
+    if (this.previewFocused) return;
+    const el = this.nav.focused;
+    const key = el && this.container.contains(el) ? el.dataset.key ?? null : null;
+    if (key) this.listKey = key;
+    if (this.nav.isHighlightHidden) {
+      if (key) this.focusScope.track(key);
+      this.focusScope.conceal();
+      return;
+    }
+    // A row scrolled out of the rendered window keeps its key.
+    if (key) this.setScopeKey(key, via);
+  }
+
+  // Only the owner of the keys may reveal; otherwise follow without a ring request.
+  private setScopeKey(key: string, via: Via): void {
+    if (Focus.owner() === this.focusScope) this.focusScope.focus(key, via);
+    else this.focusScope.track(key);
+  }
+
+  // Release the scope id and the listeners kept outside the container.
+  dispose(): void {
+    if (liveList === this) liveList = null;
+    this.focusScope.dispose();
+    this.editor.dispose();
   }
 
   get isEditing(): boolean {
@@ -521,12 +562,18 @@ export class ChannelList {
   }
 
   handleAction(action: Action, event?: NumberEvent): boolean {
+    const handled = this.dispatchAction(action, event);
+    this.syncScope('key');
+    return handled;
+  }
+
+  private dispatchAction(action: Action, event?: NumberEvent): boolean {
     // Before the editor too: it applies these to whichever row holds focus.
     // Up also precedes the row-0 hand-off to the tab bar; Down would move a grabbed row.
     const resumeFirst = action === 'select' || action === 'left' || action === 'right'
       || action === 'up' || (action === 'green' && !this.editor.isEditing)
       || (action === 'down' && this.editor.hasGrabbed);
-    if (resumeFirst && !this.editor.ownsInput && this.resumeDetachedFocus()
+    if (resumeFirst && !this.editor.ownsInput && this.resumeScrolledAway()
         && action !== 'left' && action !== 'right') {
       return true;
     }
@@ -534,7 +581,7 @@ export class ChannelList {
       // The preview controls hold the ring, and a wheel step scrolls: both move
       // the list directly.
       if (this.previewFocused || KeyHandler.isWheelAction()) this.nav.forgetHidden();
-      if (!this.previewFocused && (this.resumeDetachedFocus() || this.nav.revealHidden())) {
+      if (!this.previewFocused && (this.resumeScrolledAway() || this.nav.revealHidden())) {
         // A row scrolled away resumes in view instead of being scrolled back to.
         return true;
       }
@@ -580,7 +627,7 @@ export class ChannelList {
         } else if (focused.dataset.recentIndex !== undefined) {
           const item = this.recentItems[parseInt(focused.dataset.recentIndex, 10)];
           if (item?.kind === 'live') {
-            this.setPlaying(item.channelIndex);
+            this.markPlaying(item.channelIndex);
             this.onChannelSelect(
               item.channelIndex,
               undefined,
@@ -592,7 +639,7 @@ export class ChannelList {
           }
         } else if (focused.dataset.channelIndex !== undefined) {
           const idx = parseInt(focused.dataset.channelIndex, 10);
-          this.setPlaying(idx);
+          this.markPlaying(idx);
           this.onChannelSelect(idx, undefined, this.currentScope(), 'expand-current');
         }
         break;
@@ -611,7 +658,7 @@ export class ChannelList {
         if (!event) break;
         const num = event.number - 1;
         if (num >= 0 && num < PlaylistService.channels.length) {
-          this.setPlaying(num);
+          this.markPlaying(num);
           this.revealChannel(num); // may widen currentGroup — read scope after
           this.onChannelSelect(num, undefined, this.currentScope(), 'fullscreen');
         }
@@ -738,6 +785,15 @@ export class ChannelList {
   }
 
   setPlaying(idx: number, catchupStart?: number | null): void {
+    // Stopping playback tunes nothing for the list to land on.
+    const moved = idx >= 0 && idx !== this.playingIndex;
+    this.markPlaying(idx, catchupStart);
+    if (moved) this.playingMoved = true;
+  }
+
+  // A channel the list itself tuned: its row already holds focus.
+  private markPlaying(idx: number, catchupStart?: number | null): void {
+    this.playingMoved = false;
     this.playingIndex = idx;
     this.playingCatchupStart = catchupStart ?? null;
   }
@@ -771,16 +827,99 @@ export class ChannelList {
     return true;
   }
 
-  /**
-   * On entering the view: the playing channel, however it was tuned — else the
-   * first channel, else the first focusable. Reveals rather than searching the
-   * rendered rows, which left focus on the previously tuned one.
-   */
-  highlightEntryPoint(): void {
-    if (this.playingIndex >= 0 && this.revealChannel(this.playingIndex)) return;
+  /** On entering the view: the entry point, or with `resume` where focus was left, brought into view. */
+  highlightEntryPoint(resume = false): void {
+    this.focusScope.enter(resume ? 'back' : 'key');
+  }
+
+  private prepareEntry(via: Via): void {
+    this.placeEntry(via);
+    // Focusing the row SpatialNav already holds reports no change.
+    const focused = this.nav.focused?.dataset.key;
+    if (focused) this.focusScope.track(focused);
+  }
+
+  // Back and the bar resume where focus was left; a channel tuned elsewhere
+  // meanwhile wins. Any other entry starts at the playing channel or the top.
+  private placeEntry(via: Via): void {
+    const moved = this.playingMoved;
+    this.playingMoved = false;
+    const resume = via === 'back' || via === 'resume';
+    const playing = this.playingIndex;
+    if ((!resume || moved) && playing >= 0 && this.revealChannel(playing)) return;
+    const key = this.focusScope.focusKey;
+    if (resume && key !== null && this.revealKey(key)) return;
+    if (playing >= 0 && this.revealChannel(playing)) return;
     const entry = this.container.querySelector<HTMLElement>('.channel-main [data-channel-index]');
     if (entry) this.nav.focus(entry);
     else this.nav.focusFirst();
+  }
+
+  private revealKey(key: string): boolean {
+    const row = this.rowPosition(key);
+    if (row) return this.focusRow(row.list, row.position);
+    const el = this.container.querySelector<HTMLElement>(`[data-key="${attrSelectorEscape(key)}"]`);
+    if (!el || !el.hasAttribute('data-focusable')) return false;
+    this.nav.focus(el);
+    if (key.indexOf('recent:') === 0) this.recentToReveal = key;
+    return true;
+  }
+
+  // Focus a virtual row fully in view, scrolling the list only when it is not.
+  private focusRow(list: RowList, position: number): boolean {
+    const selector = list === 'group'
+      ? `[data-group-position="${String(position)}"]`
+      : `[data-list-position="${String(position)}"]`;
+    let row = this.container.querySelector<HTMLElement>(selector);
+    if (!row || this.rowVisibility(row, list) !== 'full') {
+      const scroller = this.container.querySelector<HTMLElement>(
+        list === 'group' ? '.group-list' : '.channel-main',
+      );
+      const virtualizer = list === 'group' ? this.groupVirtualizer : this.channelVirtualizer;
+      virtualizer.ensureVisible(position, scroller?.clientHeight || CHANNEL_VIEWPORT_FALLBACK);
+      // render() reads the group offset back from the DOM.
+      if (scroller) this.scrollGuard.syncOffset(scroller, 'vertical', virtualizer.scrollOffset);
+      this.render(false);
+      row = this.container.querySelector<HTMLElement>(selector);
+    }
+    if (!row) return false;
+    this.nav.focus(row);
+    return true;
+  }
+
+  // A virtual list row's place in the model, rendered or not.
+  private rowPosition(key: string): { list: RowList; position: number } | null {
+    if (key.indexOf('g:') === 0) {
+      const position = this.getGroupEntries().findIndex(group => `g:${group.id}` === key);
+      return position < 0 ? null : { list: 'group', position };
+    }
+    if (key.indexOf('ch:') !== 0 || this.currentGroup === 'builtin:recently-watched') return null;
+    const position = this.channelPosition(parseInt(key.slice(3), 10));
+    return position < 0 ? null : { list: 'channel', position };
+  }
+
+  // A list row moves with the list's scroll, so no input pass may scroll it
+  // back: virtual rows are kept in view by the list, and a Recently Watched
+  // row only by the list's own re-render or re-entry.
+  private reveal(key: string): boolean | null {
+    if (this.recentToReveal === key) {
+      this.recentToReveal = null;
+      return false;
+    }
+    return this.rowPosition(key) !== null || key.indexOf('recent:') === 0 ? null : false;
+  }
+
+  private defaultKey(): string | null {
+    const focused = this.nav.focused;
+    if (focused && this.container.contains(focused) && focused.dataset.key) return focused.dataset.key;
+    const playing = this.playingIndex >= 0
+      ? this.container.querySelector<HTMLElement>(
+        `.channel-main [data-channel-index="${String(this.playingIndex)}"]`)
+      : null;
+    const row = playing
+      ?? this.container.querySelector<HTMLElement>('.channel-main [data-channel-index]')
+      ?? this.container.querySelector<HTMLElement>('[data-focusable][data-key]');
+    return row?.dataset.key ?? null;
   }
 
   private renderChannel(ch: Channel, favs: string[], position: number, top: number): Safe {
@@ -917,36 +1056,57 @@ export class ChannelList {
       this.render();
       return;
     }
-    this.setPlaying(item.channelIndex, item.progress.progStart);
+    this.markPlaying(item.channelIndex, item.progress.progStart);
     this.onChannelSelect(item.channelIndex, catchup, this.currentScope());
+  }
+
+  // A focused row the list scrolled out of its rendered window.
+  private detachedKey(): string | null {
+    const focused = this.nav.focused;
+    if (focused && this.container.contains(focused)) return null;
+    let key = this.focusScope.focusKey;
+    if (key !== null && key.indexOf('preview-') === 0) key = this.listKey;
+    return key !== null && this.rowPosition(key) ? key : null;
+  }
+
+  // Where the focused row went when the list scrolled it fully out of view,
+  // whether still rendered in the overscan or not.
+  private scrolledAway(): { list: RowList; position: number } | null {
+    const focused = this.nav.focused;
+    if (!focused || !this.container.contains(focused)) {
+      const key = this.detachedKey();
+      return key === null ? null : this.rowPosition(key);
+    }
+    const list: RowList | null = focused.dataset.groupPosition !== undefined ? 'group'
+      : focused.dataset.listPosition !== undefined ? 'channel' : null;
+    if (!list || this.rowVisibility(focused, list) !== 'none') return null;
+    const position = list === 'group' ? focused.dataset.groupPosition : focused.dataset.listPosition;
+    return { list, position: parseInt(position ?? '', 10) };
   }
 
   // The focused row scrolled away without the pointer following it (cursor
   // hidden, or the wheel over the list padding). Resume at the row in view
   // nearest to it, rather than letting the D-pad restart from the sidebar.
-  private resumeDetachedFocus(): boolean {
-    const focused = this.nav.focused;
-    const from = focused ? this.offscreenRow(focused) : this.detachedFocus;
+  private resumeScrolledAway(): boolean {
+    const from = this.scrolledAway();
     if (!from) return false;
     // A grabbed row stays the one to move or drop, so bring it back.
     if (this.editor.refocusGrabbed(from.list)) {
       this.render();
-      log.debug('Resumed detached focus', 'event=channel_list.focus.resumed', `list=${from.list}`,
-        'target=grabbed', `rendered=${focused ? 'yes' : 'no'}`);
+      const key = this.nav.focused?.dataset.key;
+      if (key) this.focusScope.resume(key, 0, `list=${from.list}`, 'target=grabbed');
       return true;
     }
     const list = this.container.querySelector<HTMLElement>(
       from.list === 'group' ? '.group-list' : '.channel-main',
     );
     if (!list) return false;
-    const view = this.listViewport(list, from.list);
     let best: HTMLElement | null = null;
     let bestDistance = Infinity;
     for (const row of Array.from(list.querySelectorAll<HTMLElement>(
       from.list === 'group' ? '[data-group-position]' : '[data-list-position]',
     ))) {
-      const box = row.getBoundingClientRect();
-      if (box.top < view.top - 1 || box.bottom > view.bottom + 1) continue;
+      if (this.rowVisibility(row, from.list) !== 'full') continue;
       const position = from.list === 'group' ? row.dataset.groupPosition : row.dataset.listPosition;
       const distance = Math.abs(parseInt(position ?? '', 10) - from.position);
       if (distance < bestDistance) {
@@ -955,25 +1115,22 @@ export class ChannelList {
       }
     }
     if (!best) return false;
-    log.debug('Resumed detached focus', 'event=channel_list.focus.resumed', `list=${from.list}`,
-      'target=nearest', `distance=${bestDistance}`, `rendered=${focused ? 'yes' : 'no'}`);
     this.nav.focus(best);
+    if (best.dataset.key) {
+      this.focusScope.resume(best.dataset.key, bestDistance, `list=${from.list}`, 'target=nearest');
+    }
     return true;
   }
 
-  // A focused row can scroll fully out of view yet stay rendered in the
-  // virtual list's overscan; it is as lost to the user as a detached one.
-  private offscreenRow(row: HTMLElement): { list: 'group' | 'channel'; position: number } | null {
-    const kind = row.dataset.groupPosition !== undefined ? 'group'
-      : row.dataset.listPosition !== undefined ? 'channel' : null;
-    if (!kind) return null;
-    const list = row.closest<HTMLElement>(kind === 'group' ? '.group-list' : '.channel-main');
-    if (!list || !this.container.contains(list)) return null;
-    const view = this.listViewport(list, kind);
+  // A list that has no layout yet (hidden, or no CSS) counts every row as in view.
+  private rowVisibility(row: HTMLElement, list: RowList): 'full' | 'partial' | 'none' {
+    const scroller = row.closest<HTMLElement>(list === 'group' ? '.group-list' : '.channel-main');
+    if (!scroller) return 'none';
+    const view = this.listViewport(scroller, list);
+    if (view.bottom <= view.top) return 'full';
     const box = row.getBoundingClientRect();
-    if (view.bottom <= view.top || (box.bottom > view.top && box.top < view.bottom)) return null;
-    const position = kind === 'group' ? row.dataset.groupPosition : row.dataset.listPosition;
-    return { list: kind, position: parseInt(position ?? '', 10) };
+    if (box.top >= view.top - 1 && box.bottom <= view.bottom + 1) return 'full';
+    return box.bottom > view.top && box.top < view.bottom ? 'partial' : 'none';
   }
 
   // The edit and preview hints overlay the bottom of the channel list.
@@ -989,7 +1146,7 @@ export class ChannelList {
   }
 
   private moveVirtualFocus(delta: number): boolean {
-    if (this.resumeDetachedFocus()) return true;
+    if (this.resumeScrolledAway()) return true;
     const focused = this.nav.focused;
     const rawGroupPosition = focused?.dataset.groupPosition;
     if (rawGroupPosition !== undefined) {

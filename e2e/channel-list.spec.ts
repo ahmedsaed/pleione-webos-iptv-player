@@ -9,6 +9,7 @@ import {
   measureRowTextFit,
   type Page,
 } from './helpers';
+import { seedXtream } from './fixtures/xtream';
 
 // The channel list: rendering safety (XSS), group filtering, and the fact that
 // search + settings now live in the docked tab bar (not the sidebar).
@@ -429,7 +430,7 @@ test('Down after the focused row scrolls out of view stays in the channel list',
   if (!view || !row) throw new Error('no layout');
   expect(row.y).toBeGreaterThanOrEqual(view.y - 1);
   expect(row.y + row.height).toBeLessThanOrEqual(view.y + view.height + 1);
-  expect(events.some((text) => text.includes('event=channel_list.focus.resumed'))).toBe(true);
+  expect(repairedIn(events, 'channel', 'nearest')).toBe(true);
 });
 
 test('a stationary pointer over the channel list does not trap D-pad Down', async ({ page }) => {
@@ -460,6 +461,19 @@ test('a stationary pointer over the channel list does not trap D-pad Down', asyn
   await expect(hovered).not.toHaveAttribute('data-list-position', '25');
   expect(events.some((text) => text.includes('event=nav.hover.resumed'))).toBe(true);
 });
+
+// The list moved focus scrolled out of view to a row of `list`.
+function repairedIn(events: string[], list: 'channel' | 'group', target: 'nearest' | 'grabbed'): boolean {
+  const fields = [
+    /(^|\s)event=nav\.focus\.repaired(\s|$)/,
+    /(^|\s)reason=detached(\s|$)/,
+    /(^|\s)scope=live\.channels(\s|$)/,
+    /(^|\s)distance=\d+(\s|$)/,
+    new RegExp(`(^|\\s)list=${list}(\\s|$)`),
+    new RegExp(`(^|\\s)target=${target}(\\s|$)`),
+  ];
+  return events.some((text) => fields.every((field) => field.test(text)));
+}
 
 function rowInView(row: { y: number; height: number }, view: { y: number; height: number }): boolean {
   return row.y >= view.y - 1 && row.y + row.height <= view.y + view.height + 1;
@@ -496,7 +510,7 @@ test('Down after the focused group scrolls out of view stays in the group list',
   const row = await focused.boundingBox();
   if (!view || !row) throw new Error('no layout');
   expect(rowInView(row, view)).toBe(true);
-  expect(events.some((text) => /event=channel_list\.focus\.resumed list=group\b/.test(text))).toBe(true);
+  expect(repairedIn(events, 'group', 'nearest')).toBe(true);
 });
 
 // The first OK only brings focus back into view, as it does outside edit mode.
@@ -558,7 +572,7 @@ test('OK in edit mode with a grabbed row scrolled away brings the grabbed row ba
   const row = await grabbed.boundingBox();
   if (!view || !row) throw new Error('no layout');
   expect(rowInView(row, view)).toBe(true);
-  expect(events.some((text) => /event=channel_list\.focus\.resumed list=channel target=grabbed\b/.test(text))).toBe(true);
+  expect(repairedIn(events, 'channel', 'grabbed')).toBe(true);
 
   await page.keyboard.press('Enter');
   await expect(page.locator('.grabbed')).toHaveCount(0);
@@ -597,7 +611,7 @@ test('a focused row scrolled just out of view, still rendered, is not acted on',
   const row = await focused.boundingBox();
   if (!row) throw new Error('no layout');
   expect(rowInView(row, view)).toBe(true);
-  expect(events.some((text) => /event=channel_list\.focus\.resumed list=channel target=nearest .*rendered=yes/.test(text))).toBe(true);
+  expect(repairedIn(events, 'channel', 'nearest')).toBe(true);
 
   await page.keyboard.press('Escape');
   await settleVirtualScroll(page);
@@ -940,4 +954,172 @@ test('the Live tab clicked from another section shows the far channel that is pl
     const [r, l] = await Promise.all([playing.boundingBox(), list.boundingBox()]);
     return !!r && !!l && r.y >= l.y - 1 && r.y + r.height <= l.y + l.height + 1;
   }).toBe(true);
+});
+
+test('Back from the Guide resumes the row you left, brought into view', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowDown');
+  const main = page.locator('#view-channels .channel-main');
+  const row = main.locator('[data-list-position="6"]');
+  await expect(row).toHaveClass(/\bfocused\b/);
+  const key = await row.getAttribute('data-key');
+
+  // Scroll the row just above the viewport, where it stays rendered.
+  await settleVirtualScroll(page);
+  await row.evaluate((el) => {
+    const list = el.closest<HTMLElement>('.channel-main')!;
+    list.scrollTop = el.offsetTop + el.offsetHeight + 20;
+  });
+  await settleVirtualScroll(page);
+  await expect(row).toHaveCount(1);
+
+  await page.evaluate(() =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
+  await expect(page.locator('#view-epg')).toBeVisible();
+  await page.evaluate(() =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  const focused = main.locator('.focused');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).toHaveAttribute('data-key', key!);
+  await settleVirtualScroll(page);
+  await expect.poll(async () => {
+    const [r, l] = await Promise.all([focused.boundingBox(), main.boundingBox()]);
+    return !!r && !!l && rowInView(r, l);
+  }).toBe(true);
+});
+
+test('Back from the Guide resumes a group scrolled out of view, brought into view', async ({ page }) => {
+  const lines = ['#EXTM3U'];
+  for (let i = 1; i <= 200; i++) {
+    lines.push(`#EXTINF:-1 group-title="Group ${String(i)}",Ch ${String(i)}`, `http://host/${String(i)}.m3u8`);
+  }
+  await routePlaylist(page, lines.join('\n'));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  const groups = page.locator('#view-channels .group-list');
+  for (let i = 0; i < 4 && (await groups.locator('.focused').count()) === 0; i++) {
+    await page.keyboard.press('ArrowLeft');
+  }
+  const start = groups.locator('.focused');
+  await expect(start).toHaveAttribute('data-group-position', /^\d+$/);
+  const key = await start.getAttribute('data-key');
+
+  await settleVirtualScroll(page);
+  await groups.evaluate((el) => { el.scrollTop = 5000; });
+  await expect(groups.locator(`[data-key="${String(key)}"]`)).toHaveCount(0);
+
+  await page.evaluate(() =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
+  await expect(page.locator('#view-epg')).toBeVisible();
+  await page.evaluate(() =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  const focused = page.locator('#view-channels .focused');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).toHaveAttribute('data-key', key!);
+  await settleVirtualScroll(page);
+  await expect.poll(async () => {
+    const [r, l] = await Promise.all([focused.boundingBox(), groups.boundingBox()]);
+    return !!r && !!l && rowInView(r, l);
+  }).toBe(true);
+});
+
+test('Down from the tab bar resumes the row you left after a preview was stopped and retuned', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(300));
+  await routeLiveManifest(page);
+  await seedPlaylist(page);
+  await page.addInitScript(() => localStorage.setItem('iptv_live_preview', 'true'));
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  const main = page.locator('#view-channels .channel-main');
+  const preview = page.locator('#view-channels #live-preview');
+
+  for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(preview.locator('.live-preview-channel')).toHaveText('Ch 3');
+  await page.evaluate(() =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 413, bubbles: true })));
+  await expect(preview).toBeHidden();
+  await expect(main.locator('[data-list-position="2"]')).toHaveClass(/\bfocused\b/);
+  for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(preview.locator('.live-preview-channel')).toHaveText('Ch 5');
+  await expect(page.locator('#view-player')).toBeHidden();
+
+  // The list tuned Ch 5 itself, so the row you leave it from is the one to resume.
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowUp');
+  await expect(main.locator('[data-list-position="0"]')).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('.tab-bar .focused')).toHaveCount(1);
+  await page.keyboard.press('ArrowDown');
+
+  const focused = main.locator('.focused');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).toHaveAttribute('data-key', 'ch:0');
+  await expect(preview.locator('.live-preview-channel')).toHaveText('Ch 5');
+});
+
+test('Back from the Guide lands on a channel tuned elsewhere, not the row you left', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(300));
+  await routeLiveManifest(page);
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowDown');
+  const main = page.locator('#view-channels .channel-main');
+  await expect(main.locator('[data-list-position="6"]')).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-player')).toBeVisible();
+  await expect(page.locator('.osd-channel-number')).toHaveText('7');
+
+  // Tune far away from the player, then open the Guide from there.
+  await page.keyboard.press('4');
+  await page.keyboard.press('0');
+  await expect(page.locator('.osd-channel-number')).toHaveText('40');
+  await page.evaluate(() =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
+  await expect(page.locator('#view-epg')).toBeVisible();
+  await page.evaluate(() =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  const focused = main.locator('.focused');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).toHaveClass(/\bplaying\b/);
+  await expect(focused).toHaveAttribute('data-key', 'ch:39');
+  await settleVirtualScroll(page);
+  await expect.poll(async () => {
+    const [r, l] = await Promise.all([focused.boundingBox(), main.boundingBox()]);
+    return !!r && !!l && rowInView(r, l);
+  }).toBe(true);
+});
+
+async function hoverCenter(page: Page, selector: string): Promise<void> {
+  const box = await page.locator(selector).boundingBox();
+  if (!box) throw new Error(`no box for ${selector}`);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 2 });
+}
+
+test('a control hovered while the account menu held the keys lights once it hands them back', async ({ page }) => {
+  await seedXtream(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels .group-item').first()).toBeVisible();
+
+  await page.locator('.account-avatar').click();
+  await hoverCenter(page, '#view-channels .group-item[data-group-position="0"]');
+  // Enter goes to the open menu, which closes and leaves the keys with the bar.
+  await page.keyboard.press('Enter');
+  await hoverCenter(page, '#view-channels .channel-edit-btn');
+  await expect(page.locator('#view-channels .channel-edit-btn')).toHaveClass(/\bfocused\b/);
+
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#view-channels .channel-edit-btn')).not.toHaveClass(/\bfocused\b/);
+  await expect(page.locator('#view-channels .focused')).toHaveCount(1);
 });

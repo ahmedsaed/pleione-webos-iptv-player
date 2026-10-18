@@ -85,6 +85,7 @@ vi.mock('./toast', () => ({ showToast: toastMock.showToast }));
 vi.mock('../services/channel-health', () => ({ ChannelHealthService: healthMock }));
 
 import { ChannelList } from './channel-list';
+import { Focus } from '../navigation/focus-scope';
 import { CONFIG } from '../config';
 import { setLocale } from '../i18n';
 import { channelKey } from '../utils/channel';
@@ -170,6 +171,10 @@ beforeEach(() => {
   document.body.appendChild(container);
   onSelect = vi.fn();
   list = new ChannelList(container, { onChannelSelect: onSelect });
+});
+
+afterEach(() => {
+  Focus.setBase(() => null);
 });
 
 function channelItems(): HTMLElement[] {
@@ -570,7 +575,8 @@ describe('ChannelList.render', () => {
     expect(channelItems()).toHaveLength(1);
   });
 
-  it('restores Recently Watched focus with one CSS-owned scroll call', () => {
+  it('brings a restored Recently Watched row into view once', () => {
+    Focus.setBase(() => list.focusScope);
     recentMock.items = [{
       kind: 'live',
       channel: data.channels[0],
@@ -581,15 +587,69 @@ describe('ChannelList.render', () => {
     hover(container.querySelector<HTMLElement>('[data-group="builtin:recently-watched"]')!);
     list.handleAction('select');
     hover(channelItems()[0]);
-    const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);
-    scrollIntoView.mockClear();
-    list.render();
-
-    expect(scrollIntoView).toHaveBeenCalledTimes(1);
-    expect(scrollIntoView).toHaveBeenLastCalledWith({
-      block: 'nearest',
-      behavior: 'auto',
+    Focus.flush();
+    // The list sits 100px tall with its row scrolled just below it.
+    const main = container.querySelector<HTMLElement>('.channel-main')!;
+    let scrolled = 0;
+    const rowTop = () => 150 - scrolled;
+    const inView = () => rowTop() >= 0 && rowTop() + 50 <= 100;
+    vi.mocked(Element.prototype.scrollIntoView).mockImplementation(function (this: Element) {
+      if (this === channelItems()[0] && !inView()) scrolled = 150 + 50 - 100;
     });
+    expect(inView()).toBe(false);
+
+    list.render();
+    expect(inView()).toBe(false);
+    main.style.overflowY = 'auto';
+    Object.defineProperty(main, 'clientWidth', { configurable: true, value: 400 });
+    Object.defineProperty(main, 'clientHeight', { configurable: true, value: 100 });
+    main.getBoundingClientRect = () => new DOMRect(0, 0, 400, 100);
+    channelItems()[0].getBoundingClientRect = () => new DOMRect(0, rowTop(), 400, 50);
+    Focus.flush();
+    expect(inView()).toBe(true);
+
+    // Once it has been shown, the user may scroll it away again.
+    scrolled = 0;
+    Focus.reconcile();
+    Focus.flush();
+    expect(inView()).toBe(false);
+  });
+
+  it('keeps a restored Recently Watched row\'s reveal through a pass for another key', () => {
+    Focus.setBase(() => list.focusScope);
+    recentMock.items = [{
+      kind: 'live',
+      channel: data.channels[0],
+      channelIndex: 0,
+      updatedAt: 1000,
+    }];
+    list.render();
+    hover(container.querySelector<HTMLElement>('[data-group="builtin:recently-watched"]')!);
+    list.handleAction('select');
+    hover(channelItems()[0]);
+    Focus.flush();
+    const main = container.querySelector<HTMLElement>('.channel-main')!;
+    let scrolled = 0;
+    const rowTop = () => 150 - scrolled;
+    const inView = () => rowTop() >= 0 && rowTop() + 50 <= 100;
+    vi.mocked(Element.prototype.scrollIntoView).mockImplementation(function (this: Element) {
+      if (this === channelItems()[0] && !inView()) scrolled = 150 + 50 - 100;
+    });
+
+    list.render();
+    const rowKey = channelItems()[0].dataset.key!;
+    main.style.overflowY = 'auto';
+    Object.defineProperty(main, 'clientWidth', { configurable: true, value: 400 });
+    Object.defineProperty(main, 'clientHeight', { configurable: true, value: 100 });
+    main.getBoundingClientRect = () => new DOMRect(0, 0, 400, 100);
+    channelItems()[0].getBoundingClientRect = () => new DOMRect(0, rowTop(), 400, 50);
+    list.focusScope.focus('g:builtin:recently-watched', 'key');
+    Focus.flush();
+    expect(inView()).toBe(false);
+
+    list.focusScope.focus(rowKey, 'key');
+    Focus.flush();
+    expect(inView()).toBe(true);
   });
 
   it('shows the Recently Watched empty state', () => {
@@ -938,7 +998,7 @@ describe('ChannelList interaction', () => {
   it('clears the focused channel when the cursor leaves the view', () => {
     hover(channelItems()[1]);
     expect(channelItems()[1].classList.contains('focused')).toBe(true);
-    container.dispatchEvent(new MouseEvent('mouseleave'));
+    channelItems()[1].dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
     expect(channelItems()[1].classList.contains('focused')).toBe(false);
   });
 
@@ -1006,6 +1066,22 @@ describe('ChannelList interaction', () => {
     list.highlightEntryPoint();
     expect(channelItems()[2].classList.contains('focused')).toBe(true);
     expect(channelItems()[0].classList.contains('focused')).toBe(false);
+  });
+
+  // The Guide retuning the channel already playing tunes nothing new, so
+  // Back resumes the row the list was left on.
+  it('highlightEntryPoint resumes the row left after the playing channel is retuned', () => {
+    list.render();
+    hover(channelItems()[2]);
+    list.handleAction('select');
+    list.setPlaying(2);
+    hover(channelItems()[0]);
+
+    list.setPlaying(2);
+    list.highlightEntryPoint(true);
+
+    expect(channelItems()[0].classList.contains('focused')).toBe(true);
+    expect(channelItems()[2].classList.contains('focused')).toBe(false);
   });
 
   it('highlightEntryPoint widens a filtered group to reach the playing channel', () => {

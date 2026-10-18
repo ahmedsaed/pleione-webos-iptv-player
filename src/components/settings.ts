@@ -1263,11 +1263,6 @@ export class Settings {
       this.confirmationPrompt.handleAction(action);
       return true;
     }
-    if (this.liveCategoryPicker.visible) {
-      this.liveCategoryPicker.handleAction(action);
-      return true;
-    }
-
     switch (action) {
       case 'up':
         // The geometric move from the first category lands in the pane.
@@ -1668,14 +1663,6 @@ export class Settings {
     StorageService.setShowHiddenChannels(show);
     PlaylistService.applyCustomization();
     this.onChannelsChanged();
-  }
-
-  get categoryPickerRoot(): HTMLElement | null {
-    return this.liveCategoryPicker.ringRoot;
-  }
-
-  get isCategoryPickerVisible(): boolean {
-    return this.liveCategoryPicker.visible;
   }
 
   get isPromptVisible(): boolean {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Channel } from '../types';
 import type { RecentlyWatchedItem } from '../services/recently-watched';
 
@@ -109,6 +109,7 @@ vi.mock('../workers/app-worker-client', async () => {
 import { ChannelList } from './channel-list';
 import { channelKey } from '../utils/channel';
 import { ChannelCustomizationService, groupKeyOf } from '../services/channel-customization';
+import { Focus } from '../navigation/focus-scope';
 
 playlistMock.indexOfKey = (key: string) => data.channels
   .findIndex(ch => channelKey(ch) === key);
@@ -171,6 +172,7 @@ let list: ChannelList;
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
+  Focus.pointerGone();
   data.favorites = [];
   data.includeHidden = false;
   data.raw.forEach(ch => { ch.playlistIds = []; });
@@ -214,6 +216,8 @@ beforeEach(() => {
     onEpgMappingChanged,
     onEpgOffsetChanged,
   });
+  // The Live view is shown, so its list owns the keys.
+  Focus.setBase(() => list.focusScope);
 });
 
 function channelItems(): HTMLElement[] {
@@ -494,27 +498,142 @@ describe('ChannelList edit mode', () => {
   it('drags a channel with the Magic Remote mouse sequence', () => {
     enterEdit();
     const originalElementFromPoint = document.elementFromPoint;
-    let hit = channelItems()[2];
-    document.elementFromPoint = () => hit;
+    document.elementFromPoint = () => channelItems()[2];
     channelItems()[2].dispatchEvent(new MouseEvent('mousedown', {
       button: 0, clientX: 100, clientY: 250, bubbles: true,
     }));
+    document.elementFromPoint = originalElementFromPoint;
 
-    hit = channelItems()[0];
-    hit.getBoundingClientRect = () => ({
-      top: 0, bottom: 84, left: 0, right: 600, width: 600, height: 84, x: 0, y: 0,
-      toJSON: () => ({}),
-    });
-    container.dispatchEvent(new MouseEvent('mousemove', {
-      clientX: 100, clientY: 10, bubbles: true,
-    }));
-    container.dispatchEvent(new MouseEvent('mouseup', {
+    hover(channelItems()[0]);
+    Focus.pointer(100, 10);
+    document.dispatchEvent(new MouseEvent('mouseup', {
       button: 0, clientX: 100, clientY: 10, bubbles: true,
     }));
     container.dispatchEvent(new MouseEvent('click', {
       button: 0, clientX: 100, clientY: 10, bubbles: true,
     }));
+
+    expect(names()).toEqual(['Charlie', 'Alpha', 'Bravo']);
+    expect(container.querySelector('.grabbed')).toBeNull();
+    expect(storageMock.setChannelCustomization).toHaveBeenCalled();
+  });
+
+  it('does not drag when OK wobbles the pointer onto a neighboring row', () => {
+    enterEdit();
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => channelItems()[1];
+    Focus.pointer(100, 199);
+    channelItems()[1].dispatchEvent(new MouseEvent('mousedown', {
+      button: 0, clientX: 100, clientY: 199, bubbles: true,
+    }));
     document.elementFromPoint = originalElementFromPoint;
+
+    hover(channelItems()[2]);
+    Focus.pointer(100, 201);
+    document.dispatchEvent(new MouseEvent('mouseup', {
+      button: 0, clientX: 100, clientY: 201, bubbles: true,
+    }));
+
+    expect(names()).toEqual(['Alpha', 'Bravo', 'Charlie']);
+    expect(container.querySelector('.grabbed')).toBeNull();
+    expect(storageMock.setChannelCustomization).not.toHaveBeenCalled();
+  });
+
+  it('starts a drag once the pointer moves on within the row it entered', () => {
+    enterEdit();
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => channelItems()[0];
+    Focus.pointer(100, 95);
+    channelItems()[0].dispatchEvent(new MouseEvent('mousedown', {
+      button: 0, clientX: 100, clientY: 95, bubbles: true,
+    }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    // One step crosses into row 2 below the drag distance, and Chromium
+    // hovers it before the step's move lands.
+    hover(channelItems()[1]);
+    Focus.pointer(100, 101);
+    expect(container.querySelector('.grabbed')).toBeNull();
+    // Moving on inside row 2 brings no new hover.
+    Focus.pointer(100, 110);
+    Focus.pointer(100, 120);
+    expect(container.querySelector('.grabbed')).not.toBeNull();
+
+    document.dispatchEvent(new MouseEvent('mouseup', {
+      button: 0, clientX: 100, clientY: 120, bubbles: true,
+    }));
+    expect(names()).toEqual(['Bravo', 'Alpha', 'Charlie']);
+    expect(container.querySelector('.grabbed')).toBeNull();
+  });
+
+  it('drops a held press when Back leaves edit mode', () => {
+    enterEdit();
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => channelItems()[2];
+    Focus.pointer(100, 250);
+    channelItems()[2].dispatchEvent(new MouseEvent('mousedown', {
+      button: 0, clientX: 100, clientY: 250, bubbles: true,
+    }));
+    document.elementFromPoint = originalElementFromPoint;
+    // A hover short of the drag distance waits for the next move.
+    hover(channelItems()[1]);
+
+    expect(list.handleBack()).toBe(true);
+    expect(list.isEditing).toBe(false);
+    Focus.pointer(100, 150);
+    hover(channelItems()[0]);
+    Focus.pointer(100, 10);
+
+    expect(container.querySelector('.grabbed')).toBeNull();
+    expect(names()).toEqual(['Alpha', 'Bravo', 'Charlie']);
+    expect(storageMock.setChannelCustomization).not.toHaveBeenCalled();
+    document.dispatchEvent(new MouseEvent('mouseup', {
+      button: 0, clientX: 100, clientY: 10, bubbles: true,
+    }));
+  });
+
+  it('drops its document listeners once a new list replaces it', () => {
+    const add = vi.spyOn(document, 'addEventListener');
+    const remove = vi.spyOn(document, 'removeEventListener');
+    const subscribe = Focus.onPointer.bind(Focus);
+    const unsubscribed: Array<ReturnType<typeof vi.fn>> = [];
+    const onPointer = vi.spyOn(Focus, 'onPointer').mockImplementation((listener) => {
+      const stop = vi.fn(subscribe(listener));
+      unsubscribed.push(stop);
+      return stop;
+    });
+    const other = document.createElement('div');
+    document.body.appendChild(other);
+    const replaced = new ChannelList(other, { onChannelSelect: vi.fn() });
+    const added = add.mock.calls.map(([type, listener]) => [type, listener]);
+    expect(added.map(([type]) => type)).toContain('mouseup');
+    expect(unsubscribed).toHaveLength(1);
+    expect(unsubscribed[0]).not.toHaveBeenCalled();
+
+    list = new ChannelList(container, { onChannelSelect: onSelect });
+    expect(remove.mock.calls.map(([type, listener]) => [type, listener]))
+      .toEqual(expect.arrayContaining(added));
+    expect(unsubscribed[0]).toHaveBeenCalledTimes(1);
+    expect(replaced.focusScope).not.toBe(list.focusScope);
+    add.mockRestore();
+    remove.mockRestore();
+    onPointer.mockRestore();
+    other.remove();
+  });
+
+  it('ends a drag released outside the list', () => {
+    enterEdit();
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => channelItems()[2];
+    channelItems()[2].dispatchEvent(new MouseEvent('mousedown', {
+      button: 0, clientX: 100, clientY: 250, bubbles: true,
+    }));
+    document.elementFromPoint = originalElementFromPoint;
+    hover(channelItems()[0]);
+    Focus.pointer(100, 10);
+    expect(container.querySelector('.grabbed')).not.toBeNull();
+
+    document.body.dispatchEvent(new MouseEvent('mouseup', { button: 0, bubbles: true }));
 
     expect(names()).toEqual(['Charlie', 'Alpha', 'Bravo']);
     expect(container.querySelector('.grabbed')).toBeNull();
@@ -828,8 +947,7 @@ describe('ChannelList edit mode', () => {
     expect(candidate.classList).not.toContain('focused');
     expect(candidate.classList).toContain('pointer-hovered');
     expect(document.activeElement).toBe(input);
-    container.querySelector<HTMLElement>('.epg-mapping-search-wrap')!
-      .dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+    candidate.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
     expect(candidate.classList).not.toContain('pointer-hovered');
     list.render();
 
@@ -1001,6 +1119,81 @@ describe('ChannelList edit mode', () => {
 
     expect(container.querySelector('.edit-text-input')).toBeNull();
     expect(names()[0]).toBe('Alpha Two');
+  });
+
+  describe('a prompt taking the keys', () => {
+    let promptRoot: HTMLElement;
+    let prompt: ReturnType<typeof Focus.register>;
+
+    // Typing leaves the caret after the text, as a keyboard does.
+    function type(input: HTMLInputElement, text: string): void {
+      input.value = text;
+      input.setSelectionRange(text.length, text.length);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    beforeEach(() => {
+      promptRoot = document.createElement('div');
+      promptRoot.innerHTML = '<button data-key="ok" data-focusable>OK</button>';
+      document.body.appendChild(promptRoot);
+      prompt = Focus.register({ id: 'test.prompt', root: promptRoot, restrict: 'self-only' });
+    });
+
+    afterEach(() => {
+      prompt.dispose();
+      promptRoot.remove();
+    });
+
+    it('drops the rename caret, and the list gives it back once the prompt closes', () => {
+      enterEdit();
+      hover(channelItems()[0]);
+      list.handleAction('select');
+      list.handleAction('blue');
+      const input = container.querySelector<HTMLInputElement>('.edit-text-input')!;
+      expect(document.activeElement).toBe(input);
+      expect([input.selectionStart, input.selectionEnd]).toEqual([0, input.value.length]);
+      type(input, 'Fo');
+
+      Focus.push(prompt);
+      Focus.flush();
+      expect(document.activeElement).not.toBe(input);
+      list.render();
+      expect(document.activeElement).not.toBe(input);
+
+      Focus.pop(prompt);
+      Focus.flush();
+      const restored = container.querySelector<HTMLInputElement>('.edit-text-input')!;
+      expect(document.activeElement).toBe(restored);
+      expect(restored.value).toBe('Fo');
+      expect([restored.selectionStart, restored.selectionEnd]).toEqual([2, 2]);
+    });
+
+    it('drops the caret in the EPG mapping search', async () => {
+      epgMock.getLocalMappingCandidates.mockReturnValue([]);
+      enterEdit();
+      hover(channelItems()[0]);
+      list.handleAction('select');
+      hover(container.querySelector<HTMLElement>('[data-epg-action]')!);
+      list.handleAction('select');
+      await waitForEpgSearch();
+      const input = container.querySelector<HTMLInputElement>('.epg-mapping-search')!;
+      expect(document.activeElement).toBe(input);
+      type(input, 'l1');
+      await waitForEpgSearch();
+
+      Focus.push(prompt);
+      Focus.flush();
+      expect(document.activeElement).not.toBe(input);
+      list.render();
+      expect(document.activeElement).not.toBe(input);
+
+      Focus.pop(prompt);
+      Focus.flush();
+      const restored = container.querySelector<HTMLInputElement>('.epg-mapping-search')!;
+      expect(document.activeElement).toBe(restored);
+      expect(restored.value).toBe('l1');
+      expect([restored.selectionStart, restored.selectionEnd]).toEqual([2, 2]);
+    });
   });
 
   it('back cancels an open rename without changing the name', () => {

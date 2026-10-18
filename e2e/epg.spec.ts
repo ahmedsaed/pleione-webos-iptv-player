@@ -429,6 +429,51 @@ test.describe('Guide pointer and keys', () => {
     await expect(programme).toHaveClass(/\bfocused\b/);
   });
 
+  for (const [name, press] of [
+    ['Down', (page: Page) => page.keyboard.press('ArrowDown')],
+    ['OK', (page: Page) => page.keyboard.press('Enter')],
+    ['Back', (page: Page) => page.evaluate(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })))],
+  ] as const) {
+    test(`${name} from the tab bar resumes a clipped programme, brought into view`, async ({ page }) => {
+      await openGuide(page);
+      await page.keyboard.press('ArrowRight');
+      const programme = page.locator('#epg-programmes .epg-programme-item.focused');
+      await expect(programme).toHaveCount(1);
+      const progIdx = await programme.getAttribute('data-prog-idx');
+      await programmesSettled(page);
+
+      // Scroll the focused programme half above the top of the column.
+      // The column may hold its offset for a frame after a key, so retry.
+      const list = page.locator('#epg-programmes');
+      const listBox = (await list.boundingBox())!;
+      await expect.poll(async () => {
+        await list.evaluate((el) => {
+          const row = el.querySelector<HTMLElement>('.epg-programme-item.focused')!.getBoundingClientRect();
+          el.scrollTop += row.top - el.getBoundingClientRect().top + row.height / 2;
+        });
+        const r = (await programme.boundingBox())!;
+        return r.y < listBox.y - 1;
+      }).toBe(true);
+
+      // The search box closed with Back leaves the keys on the bar over the Guide.
+      await page.locator('.tab-bar-item[data-section="search"]').click();
+      await expect(page.locator('.tab-bar-search-input')).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('.tab-bar-item[data-section="epg"].focused')).toHaveCount(1);
+      await expect(page.locator('#view-epg')).toBeVisible();
+
+      await press(page);
+      const focused = page.locator(`#epg-programmes .epg-programme-item[data-prog-idx="${String(progIdx)}"]`);
+      await expect(focused).toHaveClass(/\bfocused\b/);
+      await expect(page.locator('.tab-bar-item.focused')).toHaveCount(0);
+      await expect.poll(async () => {
+        const r = (await focused.boundingBox())!;
+        return r.y >= listBox.y - 1 && r.y + r.height <= listBox.y + listBox.height + 1;
+      }).toBe(true);
+    });
+  }
+
   test('Down on the last programme brings it into view when clipped', async ({ page }) => {
     await openGuide(page);
     const list = page.locator('#epg-programmes');

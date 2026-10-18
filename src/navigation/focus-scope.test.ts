@@ -125,6 +125,54 @@ describe('Focus owner stack', () => {
     expect(onRelease).toHaveBeenCalledTimes(1);
   });
 
+  it('tells a scope once when it comes to own the keys, after the old owner lets go', () => {
+    const calls: string[] = [];
+    const search = Focus.register({
+      id: 'player.subtitle_search', root: view, tier: Tier.panel,
+      onRelease: () => calls.push('search released'),
+      onAcquire: () => calls.push('search acquired'),
+    });
+    const menu = Focus.register({
+      id: 'player.menu', root: prompt,
+      onRelease: () => calls.push('menu released'),
+      onAcquire: () => calls.push('menu acquired'),
+    });
+    Focus.push(search);
+    expect(Focus.owner()).toBe(search);
+    expect(calls).toEqual(['search acquired']);
+    Focus.push(menu);
+    expect(Focus.owner()).toBe(menu);
+    expect(Focus.owner()).toBe(menu);
+    expect(calls).toEqual(['search acquired', 'search released', 'menu acquired']);
+    Focus.pop(menu);
+    expect(Focus.owner()).toBe(search);
+    expect(calls).toEqual(['search acquired', 'search released', 'menu acquired',
+      'menu released', 'search acquired']);
+  });
+
+  it('tells the scope that owns the keys after an onRelease that changes the stack', () => {
+    const calls: string[] = [];
+    const sheet = Focus.register({
+      id: 'player.sheet', root: prompt,
+      onAcquire: () => calls.push('sheet acquired'),
+    });
+    const search = Focus.register({
+      id: 'player.subtitle_search', root: view, tier: Tier.panel,
+      onRelease: () => { calls.push('search released'); Focus.push(sheet); },
+      onAcquire: () => calls.push('search acquired'),
+    });
+    const menu = Focus.register({
+      id: 'player.menu', root: prompt, tier: Tier.panel,
+      onAcquire: () => calls.push('menu acquired'),
+    });
+    Focus.push(search);
+    expect(Focus.owner()).toBe(search);
+    Focus.push(menu);
+    expect(Focus.owner()).toBe(sheet);
+    expect(Focus.owner()).toBe(sheet);
+    expect(calls).toEqual(['search acquired', 'search released', 'sheet acquired']);
+  });
+
   describe('a pushed scope opening under a resting pointer', () => {
     let hit: Element | null;
     let left: number;
@@ -730,12 +778,13 @@ describe('Focus reconcile', () => {
       setInputMode('keys');
       const a = logical('live.channels', view, { reveal: () => false });
       Focus.setBase(() => a);
-      a.resume('r2', 3);
+      a.resume('r2', 3, 'list=channel', 'target=nearest');
       Focus.flush();
       expect(shown()).toEqual(['r2']);
       expect(row(scroller, 'r2').scrollIntoView).not.toHaveBeenCalled();
       expect(repairs()).toEqual([
-        expect.stringContaining('reason=detached scope=live.channels distance=3'),
+        expect.stringContaining(
+          'reason=detached scope=live.channels distance=3 list=channel target=nearest'),
       ]);
     });
   });

@@ -2358,7 +2358,7 @@ describe('Settings Xtream Live categories', () => {
     expect(picker()!.classList.contains('hidden')).toBe(false);
     picker()!.querySelector<HTMLElement>('[data-category-id="c2"]')!
       .dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    settings.handleAction('yellow');
+    Focus.owner()!.handle('yellow');
 
     expect(settings.isPromptVisible).toBe(false);
     expect(storageMock.setLiveCategorySnapshot).toHaveBeenCalledWith('x1', {
@@ -2380,7 +2380,7 @@ describe('Settings Xtream Live categories', () => {
     await flush();
     picker()!.querySelector<HTMLElement>('[data-category-id="c2"]')!
       .dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    settings.handleAction('yellow');
+    Focus.owner()!.handle('yellow');
     container.querySelector<HTMLInputElement>('#xtream-entries .xtream-username')!.value = 'u2';
 
     click('#save-settings');
@@ -2400,7 +2400,7 @@ describe('Settings Xtream Live categories', () => {
     container.querySelector<HTMLInputElement>('#xtream-entries .xtream-username')!.value = 'u2';
     click('#xtream-entries .xtream-live-categories');
     await flush();
-    settings.handleAction('yellow');
+    Focus.owner()!.handle('yellow');
     expect(storageMock.setLiveCategorySnapshot).not.toHaveBeenCalled();
     expect(snapshots.get('x1')).toEqual({ knownIds: ['c1'], announcedIds: [], counts: {} });
 
@@ -2419,7 +2419,7 @@ describe('Settings Xtream Live categories', () => {
     container.querySelector<HTMLInputElement>('#xtream-entries .xtream-username')!.value = 'u2';
     click('#xtream-entries .xtream-live-categories');
     await flush();
-    settings.handleAction('yellow');
+    Focus.owner()!.handle('yellow');
 
     click('#save-settings');
 

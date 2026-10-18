@@ -511,7 +511,8 @@ test('Left from the controls after the list scrolls resumes at a row in view', a
   expect(row.y).toBeGreaterThanOrEqual(view.y - 1);
   expect(row.y + row.height).toBeLessThanOrEqual(view.y + view.height + 1);
   expect(await main.evaluate((el) => el.scrollTop)).toBeGreaterThan(2000);
-  expect(events.some((text) => text.includes('event=channel_list.focus.resumed'))).toBe(true);
+  expect(events.some((text) => /event=nav\.focus\.repaired reason=detached scope=live\.channels/.test(text)
+    && /\blist=channel target=nearest\b/.test(text))).toBe(true);
 });
 
 test('entering channel edit mode closes the active preview', async ({ page }) => {

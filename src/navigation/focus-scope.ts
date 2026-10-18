@@ -57,6 +57,9 @@ export interface ScopeSpec {
   // Called once the scope stops owning the keys, such as to drop a caret
   // that would otherwise keep the arrow keys from the new owner.
   onRelease?: () => void;
+  // Called once the scope comes to own the keys, such as to give a caret
+  // back to a field that onRelease took it from.
+  onAcquire?: () => void;
   // A panel that slides out under a resting pointer hovers what settles
   // under it, as a move would. Off for prompts: their safe default must
   // not yield to a cursor that merely rests, or hides, where they open.
@@ -76,7 +79,7 @@ export interface FocusScope {
   /** Follow a key the component's state moved to without an input: no reveal, ring stays concealed. */
   track(key: string | null): void;
   /** Move focus that the user scrolled away to `key`, in view, and report the repair. */
-  resume(key: string, distance: number): void;
+  resume(key: string, distance: number, ...fields: string[]): void;
   /** Hide the ring but keep the key, until the next focus request. */
   conceal(): void;
   /** Apply the scope's `enterTo` rule. */
@@ -172,11 +175,11 @@ class Scope implements FocusScope {
     Focus.reconcile();
   }
 
-  resume(key: string, distance: number): void {
+  resume(key: string, distance: number, ...fields: string[]): void {
     this.focusKey = key;
     this.concealed = false;
     this.requested = false;
-    repaired('detached', this, `distance=${String(distance)}`);
+    repaired('detached', this, `distance=${String(distance)}`, ...fields);
     Focus.reconcile();
   }
 
@@ -196,7 +199,7 @@ class Scope implements FocusScope {
   dispose(): void {
     Focus.pop(this);
     layers = layers.filter((layer) => layer.scope !== this);
-    registry.delete(this.id);
+    if (registry.get(this.id) === this) registry.delete(this.id);
   }
 }
 
@@ -214,6 +217,7 @@ let pendingOther = false;
 let lastOwner: string | null = null;
 // Where the pointer last rested (client coordinates), from KeyHandler.
 let pointerAt: { x: number; y: number } | null = null;
+const pointerListeners = new Set<(x: number, y: number) => void>();
 let settleFrame: number | null = null;
 // KeyHandler's hover, so a settled panel's hover is one it tracks.
 let hoverAt: ((x: number, y: number, within: HTMLElement) => void) | null = null;
@@ -364,6 +368,19 @@ function onLeave(e: MouseEvent): void {
   owner.conceal();
 }
 
+function resolveOwner(): { owner: FocusScope | null; best: Scope | null } {
+  let best: Scope | null = null;
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const s = stack[i];
+    if (s.live && (!best || s.tier > best.tier)) best = s;
+  }
+  for (const layer of layers) {
+    const s = layer.scope;
+    if ((!best || s.tier > best.tier) && layer.active() && s.live) best = s;
+  }
+  return { owner: best ?? (base ? base() : null), best };
+}
+
 export const Focus = {
   register(spec: ScopeSpec): FocusScope {
     if (registry.has(spec.id)) throw new Error(`Focus scope ${spec.id} is already registered`);
@@ -405,16 +422,7 @@ export const Focus = {
   },
 
   owner(): FocusScope | null {
-    let best: Scope | null = null;
-    for (let i = stack.length - 1; i >= 0; i--) {
-      const s = stack[i];
-      if (s.live && (!best || s.tier > best.tier)) best = s;
-    }
-    for (const layer of layers) {
-      const s = layer.scope;
-      if ((!best || s.tier > best.tier) && layer.active() && s.live) best = s;
-    }
-    const owner = best ?? (base ? base() : null);
+    let { owner, best } = resolveOwner();
     // A layer or a `when` can change the owner without a push, a pop, or an
     // input: whoever asks first (FocusRing.sync) triggers the pass.
     const id = owner ? owner.id : null;
@@ -423,6 +431,10 @@ export const Focus = {
       lastOwner = id;
       Focus.reconcile();
       released?.spec.onRelease?.();
+      // onRelease may push or pop a scope: the owner after it acquires.
+      ({ owner, best } = resolveOwner());
+      lastOwner = owner ? owner.id : null;
+      if (owner) (owner as Scope).spec.onAcquire?.();
       if (best && best.spec.hoverOnSettle && stack.indexOf(best) >= 0) hoverUnderPointer(best);
       else cancelSettle();
     }
@@ -432,6 +444,21 @@ export const Focus = {
   /** Note where the pointer rests, in client coordinates. */
   pointer(x: number, y: number): void {
     pointerAt = { x, y };
+    for (const listener of Array.from(pointerListeners)) listener(x, y);
+  },
+
+  /**
+   * Follow the pointer's moves. Chromium hovers before the move of the same
+   * step lands here, so a hover that reads the position sees the old one.
+   */
+  onPointer(listener: (x: number, y: number) => void): () => void {
+    pointerListeners.add(listener);
+    return () => { pointerListeners.delete(listener); };
+  },
+
+  /** Where the pointer last rested, in client coordinates. */
+  pointerPosition(): { x: number; y: number } | null {
+    return pointerAt;
   },
 
   /** The cursor hid or left the window: nothing rests anywhere. */

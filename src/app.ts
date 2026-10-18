@@ -1046,7 +1046,7 @@ class App {
     this.showView('settings');
   }
 
-  private showView(name: ViewName, preserveChannelFocus = false): void {
+  private showView(name: ViewName, preserveChannelFocus = false, resumeChannelFocus = false): void {
     // Every way out of the manager (Back, color keys, tab bar, a reminder)
     // ends management so concealment returns; the manager never stays stacked.
     if (name !== 'parental-controls' && this.isCurrentView('parental-controls')) {
@@ -1091,7 +1091,9 @@ class App {
     // Focus the channel entry point on entry — but not while the tab bar holds
     // focus (a live Left/Right preview updates the view beneath it without
     // stealing the focus ring). No-op on first load (render runs after).
-    if (name === 'channels' && !this.tabBar.focused && !preserveChannelFocus) this.channelList.highlightEntryPoint();
+    if (name === 'channels' && !this.tabBar.focused && !preserveChannelFocus) {
+      this.channelList.highlightEntryPoint(resumeChannelFocus);
+    }
 
     // Keep the active tab bound to the shown section view (so returning from
     // Settings, EPG, the player, etc. updates the underline). Skipped while the
@@ -1317,7 +1319,9 @@ class App {
     // Back into the content Up left: re-opening it would drop unsaved edits
     // and the position the ring comes back to.
     if (via === 'resume' && sectionForView(this.viewStack[this.viewStack.length - 1]) === section) {
-      if (section === 'live') this.channelList.resumeFocus();
+      // A legacy layer keeps its own DOM focus and has no key to resume.
+      const owner = Focus.owner();
+      if (owner?.logical) owner.enter('resume');
       return;
     }
     this.switchSection(section);
@@ -1535,7 +1539,7 @@ class App {
   // registered, above the shown view.
   private initFocusScopes(): void {
     const current = () => this.viewStack[this.viewStack.length - 1];
-    let tier: number = Tier.prompt;
+    let tier: number = Tier.bar;
     const layer = (
       id: string,
       root: () => HTMLElement | null,
@@ -1544,9 +1548,6 @@ class App {
       onAction?: (action: Action, event?: NumberEvent) => void,
     ) => Focus.layer(Focus.register({ id, root, restrict, onAction, tier }), active);
 
-    layer('prompt.live_categories', () => this.settings.categoryPickerRoot,
-      () => this.settings.isCategoryPickerVisible, 'self-only', (action) => this.settings.handleAction(action));
-    tier = Tier.bar;
     layer('tabbar', () => this.tabBar.ringRoot, () => this.tabBar.focused, 'self-first',
       (action) => this.tabBar.handleAction(action));
     tier = Tier.overlay;
@@ -1558,7 +1559,9 @@ class App {
     for (const name of Object.keys(this.views) as ViewName[]) {
       views.set(name, name === 'epg'
         ? this.epgGrid.focusScope
-        : Focus.register({ id: `view.${name}`, root: this.views[name] }));
+        : name === 'channels'
+          ? this.channelList.focusScope
+          : Focus.register({ id: `view.${name}`, root: this.views[name] }));
     }
     Focus.setBase(() => views.get(current()) ?? null);
     Focus.install();
@@ -1650,7 +1653,7 @@ class App {
         this.epgGrid.deactivateFilters();
         this.tabBar.setActive('live');
         this.channelList.render();
-        this.showView('channels');
+        this.showView('channels', false, true);
         return;
       }
       if (currentView === 'settings') {
