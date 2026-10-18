@@ -15,8 +15,15 @@ export function isFocusMove(action: Action, channelKeys = false): boolean {
     || (channelKeys && (action === 'channel_up' || action === 'channel_down'));
 }
 
+export interface SpatialNavOptions {
+  // False for a view whose focus scope paints the ring, reveals it, and
+  // follows the pointer: the nav then only picks elements geometrically.
+  paint?: boolean;
+}
+
 export class SpatialNav {
   private container: HTMLElement;
+  private readonly paint: boolean;
   private onFocusChange?: (el: HTMLElement | null) => void;
   private restrictRoot: HTMLElement | null = null;
   private visibilityCache = new WeakMap<HTMLElement, boolean>();
@@ -36,9 +43,14 @@ export class SpatialNav {
   private lost: { key: string | undefined; rect: DOMRect; inTrap: boolean } | null = null;
   focused: HTMLElement | null = null;
 
-  constructor(container: HTMLElement, onFocusChange?: (el: HTMLElement | null) => void) {
+  constructor(
+    container: HTMLElement,
+    onFocusChange?: (el: HTMLElement | null) => void,
+    options: SpatialNavOptions = {},
+  ) {
     this.container = container;
     this.onFocusChange = onFocusChange;
+    this.paint = options.paint !== false;
     this.visibilityObserver = new MutationObserver((records) => {
       if (records.some((record) => this.mutationAffectsVisibility(record))) {
         this.visibilityCache = new WeakMap();
@@ -61,6 +73,7 @@ export class SpatialNav {
       attributes: true,
       attributeFilter: ['media', 'disabled', 'href'],
     });
+    if (!this.paint) return;
     this.container.addEventListener('nav:hover', (e: Event) => {
       const target = e.target as HTMLElement;
       if (target.hasAttribute('data-focusable')) {
@@ -237,12 +250,16 @@ export class SpatialNav {
     // Already focused: re-show a ring the pointer hid, skip scroll.
     if (el && el === this.focused) {
       this.showRing(el);
+      // The scope may have hidden the ring, so it hears the request again.
+      if (!this.paint) this.onFocusChange?.(el);
       return;
     }
     if (this.focused) this.hideRing(this.focused);
     this.focused = el;
     this.focusInTrap = !this.restrictRoot || (!!el && this.restrictRoot.contains(el));
-    if (el) {
+    if (el && !this.paint) {
+      this.lastRect = el.getBoundingClientRect();
+    } else if (el) {
       this.showRing(el);
       const now = Date.now();
       const elapsed = now - this.lastScrollFocusAt;
@@ -288,11 +305,13 @@ export class SpatialNav {
   }
 
   private showRing(el: HTMLElement): void {
+    if (!this.paint) return;
     setRing(el, true);
     holdRing(el);
   }
 
   private hideRing(el: HTMLElement): void {
+    if (!this.paint) return;
     setRing(el, false);
     releaseRing(el);
   }

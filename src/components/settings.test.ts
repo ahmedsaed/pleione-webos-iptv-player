@@ -238,6 +238,7 @@ import { EpgService } from '../services/epg-service';
 import { channelKey, legacyChannelKey } from '../utils/channel';
 import { morph } from '../utils/morph';
 import { Focus } from '../navigation/focus-scope';
+import { CONFIG } from '../config';
 
 let container: HTMLElement;
 let onSave: ReturnType<typeof vi.fn>;
@@ -278,6 +279,7 @@ beforeEach(() => {
   onSave = vi.fn();
   onChannelsChanged = vi.fn();
   settings = new Settings(container, onSave, onChannelsChanged);
+  Focus.setBase(() => settings.focusScope);
 });
 
 function click(selector: string): void {
@@ -416,6 +418,7 @@ describe('Settings.render', () => {
 
   it('opens reminder management from the count-bearing guide entry', () => {
     const onManageReminders = vi.fn();
+    settings.focusScope.dispose();
     settings = new Settings(container, onSave, onChannelsChanged, onManageReminders);
     settings.render();
 
@@ -499,6 +502,7 @@ describe('Settings.render', () => {
     container.remove();
     container = document.createElement('div');
     document.body.appendChild(container);
+    settings.focusScope.dispose();
     settings = new Settings(
       container, onSave, onChannelsChanged, undefined, undefined, undefined, authorize);
     state.playlists = [{ id: 'p1', name: 'P1', url: 'http://a', source: 'url' }];
@@ -969,20 +973,23 @@ describe('Settings theme picker', () => {
     // Select Arctic (pending), then hover a different swatch and move the pointer off.
     click('.theme-swatch[data-theme-id="arctic"]');
     const amber = container.querySelector<HTMLElement>('.theme-swatch[data-theme-id="vintage-amber"]')!;
-    amber.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    amber.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     expect(themeMock.previewTheme).toHaveBeenLastCalledWith('vintage-amber');
     // Leaving to a non-swatch restores the selected (Arctic), not the saved (midnight).
-    amber.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+    amber.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
     expect(themeMock.previewTheme).toHaveBeenLastCalledWith('arctic');
   });
 
   it('keeps previewing when the pointer moves between swatches', () => {
     const arctic = container.querySelector<HTMLElement>('.theme-swatch[data-theme-id="arctic"]')!;
     const amber = container.querySelector<HTMLElement>('.theme-swatch[data-theme-id="vintage-amber"]')!;
+    arctic.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     themeMock.previewTheme.mockClear();
-    arctic.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: amber }));
-    // Moving swatch→swatch must NOT restore the saved theme.
-    expect(themeMock.previewTheme).not.toHaveBeenCalled();
+    arctic.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    amber.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    // Moving swatch→swatch ends on the hovered swatch within the same task,
+    // so the saved theme is never painted in between.
+    expect(themeMock.previewTheme).toHaveBeenLastCalledWith('vintage-amber');
   });
 
   it('persists the selected theme only on Save & Apply', () => {
@@ -1569,12 +1576,164 @@ describe('Settings.save', () => {
 });
 
 describe('Settings.handleAction', () => {
+  const hover = (el: Element) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+  const unhover = (el: Element) => el.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+  const rings = () => Array.from(container.querySelectorAll('.focused'));
+  const key = (el: Element, init: KeyboardEventInit) =>
+    el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+
+  it('tints the Advanced row of the focused control only', () => {
+    settings.render();
+    const trigger = container.querySelector('#number-entry-osd-timeout .dropdown-trigger')!;
+    hover(trigger);
+    expect(rings()).toEqual([trigger]);
+    expect(trigger.closest('.settings-advanced-row')?.classList.contains('is-current')).toBe(true);
+    unhover(trigger);
+    expect(rings()).toEqual([]);
+    expect(container.querySelector('.settings-advanced-row.is-current')).toBeNull();
+  });
+
+  it('only shows a field the pointer left on the next OK, without taking the caret', () => {
+    settings.render();
+    const field = container.querySelector<HTMLInputElement>('#subdl-key')!;
+    hover(field);
+    unhover(field);
+    expect(rings()).toEqual([]);
+
+    expect(settings.handleAction('select')).toBe(true);
+    expect(rings()).toEqual([field]);
+    expect(document.activeElement).not.toBe(field);
+
+    settings.handleAction('select');
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('keeps the ring on a field with the caret and hands it to the hovered control after', () => {
+    settings.render();
+    const field = container.querySelector<HTMLInputElement>('#subdl-key')!;
+    const other = container.querySelector<HTMLInputElement>('#assrt-key')!;
+    hover(field);
+    settings.handleAction('select');
+    expect(document.activeElement).toBe(field);
+
+    hover(other);
+    expect(rings()).toEqual([field]);
+    unhover(field);
+    expect(rings()).toEqual([field]);
+
+    field.blur();
+    expect(rings()).toEqual([other]);
+  });
+
+  it('lets Back and Up take the caret out of a field', () => {
+    settings.render();
+    const field = container.querySelector<HTMLInputElement>('#assrt-key')!;
+    hover(field);
+    settings.handleAction('select');
+    expect(document.activeElement).toBe(field);
+
+    key(field, { key: 'Escape', keyCode: 27 });
+    expect(document.activeElement).not.toBe(field);
+    expect(rings()).toEqual([field]);
+
+    settings.handleAction('select');
+    key(field, { key: 'ArrowUp', keyCode: 38 });
+    expect(document.activeElement).not.toBe(field);
+    expect(rings()).toHaveLength(1);
+  });
+
+  it('takes the caret out of a field on a remote arrow that names only its key code', () => {
+    settings.render();
+    const field = container.querySelector<HTMLInputElement>('#assrt-key')!;
+    hover(field);
+    settings.handleAction('select');
+    expect(document.activeElement).toBe(field);
+
+    expect(key(field, { keyCode: CONFIG.KEYS.UP })).toBe(false);
+    expect(document.activeElement).not.toBe(field);
+    expect(rings()).toHaveLength(1);
+
+    hover(field);
+    settings.handleAction('select');
+    expect(document.activeElement).toBe(field);
+    expect(key(field, { keyCode: CONFIG.KEYS.DOWN })).toBe(false);
+    expect(document.activeElement).not.toBe(field);
+    expect(rings()).toHaveLength(1);
+  });
+
+  it('takes the caret out of a field when something above Settings takes the keys', () => {
+    settings.render();
+    const field = container.querySelector<HTMLInputElement>('#subdl-key')!;
+    hover(field);
+    settings.handleAction('select');
+    const elsewhere = Focus.register({ id: 'test.elsewhere', root: document.body });
+    Focus.push(elsewhere);
+    Focus.flush();
+    expect(document.activeElement).not.toBe(field);
+    Focus.pop(elsewhere);
+  });
+
   it('leaves Up from the first category to the host', () => {
     settings.render();
     const general = container.querySelector('[data-settings-target="general"]');
     expect(general?.classList.contains('focused')).toBe(true);
     expect(settings.handleAction('up')).toBe(false);
     expect(general?.classList.contains('focused')).toBe(true);
+  });
+
+  it('returns to the trigger of a dropdown that closed while Settings was away', () => {
+    settings.render();
+    click('#app-language [data-dropdown-trigger]');
+    settings.handleAction('down');
+    const option = container.querySelector('#app-language .dropdown-option.focused');
+    expect(option).not.toBeNull();
+
+    settings.render();
+    const trigger = container.querySelector('#app-language .dropdown-trigger');
+    expect(container.querySelector('#app-language')?.classList.contains('open')).toBe(false);
+    expect(rings()).toEqual([trigger]);
+    settings.handleAction('select');
+    expect(container.querySelector('#app-language')?.classList.contains('open')).toBe(true);
+  });
+
+  it('marks the category of the control it returns to', () => {
+    settings.render();
+    const control = container.querySelector<HTMLElement>('#settings-guide [data-focusable]')!;
+    hover(control);
+    expect(rings()).toEqual([control]);
+
+    settings.render();
+    expect(rings()).toEqual([container.querySelector('#settings-guide [data-focusable]')]);
+    expect(Array.from(container.querySelectorAll<HTMLElement>('.settings-nav-item.active'))
+      .map(item => item.dataset.settingsTarget)).toEqual(['guide']);
+  });
+
+  it('returns to the same playlist option after a playlist is added before it', () => {
+    state.playlists = [
+      { id: 'p1', name: 'Alpha', url: 'http://host/a' },
+      { id: 'p2', name: 'Bravo', url: 'http://host/b' },
+    ];
+    state.manualEpgSources = [{ url: 'http://host/a.xml', playlistIds: [] }];
+    settings.render();
+    hover(container.querySelector('[data-manual-epg-source] [data-playlist-id="p2"]')!);
+
+    state.playlists = [{ id: 'p0', name: 'Charlie', url: 'http://host/c' }, ...state.playlists];
+    settings.render();
+    expect(rings().map(el => (el as HTMLElement).dataset.playlistId)).toEqual(['p2']);
+  });
+
+  it('returns to the same EPG source button after another source is added', () => {
+    state.manualEpgSources = [
+      { url: 'http://host/a.xml', playlistIds: [] },
+      { url: 'http://host/b.xml', playlistIds: [] },
+    ];
+    settings.render();
+    const second = () => container.querySelectorAll('[data-manual-epg-source]')[1];
+    hover(second().querySelector('.remove-epg-source')!);
+
+    state.manualEpgSources = [...state.manualEpgSources, { url: 'http://host/c.xml', playlistIds: [] }];
+    settings.render();
+    expect(rings()).toEqual([second().querySelector('.remove-epg-source')]);
   });
 
   it('keeps Up inside an open dropdown', () => {
@@ -1668,30 +1827,24 @@ describe('Settings.handleAction', () => {
       .toBe(true);
   });
 
-  it('leaves category scrolling to the selected CSS profile', () => {
+  it('brings a picked category to the top of the pane and marks it', () => {
     settings.render();
+    const main = container.querySelector<HTMLElement>('.settings-scroll')!;
     const target = container.querySelector<HTMLElement>('#settings-subtitles')!;
-    target.scrollIntoView = vi.fn();
-    click('[data-settings-target="subtitles"]');
-    expect(target.scrollIntoView).toHaveBeenCalledWith({
-      block: 'start',
-      inline: 'nearest',
-      behavior: 'auto',
+    let scrolled = 0;
+    Object.defineProperty(main, 'scrollTop', {
+      configurable: true, get: () => scrolled, set: (v: number) => { scrolled = v; },
     });
-    expect(target.scrollIntoView).toHaveBeenCalledTimes(1);
-  });
+    Object.defineProperty(main, 'scrollHeight', { value: 2000, configurable: true });
+    Object.defineProperty(main, 'clientHeight', { value: 800, configurable: true });
+    main.getBoundingClientRect = () => ({ top: 0 } as DOMRect);
+    target.getBoundingClientRect = () => ({ top: 300 - scrolled } as DOMRect);
 
-  it('still delegates category scrolling to CSS in full mode', () => {
-    state.animationMode = 'full';
-    settings.render();
-    const target = container.querySelector<HTMLElement>('#settings-subtitles')!;
-    target.scrollIntoView = vi.fn();
     click('[data-settings-target="subtitles"]');
-    expect(target.scrollIntoView).toHaveBeenCalledWith({
-      block: 'start',
-      inline: 'nearest',
-      behavior: 'auto',
-    });
+
+    expect(target.getBoundingClientRect().top).toBe(main.getBoundingClientRect().top);
+    expect(container.querySelector('.settings-nav-item.active')?.getAttribute('data-settings-target'))
+      .toBe('subtitles');
   });
 
   it('updates the weak active category when content scrolling reaches the bottom', async () => {
@@ -1977,6 +2130,7 @@ describe('Settings listener lifecycle', () => {
     const c = document.createElement('div');
     document.body.appendChild(c);
     const spy = vi.spyOn(c, 'addEventListener');
+    settings.focusScope.dispose();
     const s = new Settings(c, vi.fn());
     s.render();
     s.render();

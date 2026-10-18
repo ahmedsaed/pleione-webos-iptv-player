@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FocusRing, holdRing, ringsIn, setRing } from './focus-ring';
+import { FocusRing, holdRing, isHovered, ringsIn, setRing } from './focus-ring';
 import { SpatialNav } from './spatial-nav';
 import { morph } from '../utils/morph';
 import { html } from '../utils/dom';
@@ -204,6 +204,19 @@ describe('FocusRing', () => {
     setRing(avatar, true);
     FocusRing.sync();
     expect(avatar.classList.contains('focused')).toBe(true);
+  });
+
+  it('tells whether the pointer rests on an element or the focusable holding it', () => {
+    const slot = item(upper, 'slot');
+    const avatar = item(slot, 'avatar');
+    const other = item(upper, 'other');
+    expect(isHovered(avatar)).toBe(false);
+    slot.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    expect(isHovered(slot)).toBe(true);
+    expect(isHovered(avatar)).toBe(true);
+    expect(isHovered(other)).toBe(false);
+    slot.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    expect(isHovered(avatar)).toBe(false);
   });
 
   it('leaves every ring alone without an owner', () => {

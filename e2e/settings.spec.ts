@@ -1,5 +1,8 @@
-import { test, expect, type Page, routePlaylist, seedPlaylist, PLAYLIST_URL, enterTab, readUserDataStore } from './helpers';
+import {
+  test, expect, type Page, routePlaylist, routeLiveManifest, seedPlaylist, PLAYLIST_URL, enterTab, readUserDataStore,
+} from './helpers';
 import type { Locator } from '@playwright/test';
+import { seedXtream } from './fixtures/xtream';
 
 // All Settings coverage: navigation, playlist save/removal, Xtream, and uploads.
 
@@ -200,7 +203,7 @@ test.describe('Settings navigation', () => {
       'xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "),'
         + ' " settings-advanced-row ")][1]',
     );
-    await expect(focusedRow).toHaveClass(/focused/);
+    await expect(focusedRow).not.toHaveCSS('box-shadow', 'none');
   });
 
   test('persists Essential mode and disables only costly motion', async ({ page }) => {
@@ -740,6 +743,345 @@ test.describe('Settings navigation', () => {
     expect(scaled.font).toBeCloseTo(unscaled.font * 1.3, 1);
     for (const key of ['height', 'padding', 'logo'] as const)
       expect(scaled[key], key).toBeCloseTo(unscaled[key], 1);
+  });
+});
+
+// What shows focus in Settings: lit controls, plus a field with the caret.
+const rings = (page: Page) => page.evaluate(() => {
+  const view = document.getElementById('view-settings')!;
+  const shown = (el: Element) => {
+    const box = el.getBoundingClientRect();
+    return box.width > 0 && box.height > 0 && box.bottom > 0 && box.top < innerHeight;
+  };
+  const lit: Element[] = Array.from(view.querySelectorAll('.focused')).filter(shown);
+  const active = document.activeElement;
+  if (active instanceof HTMLInputElement && view.contains(active) && !lit.includes(active)) lit.push(active);
+  return lit.map(el => el.id || el.className);
+});
+
+test.describe('Settings hover under the tab bar', () => {
+  const lit = (locator: Locator) => locator.evaluate(el => el.classList.contains('focused'));
+
+  test('a control hovered under the open account menu lights where the pointer rests', async ({ page }) => {
+    await seedXtream(page);
+    await page.goto('/');
+    await enterTab(page, 'settings');
+    await expect(page.locator('#view-settings')).toBeVisible();
+
+    await page.locator('.tab-bar .account-avatar').click();
+    await expect(page.locator('.tab-bar .account-menu')).toBeVisible();
+    await expect(page.locator('.tab-bar .account-menu-item.focused')).toHaveCount(1);
+
+    const category = page.locator('#view-settings .settings-nav-item').nth(1);
+    await category.hover();
+    await expect.poll(() => lit(category)).toBe(true);
+    await expect.poll(() => rings(page)).toHaveLength(1);
+
+    const save = page.locator('#save-settings');
+    await save.hover();
+    await expect.poll(() => rings(page)).toEqual(['save-settings']);
+    expect(await lit(category)).toBe(false);
+    await expect(page.locator('.tab-bar .account-menu')).toBeVisible();
+  });
+
+  test('a control hovered after the pointer left the focused one, while the tab bar has the keys, lights', async ({ page }) => {
+    await seedXtream(page);
+    await page.goto('/');
+    await enterTab(page, 'settings');
+    await expect(page.locator('#view-settings')).toBeVisible();
+
+    const first = page.locator('#view-settings .settings-nav-item').first();
+    await first.hover();
+    await expect.poll(() => lit(first)).toBe(true);
+    // Up from the first category leaves for the tab bar.
+    await page.keyboard.press('ArrowUp');
+    await expect(page.locator('.tab-bar .focused')).toHaveCount(1);
+
+    const save = page.locator('#save-settings');
+    await save.hover();
+    await expect.poll(() => rings(page)).toEqual(['save-settings']);
+    await expect(page.locator('#view-settings')).toHaveAttribute('data-ring-owner', '');
+    await expect(page.locator('.tab-bar .focused')).toHaveCount(0);
+  });
+});
+
+test.describe('Settings text fields', () => {
+  test('OK on a field the pointer left only shows it', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-settings-target="subtitles"]').click();
+    const field = page.locator('#subdl-key');
+
+    await field.hover();
+    await expect(field).toHaveClass(/focused/);
+    await page.locator('#settings-subtitles .settings-section-title').hover();
+    await expect(field).not.toHaveClass(/focused/);
+
+    // Nobody can see the field, so OK must not put a caret in it.
+    await page.keyboard.press('Enter');
+    await expect(field).toHaveClass(/focused/);
+    await expect(field).not.toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(field).toBeFocused();
+  });
+
+  test('a field with the caret keeps the only ring, and Back or Up let the caret go', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-settings-target="subtitles"]').click();
+    const field = page.locator('#subdl-key');
+    const save = page.locator('#save-settings');
+
+    await field.click();
+    await expect(field).toBeFocused();
+    // While the caret is in the field, a hovered button is not lit beside it.
+    await save.hover();
+    await expect.poll(() => rings(page)).toEqual(['subdl-key']);
+
+    await page.keyboard.press('Escape');
+    await expect(field).not.toBeFocused();
+    await expect.poll(() => rings(page)).toEqual(['subdl-key']);
+
+    await page.keyboard.press('Enter');
+    await expect(field).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(field).not.toBeFocused();
+    await expect.poll(async () => (await rings(page)).length).toBe(1);
+    await expect(save).not.toHaveClass(/focused/);
+    await expect(field).not.toHaveClass(/focused/);
+  });
+});
+
+test.describe('Settings re-entry', () => {
+  const RED = 403;
+  const BLUE = 406;
+  const WEBOS_BACK = 461;
+  const remoteKey = (page: Page, keyCode: number) => page.evaluate(
+    (code) => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: code, bubbles: true })),
+    keyCode,
+  );
+  const activeCategory = (page: Page) => page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>('#view-settings .settings-nav-item.active'))
+      .map(item => item.dataset.settingsTarget));
+  // The category once the pane has held still for a while.
+  const settledCategory = (page: Page) => page.evaluate(() => new Promise<string[]>((resolve) => {
+    const pane = document.querySelector<HTMLElement>('#view-settings .settings-scroll')!;
+    let last = pane.scrollTop;
+    let still = 0;
+    const step = () => {
+      still = pane.scrollTop === last ? still + 1 : 0;
+      last = pane.scrollTop;
+      if (still < 30) { requestAnimationFrame(step); return; }
+      resolve(Array.from(document.querySelectorAll<HTMLElement>('#view-settings .settings-nav-item.active'))
+        .map(item => item.dataset.settingsTarget!));
+    };
+    requestAnimationFrame(step);
+  }));
+  // The category the focused control sits in.
+  const focusedCategory = (page: Page) => page.evaluate(() =>
+    document.querySelector<HTMLElement>('#view-settings .settings-scroll [data-focusable].focused')
+      ?.closest<HTMLElement>('.settings-category')?.dataset.settingsCategory ?? null);
+  // The category whose heading has reached the top of the pane.
+  const scrolledCategory = (page: Page) => page.evaluate(() => {
+    const pane = document.querySelector<HTMLElement>('#view-settings .settings-scroll')!;
+    const sections = Array.from(pane.querySelectorAll<HTMLElement>('.settings-category'));
+    if (pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 2) {
+      return sections[sections.length - 1].dataset.settingsCategory!;
+    }
+    const threshold = pane.getBoundingClientRect().top + 48;
+    let active = sections[0].dataset.settingsCategory!;
+    for (const section of sections) {
+      if (section.getBoundingClientRect().top > threshold) break;
+      active = section.dataset.settingsCategory!;
+    }
+    return active;
+  });
+  // Leaves Settings on Add playlist for Live and comes back.
+  const leaveFromAddPlaylist = async (page: Page) => {
+    await routePlaylist(page);
+    await seedPlaylist(page);
+    await page.goto('/');
+    await enterTab(page, 'settings');
+    await page.locator('[data-settings-target="sources"]').click();
+    await page.keyboard.press('ArrowRight');
+    const add = page.locator('#add-playlist');
+    for (let step = 0; step < 20 && !(await add.evaluate(el => el.classList.contains('focused'))); step++) {
+      await page.keyboard.press('ArrowDown');
+    }
+    await expect(add).toHaveClass(/\bfocused\b/);
+
+    await enterTab(page, 'live');
+    await expect(page.locator('#view-channels')).toBeVisible();
+    await enterTab(page, 'settings');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => rings(page)).toEqual(['add-playlist']);
+  };
+
+  test('a dropdown option left for another section comes back as its trigger', async ({ page }) => {
+    await routePlaylist(page);
+    await seedPlaylist(page);
+    await page.goto('/');
+    await enterTab(page, 'settings');
+    const dropdown = page.locator('#app-language');
+    const trigger = dropdown.locator('.dropdown-trigger');
+    await trigger.click();
+    await expect(dropdown).toHaveClass(/open/);
+    await page.keyboard.press('ArrowDown');
+    await expect(dropdown.locator('.dropdown-option.focused')).toHaveCount(1);
+
+    await remoteKey(page, RED);
+    await expect(page.locator('#view-epg')).toBeVisible();
+    await remoteKey(page, BLUE);
+    await expect(page.locator('#view-settings')).toBeVisible();
+
+    await expect(dropdown).not.toHaveClass(/open/);
+    await expect.poll(() => rings(page)).toEqual([await trigger.getAttribute('class')]);
+    await page.keyboard.press('Enter');
+    await expect(dropdown).toHaveClass(/open/);
+  });
+
+  test('switching back from another tab returns to the last control and its category', async ({ page }) => {
+    await routePlaylist(page);
+    await seedPlaylist(page);
+    await page.goto('/');
+    await enterTab(page, 'settings');
+    await page.locator('[data-settings-target="guide"]').click();
+    await page.keyboard.press('ArrowRight');
+    const control = page.locator('#settings-guide [data-focusable].focused');
+    await expect(control).toHaveCount(1);
+    const name = await control.evaluate(el => el.id || el.className);
+
+    await enterTab(page, 'live');
+    await expect(page.locator('#view-channels')).toBeVisible();
+    await enterTab(page, 'settings');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => rings(page)).toEqual([name]);
+    await expect.poll(() => activeCategory(page)).toEqual(['guide']);
+  });
+
+  test('with full animation, coming back to a lower control keeps its category once the scroll settles', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('iptv_animation_mode', JSON.stringify('full')));
+    await routePlaylist(page);
+    await seedPlaylist(page);
+    await page.goto('/');
+    await enterTab(page, 'settings');
+    await page.locator('[data-settings-target="sources"]').click();
+    await page.keyboard.press('ArrowRight');
+    const add = page.locator('#add-playlist');
+    for (let step = 0; step < 20 && !(await add.evaluate(el => el.classList.contains('focused'))); step++) {
+      await page.keyboard.press('ArrowDown');
+    }
+    await expect(add).toHaveClass(/\bfocused\b/);
+
+    await enterTab(page, 'live');
+    await expect(page.locator('#view-channels')).toBeVisible();
+    await enterTab(page, 'settings');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => rings(page)).toEqual(['add-playlist']);
+
+    expect(await settledCategory(page)).toEqual(['sources']);
+    await expect(add).toBeInViewport();
+  });
+
+  test('Down into the next category while the pane settles marks that category', async ({ page }) => {
+    await leaveFromAddPlaylist(page);
+
+    // A held key: each press follows the last with no pause.
+    for (let step = 0; step < 30 && (await focusedCategory(page)) !== 'guide'; step++) {
+      await page.keyboard.press('ArrowDown');
+    }
+    expect(await focusedCategory(page)).toBe('guide');
+    expect(await settledCategory(page)).toEqual(['guide']);
+  });
+
+  test('with full animation, a wheel while the pane settles lets the scroll pick the category', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('iptv_animation_mode', JSON.stringify('full')));
+    await leaveFromAddPlaylist(page);
+
+    const pane = await page.locator('#view-settings .settings-scroll').boundingBox();
+    if (!pane) throw new Error('the settings pane has no bounding box');
+    // In the pane's padding, so no control comes under the pointer as it scrolls.
+    await page.mouse.move(pane.x + 4, pane.y + pane.height / 2);
+    for (let step = 0; step < 12; step++) await page.mouse.wheel(0, 300);
+
+    const settled = await settledCategory(page);
+    const scrolled = await scrolledCategory(page);
+    expect(scrolled).not.toBe('sources');
+    expect(settled).toEqual([scrolled]);
+  });
+
+  test('with full animation, Right from a category keeps it once the pane settles', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('iptv_animation_mode', JSON.stringify('full')));
+    await routePlaylist(page);
+    await seedPlaylist(page);
+    await page.goto('/');
+    await enterTab(page, 'settings');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    const guide = page.locator('[data-settings-target="guide"]');
+    for (let step = 0; step < 6 && !(await guide.evaluate(el => el.classList.contains('focused'))); step++) {
+      await page.keyboard.press('ArrowDown');
+    }
+    await expect(guide).toHaveClass(/\bfocused\b/);
+    expect(await settledCategory(page)).toEqual(['general']);
+
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => focusedCategory(page)).toBe('guide');
+    expect(await settledCategory(page)).toEqual(['guide']);
+  });
+
+  test('Back from parental controls returns to the control that opened them', async ({ page }) => {
+    await routePlaylist(page);
+    await routeLiveManifest(page);
+    await seedPlaylist(page);
+    await page.goto('/');
+    await enterTab(page, 'settings');
+    const manage = page.locator('#manage-parental-controls');
+    await manage.click();
+    const prompt = page.locator('.parental-pin-prompt');
+    await prompt.locator('.parental-pin-input').fill('1234');
+    await expect(prompt.locator('h2')).toContainText('Confirm');
+    await prompt.locator('.parental-pin-input').fill('1234');
+    await expect(page.locator('#view-parental-controls')).toBeVisible();
+
+    await page.mouse.move(0, 0);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    await expect.poll(() => rings(page)).toEqual(['manage-parental-controls']);
+    const category = await manage.evaluate(el =>
+      el.closest<HTMLElement>('.settings-category')?.dataset.settingsCategory);
+    await expect.poll(() => activeCategory(page)).toEqual([category]);
+  });
+
+  test('coming back from the channel editor returns to its button', async ({ page }) => {
+    await routePlaylist(page);
+    await seedPlaylist(page);
+    await page.goto('/');
+    await enterTab(page, 'settings');
+    await page.locator('[data-settings-target="sources"]').click();
+    await page.locator('#edit-channel-list').click();
+    await expect(page.locator('#view-channels')).toBeVisible();
+    await expect(page.locator('.edit-hints')).toBeVisible();
+
+    await enterTab(page, 'settings');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => rings(page)).toEqual(['edit-channel-list']);
+    await expect.poll(() => activeCategory(page)).toEqual(['sources']);
+  });
+
+  test('the remote Back key in a text field lets the caret go and stays in Settings', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-settings-target="subtitles"]').click();
+    const field = page.locator('#subdl-key');
+    await field.click();
+    await expect(field).toBeFocused();
+
+    await field.evaluate((input, code) => input.dispatchEvent(
+      new KeyboardEvent('keydown', { keyCode: code, bubbles: true, cancelable: true })), WEBOS_BACK);
+    await expect(field).not.toBeFocused();
+    await expect.poll(() => rings(page)).toEqual(['subdl-key']);
+    await expect(page.locator('#view-settings')).toBeVisible();
   });
 });
 

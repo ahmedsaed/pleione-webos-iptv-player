@@ -1319,6 +1319,10 @@ class App {
     // Back into the content Up left: re-opening it would drop unsaved edits
     // and the position the ring comes back to.
     if (via === 'resume' && sectionForView(this.viewStack[this.viewStack.length - 1]) === section) {
+      if (section === 'settings') {
+        this.settings.resumeFocus();
+        return;
+      }
       // A legacy layer keeps its own DOM focus and has no key to resume.
       const owner = Focus.owner();
       if (owner?.logical) owner.enter('resume');
@@ -1557,11 +1561,11 @@ class App {
 
     const views = new Map<ViewName, FocusScope>();
     for (const name of Object.keys(this.views) as ViewName[]) {
-      views.set(name, name === 'epg'
-        ? this.epgGrid.focusScope
-        : name === 'channels'
-          ? this.channelList.focusScope
-          : Focus.register({ id: `view.${name}`, root: this.views[name] }));
+      views.set(name, name === 'epg' ? this.epgGrid.focusScope
+        : name === 'channels' ? this.channelList.focusScope
+          : name === 'settings' ? this.settings.focusScope
+            : name === 'parental-controls' ? this.parentalControls.focusScope
+              : Focus.register({ id: `view.${name}`, root: this.views[name] }));
     }
     Focus.setBase(() => views.get(current()) ?? null);
     Focus.install();

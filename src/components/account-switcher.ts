@@ -13,7 +13,7 @@ export type AccountMenuCloseReason = 'key' | 'toggle' | 'outside' | 'choose' | '
 interface AccountSwitcherHandlers {
   onSelect: (accountId: string) => void;
   onMenuOpen?: (mode: AccountMenuOpenMode) => void;
-  // `hit` is the element under an `outside` click.
+  // `hit` is the element under an `outside` click or an avatar `toggle`.
   onMenuClose?: (reason: AccountMenuCloseReason, hit?: Element) => void;
 }
 
@@ -108,7 +108,7 @@ export class AccountSwitcher {
       const row = hit.closest<HTMLElement>('.account-menu-item');
       if (row && row.dataset.accountId) { this.choose(row.dataset.accountId); return; }
       if (hit.closest('.account-avatar')) {
-        if (this.open) this.closeMenu('toggle');
+        if (this.open) this.closeMenu('toggle', hit);
         else this.openMenu('pointer');
         return;
       }

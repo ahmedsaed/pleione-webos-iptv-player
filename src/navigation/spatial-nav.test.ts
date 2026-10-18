@@ -46,6 +46,25 @@ describe('SpatialNav', () => {
       expect(nav.focused).toBe(b);
     });
 
+    it('only picks, without painting or scrolling, when its scope paints', () => {
+      const a = focusable({ x: 0, y: 0 });
+      const b = focusable({ x: 0, y: 100 });
+      const picked: (HTMLElement | null)[] = [];
+      const container = makeContainer(a, b);
+      const nav = new SpatialNav(container, (el) => picked.push(el), { paint: false });
+
+      nav.focus(a);
+      expect(nav.move('down')).toBe(true);
+      nav.focus(b);
+      b.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+
+      expect(nav.focused).toBe(b);
+      // Re-asking for the focused element still reaches the scope.
+      expect(picked).toEqual([a, b, b]);
+      expect(container.querySelector('.focused')).toBeNull();
+      expect(b.scrollIntoView).not.toHaveBeenCalled();
+    });
+
     it('leaves isolated focus scrolling to CSS', () => {
       const a = focusable({ x: 0, y: 0 });
       const b = focusable({ x: 0, y: 100 });

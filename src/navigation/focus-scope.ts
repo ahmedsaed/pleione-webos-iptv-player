@@ -9,7 +9,7 @@
 
 import type { Action, NumberEvent } from '../types';
 import { createLogger } from '../utils/logger';
-import { FocusRing, hasRing, ringShown, ringsIn, setRing, UNRESOLVED_ATTR } from './focus-ring';
+import { FocusRing, hasRing, isHovered, ringShown, ringsIn, setRing, UNRESOLVED_ATTR } from './focus-ring';
 import { InputMode } from './input-mode';
 
 const log = createLogger('Focus');
@@ -74,7 +74,7 @@ export interface FocusScope {
   root(): HTMLElement | null;
   /** Route `action` to the scope; false when it has no handler of its own. */
   handle(action: Action, event?: NumberEvent): boolean;
-  /** Request focus on `key`; reconcile paints it. */
+  /** Request focus on `key`; reconcile paints it. Off the keys, a pointer request lights it while hovered. */
   focus(key: string | null, via: Via): void;
   /** Follow a key the component's state moved to without an input: no reveal, ring stays concealed. */
   track(key: string | null): void;
@@ -167,7 +167,20 @@ class Scope implements FocusScope {
     this.concealed = false;
     // A pointer request lights the item where it is; any other may reveal it.
     this.requested = via !== 'pointer';
+    if (via === 'pointer') this.lightHovered();
     Focus.reconcile();
+  }
+
+  // Off the keys, as under an open bar menu, the pointer's pick lights only
+  // while the pointer rests on it; FocusRing parks it once the pointer goes.
+  private lightHovered(): void {
+    if (!this.logical || Focus.owner() === this) return;
+    const el = !this.concealed && this.focusKey !== null ? this.element(this.focusKey) : null;
+    const root = this.root();
+    const lit = el && root?.contains(el) && isHovered(el) ? el : null;
+    if (this.painted && this.painted !== lit) setRing(this.painted, false);
+    if (lit && !hasRing(lit)) setRing(lit, true);
+    this.painted = lit;
   }
 
   track(key: string | null): void {
@@ -186,6 +199,7 @@ class Scope implements FocusScope {
   conceal(): void {
     this.concealed = true;
     this.requested = false;
+    this.lightHovered();
     Focus.reconcile();
   }
 

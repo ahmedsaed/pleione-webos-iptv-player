@@ -90,6 +90,11 @@ export function ringShown(el: Element): boolean {
   return el.classList.contains(FOCUSED);
 }
 
+/** Whether the pointer rests on `el`, or on the focusable that holds it. */
+export function isHovered(el: Element): boolean {
+  return !!hoverTarget && hoverTarget.contains(el);
+}
+
 /** Whether `name` is a marker FocusRing writes, which a template never carries. */
 export function isRingAttr(name: string): boolean {
   return name === OWNER_ATTR || name === HOVER_ATTR || name === SCOPE_ATTR || name === UNRESOLVED_ATTR;

@@ -557,6 +557,40 @@ describe('Focus reconcile', () => {
     expect(shown()).toEqual(['r2']);
   });
 
+  it('lights the pointer\'s pick off the keys only while the pointer rests on it', () => {
+    list(view, ['r1', 'r2']);
+    list(prompt, ['m1']);
+    const a = logical('view.settings', view);
+    const bar = logical('tabbar', prompt, { tier: Tier.bar });
+    Focus.layer(bar, () => true);
+    Focus.setBase(() => a);
+    Focus.install();
+    installRing();
+    setInputMode('pointer');
+    bar.focus('m1', 'key');
+    Focus.flush();
+    view.addEventListener('nav:hover', (e) => {
+      a.focus((e.target as HTMLElement).getAttribute('data-key'), 'pointer');
+    });
+    view.addEventListener('nav:unhover', () => a.conceal());
+
+    a.focus('r1', 'pointer');
+    expect(shown()).toEqual(['m1']);
+
+    row(view, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    expect(shown()).toEqual(['r2', 'm1']);
+    expect(Focus.owner()).toBe(bar);
+
+    row(view, 'r2').dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    row(view, 'r1').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    expect(shown()).toEqual(['r1', 'm1']);
+    expect(ringsIn(view)).toHaveLength(1);
+
+    row(view, 'r1').dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    expect(shown()).toEqual(['m1']);
+    expect(ringsIn(view)).toHaveLength(0);
+  });
+
   it('keeps hover behind a pushed modal from the surfaces below', () => {
     list(view, ['r1', 'r2']);
     list(prompt, ['ok', 'cancel']);
