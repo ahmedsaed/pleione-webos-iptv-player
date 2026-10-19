@@ -67,13 +67,17 @@ const { storageMock } = vi.hoisted(() => ({
   },
 }));
 vi.mock('../services/storage-service', () => ({ StorageService: storageMock }));
+const { workerMock } = vi.hoisted(() => ({ workerMock: { failIndexes: false } }));
 vi.mock('../workers/app-worker-client', async () => {
   const { ScopedSearchIndex } = await import('../workers/scoped-search-index');
   const index = new ScopedSearchIndex();
   return {
     retainAppWorker: () => () => undefined,
     runAppWorkerTask: (task: string, payload: never) => {
-      if (task === 'list-search.index') return Promise.resolve(index.indexList(payload));
+      if (task === 'list-search.index') {
+        if (workerMock.failIndexes) return Promise.reject(new Error('App worker failed'));
+        return Promise.resolve(index.indexList(payload));
+      }
       if (task === 'list-search.query') return Promise.resolve(index.queryList(payload));
       if (task === 'list-search.release') return Promise.resolve(index.releaseList(payload));
       return Promise.reject(new Error(`Unexpected worker task: ${task}`));
@@ -85,6 +89,7 @@ import { EpgGrid } from './epg-grid';
 import { setLocale } from '../i18n';
 import { Focus } from '../navigation/focus-scope';
 import { setInputMode } from '../navigation/input-mode';
+import { CONFIG } from '../config';
 
 const Y = 2024, M = 5, D = 15; // Sat Jun 15 2024, 12:00 local = "now"
 
@@ -129,6 +134,7 @@ beforeEach(() => {
     ],
   };
   vi.clearAllMocks();
+  workerMock.failIndexes = false;
   archiveMock.getCached.mockReturnValue(null);
   archiveMock.load.mockResolvedValue(null);
   archiveMock.isAvailable.mockImplementation((channel: { catchupSource?: string }) => !!channel.catchupSource);
@@ -559,6 +565,43 @@ describe('EpgGrid group and channel filters', () => {
     expect(channelItems()).toHaveLength(1);
     expect(channelItems()[0].querySelector('.epg-ch-name')!.textContent).toBe('Chan B');
     expect(container.querySelector('[data-channel-idx="1"]')).not.toBeNull();
+  });
+
+  it('logs the fallback for a failing worker once, not again while the retry is pending', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    // Only the faked clock (and vi.waitFor's 50 ms polls) can end the delay.
+    vi.useFakeTimers({ toFake: ['performance'] });
+    try {
+      const fallbackLogs = (): unknown[][] => error.mock.calls
+        .filter(call => call.some(part => part === 'event=search.worker.fallback.used'));
+      workerMock.failIndexes = true;
+      const input = container.querySelector<HTMLInputElement>('.epg-search-input')!;
+      const type = (value: string): void => {
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const names = (): Array<string | null | undefined> =>
+        channelItems().map(item => item.querySelector('.epg-ch-name')?.textContent);
+
+      type('Chan B');
+      await vi.waitFor(() => expect(names()).toEqual(['Chan B']));
+      expect(fallbackLogs()).toHaveLength(1);
+
+      type('Chan A');
+      await vi.waitFor(() => expect(names()).toEqual(['Chan A']));
+      vi.advanceTimersByTime(CONFIG.SEARCH.INDEX_RETRY_DELAY_MS - 1000);
+      type('Chan B');
+      await vi.waitFor(() => expect(names()).toEqual(['Chan B']));
+      expect(fallbackLogs()).toHaveLength(1);
+
+      // The delay passed: the worker is tried, and fails, again.
+      vi.advanceTimersByTime(CONFIG.SEARCH.INDEX_RETRY_DELAY_MS);
+      type('Chan A');
+      await vi.waitFor(() => expect(fallbackLogs()).toHaveLength(2));
+    } finally {
+      vi.useRealTimers();
+      error.mockRestore();
+    }
   });
 
   it('applies search inside the selected group and shows an empty state', () => {

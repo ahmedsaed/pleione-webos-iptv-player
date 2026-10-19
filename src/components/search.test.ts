@@ -178,6 +178,57 @@ function diagEvents(spy: { mock: { calls: unknown[][] } }, event: string): strin
     .filter(line => line.includes(`event=${event} `));
 }
 
+// The catalog refresh replaced the movie list and settled.
+async function refreshLanded(view: Search, name: string): Promise<void> {
+  const internals = view as unknown as { allVod: Array<{ name: string }> };
+  await vi.waitFor(() => expect(internals.allVod[0]?.name).toBe(name));
+  await new Promise(resolve => setTimeout(resolve, 0));
+}
+
+function sequelPosts(): unknown[] {
+  return workerMock.run.mock.calls.filter(([task, payload]) =>
+    task === 'search.index'
+    && (payload as SearchIndexRequest).chunk?.names?.indexOf('Alpha Sequel') === 0);
+}
+
+// Index posts whose first catalog name is the given one.
+function namePosts(name: string): unknown[] {
+  return workerMock.run.mock.calls.filter(([task, payload]) =>
+    task === 'search.index' && (payload as SearchIndexRequest).chunk?.names?.[0] === name);
+}
+
+// Animation frames wait for release(), which runs them and lets later ones through.
+function holdFrames() {
+  const pending: FrameRequestCallback[] = [];
+  const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    pending.push(callback);
+    return pending.length;
+  });
+  return {
+    release: () => {
+      if (!vi.isMockFunction(window.requestAnimationFrame)) return;
+      frame.mockRestore();
+      for (const callback of pending.splice(0)) callback(performance.now());
+    },
+  };
+}
+
+// A worker task that waits for release() before it runs.
+function holdWorkerTask(matches: (task: string, payload: SearchIndexRequest) => boolean) {
+  const originalRun = workerMock.run.getMockImplementation()!;
+  let release!: () => void;
+  const released = new Promise<void>(resolve => { release = resolve; });
+  const hold = { held: false, release, restore: () => workerMock.run.mockImplementation(originalRun) };
+  workerMock.run.mockImplementation(async (task: string, payload: SearchIndexRequest) => {
+    if (!hold.held && matches(task, payload)) {
+      hold.held = true;
+      await released;
+    }
+    return originalRun(task, payload);
+  });
+  return hold;
+}
+
 const openViews: Search[] = [];
 
 async function openWith(opts: { vod?: unknown[]; series?: unknown[] } = {}) {
@@ -476,6 +527,589 @@ describe('Search', () => {
     expect(container.textContent).toContain('Alpha Movie');
   });
 
+  it('does not reuse an index a catalog refresh completed during a crash rebuild', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+    workerMock.restart();
+    const originalRun = workerMock.run.getMockImplementation()!;
+    let releaseChannels!: () => void;
+    const channelsHeld = new Promise<void>(resolve => { releaseChannels = resolve; });
+    let held = false;
+    workerMock.run.mockImplementation(async (task: string, payload: SearchIndexRequest) => {
+      if (task === 'search.index' && payload.chunk?.source === 'channels' && !held) {
+        held = true;
+        await channelsHeld;
+      }
+      return originalRun(task, payload);
+    });
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      // The query finds the new worker empty and rebuilds; its channels post stalls.
+      const query = view.setQuery('alpha');
+      await vi.waitFor(() => expect(held).toBe(true));
+      catalogMock.loadAllVodStreams.mockResolvedValue([vod('11', 'Alpha Sequel')]);
+      const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+      refreshed('x1|vod_all');
+      // The refresh lands mid-rebuild; it must not call the index ready.
+      await refreshLanded(view, 'Alpha Sequel');
+      expect(sequelPosts()).toEqual([]);
+      expect(diagEvents(info, 'search.worker.index.ready')).toEqual([]);
+
+      view.deactivate();
+      await view.open(account);
+      expect(diagEvents(info, 'search.index.ready')).toEqual([]);
+      releaseChannels();
+      await query;
+      await indexReady(view);
+      await view.setQuery('alpha');
+      // The query that started the rebuild was superseded; it must not fall back.
+      expect(diagEvents(warn, 'search.worker.fallback.used')).toEqual([]);
+    } finally {
+      releaseChannels();
+      info.mockRestore();
+      warn.mockRestore();
+      workerMock.run.mockImplementation(originalRun);
+    }
+
+    expect(container.querySelector('.catalog-tile[data-channel-index="0"]')?.textContent)
+      .toContain('Alpha');
+    expect(container.textContent).toContain('Alpha Sequel');
+    expect(container.textContent).not.toContain('Alpha Movie');
+  });
+
+  it('keeps a catalog refresh that lands during a crash rebuild', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+    workerMock.restart();
+    const originalRun = workerMock.run.getMockImplementation()!;
+    let releaseChannels!: () => void;
+    const channelsHeld = new Promise<void>(resolve => { releaseChannels = resolve; });
+    let held = false;
+    workerMock.run.mockImplementation(async (task: string, payload: SearchIndexRequest) => {
+      if (task === 'search.index' && payload.chunk?.source === 'channels' && !held) {
+        held = true;
+        await channelsHeld;
+      }
+      return originalRun(task, payload);
+    });
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const query = view.setQuery('alpha');
+      await vi.waitFor(() => expect(held).toBe(true));
+      catalogMock.loadAllVodStreams.mockResolvedValue([vod('11', 'Alpha Sequel')]);
+      const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+      refreshed('x1|vod_all');
+      await refreshLanded(view, 'Alpha Sequel');
+      // The rebuild resumes after the refresh replaced the catalog.
+      releaseChannels();
+      await query;
+      await view.setQuery('alpha');
+      expect(container.textContent).toContain('Alpha Sequel');
+      expect(container.textContent).not.toContain('Alpha Movie');
+
+      info.mockClear();
+      view.deactivate();
+      await view.open(account);
+      await view.setQuery('alpha');
+      expect(diagEvents(info, 'search.index.ready'))
+        .toEqual([expect.stringContaining('mode=reused')]);
+    } finally {
+      releaseChannels();
+      info.mockRestore();
+      workerMock.run.mockImplementation(originalRun);
+    }
+
+    expect(container.textContent).toContain('Alpha Sequel');
+    expect(container.textContent).not.toContain('Alpha Movie');
+  });
+
+  it('maps results onto a catalog refresh that replaced a crash rebuild post', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    // Two chunks, so the rebuild's movie post spans a frame.
+    const fillers = Array.from({ length: CONFIG.SEARCH.INDEX_CHUNK_SIZE }, (_, i) => vod(`f${i}`, `Filler ${i}`));
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie'), ...fillers] });
+    workerMock.restart();
+    catalogMock.loadAllVodStreams.mockResolvedValue([vod('11', 'Alpha Sequel')]);
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    const originalRun = workerMock.run.getMockImplementation()!;
+    let fired = false;
+    workerMock.run.mockImplementation((task: string, payload: SearchIndexRequest) => {
+      if (task === 'search.index' && payload.chunk?.names?.[0] === 'Alpha Movie' && !fired) {
+        fired = true;
+        refreshed('x1|vod_all');
+      }
+      return originalRun(task, payload);
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await view.setQuery('alpha');
+      expect(fired).toBe(true);
+      await view.setQuery('alpha');
+    } finally {
+      workerMock.run.mockImplementation(originalRun);
+    }
+
+    expect(container.textContent).toContain('Alpha Sequel');
+    expect(container.textContent).not.toContain('Alpha Movie');
+  });
+
+  it('completes a crash rebuild that a catalog refresh post crossing its reset fails under', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+    // Two chunks, so the refresh's movie post spans a frame.
+    const fillers = Array.from({ length: CONFIG.SEARCH.INDEX_CHUNK_SIZE }, (_, i) => vod(`f${i}`, `Filler ${i}`));
+    catalogMock.loadAllVodStreams.mockResolvedValue([vod('11', 'Alpha Sequel'), ...fillers]);
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    const originalRun = workerMock.run.getMockImplementation()!;
+    let query: Promise<void> | null = null;
+    let secondChunkSent!: () => void;
+    const secondChunk = new Promise<void>(resolve => { secondChunkSent = resolve; });
+    workerMock.run.mockImplementation(async (task: string, payload: SearchIndexRequest) => {
+      if (task === 'search.index' && payload.chunk?.source === 'movies' && payload.chunk.start > 0) {
+        secondChunkSent();
+      }
+      // The rebuild is busy with channels while the refresh's second chunk goes out.
+      if (query && task === 'search.index' && payload.chunk?.source === 'channels') await secondChunk;
+      const result = originalRun(task, payload);
+      if (!query && task === 'search.index' && payload.chunk?.names?.[0] === 'Alpha Sequel') {
+        // The worker crashes after the refresh's first chunk; a query rebuilds
+        // it before the second goes out, so the new worker drops that chunk.
+        workerMock.restart();
+        query = view.setQuery('alpha');
+      }
+      return result;
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      refreshed('x1|vod_all');
+      await vi.waitFor(() => expect(query).not.toBeNull());
+      await query;
+      expect(diagEvents(warn, 'search.index.lost')).toEqual([expect.stringContaining('source=catalog')]);
+      expect(diagEvents(warn, 'search.worker.fallback.used')).toEqual([]);
+      const resets = workerMock.run.mock.calls.filter(
+        ([task, payload]) => task === 'search.index' && (payload as SearchIndexRequest).reset,
+      ).length;
+      await view.setQuery('alpha');
+      expect(workerMock.run.mock.calls.filter(
+        ([task, payload]) => task === 'search.index' && (payload as SearchIndexRequest).reset,
+      )).toHaveLength(resets);
+    } finally {
+      workerMock.run.mockImplementation(originalRun);
+    }
+
+    expect(diagEvents(warn, 'search.worker.fallback.used')).toEqual([]);
+    expect(container.textContent).toContain('Alpha Sequel');
+    expect(container.textContent).not.toContain('Alpha Movie');
+  });
+
+  it('posts the programmes an EPG refresh replaced during a crash rebuild', async () => {
+    const later = (offset: number) => [Date.now() + offset * 3600000, Date.now() + (offset + 1) * 3600000] as const;
+    playlistMock.channels = [chan('Alpha')];
+    epgMock.programmes = { Alpha: [prog('Old Report', ...later(1))] };
+    const { view } = await openWith();
+    workerMock.restart();
+    const hold = holdWorkerTask((task, payload) => task === 'search.index' && payload.chunk?.source === 'channels');
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      // The query finds the new worker empty and rebuilds; its channels post stalls.
+      const query = view.setQuery('report');
+      await vi.waitFor(() => expect(hold.held).toBe(true));
+      epgMock.programmes = { Alpha: [prog('New Show', ...later(1)), prog('Late Report', ...later(2))] };
+      const refresh = view.refreshPrograms();
+      await vi.waitFor(() => expect(workerMock.run.mock.calls.some(([task, payload]) => task === 'search.index'
+        && JSON.stringify((payload as SearchIndexRequest).chunk?.documents ?? []).includes('Late Report')))
+        .toBe(true));
+      hold.release();
+      await Promise.all([query, refresh]);
+      await view.setQuery('report');
+      expect(container.querySelector('.search-program-row')?.textContent).toContain('Late Report');
+
+      info.mockClear();
+      view.deactivate();
+      await view.open(account);
+      await view.setQuery('report');
+      expect(diagEvents(info, 'search.index.ready')).toEqual([expect.stringContaining('mode=reused')]);
+    } finally {
+      hold.release();
+      hold.restore();
+    }
+
+    const rows = Array.from(container.querySelectorAll('.search-program-row'), row => row.textContent);
+    expect(rows).toEqual([expect.stringContaining('Late Report')]);
+  });
+
+  it('posts the channels a playlist change replaced during a crash rebuild', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith();
+    workerMock.restart();
+    const hold = holdWorkerTask((task, payload) => task === 'search.index' && payload.chunk?.source === 'channels');
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const query = view.setQuery('alpha');
+      await vi.waitFor(() => expect(hold.held).toBe(true));
+      playlistMock.channels = [chan('Bravo'), chan('Alpha')];
+      hold.release();
+      await query;
+      await view.setQuery('alpha');
+    } finally {
+      hold.release();
+      hold.restore();
+    }
+
+    expect(container.textContent).toContain('Alpha');
+    expect(container.textContent).not.toContain('Bravo');
+  });
+
+  it('keeps an older catalog refresh from replacing a crash rebuild post', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+    workerMock.restart();
+    const channels = holdWorkerTask((task, payload) => task === 'search.index' && payload.chunk?.source === 'channels');
+    const older = [vod('20', 'Alpha Old')];
+    const newer = [vod('31', 'Bravo Other'), vod('30', 'Alpha Sequel')];
+    // Had the older copy been indexed, it would go through the cache, whose
+    // round trip would land its fallback post after the rebuild's own.
+    cacheMock.refs.set(older, { store: 'catalog-cache', key: 'x1|vod_all', timestamp: 5 });
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let cache: ReturnType<typeof holdWorkerTask> | null = null;
+    try {
+      const query = view.setQuery('alpha');
+      await vi.waitFor(() => expect(channels.held).toBe(true));
+      cache = holdWorkerTask((task, payload) => task === 'search.index' && !!payload.cachedMovies);
+      catalogMock.loadAllVodStreams.mockResolvedValue(older);
+      refreshed('x1|vod_all');
+      await refreshLanded(view, 'Alpha Old');
+      catalogMock.loadAllVodStreams.mockResolvedValue(newer);
+      refreshed('x1|vod_all');
+      await refreshLanded(view, 'Bravo Other');
+      channels.release();
+      await query;
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await view.setQuery('alpha');
+      // Refreshes that land mid-rebuild leave their lists to it; neither copy goes out on its own.
+      expect(cache.held).toBe(false);
+      expect(workerMock.run.mock.calls.filter(([task, payload]) => task === 'search.index'
+        && (payload as SearchIndexRequest).chunk?.names?.indexOf('Alpha Sequel') === 1)).toHaveLength(1);
+    } finally {
+      channels.release();
+      cache?.release();
+      cache?.restore();
+      channels.restore();
+    }
+
+    expect(container.textContent).toContain('Alpha Sequel');
+    expect(container.textContent).not.toContain('Alpha Old');
+    expect(container.textContent).not.toContain('Bravo Other');
+  });
+
+  it('reposts a source whose crash rebuild post another post replaced', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie'), vod('11', 'Bravo Movie')] });
+    workerMock.restart();
+    const internals = view as unknown as {
+      workerSession: number;
+      postSource(sessionId: number, source: string, total: number, documentAt: (index: number) => string): Promise<boolean>;
+    };
+    const older = ['Bravo Old', 'Alpha Old'];
+    const originalRun = workerMock.run.getMockImplementation()!;
+    let replaced: Promise<boolean> | null = null;
+    workerMock.run.mockImplementation((task: string, payload: SearchIndexRequest) => {
+      const result = originalRun(task, payload);
+      // No public writer posts a source mid-rebuild, so this stands in for one
+      // that bypassed the rebuild and posts an older list right behind its movies.
+      if (!replaced && task === 'search.index' && payload.chunk?.names?.[0] === 'Alpha Movie') {
+        replaced = internals.postSource(internals.workerSession, 'movies', older.length, index => older[index]);
+      }
+      return result;
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await view.setQuery('alpha');
+      expect(replaced).not.toBeNull();
+      await replaced;
+      await view.setQuery('alpha');
+    } finally {
+      workerMock.run.mockImplementation(originalRun);
+    }
+
+    expect(container.textContent).toContain('Alpha Movie');
+    expect(container.textContent).not.toContain('Bravo Movie');
+  });
+
+  it('maps results onto a crash rebuild post that replaced an older catalog refresh', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+    // Two chunks, so the first refresh's post waits a frame between them.
+    const fillers = Array.from({ length: CONFIG.SEARCH.INDEX_CHUNK_SIZE }, (_, i) => vod(`f${i}`, `Filler ${i}`));
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    const internals = view as unknown as { sourcePosts: Record<string, unknown> };
+    const frames = holdFrames();
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let reset: ReturnType<typeof holdWorkerTask> | null = null;
+    try {
+      catalogMock.loadAllVodStreams.mockResolvedValue([vod('20', 'Alpha Old'), ...fillers]);
+      refreshed('x1|vod_all');
+      await vi.waitFor(() => expect(namePosts('Alpha Old')).toHaveLength(1));
+      const older = internals.sourcePosts.movies;
+      // The worker crashes; a query rebuilds it while a second refresh lands.
+      workerMock.restart();
+      reset = holdWorkerTask((task, payload) => task === 'search.index' && !!payload.reset);
+      const query = view.setQuery('alpha');
+      await vi.waitFor(() => expect(reset!.held).toBe(true));
+      catalogMock.loadAllVodStreams.mockResolvedValue([vod('31', 'Bravo Other'), vod('30', 'Alpha Sequel')]);
+      refreshed('x1|vod_all');
+      await refreshLanded(view, 'Bravo Other');
+      reset.release();
+      await vi.waitFor(() => expect(internals.sourcePosts.movies).not.toBe(older));
+      frames.release();
+      await query;
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await view.setQuery('alpha');
+    } finally {
+      frames.release();
+      reset?.release();
+      reset?.restore();
+    }
+
+    expect(namePosts('Bravo Other')).toHaveLength(1);
+    expect(container.textContent).toContain('Alpha Sequel');
+    expect(container.textContent).not.toContain('Filler');
+  });
+
+  it('maps results onto the later of two overlapping catalog refreshes', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+    // Two chunks, so the first refresh's post waits a frame between them.
+    const fillers = Array.from({ length: CONFIG.SEARCH.INDEX_CHUNK_SIZE }, (_, i) => vod(`f${i}`, `Filler ${i}`));
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    const internals = view as unknown as { sourcePosts: Record<string, unknown> };
+    const frames = holdFrames();
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      catalogMock.loadAllVodStreams.mockResolvedValue([vod('20', 'Alpha Old'), ...fillers]);
+      refreshed('x1|vod_all');
+      await vi.waitFor(() => expect(namePosts('Alpha Old')).toHaveLength(1));
+      const older = internals.sourcePosts.movies;
+      catalogMock.loadAllVodStreams.mockResolvedValue([vod('31', 'Bravo Other'), vod('30', 'Alpha Sequel')]);
+      refreshed('x1|vod_all');
+      await vi.waitFor(() => expect(internals.sourcePosts.movies).not.toBe(older));
+      frames.release();
+      await vi.waitFor(() => expect(namePosts('Bravo Other')).toHaveLength(1));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await view.setQuery('alpha');
+    } finally {
+      frames.release();
+    }
+
+    expect(container.textContent).toContain('Alpha Sequel');
+    expect(container.textContent).not.toContain('Filler');
+  });
+
+  it('keeps the later series list when an older overlapping refresh resumes after it', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')], series: [ser('s1', 'Alpha Show')] });
+    const fillers = Array.from({ length: CONFIG.SEARCH.INDEX_CHUNK_SIZE }, (_, i) => vod(`f${i}`, `Filler ${i}`));
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    const internals = view as unknown as {
+      sourcePosts: Record<string, unknown>;
+      indexedSeries: unknown;
+      allSeries: unknown;
+    };
+    const frames = holdFrames();
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      catalogMock.loadAllVodStreams.mockResolvedValue([vod('20', 'Alpha Old'), ...fillers]);
+      catalogMock.loadAllSeries.mockResolvedValue([ser('s2', 'Alpha Old Show')]);
+      refreshed('x1|vod_all');
+      await vi.waitFor(() => expect(namePosts('Alpha Old')).toHaveLength(1));
+      const older = internals.sourcePosts.movies;
+      catalogMock.loadAllVodStreams.mockResolvedValue([vod('31', 'Bravo Other'), vod('30', 'Alpha Sequel')]);
+      catalogMock.loadAllSeries.mockResolvedValue([ser('s3', 'Alpha New Show')]);
+      refreshed('x1|vod_all');
+      await vi.waitFor(() => expect(internals.sourcePosts.movies).not.toBe(older));
+      frames.release();
+      await vi.waitFor(() => expect(namePosts('Alpha New Show')).toHaveLength(1));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await view.setQuery('alpha');
+    } finally {
+      frames.release();
+    }
+
+    expect(internals.indexedSeries).toBe(internals.allSeries);
+    expect(container.textContent).toContain('Alpha New Show');
+    expect(container.textContent).not.toContain('Alpha Old Show');
+    view.deactivate();
+    await view.open(account);
+    await view.setQuery('alpha');
+    expect(container.textContent).toContain('Alpha New Show');
+    expect(container.textContent).not.toContain('Alpha Old Show');
+    // The superseded refresh never posts its older series list.
+    expect(namePosts('Alpha Old Show')).toHaveLength(0);
+  });
+
+  it('rebuilds on reopen when a later refresh failed to post the series list a ready mark claimed', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')], series: [ser('s1', 'Alpha Show')] });
+    const fillers = Array.from({ length: CONFIG.SEARCH.INDEX_CHUNK_SIZE }, (_, i) => vod(`f${i}`, `Filler ${i}`));
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    const internals = view as unknown as { sourcePosts: Record<string, unknown> };
+    const originalRun = workerMock.run.getMockImplementation()!;
+    let rejectSeries!: () => void;
+    const seriesRejected = new Promise<void>(resolve => { rejectSeries = resolve; });
+    let seriesHeld = false;
+    workerMock.run.mockImplementation(async (task: string, payload: SearchIndexRequest) => {
+      if (!seriesHeld && task === 'search.index' && payload.chunk?.names?.[0] === 'Alpha New Show') {
+        seriesHeld = true;
+        await seriesRejected;
+        return { accepted: false };
+      }
+      return originalRun(task, payload);
+    });
+    const frames = holdFrames();
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      catalogMock.loadAllVodStreams.mockResolvedValue([vod('20', 'Alpha Old'), ...fillers]);
+      catalogMock.loadAllSeries.mockResolvedValue([ser('s2', 'Alpha Old Show')]);
+      refreshed('x1|vod_all');
+      await vi.waitFor(() => expect(namePosts('Alpha Old')).toHaveLength(1));
+      const older = internals.sourcePosts.movies;
+      catalogMock.loadAllVodStreams.mockResolvedValue([vod('31', 'Bravo Other'), vod('30', 'Alpha Sequel')]);
+      catalogMock.loadAllSeries.mockResolvedValue([ser('s3', 'Alpha New Show')]);
+      refreshed('x1|vod_all');
+      await vi.waitFor(() => expect(internals.sourcePosts.movies).not.toBe(older));
+      frames.release();
+      // The older refresh settles and marks the index ready while the newer series post is out.
+      await vi.waitFor(() => expect(seriesHeld).toBe(true));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      view.deactivate();
+      rejectSeries();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      workerMock.run.mockImplementation(originalRun);
+      const resets = workerMock.run.mock.calls.filter(
+        ([task, payload]) => task === 'search.index' && (payload as SearchIndexRequest).reset,
+      ).length;
+      await view.open(account);
+      await indexReady(view);
+      await view.setQuery('alpha');
+      expect(workerMock.run.mock.calls.filter(
+        ([task, payload]) => task === 'search.index' && (payload as SearchIndexRequest).reset,
+      )).toHaveLength(resets + 1);
+    } finally {
+      frames.release();
+      rejectSeries();
+      workerMock.run.mockImplementation(originalRun);
+    }
+
+    expect(container.textContent).toContain('Alpha New Show');
+    expect(container.textContent).not.toContain('Alpha Show');
+  });
+
+  it('does not fall back to posting an older series list after a later refresh loaded from cache', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ series: [ser('s1', 'Alpha Show')] });
+    const refreshed = catalogMock.onCatalogListRefreshed.mock.calls[0][0] as (key: string) => void;
+    const internals = view as unknown as { allSeries: Array<{ name: string }> };
+    const olderSeries = [ser('s2', 'Alpha Old Show')];
+    const newerSeries = [ser('s3', 'Alpha New Show')];
+    // The older record is gone from IndexedDB, so its cached load falls back to a post.
+    cacheMock.refs.set(olderSeries, { store: 'catalog-cache', key: 'x1|series_old', timestamp: 1 });
+    cacheMock.refs.set(newerSeries, { store: 'catalog-cache', key: 'x1|series_new', timestamp: 2 });
+    cacheMock.records.set('catalog-cache|x1|series_new', { timestamp: 2, data: newerSeries });
+    const held = holdWorkerTask((task, payload) => task === 'search.index'
+      && payload.cachedSeries?.record.key === 'x1|series_old');
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      catalogMock.loadAllSeries.mockResolvedValue(olderSeries);
+      refreshed('x1|series_all');
+      await vi.waitFor(() => expect(held.held).toBe(true));
+      catalogMock.loadAllSeries.mockResolvedValue(newerSeries);
+      refreshed('x1|series_all');
+      await vi.waitFor(() => expect(internals.allSeries).toBe(newerSeries));
+      await vi.waitFor(() => expect(workerMock.run.mock.calls.some(([task, payload]) => task === 'search.index'
+        && (payload as SearchIndexRequest).cachedSeries?.record.key === 'x1|series_new')).toBe(true));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      held.release();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await view.setQuery('alpha');
+    } finally {
+      held.release();
+      held.restore();
+    }
+
+    expect(container.textContent).toContain('Alpha New Show');
+    expect(container.textContent).not.toContain('Alpha Old Show');
+    expect(namePosts('Alpha Old Show')).toHaveLength(0);
+  });
+
+  it('does not reuse an index a crash rebuild finished after the guide refreshed while closed', async () => {
+    const later = (offset: number) => [Date.now() + offset * 3600000, Date.now() + (offset + 1) * 3600000] as const;
+    playlistMock.channels = [chan('Alpha')];
+    epgMock.programmes = { Alpha: [prog('Old Report', ...later(1))] };
+    const { view } = await openWith();
+    workerMock.restart();
+    const hold = holdWorkerTask((task, payload) => task === 'search.index' && payload.chunk?.source === 'channels');
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      // The query finds the new worker empty and rebuilds; its channels post stalls.
+      const query = view.setQuery('report');
+      await vi.waitFor(() => expect(hold.held).toBe(true));
+      view.deactivate();
+      epgMock.programmes = { Alpha: [prog('New Report', ...later(1))] };
+      await view.refreshPrograms();
+      hold.release();
+      await query;
+      // The rebuild posted the program index of the old guide data.
+      await vi.waitFor(() => expect(diagEvents(info, 'search.worker.index.ready')).toHaveLength(1));
+
+      info.mockClear();
+      await view.open(account);
+      await indexReady(view);
+      await view.setQuery('report');
+      expect(diagEvents(info, 'search.index.ready')).toEqual([expect.not.stringContaining('mode=reused')]);
+    } finally {
+      hold.release();
+      hold.restore();
+    }
+
+    const rows = Array.from(container.querySelectorAll('.search-program-row'), row => row.textContent);
+    expect(rows).toEqual([expect.stringContaining('New Report')]);
+  });
+
+  it('does not reuse an index whose channels were replaced before it settled while closed', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    let finishVod!: (items: unknown[]) => void;
+    catalogMock.loadAllVodStreams.mockReturnValue(new Promise((resolve) => { finishVod = resolve; }));
+    catalogMock.loadAllSeries.mockResolvedValue([]);
+    const view = new Search(container, mkHandlers());
+    openViews.push(view);
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    // Channels and programmes reach the worker; the catalog is still loading.
+    await view.open(account);
+    view.deactivate();
+    playlistMock.channels = [chan('Bravo')];
+    finishVod([]);
+    await vi.waitFor(() => expect(diagEvents(info, 'search.worker.index.ready')).toHaveLength(1));
+
+    info.mockClear();
+    await view.open(account);
+    await indexReady(view);
+    await view.setQuery('bravo');
+    expect(diagEvents(info, 'search.index.ready')).toEqual([expect.not.stringContaining('mode=reused')]);
+    expect(container.textContent).toContain('Bravo');
+  });
+
   it('rebuilds the index when playlist data changes while inactive', async () => {
     const { view } = await openWith();
     view.deactivate();
@@ -618,6 +1252,211 @@ describe('Search', () => {
       expect.objectContaining({ reset: true }),
     );
     workerMock.run.mockImplementation(originalRun);
+  });
+
+  it('does not rebuild the index for a session dropped under a failing query', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith();
+    const internals = view as unknown as { workerSession: number };
+    const originalRun = workerMock.run.getMockImplementation()!;
+    let fail!: () => void;
+    const failing = new Promise<void>(resolve => { fail = resolve; });
+    let held = false;
+    workerMock.run.mockImplementation(async (task: string, payload: SearchQueryRequest) => {
+      if (task === 'search.query' && !held) {
+        held = true;
+        await failing;
+        throw new Error('App worker failed');
+      }
+      return originalRun(task, payload);
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const resets = (session: number) => workerMock.run.mock.calls.filter(([task, payload]) =>
+      task === 'search.index'
+      && (payload as SearchIndexRequest).reset
+      && (payload as SearchIndexRequest).sessionId === session);
+    try {
+      const stale = view.setQuery('alpha');
+      await vi.waitFor(() => expect(held).toBe(true));
+      const staleSession = internals.workerSession;
+      // Settings drop the catalog under the live view; no query has started since.
+      view.invalidateCatalog();
+      const staleResets = resets(staleSession).length;
+      fail();
+      await stale;
+      // Its reset would wipe whatever index the worker holds for a newer session.
+      expect(resets(staleSession)).toHaveLength(staleResets);
+      expect(diagEvents(error, 'search.worker.query.failed')).toEqual([]);
+
+      await view.setQuery('alpha');
+      expect(resets(internals.workerSession)).toHaveLength(1);
+      expect(diagEvents(warn, 'search.worker.fallback.used')).toEqual([]);
+    } finally {
+      fail();
+      workerMock.run.mockImplementation(originalRun);
+    }
+
+    expect(container.textContent).toContain('Alpha');
+  });
+
+  it.each([
+    ['completes', true],
+    ['fails', false],
+  ])('drops a query superseded while the rebuild of its missing index %s', async (_outcome, rebuilt) => {
+    const alpha = chan('Alpha');
+    const bravo = chan('Bravo');
+    playlistMock.channels = [alpha, bravo];
+    vi.mocked(playlistMock.indexOf).mockImplementation(
+      ((channel: unknown) => playlistMock.channels.indexOf(channel)) as () => number,
+    );
+    const local = vi.fn((query: string) => ({ items: query === 'bravo' ? [bravo] : [alpha], hasMore: false }));
+    Object.assign(playlistMock, { searchLocalRanked: local });
+    const { view } = await openWith();
+    // The new worker is empty, so the query finds no index and rebuilds it.
+    workerMock.restart();
+    const originalRun = workerMock.run.getMockImplementation()!;
+    let release!: () => void;
+    const released = new Promise<void>(resolve => { release = resolve; });
+    let held = false;
+    workerMock.run.mockImplementation(async (task: string, payload: SearchIndexRequest) => {
+      if (task === 'search.index' && payload.reset && !held) {
+        held = true;
+        await released;
+        if (!rebuilt) return { accepted: false };
+      }
+      return originalRun(task, payload);
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const internals = view as unknown as { render: () => void };
+    const render = internals.render.bind(view);
+    const rendered: string[] = [];
+    try {
+      const stale = view.setQuery('alpha');
+      await vi.waitFor(() => expect(held).toBe(true));
+      internals.render = () => {
+        render();
+        rendered.push(container.textContent ?? '');
+      };
+      const current = view.setQuery('bravo');
+      release();
+      await Promise.all([stale, current]);
+
+      expect(diagEvents(warn, 'search.worker.index.missing')).toHaveLength(1);
+      expect(rendered.filter(text => text.includes('Alpha'))).toEqual([]);
+      // Only the current query may fall back, and only when the rebuild failed.
+      expect(diagEvents(warn, 'search.worker.fallback.used')).toHaveLength(rebuilt ? 0 : 1);
+    } finally {
+      release();
+      Reflect.deleteProperty(view, 'render');
+      Reflect.deleteProperty(playlistMock, 'searchLocalRanked');
+      workerMock.run.mockImplementation(originalRun);
+    }
+
+    expect(container.textContent).toContain('Bravo');
+    expect(container.textContent).not.toContain('Alpha');
+  });
+
+  it('ranks on the main thread without rebuilding until the retry delay passes', async () => {
+    const alpha = chan('Alpha');
+    playlistMock.channels = [alpha];
+    Object.assign(playlistMock, { searchLocalRanked: vi.fn(() => ({ items: [alpha], hasMore: false })) });
+    const { view } = await openWith();
+    // The new worker is empty and fails every rebuild.
+    workerMock.restart();
+    const originalRun = workerMock.run.getMockImplementation()!;
+    let failing = true;
+    workerMock.run.mockImplementation(async (task: string, payload: SearchIndexRequest) => {
+      if (failing && task === 'search.index' && payload.reset) throw new Error('App worker failed');
+      return originalRun(task, payload);
+    });
+    const resets = () => workerMock.run.mock.calls.filter(
+      ([task, payload]) => task === 'search.index' && (payload as SearchIndexRequest).reset,
+    ).length;
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.useFakeTimers({ toFake: ['performance'] });
+    try {
+      await view.setQuery('alpha');
+      const firstResets = resets();
+      expect(diagEvents(error, 'search.worker.recovery.failed')).toHaveLength(1);
+      expect(diagEvents(warn, 'search.worker.fallback.used')).toHaveLength(1);
+      expect(container.textContent).toContain('Alpha');
+
+      await view.setQuery('alph');
+      vi.advanceTimersByTime(CONFIG.SEARCH.INDEX_RETRY_DELAY_MS - 1);
+      await view.setQuery('alp');
+      expect(resets()).toBe(firstResets);
+      expect(diagEvents(warn, 'search.worker.fallback.used')).toHaveLength(1);
+      expect(container.textContent).toContain('Alpha');
+
+      // The worker still fails once the delay passes: one more rebuild, not logged again.
+      vi.advanceTimersByTime(1);
+      await view.setQuery('al');
+      expect(resets()).toBe(firstResets + 1);
+      expect(diagEvents(error, 'search.worker.recovery.failed')).toHaveLength(1);
+      expect(diagEvents(warn, 'search.worker.fallback.used')).toHaveLength(2);
+
+      // The worker recovered: the next query after the delay ranks there again.
+      failing = false;
+      vi.advanceTimersByTime(CONFIG.SEARCH.INDEX_RETRY_DELAY_MS);
+      await view.setQuery('alpha');
+      expect(resets()).toBe(firstResets + 2);
+      expect(diagEvents(info, 'search.worker.recovery.completed')).toHaveLength(1);
+      expect(diagEvents(warn, 'search.worker.fallback.used')).toHaveLength(2);
+      expect(container.textContent).toContain('Alpha');
+
+      // A later failure starts a new streak, logged again and not delayed by the old one.
+      workerMock.restart();
+      failing = true;
+      await view.setQuery('alph');
+      expect(resets()).toBe(firstResets + 3);
+      expect(diagEvents(error, 'search.worker.recovery.failed')).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+      Reflect.deleteProperty(playlistMock, 'searchLocalRanked');
+      workerMock.run.mockImplementation(originalRun);
+    }
+  });
+
+  it('rebuilds at once on a new worker that replaced the one a rebuild failed on', async () => {
+    const alpha = chan('Alpha');
+    playlistMock.channels = [alpha];
+    Object.assign(playlistMock, { searchLocalRanked: vi.fn(() => ({ items: [alpha], hasMore: false })) });
+    const { view } = await openWith();
+    workerMock.restart();
+    const originalRun = workerMock.run.getMockImplementation()!;
+    let failing = true;
+    workerMock.run.mockImplementation(async (task: string, payload: SearchIndexRequest) => {
+      if (failing && task === 'search.index' && payload.reset) throw new Error('App worker failed');
+      return originalRun(task, payload);
+    });
+    const resets = () => workerMock.run.mock.calls.filter(
+      ([task, payload]) => task === 'search.index' && (payload as SearchIndexRequest).reset,
+    ).length;
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.useFakeTimers({ toFake: ['performance'] });
+    try {
+      await view.setQuery('alpha');
+      const firstResets = resets();
+      // The failing worker crashed; another task started a new one.
+      failing = false;
+      workerMock.restart();
+      await view.setQuery('alph');
+      expect(resets()).toBe(firstResets + 1);
+      expect(diagEvents(info, 'search.worker.recovery.completed')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+      Reflect.deleteProperty(playlistMock, 'searchLocalRanked');
+      workerMock.run.mockImplementation(originalRun);
+    }
+    expect(container.textContent).toContain('Alpha');
   });
 
   it('plays a channel result on select via its playlist index', async () => {

@@ -24,6 +24,7 @@ import { showToast } from './toast';
 import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard } from '../utils/virtual-scroll';
 import { WorkerListSearch } from '../workers/list-search-client';
+import { isIndexRetryPending } from '../workers/index-retry';
 import { createLogger } from '../utils/logger';
 import { ChannelHealthService } from '../services/channel-health';
 import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
@@ -460,13 +461,15 @@ export class Sidebar {
       channels = await this.channelSearch.query(source, query);
     } catch (error) {
       if (generation !== this.channelSearchGeneration || !this.isVisible) return;
-      log.error(
-        'Worker search failed; using main-thread fallback',
-        'event=search.worker.fallback.used',
-        'scope=list',
-        'owner=sidebar',
-        error,
-      );
+      if (!isIndexRetryPending(error)) {
+        log.error(
+          'Worker search failed; using main-thread fallback',
+          'event=search.worker.fallback.used',
+          'scope=list',
+          'owner=sidebar',
+          error,
+        );
+      }
       channels = rankChannels(source, query);
     }
     if (generation !== this.channelSearchGeneration

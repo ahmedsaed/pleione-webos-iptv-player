@@ -27,6 +27,7 @@ import { getLocale, t, tp, type SupportedLocale } from '../i18n';
 import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard } from '../utils/virtual-scroll';
 import { WorkerListSearch } from '../workers/list-search-client';
+import { isIndexRetryPending } from '../workers/index-retry';
 import { createLogger } from '../utils/logger';
 import { liveBadge } from './live-badge';
 import { Focus, Tier, type FocusScope, type Via } from '../navigation/focus-scope';
@@ -320,13 +321,15 @@ export class EpgGrid {
       results = await this.channelSearch.query(source, query);
     } catch (error) {
       if (generation !== this.channelSearchGeneration) return;
-      log.error(
-        'Worker search failed; using main-thread fallback',
-        'event=search.worker.fallback.used',
-        'scope=list',
-        'owner=epg-grid',
-        error,
-      );
+      if (!isIndexRetryPending(error)) {
+        log.error(
+          'Worker search failed; using main-thread fallback',
+          'event=search.worker.fallback.used',
+          'scope=list',
+          'owner=epg-grid',
+          error,
+        );
+      }
       const ranked = rankByName(source.map(item => item.channel), query);
       const byChannel = new Map(source.map(item => [item.channel, item]));
       results = ranked.map(channel => byChannel.get(channel)!);

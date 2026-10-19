@@ -18,6 +18,7 @@ import { CONFIG } from '../config';
 import { VirtualList } from '../utils/virtual-list';
 import { formatEpgOffset } from '../utils/epg-offset';
 import { WorkerMappingSearch } from '../workers/mapping-search-client';
+import { isIndexRetryPending } from '../workers/index-retry';
 import { createLogger } from '../utils/logger';
 import { Focus } from '../navigation/focus-scope';
 
@@ -1218,13 +1219,15 @@ export class ChannelListEditor {
       this.epgCandidates = candidates;
     } catch (error) {
       if (generation !== this.epgSearchGeneration || key !== this.epgPickerFor) return;
-      log.error(
-        'Worker search failed; using main-thread fallback',
-        'event=search.worker.fallback.used',
-        'scope=mapping',
-        'owner=epg-mapping',
-        error,
-      );
+      if (!isIndexRetryPending(error)) {
+        log.error(
+          'Worker search failed; using main-thread fallback',
+          'event=search.worker.fallback.used',
+          'scope=mapping',
+          'owner=epg-mapping',
+          error,
+        );
+      }
       this.epgCandidates = EpgService.getLocalMappingCandidates(channel, query);
     }
     this.epgSearchPending = false;

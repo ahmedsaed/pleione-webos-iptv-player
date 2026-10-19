@@ -4,7 +4,7 @@ import type { Channel } from '../types';
 import type { RecentlyWatchedItem } from '../services/recently-watched';
 import { CONFIG } from '../config';
 
-const { channels, epgMock, recentMock, toastMock, healthMock } = vi.hoisted(() => {
+const { channels, epgMock, recentMock, toastMock, healthMock, workerMock } = vi.hoisted(() => {
   function makeChannel(over: Partial<Channel>): Channel {
     return {
       id: '', name: '', logo: '', group: '', url: '', extras: null,
@@ -33,6 +33,7 @@ const { channels, epgMock, recentMock, toastMock, healthMock } = vi.hoisted(() =
         return status ? { status } : null;
       }),
     },
+    workerMock: { failIndexes: false },
   };
 });
 
@@ -75,7 +76,10 @@ vi.mock('../workers/app-worker-client', async () => {
   return {
     retainAppWorker: () => () => undefined,
     runAppWorkerTask: (task: string, payload: never) => {
-      if (task === 'list-search.index') return Promise.resolve(index.indexList(payload));
+      if (task === 'list-search.index') {
+        if (workerMock.failIndexes) return Promise.reject(new Error('App worker failed'));
+        return Promise.resolve(index.indexList(payload));
+      }
       if (task === 'list-search.query') return Promise.resolve(index.queryList(payload));
       if (task === 'list-search.release') return Promise.resolve(index.releaseList(payload));
       return Promise.reject(new Error(`Unexpected worker task: ${task}`));
@@ -117,6 +121,7 @@ beforeEach(() => {
   epgMock.nowPlaying = null;
   toastMock.mockClear();
   healthMock.records = {};
+  workerMock.failIndexes = false;
   sidebar = new Sidebar(container, getCurrentIndex, onSelect, getCurrentCatchupStart);
   Focus.install();
 });
@@ -1630,6 +1635,48 @@ describe('Sidebar', () => {
       sidebar.handleAction('down');   // source -> the single result
       sidebar.handleAction('select'); // pick it
       expect(onSelect).toHaveBeenCalledWith(2, undefined, { group: 'builtin:all', playlist: undefined }); // Charlie is global index 2, not filtered 0
+    });
+
+    it('logs the fallback for a failing worker once, not again while the retry is pending', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      // Only the faked clock (and vi.waitFor's 50 ms polls) can end the delay.
+      vi.useFakeTimers({ toFake: ['performance'] });
+      try {
+        const fallbackLogs = (): unknown[][] => error.mock.calls
+          .filter(call => call.some(part => part === 'event=search.worker.fallback.used'));
+        workerMock.failIndexes = true;
+        sidebar.show();
+        highlightSearch();
+        sidebar.handleAction('select');
+        const search = el.querySelector<HTMLInputElement>('.sidebar-search-input')!;
+        const type = (value: string): void => {
+          search.value = value;
+          search.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        const names = (): Array<string | null | undefined> =>
+          items().map(i => i.querySelector('.ch-name')?.textContent);
+
+        type('charlie');
+        await vi.waitFor(() => expect(names()).toEqual(['Charlie']));
+        expect(fallbackLogs()).toHaveLength(1);
+
+        type('bravo');
+        await vi.waitFor(() => expect(names()).toEqual(['Bravo']));
+        vi.advanceTimersByTime(CONFIG.SEARCH.INDEX_RETRY_DELAY_MS - 1000);
+        type('alpha');
+        await vi.waitFor(() => expect(names()).toEqual(['Alpha']));
+        expect(fallbackLogs()).toHaveLength(1);
+
+        // The delay passed: the worker is tried, and fails, again.
+        vi.advanceTimersByTime(CONFIG.SEARCH.INDEX_RETRY_DELAY_MS);
+        type('char');
+        await vi.waitFor(() => expect(fallbackLogs()).toHaveLength(2));
+      } finally {
+        // Clears the real auto-hide timer that show() and typing started.
+        sidebar.hide();
+        vi.useRealTimers();
+        error.mockRestore();
+      }
     });
   });
 });

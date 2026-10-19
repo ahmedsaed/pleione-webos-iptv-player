@@ -127,6 +127,10 @@ export const CONFIG = {
     // Largest share of the free cache room one stored index may take.
     INDEX_BUDGET_SHARE: 0.1,
     INDEX_WRITE_TIMEOUT_MS: 5000,
+    // After a search index attempt or a rebuild of a lost index fails, its
+    // queries search on the main thread for this long before the worker is
+    // tried again.
+    INDEX_RETRY_DELAY_MS: 5000,
     // Background index builds are not latency-bound, so their reads may run longer.
     PREWARM_READ_TIMEOUT_MS: 10_000,
     // Latest the background index build waits for an idle period.

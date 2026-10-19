@@ -192,9 +192,17 @@ export class Search {
   private workerIndexReady = false;
   // A post failed, so the worker may hold a partial index; the next query rebuilds it.
   private workerIndexLost = false;
-  private lostEpoch = 0;
   // One rebuild of a lost index per session; queries meanwhile wait for it.
   private recovery: { sessionId: number; done: Promise<boolean> } | null = null;
+  // A rebuild of the session's lost index failed: until `at`, its queries rank
+  // on the main thread rather than post the whole index to that worker again.
+  // `logged`: the failure was logged, and is not again until a rebuild succeeds.
+  private recoveryRetry: {
+    sessionId: number;
+    at: number;
+    generation: number | null;
+    logged: boolean;
+  } | null = null;
   // The catalog lists the worker ranks, which can trail allVod/allSeries
   // while a refresh is posted; worker indices map onto these.
   private indexedVod: VodItem[] = [];
@@ -289,6 +297,7 @@ export class Search {
     const sessionId = ++this.workerSession;
     this.invalidateWorkerIndex();
     this.workerIndexLost = false;
+    this.recoveryRetry = null;
     const now = Date.now();
     this.indexStats = { startedAt: now, hintAt: query.trim() ? now : 0, persisted: 0, built: 0, posted: 0 };
     this.workerChannels = null;
@@ -427,6 +436,7 @@ export class Search {
     this.abortCatalogLoad();
     this.pendingIndex = null;
     this.workerSession++;
+    this.recoveryRetry = null;
     this.allVod = [];
     this.allSeries = [];
     this.vodCache = null;
@@ -445,6 +455,7 @@ export class Search {
     this.active = false;
     this.focusPending = false;
     this.programIndexGeneration++;
+    this.recoveryRetry = null;
     this.releaseWorker?.();
     this.releaseWorker = null;
     this.queryPending = false;
@@ -590,6 +601,11 @@ export class Search {
     };
     void this.loadCatalog(account).then(async (sources) => {
       if (!this.active || sessionId !== this.workerSession || this.account?.id !== account.id) return;
+      if (this.workerIndexLost) {
+        // The rebuild re-reads the lists; a post of this copy could land after its own.
+        if (this.query.trim()) await this.startQuery(++this.queryGeneration);
+        return;
+      }
       const movies = sources.movies && this.indexedVod !== this.allVod;
       const series = sources.series && this.indexedSeries !== this.allSeries;
       if (movies || series) await refreshed(await this.indexCatalog(sessionId, movies, series));
@@ -619,7 +635,6 @@ export class Search {
       );
     }
     this.workerIndexLost = true;
-    this.lostEpoch++;
     this.indexSettled(sessionId, ...sources);
   }
 
@@ -944,10 +959,14 @@ export class Search {
     const post = async (sources: SearchIndexSource[]): Promise<boolean> => {
       for (const source of sources) {
         const items = source === 'movies' ? vod : allSeries;
-        if (!await this.postSource(sessionId, source, items.length, index => items[index].name)) {
-          return false;
-        }
-        adopt([source]);
+        // A newer refresh replaced this list and posts its own; an older post
+        // landing after it would leave the worker on the older list.
+        if (items !== (source === 'movies' ? this.allVod : this.allSeries)) continue;
+        const result = this.postSource(sessionId, source, items.length, index => items[index].name);
+        const own = this.sourcePosts[source];
+        if (!await result) return false;
+        // A newer post replaced this one and shares its outcome, not its list.
+        if (this.sourcePosts[source] === own) adopt([source]);
       }
       return true;
     };
@@ -1106,11 +1125,14 @@ export class Search {
     }
     let response: SearchQueryResponse | null = null;
     let recoveryAttempted = false;
+    // A rebuild failed recently: rank on the main thread, quietly, until the delay passes.
+    let retryPending = false;
     const lists = this.indexedLists();
     try {
       if (this.workerIndexLost) {
         recoveryAttempted = true;
-        response = await this.recoverWorkerQuery(sessionId, query, 'lost');
+        retryPending = this.recoveryRetryPending(sessionId);
+        if (!retryPending) response = await this.recoverWorkerQuery(sessionId, query, 'lost');
       } else {
         response = await runAppWorkerTask('search.query', {
           sessionId,
@@ -1120,21 +1142,27 @@ export class Search {
         });
       }
     } catch (error) {
-      if (generation !== this.queryGeneration || !this.active) return;
-      log.error(
-        'Search worker query failed; rebuilding its index',
-        'event=search.worker.query.failed',
-        'scope=unified',
-        `session=${String(sessionId)}`,
-        error,
-      );
+      if (generation !== this.queryGeneration || sessionId !== this.workerSession || !this.active) return;
       recoveryAttempted = true;
-      response = await this.recoverWorkerQuery(sessionId, query, 'query_failed');
+      retryPending = this.recoveryRetryPending(sessionId);
+      if (!retryPending) {
+        log.error(
+          'Search worker query failed; rebuilding its index',
+          'event=search.worker.query.failed',
+          'scope=unified',
+          `session=${String(sessionId)}`,
+          error,
+        );
+        response = await this.recoverWorkerQuery(sessionId, query, 'query_failed');
+      }
     }
     if (generation !== this.queryGeneration || sessionId !== this.workerSession || !this.active) {
       return;
     }
     if (!response && !recoveryAttempted) {
+      retryPending = this.recoveryRetryPending(sessionId);
+    }
+    if (!response && !recoveryAttempted && !retryPending) {
       log.warn(
         'Search worker lost its index; rebuilding it',
         'event=search.worker.index.missing',
@@ -1142,6 +1170,9 @@ export class Search {
         `session=${String(sessionId)}`,
       );
       response = await this.recoverWorkerQuery(sessionId, query, 'missing');
+      if (generation !== this.queryGeneration || sessionId !== this.workerSession || !this.active) {
+        return;
+      }
     }
     if (response && !sameLists(lists, this.indexedLists())) {
       // The lists changed under the reply, so its indices may not map onto them.
@@ -1150,12 +1181,14 @@ export class Search {
     if (response) {
       this.applyQueryResponse(response, this.indexedVod, this.indexedSeries);
     } else {
-      log.warn(
-        'Worker search failed; using main-thread fallback',
-        'event=search.worker.fallback.used',
-        'scope=unified',
-        `session=${String(sessionId)}`,
-      );
+      if (!retryPending) {
+        log.warn(
+          'Worker search failed; using main-thread fallback',
+          'event=search.worker.fallback.used',
+          'scope=unified',
+          `session=${String(sessionId)}`,
+        );
+      }
       this.applyQueryResponse(this.queryLocally(query), this.allVod, this.allSeries);
     }
     this.queryPending = false;
@@ -1211,10 +1244,14 @@ export class Search {
       let recovery = this.recovery;
       const owner = !recovery || recovery.sessionId !== sessionId;
       if (!recovery || owner) {
-        const current = { sessionId, done: this.rebuildWorkerIndex(sessionId) };
+        const rebuilt = this.rebuildWorkerIndex(sessionId);
+        const current = { sessionId, done: rebuilt };
         const clear = (): void => {
           if (this.recovery === current) this.recovery = null;
         };
+        // Recorded before any query waiting on the rebuild resumes.
+        const failed = (): void => this.recoveryFailed(sessionId);
+        rebuilt.then(done => { if (!done) failed(); }, failed);
         current.done.then(clear, clear);
         this.recovery = current;
         recovery = current;
@@ -1238,6 +1275,11 @@ export class Search {
       }
       return response;
     } catch (error) {
+      const retry = this.recoveryRetry;
+      if (retry?.sessionId === sessionId) {
+        if (retry.logged) return null;
+        retry.logged = true;
+      }
       log.error(
         'Search worker recovery failed',
         'event=search.worker.recovery.failed',
@@ -1250,27 +1292,69 @@ export class Search {
     }
   }
 
+  private recoveryRetryPending(sessionId: number): boolean {
+    const retry = this.recoveryRetry;
+    // A new worker replaced the one the rebuild failed on, so it may succeed now.
+    return !!retry
+      && retry.sessionId === sessionId
+      && retry.generation === appWorkerGeneration()
+      && performance.now() < retry.at;
+  }
+
+  private recoveryFailed(sessionId: number): void {
+    if (sessionId !== this.workerSession) return;
+    const retry = this.recoveryRetry;
+    this.recoveryRetry = {
+      sessionId,
+      at: performance.now() + CONFIG.SEARCH.INDEX_RETRY_DELAY_MS,
+      generation: appWorkerGeneration(),
+      logged: retry?.sessionId === sessionId && retry.logged,
+    };
+  }
+
   private async rebuildWorkerIndex(sessionId: number): Promise<boolean> {
-    const epoch = this.lostEpoch;
-    const channels = PlaylistService.channels;
-    const programs = this.programIndex;
-    const vod = this.allVod;
-    const allSeries = this.allSeries;
-    const indexed = await this.indexWorker({ sessionId, reset: true })
-      && await this.postSource(sessionId, 'channels', channels.length, index => channelDocument(channels[index]))
-      && await this.postSource(sessionId, 'programmes', programs.length, index => programDocument(programs[index]));
-    if (!indexed || !await this.postSource(sessionId, 'movies', vod.length, index => vod[index].name)) {
-      return false;
-    }
-    if (sessionId === this.workerSession) this.indexedVod = vod;
-    if (!await this.postSource(sessionId, 'series', allSeries.length, index => allSeries[index].name)) {
-      return false;
-    }
+    // Its reset would wipe the newer session's index.
     if (sessionId !== this.workerSession) return false;
-    this.indexedSeries = allSeries;
-    // Another source was lost meanwhile, so this index may be partial too.
-    if (epoch !== this.lostEpoch) return false;
+    // Partial until every source below is in: no refresh may mark it ready
+    // or a reopen reuse it, and queries wait for this rebuild.
+    this.invalidateWorkerIndex();
+    this.workerIndexLost = true;
+    if (!await this.indexWorker({ sessionId, reset: true })) return false;
+    // Any list may be replaced meanwhile, and a newer post of a source may
+    // carry an older list: post until the worker holds the current lists,
+    // each from this rebuild's own post.
+    const posted: Partial<Record<SearchIndexSource, { list: unknown[]; post?: SourcePost }>> = {};
+    let channels: Channel[];
+    let changed: boolean;
+    do {
+      changed = false;
+      const current = PlaylistService.channels;
+      const programs = this.programIndex;
+      const movies = this.allVod;
+      const series = this.allSeries;
+      channels = current;
+      const sources: Array<[SearchIndexSource, unknown[], (index: number) => string[] | string]> = [
+        ['channels', current, index => channelDocument(current[index])],
+        ['programmes', programs, index => programDocument(programs[index])],
+        ['movies', movies, index => movies[index].name],
+        ['series', series, index => series[index].name],
+      ];
+      for (const [source, list, documentAt] of sources) {
+        const last = posted[source];
+        if (last && last.list === list && last.post === this.sourcePosts[source]) continue;
+        changed = true;
+        const result = this.postSource(sessionId, source, list.length, documentAt);
+        const post = this.sourcePosts[source];
+        if (!await result || sessionId !== this.workerSession) return false;
+        posted[source] = { list, post };
+        if (this.sourcePosts[source] !== post) continue;
+        if (source === 'movies') this.indexedVod = movies;
+        if (source === 'series') this.indexedSeries = series;
+      }
+    } while (changed);
+    // A post lost meanwhile left its source changed, so the loop reposted it.
     this.workerIndexLost = false;
+    this.recoveryRetry = null;
     this.workerChannels = channels;
     this.markWorkerIndexReady(this.account);
     return true;
@@ -1313,12 +1397,17 @@ export class Search {
 
   private markWorkerIndexReady(account: PlaylistEntry | null): void {
     this.workerIndexReady = true;
-    this.workerIndexedChannels = PlaylistService.channels;
-    this.workerIndexedProgrammes = EpgService.programmes;
+    // What the worker holds: the channels posted and the guide data the
+    // posted program index was built from, which can trail the services'.
+    this.workerIndexedChannels = this.workerChannels;
+    this.workerIndexedProgrammes = this.indexedChannels === this.workerChannels
+      ? this.indexedProgrammes
+      : null;
     this.workerIndexedAccountId = account?.id ?? null;
     this.workerIndexedGeneration = this.workerResetGeneration;
-    this.workerIndexedVod = this.allVod;
-    this.workerIndexedSeries = this.allSeries;
+    // What the worker holds, which trails allVod/allSeries while a refresh posts.
+    this.workerIndexedVod = this.indexedVod;
+    this.workerIndexedSeries = this.indexedSeries;
     log.info(
       'Search worker index ready',
       'event=search.worker.index.ready',

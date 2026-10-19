@@ -86,6 +86,7 @@ vi.mock('../services/channel-health', () => ({
   ChannelHealthService: { getRecord: () => null },
 }));
 vi.mock('./toast', () => ({ showToast: toastMock.showToast }));
+const { workerMock } = vi.hoisted(() => ({ workerMock: { failIndexes: false } }));
 vi.mock('../workers/app-worker-client', async () => {
   const { ScopedSearchIndex } = await import('../workers/scoped-search-index');
   const index = new ScopedSearchIndex();
@@ -93,6 +94,7 @@ vi.mock('../workers/app-worker-client', async () => {
     retainAppWorker: () => () => undefined,
     runAppWorkerTask: (task: string, payload: never) => {
       if (task === 'mapping-search.index') {
+        if (workerMock.failIndexes) return Promise.reject(new Error('App worker failed'));
         return Promise.resolve(index.indexMapping(payload));
       }
       if (task === 'mapping-search.query') {
@@ -110,6 +112,7 @@ import { ChannelList } from './channel-list';
 import { channelKey } from '../utils/channel';
 import { ChannelCustomizationService, groupKeyOf } from '../services/channel-customization';
 import { Focus } from '../navigation/focus-scope';
+import { CONFIG } from '../config';
 
 playlistMock.indexOfKey = (key: string) => data.channels
   .findIndex(ch => channelKey(ch) === key);
@@ -183,6 +186,7 @@ beforeEach(() => {
   ChannelCustomizationService.reload();
   playlistMock.applyCustomization();
   recentMock.items = [];
+  workerMock.failIndexes = false;
   recentMock.getItems.mockClear();
   recentMock.catchupInfo.mockReset();
   toastMock.showToast.mockClear();
@@ -830,6 +834,50 @@ describe('ChannelList edit mode', () => {
 
     await waitForEpgSearch();
     expect(input.dataset.searchQuery).toBe('Guide B');
+  });
+
+  it('logs the fallback for a failing worker once, not again while the retry is pending', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    // Only the faked clock (and vi.waitFor's 50 ms polls) can end the delay.
+    vi.useFakeTimers({ toFake: ['performance'] });
+    try {
+      const fallbackLogs = (): unknown[][] => error.mock.calls
+        .filter(call => call.some(part => part === 'event=search.worker.fallback.used'));
+      workerMock.failIndexes = true;
+      epgMock.getLocalMappingCandidates.mockImplementation((_channel: Channel, query: string) => [{
+        id: `guide-${query}`,
+        channelId: `guide-${query}`,
+        name: `Guide ${query}`,
+        sourceName: 'Guide',
+      }]);
+      enterEdit();
+      hover(channelItems()[1]);
+      list.handleAction('select');
+      hover(container.querySelector<HTMLElement>('[data-epg-action]')!);
+      list.handleAction('select');
+      await waitForEpgSearch();
+      expect(fallbackLogs()).toHaveLength(1);
+
+      const input = container.querySelector<HTMLInputElement>('.epg-mapping-search')!;
+      const type = async (query: string): Promise<void> => {
+        input.value = query;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        await vi.waitFor(() => expect(container.querySelector(`[data-epg-channel="guide-${query}"]`))
+          .not.toBeNull());
+      };
+      await type('b1');
+      vi.advanceTimersByTime(CONFIG.SEARCH.INDEX_RETRY_DELAY_MS - 1000);
+      await type('b2');
+      expect(fallbackLogs()).toHaveLength(1);
+
+      // The delay passed: the worker is tried, and fails, again.
+      vi.advanceTimersByTime(CONFIG.SEARCH.INDEX_RETRY_DELAY_MS);
+      await type('b3');
+      expect(fallbackLogs()).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+      error.mockRestore();
+    }
   });
 
   it('reuses the selected channel while the EPG mapping query changes', async () => {
