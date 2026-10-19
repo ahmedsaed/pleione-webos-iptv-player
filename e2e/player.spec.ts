@@ -516,6 +516,38 @@ test('Magic Remote dwell expands groups and stages pointer dismissal', async ({ 
   await expect(sidebar).not.toBeVisible();
 });
 
+test('the group panel lights the group it slides in under a pointer moved mid-slide', async ({ page }) => {
+  await gotoGroupedPlayer(page);
+  const sidebar = page.locator('#player-sidebar');
+  const groups = sidebar.locator('.sidebar-group-panel');
+  const target = sidebar.locator('.sidebar-group-item').nth(3);
+  await page.mouse.move(30, 540);
+  await expect(sidebar).toHaveClass(/groups-expanded/);
+  await panelSettled(sidebar);
+  const box = (await target.boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(800, 540);
+  await expect(sidebar).toHaveClass(/channels-only/);
+  await page.mouse.move(300, 540);
+  await panelSettled(sidebar);
+  // A slow slide leaves time to move while the channels still lie under the pointer.
+  await sidebar.evaluate((el) => { el.style.transition = 'transform 4s linear'; });
+
+  await page.mouse.move(30, y);
+  await expect(sidebar).toHaveClass(/groups-expanded/);
+  await expect.poll(() => groups.evaluate(el => el.getBoundingClientRect().right), { intervals: [20] })
+    .toBeGreaterThan(0);
+  expect(await groups.evaluate(el => el.getBoundingClientRect().right)).toBeLessThan(x - 40);
+  await page.mouse.move(x, y);
+  await expect(target).not.toHaveClass(/focused/);
+  // webOS fires no mouseover once the panel stops under the resting pointer.
+  await noHoverWithoutMove(page);
+  await panelSettled(sidebar);
+  await expect(target).toHaveClass(/focused/);
+  await expect(page.locator('.focused')).toHaveCount(1);
+});
+
 test('the right-edge player menu opens and lists its color actions', async ({ page }) => {
   // Smoke-exercises player-menu.ts at runtime (it has no other e2e coverage).
   await routePlaylist(page);

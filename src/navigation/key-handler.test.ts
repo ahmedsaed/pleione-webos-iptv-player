@@ -878,6 +878,24 @@ describe('KeyHandler', () => {
       expect(row('a').classList.contains('focused')).toBe(false);
     });
 
+    it('hovers afresh the row the pointer last moved onto, after settling onto another', () => {
+      row('a').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      hit = row('b');
+      Focus.push(scope);
+      settle();
+      expect(row('b').classList.contains('focused')).toBe(true);
+
+      // Chromium still counts the pointer on the row it last moved onto, so
+      // moving back onto it fires no mouseover.
+      screen += 7;
+      row('a').dispatchEvent(new MouseEvent('mousemove', {
+        clientX: 50, clientY: 50, screenX: screen, screenY: screen, bubbles: true,
+      }));
+      Focus.flush();
+      expect(row('a').classList.contains('focused')).toBe(true);
+      expect(row('b').classList.contains('focused')).toBe(false);
+    });
+
     it.each([
       ['the cursor-hide key', () => press(K.CURSOR_HIDE)],
       ['a hidden cursor state', () => document.dispatchEvent(

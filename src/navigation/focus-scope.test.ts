@@ -272,6 +272,42 @@ describe('Focus owner stack', () => {
       Focus.flush();
       expect(shown()).toEqual(['a']);
     });
+
+    it('lights the row a slide of the owner left under the resting pointer', () => {
+      const scope = panel({});
+      Focus.push(scope);
+      Focus.flush();
+      Focus.pointer(5, 5);
+      hit = row(prompt, 'b');
+      Focus.hoverPointerIn(scope);
+      Focus.flush();
+      expect(shown()).toEqual(['b']);
+    });
+
+    it('hovers nothing after a slide under the D-pad, below another owner, or with no pointer', () => {
+      const scope = panel({});
+      Focus.push(scope);
+      Focus.flush();
+      const hover = vi.fn();
+      Focus.setHoverAt(hover);
+      Focus.pointer(5, 5);
+
+      setInputMode('keys');
+      Focus.hoverPointerIn(scope);
+      setInputMode('pointer');
+      list(view, ['x']);
+      const top = logical('top', view);
+      Focus.push(top);
+      Focus.hoverPointerIn(scope);
+      Focus.pop(top);
+      Focus.pointerGone();
+      Focus.hoverPointerIn(scope);
+      expect(hover).not.toHaveBeenCalled();
+
+      Focus.pointer(5, 5);
+      Focus.hoverPointerIn(scope);
+      expect(hover).toHaveBeenCalledWith(5, 5, prompt);
+    });
   });
 
   it('skips a pushed scope while its view is not shown, and restores it after', () => {

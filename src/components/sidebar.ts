@@ -1156,7 +1156,11 @@ export class Sidebar {
     if (!el) return;
 
     el.addEventListener('transitionend', (e: TransitionEvent) => {
-      if (e.target !== el || e.propertyName !== 'transform' || !this.isVisible || !this.opening) return;
+      if (e.target !== el || e.propertyName !== 'transform' || !this.isVisible) return;
+      // The group panel slid in or out under a resting pointer: a move made
+      // mid-slide hovered whatever passed under it then.
+      Focus.hoverPointerIn(this.focusScope);
+      if (!this.opening) return;
       this.opening = false;
       if (this.pointerAtGroupEdge) this.startGroupDwell();
       this.measureMarquees();

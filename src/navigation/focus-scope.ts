@@ -587,6 +587,17 @@ export const Focus = {
     cancelSettle();
   },
 
+  /**
+   * The owner's surface just stopped moving under the resting pointer, which
+   * fires no mouseover: hover what now lies there, as a move would.
+   */
+  hoverPointerIn(scope: FocusScope): void {
+    const root = (scope as Scope).root();
+    if (!hoverAt || !root || !pointerAt || InputMode.current !== 'pointer') return;
+    if (Focus.owner() !== scope) return;
+    hoverAt(pointerAt.x, pointerAt.y, root);
+  },
+
   /** Hover the item at a point, if it lies within the given root. */
   setHoverAt(hook: ((x: number, y: number, within: HTMLElement) => void) | null): void {
     hoverAt = hook;

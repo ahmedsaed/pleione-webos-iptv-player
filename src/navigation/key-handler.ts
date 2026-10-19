@@ -188,8 +188,9 @@ export const KeyHandler = {
     const focusableAt = (e: MouseEvent): HTMLElement | null => closestFocusable(e.target);
     // A panel that settled under the resting pointer: hover what lies there.
     // It moved since any hover the pointer gave it, so that hover is stale:
-    // even the same item is hovered afresh, and with no item under the
-    // pointer the next move hovers wherever it lands, mouseover or not.
+    // even the same item is hovered afresh. The browser still holds its own
+    // hover where the pointer last moved, so a move back onto that element
+    // fires no mouseover: a move hovers what it lands on unless it is tracked.
     Focus.setHoverAt((x, y, within) => {
       const target = closestFocusable(document.elementFromPoint(x, y));
       if (target && !within.contains(target)) return;
@@ -234,7 +235,7 @@ export const KeyHandler = {
       Focus.pointer(e.clientX, e.clientY);
       if (!moved) return;
       if (InputMode.current === 'keys') resumePointer(e, 'move');
-      else if (hoverStale) setHoverTarget(focusableAt(e));
+      else if (hoverStale || focusableAt(e) !== lastHover) setHoverTarget(focusableAt(e));
     }, true);
     // Scrolling content with the wheel is pointer use even with the cursor at
     // rest; the hovers it causes must follow the pointer again. A wheel that
