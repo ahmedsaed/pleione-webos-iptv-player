@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CONFIG } from '../config';
-import { isAppWorkerRunning, runAppWorkerTask, terminateAppWorker } from '../workers/app-worker-client';
+import {
+  appWorkerGeneration,
+  retainAppWorker,
+  runAppWorkerTask,
+  terminateAppWorker,
+} from '../workers/app-worker-client';
 
 const { cacheMock } = vi.hoisted(() => ({
   cacheMock: { reserveDelayMs: 0, settled: [] as boolean[] },
@@ -33,11 +38,18 @@ class FakeWorker {
   static tasks: string[] = [];
   static terminations = 0;
   static created = 0;
+  static last: FakeWorker | null = null;
   private listeners: Array<(event: { data: unknown }) => void> = [];
+  private errorListeners: Array<(event: { message: string }) => void> = [];
   private built = false;
 
   constructor() {
     FakeWorker.created++;
+    FakeWorker.last = this;
+  }
+
+  crash(): void {
+    for (const listener of this.errorListeners) listener({ message: 'boom' });
   }
 
   postMessage(message: Request): void {
@@ -54,8 +66,9 @@ class FakeWorker {
     }, 0);
   }
 
-  addEventListener(type: string, listener: (event: { data: unknown }) => void): void {
+  addEventListener(type: string, listener: (event: { data: unknown; message: string }) => void): void {
     if (type === 'message') this.listeners.push(listener);
+    if (type === 'error') this.errorListeners.push(listener);
   }
 
   terminate(): void {
@@ -72,6 +85,7 @@ describe('SearchIndexPrewarmer worker lifetime', () => {
     FakeWorker.tasks = [];
     FakeWorker.terminations = 0;
     FakeWorker.created = 0;
+    FakeWorker.last = null;
     cacheMock.reserveDelayMs = 0;
     cacheMock.settled = [];
   });
@@ -88,10 +102,10 @@ describe('SearchIndexPrewarmer worker lifetime', () => {
     prewarm.schedule('startup');
     await vi.advanceTimersByTimeAsync(10);
     expect(FakeWorker.tasks).toEqual(['search.prewarm', 'search.persist']);
-    expect(isAppWorkerRunning()).toBe(true);
+    expect(appWorkerGeneration()).not.toBeNull();
 
     await vi.advanceTimersByTimeAsync(CONFIG.WORKER_IDLE_TERMINATION_MS);
-    expect(isAppWorkerRunning()).toBe(false);
+    expect(appWorkerGeneration()).toBeNull();
     expect(FakeWorker.terminations).toBe(1);
   });
 
@@ -105,7 +119,7 @@ describe('SearchIndexPrewarmer worker lifetime', () => {
     expect(FakeWorker.created).toBe(1);
     expect(cacheMock.settled).toEqual([true]);
     await vi.advanceTimersByTimeAsync(CONFIG.WORKER_IDLE_TERMINATION_MS);
-    expect(isAppWorkerRunning()).toBe(false);
+    expect(appWorkerGeneration()).toBeNull();
   });
 
   it('keeps the worker an open Search built in until its index is stored', async () => {
@@ -119,6 +133,41 @@ describe('SearchIndexPrewarmer worker lifetime', () => {
     expect(FakeWorker.created).toBe(1);
     expect(cacheMock.settled).toEqual([true]);
     await vi.advanceTimersByTimeAsync(CONFIG.WORKER_IDLE_TERMINATION_MS);
-    expect(isAppWorkerRunning()).toBe(false);
+    expect(appWorkerGeneration()).toBeNull();
+  });
+
+  it('numbers each new worker and drops the number once it terminates or crashes', async () => {
+    expect(appWorkerGeneration()).toBeNull();
+    const release = retainAppWorker();
+    try {
+      const first = runAppWorkerTask('search.index', { sessionId: 1 });
+      const generation = appWorkerGeneration();
+      expect(generation).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(1);
+      await first;
+      expect(appWorkerGeneration()).toBe(generation);
+
+      terminateAppWorker();
+      expect(appWorkerGeneration()).toBeNull();
+      const second = runAppWorkerTask('search.index', { sessionId: 2 });
+      const next = appWorkerGeneration();
+      expect(next).not.toBeNull();
+      expect(next).not.toBe(generation);
+      await vi.advanceTimersByTimeAsync(1);
+      await second;
+
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      FakeWorker.last?.crash();
+      expect(appWorkerGeneration()).toBeNull();
+      expect(error.mock.calls.some(call => call.includes('event=worker.lifecycle.failed'))).toBe(true);
+      const third = runAppWorkerTask('search.index', { sessionId: 3 });
+      const restarted = appWorkerGeneration();
+      expect(restarted).not.toBeNull();
+      expect([generation, next]).not.toContain(restarted);
+      await vi.advanceTimersByTimeAsync(1);
+      await third;
+    } finally {
+      release();
+    }
   });
 });

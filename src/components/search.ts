@@ -33,7 +33,7 @@ import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard, type VirtualScrollAxis } from '../utils/virtual-scroll';
 import { runInFrameSlices } from '../utils/frame-slices';
 import {
-  isAppWorkerRunning,
+  appWorkerGeneration,
   retainAppWorker,
   runAppWorkerTask,
 } from '../workers/app-worker-client';
@@ -207,6 +207,8 @@ export class Search {
   private workerIndexedChannels: Channel[] | null = null;
   private workerIndexedProgrammes: Record<string, Programme[]> | null = null;
   private workerIndexedAccountId: string | null = null;
+  private workerIndexedGeneration: number | null = null;
+  private workerResetGeneration: number | null = null;
   private workerIndexedVod: VodItem[] | null = null;
   private workerIndexedSeries: SeriesItem[] | null = null;
   private releaseWorker: (() => void) | null = null;
@@ -253,7 +255,11 @@ export class Search {
 
   async open(account: PlaylistEntry | null, query = ''): Promise<void> {
     this.active = true;
-    if (!isAppWorkerRunning()) this.invalidateWorkerIndex();
+    // Another task may have started a new, empty worker since the index was built.
+    const generation = appWorkerGeneration();
+    if (generation === null || generation !== this.workerIndexedGeneration) {
+      this.invalidateWorkerIndex();
+    }
     const reuseWorkerIndex = this.canReuseWorkerIndex(account);
     if (!this.releaseWorker) this.releaseWorker = retainAppWorker();
     this.cancelScheduledQuery();
@@ -957,9 +963,13 @@ export class Search {
   }
 
   private async indexWorker(request: SearchIndexRequest): Promise<boolean> {
-    const response = await runAppWorkerTask('search.index', request);
+    const pending = runAppWorkerTask('search.index', request);
+    // Record the worker that took the reset, not whichever one runs when the index is marked ready.
+    const generation = appWorkerGeneration();
+    const response = await pending;
     const accepted = response.accepted && request.sessionId === this.workerSession;
     if (accepted && request.reset) {
+      this.workerResetGeneration = generation;
       this.indexedVod = [];
       this.indexedSeries = [];
     }
@@ -1125,7 +1135,7 @@ export class Search {
       return;
     }
     if (!response && !recoveryAttempted) {
-      log.error(
+      log.warn(
         'Search worker lost its index; rebuilding it',
         'event=search.worker.index.missing',
         'scope=unified',
@@ -1306,6 +1316,7 @@ export class Search {
     this.workerIndexedChannels = PlaylistService.channels;
     this.workerIndexedProgrammes = EpgService.programmes;
     this.workerIndexedAccountId = account?.id ?? null;
+    this.workerIndexedGeneration = this.workerResetGeneration;
     this.workerIndexedVod = this.allVod;
     this.workerIndexedSeries = this.allSeries;
     log.info(
@@ -1326,6 +1337,7 @@ export class Search {
     this.workerIndexedChannels = null;
     this.workerIndexedProgrammes = null;
     this.workerIndexedAccountId = null;
+    this.workerIndexedGeneration = null;
     this.workerIndexedVod = null;
     this.workerIndexedSeries = null;
     if (wasReady) {

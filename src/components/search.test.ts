@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { PlaylistEntry, Programme } from '../types';
-import type { SearchIndexRequest, SearchQueryRequest } from '../workers/tasks';
+import type { SearchIndexPersistRequest, SearchIndexRequest, SearchQueryRequest } from '../workers/tasks';
 
 const {
   catalogMock,
@@ -15,7 +15,7 @@ const {
   cacheMock,
   persistMock,
 } = vi.hoisted(() => ({
-  persistMock: vi.fn(async () => undefined),
+  persistMock: vi.fn(async (_candidates?: Array<{ key: string; prefix: string }>) => undefined),
   catalogMock: {
     getSearchCatalogExpiresAt: vi.fn(),
     loadAllVodStreams: vi.fn(),
@@ -50,6 +50,9 @@ const {
     run: vi.fn(),
     retain: vi.fn(() => vi.fn()),
     running: false,
+    generation: 0,
+    restart: (): void => undefined,
+    terminate: (): void => undefined,
   },
   cacheMock: {
     records: new Map<string, Record<string, unknown>>(),
@@ -70,23 +73,37 @@ vi.mock('../services/idb-cache', async importOriginal => ({
 }));
 vi.mock('../workers/app-worker-client', async () => {
   const { SearchWorkerIndex } = await import('../workers/search-index');
-  const index = new SearchWorkerIndex({
+  const createIndex = () => new SearchWorkerIndex({
     read: async ref => cacheMock.records.get(`${ref.store}|${ref.key}`) ?? null,
     count: async ref => cacheMock.records.has(`${ref.store}|${ref.key}`) ? 1 : 0,
     write: async (store, value) => {
       cacheMock.records.set(`${store}|${String(value.key)}`, value);
     },
   });
+  let index = createIndex();
+  // A crash, or an idle termination followed by another task's start: a new, empty worker.
+  workerMock.restart = () => {
+    index = createIndex();
+    workerMock.generation++;
+    workerMock.running = true;
+  };
+  // The worker and its index are gone; the next task starts an empty one.
+  workerMock.terminate = () => {
+    index = createIndex();
+    workerMock.running = false;
+  };
   workerMock.run.mockImplementation(async (task: string, payload: unknown) => {
+    if (!workerMock.running) workerMock.generation++;
     workerMock.running = true;
     if (task === 'search.index') return index.index(payload as SearchIndexRequest);
     if (task === 'search.query') return index.query(payload as SearchQueryRequest);
+    if (task === 'search.persist') return index.persist(payload as SearchIndexPersistRequest);
     throw new Error(`Unexpected worker task: ${task}`);
   });
   return {
     runAppWorkerTask: workerMock.run,
     retainAppWorker: workerMock.retain,
-    isAppWorkerRunning: () => workerMock.running,
+    appWorkerGeneration: () => workerMock.running ? workerMock.generation : null,
   };
 });
 
@@ -113,7 +130,7 @@ let container: HTMLElement;
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   vi.clearAllMocks();
-  workerMock.running = false;
+  workerMock.terminate();
   playlistMock.channels = [];
   playlistMock.search.mockReturnValue([]);
   playlistMock.searchRanked.mockImplementation((query: string, limit: number) => {
@@ -161,17 +178,26 @@ function diagEvents(spy: { mock: { calls: unknown[][] } }, event: string): strin
     .filter(line => line.includes(`event=${event} `));
 }
 
+const openViews: Search[] = [];
+
 async function openWith(opts: { vod?: unknown[]; series?: unknown[] } = {}) {
   catalogMock.loadAllVodStreams.mockResolvedValue(opts.vod ?? []);
   catalogMock.loadAllSeries.mockResolvedValue(opts.series ?? []);
   const handlers = mkHandlers();
   const view = new Search(container, handlers);
+  openViews.push(view);
   await view.open(account);
   await indexReady(view);
   return { view, handlers };
 }
 
 afterEach(() => {
+  // An active view's unfinished index build or query would run into the next test.
+  for (const view of openViews.splice(0)) view.deactivate();
+  // A failed assertion skips a test's own mockRestore.
+  for (const method of ['log', 'warn', 'error'] as const) {
+    if (vi.isMockFunction(console[method])) console[method].mockRestore();
+  }
   Focus.setBase(() => null);
   Focus.uninstall();
 });
@@ -334,13 +360,120 @@ describe('Search', () => {
   it('rebuilds the index after the shared worker was terminated while inactive', async () => {
     const { view } = await openWith();
     view.deactivate();
-    workerMock.running = false;
+    workerMock.terminate();
 
     await view.open(account);
 
     expect(workerMock.run.mock.calls.filter(
       ([task, payload]) => task === 'search.index' && (payload as SearchIndexRequest).reset,
     )).toHaveLength(2);
+  });
+
+  it('rebuilds the index when another task started a new worker while inactive', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+    view.deactivate();
+    workerMock.restart();
+
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await view.open(account);
+    await indexReady(view);
+    await view.setQuery('alpha');
+
+    expect(diagEvents(warn, 'search.worker.index.missing')).toEqual([]);
+    expect(diagEvents(info, 'search.index.ready'))
+      .toEqual([expect.stringContaining('mode=fallback channels=1 programmes=0 items=1')]);
+    warn.mockRestore();
+    info.mockRestore();
+    expect(workerMock.run.mock.calls.filter(
+      ([task, payload]) => task === 'search.index' && (payload as SearchIndexRequest).reset,
+    )).toHaveLength(2);
+    expect(container.textContent).toContain('Alpha Movie');
+  });
+
+  it('rebuilds the index when its worker crashed before Search recorded it', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    // indexSettled logs search.index.ready before it records the worker index.
+    let fired = 0;
+    const crashOnReady = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      if (args.indexOf('event=search.index.ready') >= 0) {
+        fired++;
+        workerMock.terminate();
+      }
+    });
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+    crashOnReady.mockRestore();
+    expect(fired).toBe(1);
+    view.deactivate();
+
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await view.open(account);
+    await indexReady(view);
+    await view.setQuery('alpha');
+
+    expect(diagEvents(warn, 'search.worker.index.missing')).toEqual([]);
+    expect(diagEvents(info, 'search.index.ready'))
+      .toEqual([expect.stringContaining('mode=fallback channels=1 programmes=0 items=1')]);
+    warn.mockRestore();
+    info.mockRestore();
+    expect(container.textContent).toContain('Alpha Movie');
+  });
+
+  it('rebuilds the index when a new worker replaced its worker before Search recorded it', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    // indexSettled logs search.index.ready before it records the worker index.
+    let fired = 0;
+    const restartOnReady = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      if (args.indexOf('event=search.index.ready') >= 0) {
+        fired++;
+        workerMock.restart();
+      }
+    });
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+    restartOnReady.mockRestore();
+    expect(fired).toBe(1);
+    view.deactivate();
+
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await view.open(account);
+    await indexReady(view);
+    await view.setQuery('alpha');
+
+    expect(diagEvents(warn, 'search.worker.index.missing')).toEqual([]);
+    expect(diagEvents(info, 'search.index.ready'))
+      .toEqual([expect.stringContaining('mode=fallback channels=1 programmes=0 items=1')]);
+    warn.mockRestore();
+    info.mockRestore();
+    expect(container.textContent).toContain('Alpha Movie');
+  });
+
+  it('recovers from a worker crash while open and reuses the rebuilt index on reopen', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+    workerMock.restart();
+
+    const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await view.setQuery('alpha');
+    await vi.waitFor(() => expect(container.textContent).toContain('Alpha Movie'));
+    expect(diagEvents(warn, 'search.worker.index.missing')).toHaveLength(1);
+    expect(diagEvents(error, 'search.worker.index.missing')).toEqual([]);
+
+    view.deactivate();
+    await view.open(account);
+    await view.setQuery('alpha');
+
+    expect(diagEvents(info, 'search.index.ready'))
+      .toEqual([expect.stringContaining('mode=reused channels=1 programmes=0 items=1')]);
+    expect(diagEvents(warn, 'search.worker.index.missing')).toHaveLength(1);
+    error.mockRestore();
+    warn.mockRestore();
+    info.mockRestore();
+    expect(container.textContent).toContain('Alpha Movie');
   });
 
   it('rebuilds the index when playlist data changes while inactive', async () => {
@@ -888,8 +1021,13 @@ describe('Search', () => {
     await view.setQuery('bravo');
     expect(container.textContent).toContain('Bravo Movie');
 
+    // Store the offered indexes as the app does, so a new worker can load them.
+    const offered = persistMock.mock.calls.flatMap(([candidates]) => candidates ?? []);
+    await workerMock.run('search.persist', {
+      entries: offered.map(({ key, prefix }) => ({ key, prefix, fields: {} })),
+    });
     view.deactivate();
-    workerMock.running = false;
+    workerMock.terminate();
     await view.open(account);
     await indexReady(view);
     expect(diagEvents(info, 'search.index.ready')[1])
