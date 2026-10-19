@@ -1411,6 +1411,10 @@ try {
   //    the tab bar picks which Xtream account drives Movies / Series / Search).
   {
     const { context, page } = await newPage({ xtream: true });
+    // A non-default sort shows the direction toggle beside the field picker.
+    await page.addInitScript(() => {
+      localStorage.setItem('iptv_catalog_sort_vod', JSON.stringify({ by: 'name', direction: 'asc' }));
+    });
     await gotoChannels(page, base);
     await enterTab(page, 'movies');
     await page.locator('#view-movies .catalog-browse').waitFor({ state: 'visible' });

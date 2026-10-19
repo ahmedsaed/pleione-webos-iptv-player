@@ -29,6 +29,7 @@
   --catalog-focus: #5b8cff;
   --catalog-focus-rgb: 91 140 255;
   --catalog-hero-scrim-rgb: 10 10 15;
+  --catalog-sort-selected-bg: #007e9e;
   --focus-ring: var(--accent);
   --radius: 8px;
   --transition: 0.2s ease;

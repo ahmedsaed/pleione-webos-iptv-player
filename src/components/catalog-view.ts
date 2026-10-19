@@ -13,7 +13,8 @@ import { FocusRing, ringShown } from '../navigation/focus-ring';
 import { InputMode } from '../navigation/input-mode';
 import { html, raw, Safe, withInstantScroll } from '../utils/dom';
 import { categoryLockBadge, lockBadge } from './parental-badge';
-import { SEE_ALL_ICON } from './icons';
+import { SORT_ASCENDING_ICON, SORT_DESCENDING_ICON, SEE_ALL_ICON } from './icons';
+import { dropdown, toggleDropdown, closeDropdown, commitDropdownOption } from './dropdown';
 import { morph } from '../utils/morph';
 import { StorageService } from '../services/storage-service';
 import {
@@ -23,13 +24,33 @@ import {
   ParentalControlService,
 } from '../services/parental-control';
 import { CONFIG } from '../config';
-import { t } from '../i18n';
+import { getLocale, t } from '../i18n';
 import { VirtualGrid } from '../utils/virtual-grid';
 import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard } from '../utils/virtual-scroll';
 import { createLogger } from '../utils/logger';
+import {
+  defaultSortDirection, isCatalogSort, sortCatalogItems,
+  type CatalogSort, type CatalogSortDirection, type CatalogSortItem, type CatalogSortPreference,
+} from '../utils/catalog-sort';
 
 const log = createLogger('Catalog');
+
+const SORT_DIRECTION_LABELS = {
+  name: { asc: 'catalog.sortAToZ', desc: 'catalog.sortZToA' },
+  added: { asc: 'catalog.sortOldest', desc: 'catalog.sortNewest' },
+  year: { asc: 'catalog.sortOldest', desc: 'catalog.sortNewest' },
+  rating: { asc: 'catalog.sortLowest', desc: 'catalog.sortHighest' },
+} as const;
+
+function sortDirectionLabel(by: Exclude<CatalogSort, 'default'>, direction: CatalogSortDirection): string {
+  return t(SORT_DIRECTION_LABELS[by][direction]);
+}
+
+// The field's starting direction leads, so Newest sits before Oldest.
+function sortDirections(by: CatalogSort): CatalogSortDirection[] {
+  return defaultSortDirection(by) === 'asc' ? ['asc', 'desc'] : ['desc', 'asc'];
+}
 
 const CATALOG_GRID_COLUMN_STRIDE = 244;
 const CATALOG_GRID_ROW_STRIDE = 395;
@@ -93,7 +114,7 @@ function isScroller(overflow: string): boolean {
 // positions, and focused tile exactly as they were.
 // Subclasses supply the catalog loaders, item accessors, and the detail
 // rendering / playback specifics.
-export abstract class CatalogView<C extends { id: string; name: string }, I> {
+export abstract class CatalogView<C extends { id: string; name: string }, I extends CatalogSortItem> {
   protected nav: SpatialNav;
   protected account: PlaylistEntry | null = null;
   protected mode: Mode = 'browse';
@@ -101,6 +122,10 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
   protected railGroups: { category: C; items: I[] }[] = [];
   protected resume: ResumeEntry[] = [];
   protected itemsByCategory: Record<string, I[]> = {};
+  private serverItemsByCategory: Record<string, I[]> = {};
+  private sort: CatalogSortPreference = { by: 'default', direction: 'asc' };
+  private resetBrowseRailOffsets = false;
+  private browseSortReturn: string | null = null;
   protected gridCategory: C | null = null;
   protected deepLinkBack: (() => void) | null = null;
   private gridFocusIndex = 0;
@@ -158,8 +183,22 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
     this.container.addEventListener('nav:hover', (e: Event) => {
       const target = e.target as HTMLElement;
       if (!target.hasAttribute('data-focusable') || !this.layers[this.mode].contains(target)) return;
+      const menu = this.openSortMenu();
+      if (menu && !menu.contains(target)) return;
       this.place(target, 'pointer');
     });
+    this.container.addEventListener('click', (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.catalog-sort')) return;
+      const el = target.closest<HTMLElement>('[data-focusable]');
+      if (!el || !this.layers[this.mode].contains(el)) return;
+      this.place(el, 'pointer');
+      this.onSelect();
+    });
+    document.addEventListener('click', (e: MouseEvent) => {
+      const menu = this.openSortMenu();
+      if (menu && !menu.contains(e.target as Node)) this.dismissSort(null);
+    }, true);
     // A ring the pointer left stays off; the next key only shows it again.
     this.container.addEventListener('nav:unhover', (e: Event) => {
       if (e.target === this.current()) this.focusScope.conceal();
@@ -246,6 +285,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
   }
 
   protected showLayer(mode: Mode): void {
+    if (mode !== this.mode) this.dismissSort(null);
     if (this.mode === 'browse' && mode !== 'browse') this.leaveBrowse();
     this.mode = mode;
     (Object.keys(this.layers) as Mode[]).forEach((key) => {
@@ -345,7 +385,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
     const instant = this.lastRevealInstant;
     let scrolled = false;
     // The grid's window owns its scroll offset; it alone brings a cell in.
-    if (parsed.mode === 'grid') return this.revealGridIndex(this.gridIndexOf(parsed.key)) ? true : null;
+    if (parsed.mode === 'grid' && this.gridIndexOf(parsed.key) >= 0) {
+      return this.revealGridIndex(this.gridIndexOf(parsed.key)) ? true : null;
+    }
     if (parsed.mode === 'browse' && parsed.rail === 'all-categories') {
       scrolled = this.revealCategoryIndex(this.categoryIndexOf(parsed.key));
     } else if (parsed.mode === 'detail') {
@@ -516,11 +558,12 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
       this.place(tiles[Math.min(origin.index, tiles.length - 1)], via);
       return;
     }
-    this.place(this.nav.first(), via);
+    this.place(browse.querySelector<HTMLElement>('.catalog-tile[data-focusable]') ?? this.nav.first(), via);
   }
 
   setAccount(account: PlaylistEntry): void {
     if (this.account?.id !== account.id) {
+      this.dismissSort(null);
       this.requestController?.abort();
       this.onRequestSessionReset();
       this.nav.resetRecovery();
@@ -555,12 +598,14 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
   }
 
   deactivate(): void {
+    this.dismissSort(null);
     this.requestController?.abort();
     this.requestController = null;
     this.onRequestSessionReset();
   }
 
   async open(account: PlaylistEntry): Promise<void> {
+    this.dismissSort(null);
     const signal = this.beginRequests();
     this.account = account;
     this.deepLinkBack = null;
@@ -571,6 +616,10 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
     this.categories = [];
     this.railGroups = [];
     this.itemsByCategory = {};
+    this.serverItemsByCategory = {};
+    this.sort = StorageService.getCatalogSort(this.parentalKind);
+    this.browseSortReturn = null;
+    this.resetBrowseRailOffsets = false;
     this.gridCategory = null;
     this.categoryVirtualizer.setScrollOffset(0);
     this.gridVirtualizer.setScrollOffset(0);
@@ -609,8 +658,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
       railCats.forEach((category, i) => {
         const items = loaded[i];
         if (!items) return;
-        this.itemsByCategory[category.id] = items;
-        groups.push({ category, items: items.slice(0, CONFIG.XTREAM.RAIL_ITEMS) });
+        this.setCategoryItems(category.id, items);
+        groups.push({ category, items: this.itemsByCategory[category.id].slice(0, CONFIG.XTREAM.RAIL_ITEMS) });
       });
       this.railGroups = groups;
       if (groups.length < railCats.length) {
@@ -704,7 +753,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
 
   handleAction(action: Action): void {
     this.syncNav();
-    if (isFocusMove(action) && this.ringHidden()) {
+    if ((isFocusMove(action) || (action === 'select' && this.openSortMenu())) && this.ringHidden()) {
       this.request(this.focusScope.focusKey, 'key');
       return;
     }
@@ -717,19 +766,71 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
   }
 
   private route(action: Action): void {
+    const menu = this.openSortMenu();
+    if (menu) {
+      if (action === 'back' || action === 'left') this.dismissSort('key');
+      else if (action === 'select') this.onSelect();
+      else if (action === 'up' || action === 'down') this.nav.move(action);
+      return;
+    }
+    const current = this.current();
+    const sortRow = current?.closest<HTMLElement>('.catalog-sort');
+    const horizontalRegion = sortRow ?? (this.mode === 'browse'
+      ? current?.closest<HTMLElement>('.catalog-rail-track:not(.catalog-category-rail)') : null);
+    if (horizontalRegion && (action === 'left' || action === 'right')) {
+      this.nav.setRestrict(horizontalRegion);
+      this.nav.move(action);
+      this.nav.setRestrict(this.layers[this.mode]);
+      return;
+    }
+    if (sortRow && action === 'down') {
+      if (this.mode === 'grid') this.revealGridIndex(this.gridFocusIndex);
+      const target = this.mode === 'grid'
+        ? this.layers.grid.querySelector<HTMLElement>(
+          `[data-grid-index="${this.gridFocusIndex}"] [data-focusable]`,
+        )
+        : (this.browseSortReturn ? this.resolveKey(this.browseSortReturn) : null)
+          ?? this.layers.browse.querySelector<HTMLElement>(
+            '[data-rail-key^="cat:"] .catalog-tile[data-focusable], .catalog-category-rail .catalog-cat[data-focusable]',
+          );
+      if (target) {
+        this.place(target, 'key');
+        return;
+      }
+    }
     if (this.moveExtraFocus(action)) return;
     if (this.mode === 'browse' && (action === 'left' || action === 'right')
         && this.moveCategoryFocus(action)) return;
     if (this.mode === 'grid'
         && (action === 'up' || action === 'down' || action === 'left' || action === 'right')) {
+      if (this.current()?.closest('.catalog-sort')) {
+        if (!this.nav.move(action) && action === 'up') this.handlers.onRevealTabBar();
+        return;
+      }
       if (this.moveGridFocus(action)) return;
-      if (action === 'up') this.handlers.onRevealTabBar();
+      if (action === 'up' && !this.nav.move('up')) this.handlers.onRevealTabBar();
       return;
     }
     switch (action) {
-      case 'up':
+      case 'up': {
+        const origin = this.focusScope.focusKey;
+        const firstCategory = this.mode === 'browse' ? this.layers.browse.querySelector(
+          '[data-rail-key^="cat:"], [data-rail-key="all-categories"]',
+        ) : null;
+        if (firstCategory && current?.closest('.catalog-rail') === firstCategory) {
+          const trigger = this.layers.browse.querySelector<HTMLElement>('.catalog-sort .dropdown-trigger');
+          if (trigger) {
+            this.place(trigger, 'key');
+            this.browseSortReturn = origin;
+            return;
+          }
+        }
         if (!this.nav.move('up')) this.handlers.onRevealTabBar();
+        else if (this.mode === 'browse' && !sortRow && this.current()?.closest('.catalog-sort')) {
+          this.browseSortReturn = origin;
+        }
         return;
+      }
       case 'down':
       case 'left':
       case 'right':
@@ -773,6 +874,31 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
   private onSelect(): void {
     const el = this.current();
     if (!el || !this.account) return;
+    if (el.closest('.catalog-sort')) {
+      const direction = el.dataset.sortDirection;
+      if (direction === 'asc' || direction === 'desc') {
+        this.applySort({
+          by: this.sort.by,
+          direction,
+        }, direction);
+        return;
+      }
+      const dd = el.closest<HTMLElement>('.dropdown');
+      if (el.hasAttribute('data-dropdown-trigger') && dd) {
+        if (this.openSortMenu()) this.dismissSort(this.placementVia());
+        else {
+          this.nav.setRestrict(dd.querySelector<HTMLElement>('.dropdown-menu'));
+          this.pick(this.placementVia(), () => toggleDropdown(this.container, this.nav, dd));
+        }
+      } else if (isCatalogSort(el.dataset.dropdownValue)) {
+        const value = el.dataset.dropdownValue;
+        commitDropdownOption(el);
+        this.nav.setRestrict(this.layers[this.mode]);
+        this.applySort(value === this.sort.by
+          ? this.sort : { by: value, direction: defaultSortDirection(value) });
+      }
+      return;
+    }
     if (el.dataset.categoryId !== undefined
         && (el.classList.contains('catalog-cat') || el.classList.contains('catalog-see-all'))) {
       void this.openGrid(el.dataset.categoryId);
@@ -789,6 +915,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
   // (title + backdrop) in sync with the focused item tile. Category tiles and
   // non-browse modes leave the hero unchanged.
   private onFocusChanged(el: HTMLElement | null): void {
+    if (this.mode === 'browse' && !el?.closest('.catalog-sort')) this.browseSortReturn = null;
     this.request(el ? this.keyFor(el) : null, this.pickVia);
     const gridCell = el?.closest<HTMLElement>('[data-grid-index]');
     if (this.mode === 'grid' && gridCell?.dataset.gridIndex !== undefined) {
@@ -859,6 +986,51 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
     ));
   }
 
+  private setCategoryItems(categoryId: string, items: I[]): void {
+    this.serverItemsByCategory[categoryId] = items;
+    this.itemsByCategory[categoryId] = sortCatalogItems(
+      items, this.sort.by, getLocale(), this.sort.direction,
+    );
+  }
+
+  private openSortMenu(): HTMLElement | null {
+    return this.layers[this.mode].querySelector<HTMLElement>('.catalog-sort .dropdown.open');
+  }
+
+  private dismissSort(via: Via | null): void {
+    const menu = this.openSortMenu();
+    if (!menu) return;
+    this.nav.setRestrict(this.layers[this.mode]);
+    this.pick(via, () => closeDropdown(this.nav, menu));
+  }
+
+  private applySort(sort: CatalogSortPreference, direction?: CatalogSortDirection): void {
+    const changed = sort.by !== this.sort.by || sort.direction !== this.sort.direction;
+    const applied = changed && StorageService.setCatalogSort(this.parentalKind, sort);
+    if (applied) {
+      this.sort = sort;
+      this.browseSortReturn = null;
+      Object.keys(this.serverItemsByCategory).forEach(id => {
+        this.itemsByCategory[id] = sortCatalogItems(
+          this.serverItemsByCategory[id], sort.by, getLocale(), sort.direction,
+        );
+      });
+      this.railGroups = this.railGroups.map(group => ({
+        category: group.category,
+        items: this.itemsByCategory[group.category.id].slice(0, CONFIG.XTREAM.RAIL_ITEMS),
+      }));
+      this.gridFocusIndex = 0;
+      this.gridVirtualizer.setScrollOffset(0);
+      if (this.gridSnapTimer !== null) clearTimeout(this.gridSnapTimer);
+      this.gridSnapTimer = null;
+      this.resetBrowseRailOffsets = true;
+    }
+    if (this.mode === 'grid') this.renderGrid(false);
+    else this.renderBrowse(false);
+    this.place(this.layer().querySelector<HTMLElement>(direction
+      ? `[data-sort-direction="${direction}"]` : '.catalog-sort .dropdown-trigger'), this.placementVia());
+  }
+
   private visibleResume(accountId: string): ResumeEntry[] {
     return StorageService.getResumeList(accountId)
       .filter(entry => entry.kind === this.resumeKind && !isResumeConcealed(entry));
@@ -885,11 +1057,13 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
     if (!this.itemsByCategory[categoryId]) {
       this.renderLoading('grid');
       try {
-        this.itemsByCategory[categoryId] = await this.loadVisibleItems(
+        const items = await this.loadVisibleItems(
           account,
           categoryId,
           signal,
         );
+        if (signal.aborted || this.account?.id !== account.id) return;
+        this.setCategoryItems(categoryId, items);
       } catch (err) {
         if (signal.aborted) return;
         log.error(
@@ -1001,7 +1175,38 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
     morph(this.layers[mode], this.loadingMarkup());
   }
 
+  private sortControls(): Safe {
+    const by = this.sort.by;
+    return html`
+      <div class="catalog-sort" data-nav-container data-self-activate>
+        <span class="catalog-sort-label">${t('catalog.sortBy')}</span>
+        ${dropdown(`${this.scopeName()}-${this.mode}-sort`, [
+          { value: 'default', label: t('catalog.sortDefault') },
+          { value: 'name', label: t('settings.name') },
+          { value: 'added', label: t('catalog.sortAdded') },
+          { value: 'rating', label: t('catalog.sortRating') },
+          { value: 'year', label: t('catalog.sortYear') },
+        ], by)}
+        ${by !== 'default' ? html`
+          <div class="toggle-group" role="radiogroup"
+               aria-label="${sortDirections(by).map(direction => sortDirectionLabel(by, direction)).join(' / ')}">
+            ${sortDirections(by).map(direction => html`
+              <button class="toggle-option catalog-sort-direction${direction === this.sort.direction ? ' active' : ''}"
+                      type="button" role="radio" aria-checked="${direction === this.sort.direction}"
+                      data-focusable data-key="sort-direction:${direction}" data-sort-direction="${direction}">
+                <span class="catalog-sort-direction-icon">${raw(direction === 'asc'
+                  ? SORT_ASCENDING_ICON : SORT_DESCENDING_ICON)}</span>
+                <span>${sortDirectionLabel(by, direction)}</span>
+              </button>
+            `)}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
   protected renderBrowse(restoreFocus = true): void {
+    this.dismissSort(null);
     this.showLayer('browse');
     const browse = this.layers.browse;
     this.resume = this.visibleResume(this.account!.id);
@@ -1040,6 +1245,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
               <div class="catalog-rails-body">
                 ${continueRail}
                 ${watchlistRail}
+                ${this.categories.length ? this.sortControls() : ''}
                 ${this.railGroups.map((r) => this.categoryRail(r))}
                 ${moreCats.length ? html`
                   <div class="catalog-rail" data-key="rail:all-categories"
@@ -1080,10 +1286,17 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
         this.categoryVirtualizer.scrollOffset,
       );
     }
+    if (this.resetBrowseRailOffsets) {
+      browse.querySelectorAll<HTMLElement>(
+        '[data-rail-key^="cat:"] .catalog-rail-track',
+      ).forEach(track => this.scrollGuard.syncOffset(track, 'horizontal', 0));
+      this.resetBrowseRailOffsets = false;
+    }
     if (restoreFocus) this.restoreBrowseFocus();
   }
 
   protected renderGrid(restoreFocus = true): void {
+    this.dismissSort(null);
     this.showLayer('grid');
     const gridLayer = this.layers.grid;
     const cat = this.gridCategory;
@@ -1105,6 +1318,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
     morph(gridLayer, html`
       <div class="catalog-view catalog-grid" data-nav-container>
         <h1 class="catalog-grid-title">${cat ? cat.name : this.kicker}</h1>
+        ${this.sortControls()}
         ${items.length === 0
           ? html`<p class="catalog-hint">${this.gridEmptyMessage}</p>`
           : html`

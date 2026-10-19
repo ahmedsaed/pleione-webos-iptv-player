@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PlaylistEntry, WatchlistEntry, WatchlistKind } from '../types';
+import type { CatalogSortPreference } from '../utils/catalog-sort';
 
 const { catalogMock, storageMock, watchlistState, toastMock } = vi.hoisted(() => {
   const watchlistState = { entries: [] as WatchlistEntry[] };
@@ -8,6 +9,8 @@ const { catalogMock, storageMock, watchlistState, toastMock } = vi.hoisted(() =>
     catalogMock: { loadSeriesCategories: vi.fn(), loadSeries: vi.fn(), loadSeriesInfo: vi.fn() },
     watchlistState,
     storageMock: {
+      getCatalogSort: vi.fn((): CatalogSortPreference => ({ by: 'default', direction: 'asc' })),
+      setCatalogSort: vi.fn((_kind: 'vod' | 'series', _sort: CatalogSortPreference) => true),
       getResumeList: vi.fn(() => [] as unknown[]),
       getResume: vi.fn(() => null),
       getWatchlist: vi.fn(() => watchlistState.entries),
@@ -53,6 +56,8 @@ beforeEach(() => {
   // prior test's mockReturnValue override doesn't leak (order-safety).
   storageMock.getResumeList.mockReturnValue([]);
   storageMock.getResume.mockReturnValue(null);
+  storageMock.getCatalogSort.mockReturnValue({ by: 'default', direction: 'asc' });
+  storageMock.setCatalogSort.mockReturnValue(true);
   watchlistState.entries = [];
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -69,6 +74,26 @@ async function openWith(cats = [{ id: '1', name: 'Cat A' }], items = [series('s1
 }
 
 describe('Series browse + grid', () => {
+  it('restores its own saved sort field and direction', async () => {
+    storageMock.getCatalogSort.mockReturnValue({ by: 'name', direction: 'desc' });
+    await openWith(undefined, [series('s1', 'Title 1'), series('s2', 'Title 2'), series('s10', 'Title 10')]);
+    expect(storageMock.getCatalogSort).toHaveBeenCalledWith('series');
+    expect(Array.from(container.querySelectorAll<HTMLElement>(
+      '[data-rail-key="cat:1"] .catalog-tile',
+    )).map(el => el.dataset.itemId)).toEqual(['s10', 's2', 's1']);
+    expect(container.querySelector('[data-sort-direction="desc"]')?.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('writes series direction changes without changing movie preferences', async () => {
+    const { view } = await openWith(undefined, [series('s2', 'Title 2'), series('s1', 'Title 1')]);
+    container.querySelector<HTMLElement>('.dropdown-trigger')!.click();
+    container.querySelector<HTMLElement>('[data-dropdown-value="name"]')!.click();
+    container.querySelector<HTMLElement>('[data-sort-direction="desc"]')!.click();
+    expect(storageMock.setCatalogSort).toHaveBeenLastCalledWith('series', { by: 'name', direction: 'desc' });
+    expect(storageMock.setCatalogSort.mock.calls.every(([kind]) => kind === 'series')).toBe(true);
+    expect(view.focusScope.focusKey).toBe(JSON.stringify(['browse', '', 'sort-direction:desc']));
+  });
+
   it('labels See all with the series count', async () => {
     await openWith([{ id: '1', name: 'Cat A' }], Array.from({ length: 21 }, (_, i) => series(`s${String(i)}`, `Series ${String(i)}`)));
     expect(container.querySelector('.catalog-see-all')?.textContent).toContain('21 series');
@@ -132,6 +157,9 @@ describe('Series browse + grid', () => {
 
   it('reveals the tab bar when Up cannot move within the view', async () => {
     const { view, handlers } = await openWith();
+    view.handleAction('up');
+    expect(container.querySelector('.catalog-sort .focused')).not.toBeNull();
+    expect(handlers.onRevealTabBar).not.toHaveBeenCalled();
     view.handleAction('up');
     expect(handlers.onRevealTabBar).toHaveBeenCalled();
   });

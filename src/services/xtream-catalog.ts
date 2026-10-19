@@ -14,6 +14,7 @@ import {
   type CachedCatalogMetadata,
   type CatalogListState,
 } from './idb-cache';
+import { SERIES_RESOURCE, VOD_STREAMS_RESOURCE } from './idb-schema';
 import { CONFIG } from '../config';
 import { createLogger } from '../utils/logger';
 import { StorageService } from './storage-service';
@@ -58,7 +59,7 @@ export async function getSearchCatalogExpiresAt(
 }
 
 function resourceFor(key: string): string {
-  return key.split('|')[1] || 'unknown';
+  return (key.split('|')[1] || 'unknown').replace(/-v\d+$/, '');
 }
 
 function ensureActive(signal?: AbortSignal): void {
@@ -305,7 +306,7 @@ export function loadVodStreams(
   signal?: AbortSignal,
 ): Promise<VodItem[]> {
   return cachedList(
-    `${account.id}|vod_streams|${categoryId}`,
+    `${account.id}|${VOD_STREAMS_RESOURCE}|${categoryId}`,
     signal,
     requestSignal => clientFor(account).getVodStreams(categoryId, requestSignal),
     true,
@@ -341,7 +342,7 @@ export function loadSeries(
   signal?: AbortSignal,
 ): Promise<SeriesItem[]> {
   return cachedList(
-    `${account.id}|series|${categoryId}`,
+    `${account.id}|${SERIES_RESOURCE}|${categoryId}`,
     signal,
     requestSignal => clientFor(account).getSeries(categoryId, requestSignal),
     true,
@@ -536,7 +537,7 @@ async function fetchCatalogPartitions<T extends { categoryId: string }>(
     else oldPartitions.set(item.categoryId, [item]);
   }
   const categoryResource = resource === 'vod_all' ? 'vod_categories' : 'series_categories';
-  const itemResource = resource === 'vod_all' ? 'vod_streams' : 'series';
+  const itemResource = resource === 'vod_all' ? VOD_STREAMS_RESOURCE : SERIES_RESOURCE;
   const oldCategories = Array.from(oldPartitions.keys())
     .filter(id => !!id)
     .map(id => ({ id }));

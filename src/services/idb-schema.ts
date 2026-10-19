@@ -9,6 +9,9 @@ export const SEARCH_INDEX_STORE = 'search-index-cache';
 export const CACHE_META_STORE = 'cache-meta';
 // Avoid deserializing pre-cross-check caches that may contain Xtream VOD rows.
 export const PLAYLIST_CACHE_KEY = 'combined-v3';
+// Bump when item lists gain fields, so old catalog rows are never served.
+export const VOD_STREAMS_RESOURCE = 'vod_streams-v2';
+export const SERIES_RESOURCE = 'series-v2';
 
 function finiteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;

@@ -88,6 +88,48 @@ function toStr(v: unknown): string {
   return v === null || v === undefined ? '' : String(v);
 }
 
+function catalogTimestamp(value: unknown): number | null {
+  const text = toStr(value).trim();
+  let timestamp = NaN;
+  if (/^\d+(?:\.\d+)?$/.test(text)) {
+    const number = Number(text);
+    // Xtream sends Unix seconds; larger values are already milliseconds.
+    timestamp = number < 1e12 ? number * 1000 : number;
+  } else if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    timestamp = Date.parse(text);
+  }
+  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : null;
+}
+
+function catalogYear(value: unknown): number | null {
+  const match = /^(\d{4})(?:$|[-/.T ])/.exec(toStr(value).trim());
+  const year = match ? Number(match[1]) : 0;
+  return year > 0 ? year : null;
+}
+
+function firstValid<T>(parse: (value: unknown) => T | null, ...values: unknown[]): T | null {
+  for (const value of values) {
+    const parsed = parse(value);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
+// List-level sort metadata only; series lists use last_modified when added is absent.
+function catalogSortMetadata(item: Record<string, unknown>, series = false): {
+  addedAt?: number;
+  year?: number;
+} {
+  const addedAt = firstValid(catalogTimestamp, item.added, series ? item.last_modified : undefined);
+  const year = firstValid(
+    catalogYear, item.year, item.releaseDate, item.release_date, item.releasedate,
+  );
+  return {
+    ...(addedAt !== null ? { addedAt } : {}),
+    ...(year !== null ? { year } : {}),
+  };
+}
+
 function firstNonEmptyString(...values: unknown[]): string {
   for (const value of values) {
     const text = toStr(value);
@@ -412,6 +454,7 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
           rating: toStr(s.rating),
           categoryId: toStr(s.category_id),
           containerExtension: toStr(s.container_extension),
+          ...catalogSortMetadata(s),
         }))
         .filter((v) => v.streamId !== '');
     },
@@ -470,6 +513,7 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
           poster: toStr(s.cover),
           rating: toStr(s.rating),
           categoryId: toStr(s.category_id),
+          ...catalogSortMetadata(s, true),
         }))
         .filter((s) => s.seriesId !== '');
     },

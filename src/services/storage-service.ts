@@ -4,6 +4,7 @@ import type { AudioPref, CatchupProgressEntry, Channel, ChannelCustomization, Ch
 import type { OnlineSubtitleConfig, PickedOnlineSub } from './subtitle-search/types';
 import { channelKey, legacyChannelKey } from '../utils/channel';
 import { genPlaylistId } from '../utils/playlist';
+import { isCatalogSort, isCatalogSortDirection, type CatalogSortPreference } from '../utils/catalog-sort';
 import { normalizeXtreamBaseUrl } from '../utils/xtream-url';
 import { createLogger } from '../utils/logger';
 import { isLocalePreference, type LocalePreference } from '../i18n';
@@ -757,6 +758,20 @@ export const StorageService = {
   },
   getXtreamCatalogRefreshIntervalMs(): number {
     return this.getXtreamCatalogRefreshIntervalHours() * HOUR_MS;
+  },
+
+  getCatalogSort(kind: 'vod' | 'series'): CatalogSortPreference {
+    const value = get<unknown>(`catalog_sort_${kind}`, null);
+    const stored = value && typeof value === 'object' ? value as Partial<CatalogSortPreference> : null;
+    return stored && isCatalogSort(stored.by) && isCatalogSortDirection(stored.direction)
+      ? { by: stored.by, direction: stored.direction }
+      : { by: 'default', direction: 'asc' };
+  },
+  setCatalogSort(kind: 'vod' | 'series', sort: CatalogSortPreference): boolean {
+    if (!isCatalogSort(sort.by) || !isCatalogSortDirection(sort.direction)) {
+      throw new RangeError('Invalid catalog sort preference');
+    }
+    return set(`catalog_sort_${kind}`, { by: sort.by, direction: sort.direction });
   },
 
   getManualEpgSources(): ManualEpgSource[] {

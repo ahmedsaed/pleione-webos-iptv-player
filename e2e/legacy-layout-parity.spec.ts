@@ -729,6 +729,26 @@ const XTREAM_SCREENS: Screen[] = [
       await expect(p.locator('#view-movies .catalog-tile .lock-badge.is-locked').first()).toBeVisible();
     },
   },
+  {
+    name: 'movies-sort-directions',
+    budget: 0,
+    go: async (p) => {
+      const row = p.locator('#view-movies .catalog-layer-browse .catalog-sort');
+      await row.locator('.dropdown-trigger').click();
+      await row.locator('[data-dropdown-value="name"]').click();
+      await row.locator('[data-sort-direction="desc"]').hover();
+      await expect(row.locator('[data-sort-direction="asc"]')).toHaveAttribute('aria-checked', 'true');
+    },
+  },
+  {
+    name: 'movies-sort-menu',
+    budget: 0,
+    go: async (p) => {
+      await p.locator('#view-movies .catalog-layer-browse .dropdown-trigger').click();
+      await p.mouse.move(1850, 1040);
+      await expect(p.locator('#view-movies .dropdown.open')).toBeVisible();
+    },
+  },
 ];
 
 /** Write user-data records straight into the already-created IndexedDB, then

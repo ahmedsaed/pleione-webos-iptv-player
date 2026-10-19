@@ -109,6 +109,108 @@ describe('StorageService', () => {
     expect(StorageService.getXtreamCatalogRefreshIntervalHours()).toBe(6);
   });
 
+  describe('catalog sort preferences', () => {
+    it('defaults Movies and Series to server order without writing', () => {
+      expect(StorageService.getCatalogSort('vod')).toEqual({ by: 'default', direction: 'asc' });
+      expect(StorageService.getCatalogSort('series')).toEqual({ by: 'default', direction: 'asc' });
+      expect(localStorage.getItem('iptv_catalog_sort_vod')).toBeNull();
+      expect(localStorage.getItem('iptv_catalog_sort_series')).toBeNull();
+    });
+
+    it('persists every field and direction independently for Movies and Series', () => {
+      for (const by of ['default', 'name', 'added', 'rating', 'year'] as const) {
+        for (const direction of ['asc', 'desc'] as const) {
+          expect(StorageService.setCatalogSort('vod', { by, direction })).toBe(true);
+          expect(StorageService.getCatalogSort('vod')).toEqual({ by, direction });
+        }
+      }
+      StorageService.setCatalogSort('vod', { by: 'rating', direction: 'asc' });
+      StorageService.setCatalogSort('series', { by: 'name', direction: 'desc' });
+      expect(StorageService.getCatalogSort('vod')).toEqual({ by: 'rating', direction: 'asc' });
+      expect(StorageService.getCatalogSort('series')).toEqual({ by: 'name', direction: 'desc' });
+      expect(JSON.parse(localStorage.getItem('iptv_catalog_sort_vod')!))
+        .toEqual({ by: 'rating', direction: 'asc' });
+    });
+
+    it('is not scoped to the selected account', () => {
+      StorageService.setSelectedXtreamAccountId('a1');
+      StorageService.setCatalogSort('vod', { by: 'year', direction: 'desc' });
+      StorageService.setSelectedXtreamAccountId('a2');
+      expect(StorageService.getCatalogSort('vod')).toEqual({ by: 'year', direction: 'desc' });
+    });
+
+    it('stores only the field and direction', () => {
+      const sort = { by: 'added', direction: 'asc', extra: 'x' } as unknown as Parameters<typeof StorageService.setCatalogSort>[1];
+      StorageService.setCatalogSort('series', sort);
+      expect(JSON.parse(localStorage.getItem('iptv_catalog_sort_series')!))
+        .toEqual({ by: 'added', direction: 'asc' });
+    });
+
+    it('rejects invalid preferences without overwriting the saved one', () => {
+      StorageService.setCatalogSort('vod', { by: 'name', direction: 'desc' });
+      for (const sort of [
+        { by: 'popularity', direction: 'asc' },
+        { by: 'name', direction: 'up' },
+        { by: null, direction: 'asc' },
+      ]) {
+        expect(() => StorageService.setCatalogSort(
+          'vod', sort as unknown as Parameters<typeof StorageService.setCatalogSort>[1],
+        )).toThrow(RangeError);
+      }
+      expect(StorageService.getCatalogSort('vod')).toEqual({ by: 'name', direction: 'desc' });
+    });
+
+    it('falls back to server order for malformed stored values', () => {
+      const fallback = { by: 'default', direction: 'asc' };
+      for (const raw of [
+        'not json',
+        JSON.stringify('name'),
+        JSON.stringify(42),
+        JSON.stringify(null),
+        JSON.stringify([]),
+        JSON.stringify({ by: 'name' }),
+        JSON.stringify({ direction: 'desc' }),
+        JSON.stringify({ by: 'popularity', direction: 'desc' }),
+        JSON.stringify({ by: 'rating', direction: 'DESC' }),
+        JSON.stringify({ by: 'Rating', direction: 'desc' }),
+      ]) {
+        localStorage.setItem('iptv_catalog_sort_vod', raw);
+        expect(StorageService.getCatalogSort('vod')).toEqual(fallback);
+      }
+      localStorage.setItem('iptv_catalog_sort_series', JSON.stringify({ by: 'year', direction: 'asc', extra: 1 }));
+      expect(StorageService.getCatalogSort('series')).toEqual({ by: 'year', direction: 'asc' });
+    });
+
+    it('reports a failed write and keeps the previous preference', () => {
+      StorageService.setCatalogSort('vod', { by: 'name', direction: 'asc' });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('full', 'QuotaExceededError');
+      });
+      try {
+        expect(StorageService.setCatalogSort('vod', { by: 'added', direction: 'desc' })).toBe(false);
+      } finally {
+        setItem.mockRestore();
+        warn.mockRestore();
+        error.mockRestore();
+      }
+      expect(StorageService.getCatalogSort('vod')).toEqual({ by: 'name', direction: 'asc' });
+    });
+
+    it('falls back to server order when storage cannot be read', () => {
+      StorageService.setCatalogSort('series', { by: 'rating', direction: 'desc' });
+      const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('denied');
+      });
+      try {
+        expect(StorageService.getCatalogSort('series')).toEqual({ by: 'default', direction: 'asc' });
+      } finally {
+        getItem.mockRestore();
+      }
+    });
+  });
+
   it('defaults live preview to off without writing a preference', () => {
     expect(StorageService.getLivePreview()).toBe(false);
     expect(localStorage.getItem('iptv_live_preview')).toBeNull();

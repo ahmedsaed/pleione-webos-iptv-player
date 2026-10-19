@@ -189,6 +189,9 @@ const overhang = (el: Element): number => {
 test('a key that only shows the ring brings a clipped tile into view', async ({ page }) => {
   await seedXtream(page, { catalog: 'large' });
   await routeLiveManifest(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('iptv_text_size', JSON.stringify('150'));
+  });
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
   await enterTab(page, 'series');
@@ -196,8 +199,7 @@ test('a key that only shows the ring brings a clipped tile into view', async ({ 
   await expect(tile).toBeVisible();
   await settled(page);
 
-  // The rails rest at the top, which leaves the tile hanging off the bottom
-  // of the screen, and the pointer rests on what is left of it.
+  // Larger text leaves the tile hanging off the bottom at the resting offset.
   const clip = await tile.evaluate((el) => {
     const rails = el.closest<HTMLElement>('.catalog-rails')!;
     rails.style.scrollBehavior = 'auto';

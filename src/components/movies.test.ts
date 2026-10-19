@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { Action, PlaylistEntry, WatchlistEntry, WatchlistKind } from '../types';
+import type { Action, PlaylistEntry, VodItem, WatchlistEntry, WatchlistKind } from '../types';
+import type { CatalogSortPreference } from '../utils/catalog-sort';
 
 const { catalogMock, storageMock, watchlistState, toastMock } = vi.hoisted(() => {
   const watchlistState = { entries: [] as WatchlistEntry[] };
@@ -8,6 +9,8 @@ const { catalogMock, storageMock, watchlistState, toastMock } = vi.hoisted(() =>
     catalogMock: { loadVodCategories: vi.fn(), loadVodStreams: vi.fn(), loadVodInfo: vi.fn() },
     watchlistState,
     storageMock: {
+      getCatalogSort: vi.fn((): CatalogSortPreference => ({ by: 'default', direction: 'asc' })),
+      setCatalogSort: vi.fn((_kind: 'vod' | 'series', _sort: CatalogSortPreference) => true),
       getResumeList: vi.fn(() => [] as unknown[]),
       getResume: vi.fn(() => null),
       getWatchlist: vi.fn(() => watchlistState.entries),
@@ -39,7 +42,7 @@ import { ParentalControlService } from '../services/parental-control';
 const account: PlaylistEntry = {
   id: 'x1', name: 'X', url: 'http://host:8080', source: 'xtream', xtream: { username: 'u', password: 'p' },
 };
-const vod = (id: string, name: string, categoryId = '1') => ({
+const vod = (id: string, name: string, categoryId = '1'): VodItem => ({
   accountId: 'x1', streamId: id, name, poster: '', rating: '', categoryId, containerExtension: 'mp4',
 });
 
@@ -65,6 +68,8 @@ beforeEach(() => {
   // return so a prior test's mockReturnValue override doesn't leak (order-safety).
   storageMock.getResumeList.mockReturnValue([]);
   storageMock.getResume.mockReturnValue(null);
+  storageMock.getCatalogSort.mockReturnValue({ by: 'default', direction: 'asc' });
+  storageMock.setCatalogSort.mockReturnValue(true);
   watchlistState.entries = [];
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -81,6 +86,183 @@ async function openWith(cats = [{ id: '1', name: 'Cat A' }], streams = [vod('10'
 }
 
 describe('Movies browse + grid', () => {
+  describe('catalog sorting', () => {
+    const streams = () => [
+      { ...vod('10', 'Title 10'), rating: '5', addedAt: 1000, year: 2001 },
+      { ...vod('2', 'Title 2'), rating: '9', addedAt: 3000, year: 2003 },
+      { ...vod('1', 'Title 1'), rating: '7', addedAt: 2000, year: 2002 },
+    ];
+    const browse = () => container.querySelector<HTMLElement>('.catalog-layer-browse')!;
+    const order = (root = browse()) => Array.from(
+      root.querySelectorAll<HTMLElement>('[data-rail-key="cat:1"] .catalog-tile[data-item-id]'),
+    ).map(el => el.dataset.itemId);
+    function choose(by: string, root = browse()): void {
+      root.querySelector<HTMLElement>('.dropdown-trigger')!.click();
+      root.querySelector<HTMLElement>(`[data-dropdown-value="${by}"]`)!.click();
+    }
+
+    it('keeps server order and hides directions until a field is selected', async () => {
+      await openWith(undefined, streams());
+      expect(order()).toEqual(['10', '2', '1']);
+      expect(browse().querySelector('[role="radiogroup"]')).toBeNull();
+    });
+
+    it('sorts the complete category before slicing the preview and restores server order', async () => {
+      const items = Array.from({ length: 30 }, (_, i) => vod(String(30 - i), `Title ${30 - i}`));
+      const original = items.slice();
+      await openWith(undefined, items);
+      choose('name');
+      expect(order()).toEqual(Array.from({ length: 20 }, (_, i) => String(i + 1)));
+      expect(items).toEqual(original);
+      expect(storageMock.setCatalogSort).toHaveBeenLastCalledWith('vod', { by: 'name', direction: 'asc' });
+      choose('default');
+      expect(order()).toEqual(original.slice(0, 20).map(item => item.streamId));
+      expect(browse().querySelector('[role="radiogroup"]')).toBeNull();
+    });
+
+    it('keeps direction selection separate from focus', async () => {
+      const { view } = await openWith(undefined, streams());
+      choose('name');
+      const desc = browse().querySelector<HTMLElement>('[data-sort-direction="desc"]')!;
+      const asc = browse().querySelector<HTMLElement>('[data-sort-direction="asc"]')!;
+      expect(asc.getAttribute('role')).toBe('radio');
+      expect(asc.getAttribute('aria-checked')).toBe('true');
+      expect(desc.getAttribute('aria-checked')).toBe('false');
+      desc.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      expect(asc.classList.contains('active')).toBe(true);
+      expect(desc.classList.contains('active')).toBe(false);
+      expect(order()).toEqual(['1', '2', '10']);
+      view.handleAction('select');
+      expect(order()).toEqual(['10', '2', '1']);
+      expect(browse().querySelector('[data-sort-direction="desc"]')?.getAttribute('aria-checked')).toBe('true');
+      expect(view.focusScope.focusKey).toBe(JSON.stringify(['browse', '', 'sort-direction:desc']));
+    });
+
+    it('selecting the same field or direction never silently reverses it', async () => {
+      await openWith(undefined, streams());
+      choose('name');
+      browse().querySelector<HTMLElement>('[data-sort-direction="desc"]')!.click();
+      storageMock.setCatalogSort.mockClear();
+      choose('name');
+      browse().querySelector<HTMLElement>('[data-sort-direction="desc"]')!.click();
+      expect(order()).toEqual(['10', '2', '1']);
+      expect(storageMock.setCatalogSort).not.toHaveBeenCalled();
+    });
+
+    it.each(['added', 'rating', 'year'])('starts %s descending and permits ascending', async by => {
+      await openWith(undefined, streams());
+      choose(by);
+      expect(order()).toEqual(['2', '1', '10']);
+      expect(storageMock.setCatalogSort).toHaveBeenLastCalledWith('vod', { by, direction: 'desc' });
+      browse().querySelector<HTMLElement>('[data-sort-direction="asc"]')!.click();
+      expect(order()).toEqual(['10', '1', '2']);
+      expect(storageMock.setCatalogSort).toHaveBeenLastCalledWith('vod', { by, direction: 'asc' });
+    });
+
+    it('leaves Continue Watching and Watchlist in their own order', async () => {
+      storageMock.getResumeList.mockReturnValue([
+        { accountId: 'x1', kind: 'vod', itemId: '10', name: 'Title 10', poster: '', ext: 'mp4', position: 100, duration: 600, updatedAt: 3 },
+        { accountId: 'x1', kind: 'vod', itemId: '1', name: 'Title 1', poster: '', ext: 'mp4', position: 100, duration: 600, updatedAt: 2 },
+      ]);
+      watchlistState.entries = ['10', '1'].map(itemId => ({
+        accountId: 'x1', kind: 'vod', itemId, name: `Title ${itemId}`,
+        poster: '', rating: '', categoryId: '1', containerExtension: 'mp4', addedAt: 1,
+      }));
+      const { view } = await openWith(undefined, streams());
+      const rows = Array.from(browse().querySelector('.catalog-rails-body')!.children);
+      expect(rows.map(row => row.classList.contains('catalog-sort') ? 'sort' : row.getAttribute('data-rail-key')))
+        .toEqual(['continue', 'watchlist', 'sort', 'cat:1']);
+      const special = () => ['continue', 'watchlist'].map(key =>
+        browse().querySelector(`[data-rail-key="${key}"]`)!.textContent);
+      const before = special();
+      choose('name');
+      expect(order()).toEqual(['1', '2', '10']);
+      expect(special()).toEqual(before);
+      browse().querySelector<HTMLElement>('.catalog-sort .dropdown-trigger')!
+        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      pressKey(view, 'down');
+      expect(browse().querySelector('.focused')?.closest('[data-rail-key]')?.getAttribute('data-rail-key'))
+        .toBe('cat:1');
+      pressKey(view, 'up');
+      expect(browse().querySelector('.catalog-sort .focused')).not.toBeNull();
+      pressKey(view, 'down');
+      expect(browse().querySelector('.focused')?.closest('[data-rail-key]')?.getAttribute('data-rail-key'))
+        .toBe('cat:1');
+    });
+
+    it('does not show category sorting when only a saved collection is available', async () => {
+      storageMock.getResumeList.mockReturnValue([
+        { accountId: 'x1', kind: 'vod', itemId: '10', name: 'Title 10', poster: '', ext: 'mp4',
+          position: 100, duration: 600, updatedAt: 3 },
+      ]);
+      await openWith([], []);
+      expect(browse().querySelector('[data-rail-key="continue"]')).not.toBeNull();
+      expect(browse().querySelector('.catalog-sort')).toBeNull();
+    });
+
+    it('keeps the old order, label, and scroll offset if saving the preference fails', async () => {
+      await openWith(undefined, streams());
+      const track = browse().querySelector<HTMLElement>('[data-rail-key="cat:1"] .catalog-rail-track')!;
+      track.scrollLeft = 230;
+      storageMock.setCatalogSort.mockReturnValue(false);
+      choose('name');
+      expect(order()).toEqual(['10', '2', '1']);
+      expect(browse().querySelector('.dropdown-current')?.textContent).toBe('Default');
+      expect(browse().querySelector('[role="radiogroup"]')).toBeNull();
+      expect(track.scrollLeft).toBe(230);
+    });
+
+    it.each([true, false])('resets other browse rails after a grid sort only when saving succeeds: %s', async saved => {
+      const items = Array.from({ length: 30 }, (_, i) => vod(String(30 - i), `Title ${30 - i}`));
+      const { view } = await openWith([
+        { id: '1', name: 'Cat A' }, { id: '2', name: 'Cat B' },
+      ], items);
+      const track = browse().querySelector<HTMLElement>('[data-rail-key="cat:2"] .catalog-rail-track')!;
+      track.scrollLeft = 230;
+      const seeAll = browse().querySelector<HTMLElement>('.catalog-see-all[data-category-id="1"]')!;
+      seeAll.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      pressKey(view, 'select');
+      await Promise.resolve();
+      storageMock.setCatalogSort.mockReturnValue(saved);
+      choose('name', container.querySelector<HTMLElement>('.catalog-layer-grid')!);
+      pressKey(view, 'back');
+      expect(track.scrollLeft).toBe(saved ? 0 : 230);
+      expect(order()[0]).toBe(saved ? '1' : '30');
+      expect(view.focusScope.focusKey).toBe(JSON.stringify(['browse', 'cat:1', 'all:1']));
+    });
+
+    it('applies the current order to newly loaded categories and preserves it on Back', async () => {
+      const cats = Array.from({ length: 7 }, (_, i) => ({ id: String(i + 1), name: `Cat ${i + 1}` }));
+      const { view } = await openWith(cats, streams());
+      choose('name');
+      browse().querySelector<HTMLElement>('[data-sort-direction="desc"]')!.click();
+      catalogMock.loadVodStreams.mockResolvedValue([
+        vod('1', 'Title 1', '7'), vod('10', 'Title 10', '7'), vod('2', 'Title 2', '7'),
+      ]);
+      const cat = browse().querySelector<HTMLElement>('[data-category-id="7"]')!;
+      cat.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      view.handleAction('select');
+      await Promise.resolve(); await Promise.resolve();
+      const grid = container.querySelector<HTMLElement>('.catalog-layer-grid')!;
+      expect(Array.from(grid.querySelectorAll<HTMLElement>('.catalog-tile'))
+        .map(el => el.dataset.itemId)).toEqual(['10', '2', '1']);
+      choose('name', grid);
+      expect(grid.querySelector('[data-sort-direction="desc"]')?.getAttribute('aria-checked')).toBe('true');
+      view.handleAction('back');
+      expect(order()).toEqual(['10', '2', '1']);
+      expect(browse().querySelector('[data-sort-direction="desc"]')?.getAttribute('aria-checked')).toBe('true');
+    });
+
+    it('restores the persisted movie preference when reopening', async () => {
+      storageMock.getCatalogSort.mockReturnValue({ by: 'rating', direction: 'asc' });
+      await openWith(undefined, streams());
+      expect(storageMock.getCatalogSort).toHaveBeenCalledWith('vod');
+      expect(order()).toEqual(['10', '1', '2']);
+      expect(browse().querySelector('.dropdown-current')?.textContent).toBe('Rating');
+      expect(browse().querySelector('[data-sort-direction="asc"]')?.getAttribute('aria-checked')).toBe('true');
+    });
+  });
+
   it('renders a rail per preloaded category with poster tiles', async () => {
     await openWith([{ id: '1', name: 'Cat A' }], [vod('10', 'Movie One')]);
     expect(container.querySelector('.catalog-rail-title')?.textContent).toContain('Cat A');
@@ -202,6 +384,9 @@ describe('Movies browse + grid', () => {
 
   it('reveals the tab bar when Up cannot move within the view', async () => {
     const { view, handlers } = await openWith();
+    view.handleAction('up');
+    expect(container.querySelector('.catalog-sort .focused')).not.toBeNull();
+    expect(handlers.onRevealTabBar).not.toHaveBeenCalled();
     view.handleAction('up');
     expect(handlers.onRevealTabBar).toHaveBeenCalled();
   });

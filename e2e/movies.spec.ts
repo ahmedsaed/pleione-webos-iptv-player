@@ -559,7 +559,7 @@ test('Up into the tab bar takes the ring off the catalog tile', async ({ page })
   await expect(page.locator('#view-movies .focused')).toHaveCount(0);
 });
 
-test('Down from the tab bar rings a tile at once, and one Right moves', async ({ page }) => {
+test('Down from the tab bar rings the remembered control, and one Down reaches a tile', async ({ page }) => {
   await seedMovies(page, { streams: 30 });
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
@@ -576,9 +576,10 @@ test('Down from the tab bar rings a tile at once, and one Right moves', async ({
   const focused = page.locator('#view-movies .focused');
   await expect(focused).toHaveCount(1);
   const first = await focused.getAttribute('data-key');
-  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowDown');
   await expect(focused).toHaveCount(1);
   await expect(focused).not.toHaveAttribute('data-key', first ?? '');
+  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveCount(1);
 });
 
 async function upToTabBar(page: Page): Promise<void> {
@@ -610,6 +611,8 @@ test.describe('Down from the tab bar resumes Movies as Up left it', () => {
     await upToTabBar(page);
     await page.keyboard.press('ArrowDown');
     await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
+    await expect(page.locator('#view-movies .catalog-grid .dropdown-trigger')).toHaveClass(/focused/);
+    await page.keyboard.press('ArrowDown');
     await expect(gridFocus(page)).toHaveAttribute('data-item-id', '101');
   });
 
