@@ -503,6 +503,7 @@ export class Settings {
   private currentRow: Element | null = null;
   // Pending theme selection (persisted on Save; live-previewed while browsing).
   private selectedTheme = '';
+  private themeHoverToken = 0;
   private epgOffsets: Record<string, number> = {};
   private storedEpgOffsets: Record<string, number> = {};
   private confirmationPrompt = new ConfirmationPrompt('prompt.settings');
@@ -555,8 +556,13 @@ export class Settings {
       defaultKey: () => this.defaultKey(),
       resolve: (key) => this.resolveKey(key),
       reveal: (key) => this.revealLanded(key),
-      // A caret left in a text field keeps the arrow keys from whatever owns them.
-      onRelease: () => this.caretInput()?.blur(),
+      // A caret left in a text field keeps the arrow keys from whatever owns
+      // them. The control the pointer rests on is no longer picked as it goes:
+      // Settings no longer owns the keys, and a swatch would preview its theme.
+      onRelease: () => {
+        this.notedKey = null;
+        this.caretInput()?.blur();
+      },
     });
 
     // Mouse/pointer support: clicking a focusable element behaves like remote OK.
@@ -638,7 +644,10 @@ export class Settings {
       const caret = this.caretInput();
       if (caret && caret !== el) {
         this.notedKey = this.keyOf(el);
-        if (el.dataset.themeId) previewTheme(el.dataset.themeId);
+        if (el.dataset.themeId) {
+          this.themeHoverToken++;
+          previewTheme(el.dataset.themeId);
+        }
         return;
       }
       this.notedKey = null;
@@ -646,7 +655,7 @@ export class Settings {
     });
     this.container.addEventListener('nav:unhover', (e: Event) => {
       const el = e.target as HTMLElement;
-      if (el.dataset.themeId) previewTheme(this.selectedTheme);
+      if (el.dataset.themeId) this.restoreThemeAfterHover();
       if (this.notedKey !== null && this.notedKey === this.keyOf(el)) this.notedKey = null;
       // A field with the caret keeps its ring.
       if (this.caretInput() || el !== this.resolveFocused()) return;
@@ -1792,7 +1801,18 @@ export class Settings {
     });
   }
 
+  // The pointer leaving a swatch for another hovers the next one in the same
+  // task; restoring the selected theme in between would restyle the whole
+  // document twice per move, so the restore waits until that hover is done.
+  private restoreThemeAfterHover(): void {
+    const token = ++this.themeHoverToken;
+    void Promise.resolve().then(() => {
+      if (token === this.themeHoverToken) previewTheme(this.selectedTheme);
+    });
+  }
+
   private onNavFocus(el: HTMLElement | null): void {
+    this.themeHoverToken++;
     if (el?.dataset.themeId) previewTheme(el.dataset.themeId);
     else previewTheme(this.selectedTheme);
     if (!el) return;

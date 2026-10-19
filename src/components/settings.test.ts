@@ -969,7 +969,7 @@ describe('Settings theme picker', () => {
     expect(active[0].getAttribute('data-theme-id')).toBe('arctic');
   });
 
-  it('previews on pointer hover and restores the selected theme when the pointer leaves', () => {
+  it('previews on pointer hover and restores the selected theme when the pointer leaves', async () => {
     // Select Arctic (pending), then hover a different swatch and move the pointer off.
     click('.theme-swatch[data-theme-id="arctic"]');
     const amber = container.querySelector<HTMLElement>('.theme-swatch[data-theme-id="vintage-amber"]')!;
@@ -977,19 +977,21 @@ describe('Settings theme picker', () => {
     expect(themeMock.previewTheme).toHaveBeenLastCalledWith('vintage-amber');
     // Leaving to a non-swatch restores the selected (Arctic), not the saved (midnight).
     amber.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    await Promise.resolve();
     expect(themeMock.previewTheme).toHaveBeenLastCalledWith('arctic');
   });
 
-  it('keeps previewing when the pointer moves between swatches', () => {
+  it('keeps previewing when the pointer moves between swatches', async () => {
     const arctic = container.querySelector<HTMLElement>('.theme-swatch[data-theme-id="arctic"]')!;
     const amber = container.querySelector<HTMLElement>('.theme-swatch[data-theme-id="vintage-amber"]')!;
     arctic.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     themeMock.previewTheme.mockClear();
     arctic.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
     amber.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-    // Moving swatch→swatch ends on the hovered swatch within the same task,
-    // so the saved theme is never painted in between.
-    expect(themeMock.previewTheme).toHaveBeenLastCalledWith('vintage-amber');
+    await Promise.resolve();
+    // Each theme change restyles the whole document, so swatch→swatch must
+    // not restore the selected theme in between.
+    expect(themeMock.previewTheme.mock.calls).toEqual([['vintage-amber']]);
   });
 
   it('persists the selected theme only on Save & Apply', () => {
@@ -1670,6 +1672,24 @@ describe('Settings.handleAction', () => {
     Focus.push(elsewhere);
     Focus.flush();
     expect(document.activeElement).not.toBe(field);
+    Focus.pop(elsewhere);
+  });
+
+  it('does not preview the hovered swatch when Settings gives the keys away from a field', () => {
+    settings.render();
+    const field = container.querySelector<HTMLInputElement>('#subdl-key')!;
+    const swatch = container.querySelector<HTMLElement>('.theme-swatch[data-theme-id="arctic"]')!;
+    hover(field);
+    settings.handleAction('select');
+    const before = settings.focusScope.focusKey;
+    hover(swatch);
+    themeMock.previewTheme.mockClear();
+    const elsewhere = Focus.register({ id: 'test.elsewhere', root: document.body });
+    Focus.push(elsewhere);
+    Focus.flush();
+    expect(document.activeElement).not.toBe(field);
+    expect(themeMock.previewTheme).not.toHaveBeenCalledWith('arctic');
+    expect(settings.focusScope.focusKey).toBe(before);
     Focus.pop(elsewhere);
   });
 
