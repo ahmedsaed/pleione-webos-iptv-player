@@ -42,7 +42,6 @@ export class SearchHistoryDropdown {
     this.root.className = 'search-history-dropdown hidden';
     this.root.setAttribute('data-self-activate', '');
     document.body.appendChild(this.root);
-    this.nav = new SpatialNav(this.root);
     this.root.addEventListener('click', (e: MouseEvent) => this.onClick(e));
     // Takes the keys once the search box hands them down; the bar above it
     // keeps them while the box has the caret.
@@ -52,7 +51,12 @@ export class SearchHistoryDropdown {
       restrict: 'self-only',
       tier: Tier.overlay,
       onAction: (action) => this.handleAction(action),
+      defaultKey: () => {
+        const el = this.nav.focused;
+        return el && this.root.contains(el) ? el.dataset.key ?? null : null;
+      },
     });
+    this.nav = new SpatialNav(this.root, undefined, { scope: this.scope });
   }
 
   get isOpen(): boolean { return this._open; }
@@ -178,7 +182,7 @@ export class SearchHistoryDropdown {
     );
     if (!hit || !inside) return;
     if (el) {
-      this.nav.focus(el);
+      this.nav.focus(el, 'pointer');
       this.activate(el, 'pointer');
     } else if (!hit.closest('.search-history-panel')) {
       this.close('dismiss');
@@ -228,7 +232,6 @@ export class SearchHistoryDropdown {
         </div>
       </div>
     `);
-    this.nav.clearDetachedFocus();
   }
 }
 

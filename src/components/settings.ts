@@ -547,7 +547,7 @@ export class Settings {
     this.onChannelsChanged = onChannelsChanged;
     this.onManageReminders = onManageReminders;
     this.onManageParentalControls = onManageParentalControls;
-    this.nav = new SpatialNav(container, (el) => this.onNavFocus(el), { paint: false });
+    this.nav = new SpatialNav(container, (el) => this.onNavFocus(el), { follow: false });
     this.focusScope = Focus.register({
       id: 'view.settings',
       root: container,

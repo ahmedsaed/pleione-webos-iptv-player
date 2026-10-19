@@ -49,9 +49,9 @@ const unsupportedPatterns = {
   },
 };
 
-// Focus handling lives in src/navigation/. A legacy site carries an inline
-// disable saying which surface still owns it until it moves to a focus scope;
-// an unused disable is an error, so deleting a site must delete its comment.
+// Focus handling lives in src/navigation/. The one inline disable left is a
+// pointer listener that is not about focus, and it says why; an unused
+// disable is an error, so deleting a site must delete its comment.
 export const FOCUS_RULE_FILES = {
   files: ['src/**/*.ts'],
   ignores: ['src/**/*.test.ts', 'src/test/**', 'src/navigation/**'],
@@ -110,7 +110,7 @@ export default [
           // A raw class write can't see a ring FocusRing parked, so a later
           // return of the keys would show two (see src/navigation/focus-ring.ts).
           selector: "CallExpression[callee.object.property.name='classList'][arguments.0.value='focused']",
-          message: "Write the focus ring through setRing()/ringsIn() from navigation/focus-ring.",
+          message: "Request the focus ring through a focus scope (navigation/focus-scope).",
         },
       ],
       'webos-compat/unsupported-patterns': 'error',

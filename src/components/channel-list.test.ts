@@ -85,7 +85,10 @@ vi.mock('./toast', () => ({ showToast: toastMock.showToast }));
 vi.mock('../services/channel-health', () => ({ ChannelHealthService: healthMock }));
 
 import { ChannelList } from './channel-list';
-import { Focus } from '../navigation/focus-scope';
+import { Focus, Tier, type FocusScope } from '../navigation/focus-scope';
+import { ringsIn } from '../navigation/focus-ring';
+import { morph } from '../utils/morph';
+import { html } from '../utils/dom';
 import { CONFIG } from '../config';
 import { setLocale } from '../i18n';
 import { channelKey } from '../utils/channel';
@@ -171,11 +174,24 @@ beforeEach(() => {
   document.body.appendChild(container);
   onSelect = vi.fn();
   list = new ChannelList(container, { onChannelSelect: onSelect });
+  // The list's scope owns the keys, as on the Live view.
+  Focus.setBase(() => list.focusScope);
 });
 
 afterEach(() => {
   Focus.setBase(() => null);
 });
+
+// The scope paints the ring on its next reconcile.
+function ringed(el: Element | null | undefined): boolean {
+  Focus.flush();
+  return !!el?.classList.contains('focused');
+}
+
+function ringedEl(root: HTMLElement, selector: string): HTMLElement | null {
+  Focus.flush();
+  return root.querySelector<HTMLElement>(selector);
+}
 
 function channelItems(): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>('.channel-main .channel-item'));
@@ -275,13 +291,13 @@ describe('ChannelList.render', () => {
       data.channels.push(...savedChannels);
     }
 
-    expect(container.querySelector('.channel-edit-btn')!.classList.contains('focused')).toBe(false);
-    expect(container.querySelector('.group-item')!.classList.contains('focused')).toBe(true);
+    expect(ringed(container.querySelector('.channel-edit-btn'))).toBe(false);
+    expect(ringed(container.querySelector('.group-item'))).toBe(true);
   });
 
   it('initial focus is the first channel when channels exist', () => {
     list.render();
-    expect(channelItems()[0].classList.contains('focused')).toBe(true);
+    expect(ringed(channelItems()[0])).toBe(true);
   });
 
   it('renders no title heading or settings gear (the tab bar owns those)', () => {
@@ -363,7 +379,7 @@ describe('ChannelList.render', () => {
       list.setPlaying(0);
       list.render();
       main = container.querySelector<HTMLElement>('.channel-main')!;
-      expect(main.querySelector('[data-list-position="0"]')?.classList.contains('focused')).toBe(true);
+      expect(ringed(main.querySelector('[data-list-position="0"]'))).toBe(true);
     });
 
     function scrollTo(offset: number): void {
@@ -380,7 +396,7 @@ describe('ChannelList.render', () => {
     it('a failed logo keeps a focused row scrolled just out of view where it is', () => {
       scrollTo(200);
       const row0 = main.querySelector('[data-list-position="0"]');
-      expect(row0?.classList.contains('focused')).toBe(true);
+      expect(ringed(row0)).toBe(true);
       main.querySelector<HTMLImageElement>('img.channel-logo')!.dispatchEvent(new Event('error'));
 
       expect(main.scrollTop).toBe(200);
@@ -394,7 +410,7 @@ describe('ChannelList.render', () => {
 
       expect(main.scrollTop).toBe(3000);
       expect(main.querySelector('[data-list-position="0"]')).toBeNull();
-      expect(container.querySelector('.focused')).toBeNull();
+      expect(ringedEl(container, '.focused')).toBeNull();
     });
 
     it('a full render leaves the detached focus for the next key to resume', () => {
@@ -404,7 +420,7 @@ describe('ChannelList.render', () => {
 
       expect(main.scrollTop).toBe(3000);
       expect(main.querySelector('[data-list-position="0"]')).toBeNull();
-      expect(container.querySelector('.focused')).toBeNull();
+      expect(ringedEl(container, '.focused')).toBeNull();
     });
   });
 
@@ -755,9 +771,30 @@ describe('ChannelList interaction', () => {
     );
   });
 
+  it('does not play or favorite a focused row a re-render removed', () => {
+    data.favorites = [channelKey(data.channels[1])];
+    list.render();
+    hover(container.querySelector<HTMLElement>('[data-group="builtin:favorites"]')!);
+    list.handleAction('select');
+    const row = channelItems()[0];
+    expect(row.dataset.channelIndex).toBe('1');
+    hover(row);
+    expect(ringed(row)).toBe(true);
+
+    data.favorites = [];
+    list.render(false);
+    Focus.flush();
+    expect(row.isConnected).toBe(false);
+
+    list.handleAction('select');
+    list.handleAction('green');
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(storageMock.toggleFavorite).not.toHaveBeenCalled();
+  });
+
   it('reports virtual moves so Up does not hand focus to the tab bar', () => {
     expect(list.handleAction('down')).toBe(true);
-    expect(container.querySelector<HTMLElement>('.channel-item.focused')?.dataset.channelIndex)
+    expect(ringedEl(container, '.channel-item.focused')?.dataset.channelIndex)
       .toBe('1');
     expect(list.handleAction('up')).toBe(true);
     list.handleAction('select');
@@ -778,15 +815,15 @@ describe('ChannelList interaction', () => {
 
     hover(container.querySelector<HTMLElement>('[data-group-position="0"]')!);
     expect(list.handleAction('up')).toBe(true);
-    expect(container.querySelector('.playlist-tab.active')?.classList.contains('focused'))
+    expect(ringed(container.querySelector('.playlist-tab.active')))
       .toBe(true);
     expect(list.handleAction('down')).toBe(true);
     const group = container.querySelector<HTMLElement>('.group-item.active')!;
-    expect(group.classList.contains('focused')).toBe(true);
+    expect(ringed(group)).toBe(true);
     expect(list.handleAction('right')).toBe(true);
-    expect(channelItems()[0].classList.contains('focused')).toBe(true);
+    expect(ringed(channelItems()[0])).toBe(true);
     expect(list.handleAction('left')).toBe(true);
-    expect(container.querySelector('.group-item.active')?.classList.contains('focused'))
+    expect(ringed(container.querySelector('.group-item.active')))
       .toBe(true);
   });
 
@@ -798,7 +835,7 @@ describe('ChannelList interaction', () => {
     list.render();
 
     expect(list.handleAction('up')).toBe(false);
-    expect(channelItems()[0].classList.contains('focused')).toBe(true);
+    expect(ringed(channelItems()[0])).toBe(true);
   });
 
   it('moves horizontally within the source list without jumping regions', () => {
@@ -811,13 +848,13 @@ describe('ChannelList interaction', () => {
     list.handleAction('up');
 
     expect(list.handleAction('right')).toBe(true);
-    expect(container.querySelector('[data-playlist="a"]')?.classList.contains('focused'))
+    expect(ringed(container.querySelector('[data-playlist="a"]')))
       .toBe(true);
     expect(list.handleAction('right')).toBe(true);
-    expect(container.querySelector('[data-playlist="b"]')?.classList.contains('focused'))
+    expect(ringed(container.querySelector('[data-playlist="b"]')))
       .toBe(true);
     expect(list.handleAction('right')).toBe(true);
-    expect(container.querySelector('[data-playlist="b"]')?.classList.contains('focused'))
+    expect(ringed(container.querySelector('[data-playlist="b"]')))
       .toBe(true);
   });
 
@@ -840,7 +877,7 @@ describe('ChannelList interaction', () => {
       hover(container.querySelector<HTMLElement>('[data-playlist="a"]')!);
       list.handleAction('select');
       expect(list.handleAction('down')).toBe(true);
-      expect(container.querySelector('[data-group-position="0"]')?.classList.contains('focused'))
+      expect(ringed(container.querySelector('[data-group-position="0"]')))
         .toBe(true);
     } finally {
       playlistMock.getGroupsForPlaylist = originalGroups;
@@ -997,9 +1034,23 @@ describe('ChannelList interaction', () => {
 
   it('clears the focused channel when the cursor leaves the view', () => {
     hover(channelItems()[1]);
-    expect(channelItems()[1].classList.contains('focused')).toBe(true);
+    expect(ringed(channelItems()[1])).toBe(true);
     channelItems()[1].dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
-    expect(channelItems()[1].classList.contains('focused')).toBe(false);
+    expect(ringed(channelItems()[1])).toBe(false);
+  });
+
+  it('relights the focused channel when the pointer returns to it', () => {
+    hover(channelItems()[1]);
+    channelItems()[1].dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    expect(ringed(channelItems()[1])).toBe(false);
+    hover(channelItems()[1]);
+    expect(ringed(channelItems()[1])).toBe(true);
+    expect(list.focusScope.concealed).toBe(false);
+
+    // Down goes on from the row just lit, not a row never visibly lit.
+    list.handleAction('down');
+    expect(ringed(channelItems()[2])).toBe(true);
+    expect(ringed(channelItems()[1])).toBe(false);
   });
 
   it('green toggles the focused channel as a favorite', () => {
@@ -1021,7 +1072,7 @@ describe('ChannelList interaction', () => {
 
   it('a number action focuses and marks the channel it tuned', () => {
     list.handleAction('number', { number: 2 });
-    expect(channelItems()[1].classList.contains('focused')).toBe(true);
+    expect(ringed(channelItems()[1])).toBe(true);
     expect(channelItems()[1].classList.contains('playing')).toBe(true);
   });
 
@@ -1039,7 +1090,7 @@ describe('ChannelList interaction', () => {
       'fullscreen',
     );
     expect(channelItems()).toHaveLength(3);
-    expect(channelItems()[0].classList.contains('focused')).toBe(true);
+    expect(ringed(channelItems()[0])).toBe(true);
     expect(channelItems()[0].classList.contains('playing')).toBe(true);
   });
 
@@ -1056,7 +1107,7 @@ describe('ChannelList interaction', () => {
 
   it('highlightEntryPoint focuses the first channel without taking the caret', () => {
     list.highlightEntryPoint();
-    expect(channelItems()[0].classList.contains('focused')).toBe(true);
+    expect(ringed(channelItems()[0])).toBe(true);
   });
 
   // However the channel was tuned — a number typed in the player, ch+/-, the
@@ -1064,8 +1115,8 @@ describe('ChannelList interaction', () => {
   it('highlightEntryPoint focuses the playing channel, not the first one', () => {
     list.setPlaying(2); // tuned elsewhere: the list never rendered a selection
     list.highlightEntryPoint();
-    expect(channelItems()[2].classList.contains('focused')).toBe(true);
-    expect(channelItems()[0].classList.contains('focused')).toBe(false);
+    expect(ringed(channelItems()[2])).toBe(true);
+    expect(ringed(channelItems()[0])).toBe(false);
   });
 
   // The Guide retuning the channel already playing tunes nothing new, so
@@ -1080,8 +1131,8 @@ describe('ChannelList interaction', () => {
     list.setPlaying(2);
     list.highlightEntryPoint(true);
 
-    expect(channelItems()[0].classList.contains('focused')).toBe(true);
-    expect(channelItems()[2].classList.contains('focused')).toBe(false);
+    expect(ringed(channelItems()[0])).toBe(true);
+    expect(ringed(channelItems()[2])).toBe(false);
   });
 
   it('highlightEntryPoint widens a filtered group to reach the playing channel', () => {
@@ -1093,7 +1144,7 @@ describe('ChannelList interaction', () => {
     list.highlightEntryPoint();
 
     expect(channelItems()).toHaveLength(3);
-    expect(channelItems()[0].classList.contains('focused')).toBe(true);
+    expect(ringed(channelItems()[0])).toBe(true);
   });
 });
 
@@ -1140,9 +1191,72 @@ describe('ChannelList morph lifecycle', () => {
   it('restores the SpatialNav focus class on the same node after a re-render', () => {
     list.render();
     hover(channelItems()[1]);
-    expect(channelItems()[1].classList.contains('focused')).toBe(true);
+    expect(ringed(channelItems()[1])).toBe(true);
     list.render();
-    // Same DOM node, .focused re-applied via prevFocusedKey lookup.
+    // The morph keeps the ring the scope painted, with no pass in between.
     expect(channelItems()[1].classList.contains('focused')).toBe(true);
+    expect(ringed(channelItems()[1])).toBe(true);
+  });
+});
+
+describe('ChannelList focus scope off the keys', () => {
+  it('hands a preview\'s return to the scope as a key request', () => {
+    list.render();
+    hover(channelItems()[1]);
+    const focus = vi.spyOn(list.focusScope, 'focus');
+    list.setPreviewFocused(false);
+    expect(focus).toHaveBeenLastCalledWith(channelItems()[1].dataset.key, 'key');
+  });
+
+  it('keeps the key it owns lit through a re-render, without asking to reveal it', () => {
+    list.render();
+    hover(channelItems()[1]);
+    Focus.flush();
+    const focus = vi.spyOn(list.focusScope, 'focus');
+    const track = vi.spyOn(list.focusScope, 'track');
+    list.render(false);
+    expect(focus).toHaveBeenCalledWith(channelItems()[1].dataset.key, 'pointer');
+    expect(track).not.toHaveBeenCalled();
+    expect(ringed(channelItems()[1])).toBe(true);
+  });
+  function pushTabBar(): FocusScope {
+    const bar = document.createElement('div');
+    morph(bar, html`<div data-focusable data-key="t1"></div>`);
+    document.body.appendChild(bar);
+    const scope = Focus.register({ id: 'tabbar', root: bar, tier: Tier.bar, defaultKey: () => 't1' });
+    Focus.push(scope);
+    return scope;
+  }
+
+  it('keeps a concealed ring concealed through a background re-render', () => {
+    list.render();
+    const bar = pushTabBar();
+    try {
+      list.focusScope.conceal();
+      const focus = vi.spyOn(list.focusScope, 'focus');
+      list.render(false);
+      Focus.flush();
+      expect(focus).not.toHaveBeenCalled();
+      expect(list.focusScope.concealed).toBe(true);
+      expect(ringsIn(container)).toHaveLength(0);
+    } finally {
+      bar.dispose();
+    }
+  });
+
+  it('still hands a hover to the scope as a pointer request', () => {
+    list.render();
+    const bar = pushTabBar();
+    try {
+      list.focusScope.conceal();
+      const focus = vi.spyOn(list.focusScope, 'focus');
+      const row = channelItems()[2];
+      hover(row);
+      expect(focus).toHaveBeenCalledWith(row.dataset.key, 'pointer');
+      expect(list.focusScope.focusKey).toBe(row.dataset.key);
+      expect(list.focusScope.concealed).toBe(false);
+    } finally {
+      bar.dispose();
+    }
   });
 });

@@ -259,13 +259,13 @@ describe('TabBar', () => {
       expect(onSwitch).not.toHaveBeenCalled();
     });
 
-    it('hands the keys to a layer under the bar when the pointer moves on it', () => {
+    it('hands the keys to a scope under the bar when the pointer moves on it', () => {
       const menu = document.createElement('div');
       const item = document.createElement('div');
       menu.appendChild(item);
       document.body.appendChild(menu);
-      const scope = Focus.register({ id: 'layer.test', root: menu, restrict: 'self-only', tier: Tier.overlay });
-      Focus.layer(scope, () => true);
+      const scope = Focus.register({ id: 'menu.test', root: menu, restrict: 'self-only', tier: Tier.overlay });
+      Focus.push(scope);
       bar.focus();
       expect(Focus.owner()?.id).toBe('tabbar');
       hover(item);

@@ -41,6 +41,8 @@ const CHANNEL_VIEWPORT_FALLBACK = 900;
 
 type PreviewHintState = 'off' | 'ready' | 'active';
 type RowList = 'group' | 'channel';
+// 'render': a re-render that requests no focus of its own.
+type SyncVia = Via | 'render';
 
 let liveList: ChannelList | null = null;
 type ChannelSelectionMode = 'expand-current' | 'fullscreen';
@@ -101,6 +103,10 @@ export class ChannelList {
   private listKey: string | null = null;
   // The focusable the pointer rests on, from the last hover.
   private hovered: HTMLElement | null = null;
+  // The pointer left the focused row, or the preview took the ring.
+  private ringHidden = false;
+  // How the nav's last focus was asked for, so only a hover reaches the scope as one.
+  private navVia: 'key' | 'pointer' = 'key';
   // A Recently Watched row the list itself re-rendered or re-entered.
   private recentToReveal: string | null = null;
   readonly focusScope: FocusScope;
@@ -162,17 +168,25 @@ export class ChannelList {
     this.nav = new SpatialNav(container, (el) => {
       this.editor?.trackFocus(el);
       if (el) this.onListFocus();
-      this.syncScope();
+      const via = this.navVia;
+      this.navVia = 'key';
+      this.syncScope(via);
+    }, {
+      onRequest: (_el, via) => {
+        this.ringHidden = false;
+        this.navVia = via;
+      },
     });
     this.container.addEventListener('nav:hover', (e: Event) => {
       const target = e.target as HTMLElement;
       this.hovered = target.hasAttribute('data-focusable') ? target : null;
       this.onListFocus();
     });
-    // After SpatialNav's own listener, which hides the ring the pointer left.
+    // The pointer leaving the focused row hides its ring until the next key.
     this.container.addEventListener('nav:unhover', (e: Event) => {
       if (e.target === this.hovered) this.hovered = null;
-      this.syncScope();
+      if (e.target === this.nav.focused) this.ringHidden = true;
+      this.syncScope('pointer');
     });
     this.container.addEventListener('click', () => this.onListFocus(), true);
     this.editor = new ChannelListEditor(container, this.nav, {
@@ -280,11 +294,11 @@ export class ChannelList {
     const managingFavorites = this.editor.isManagingFavorites;
     const allSourcesDisabled = PlaylistService.allSourcesDisabled;
 
-    // Capture the current focus key before morph so we can restore it on a
-    // reused node. morph treats `class` as authoritative — it will remove the
-    // imperative `.focused` class — and we re-apply nav.focus in the same
-    // synchronous tick to avoid any flicker.
-    const prevFocusedKey = this.nav.focused?.getAttribute('data-key') ?? null;
+    // Capture the focus key before morph so focus lands on the same item
+    // after it. Focus a re-render already detached waits for the next key.
+    const attached = this.nav.focused && this.container.contains(this.nav.focused)
+      ? this.nav.focused : null;
+    const prevFocusedKey = attached?.getAttribute('data-key') ?? null;
     const wantedKey = this.editor.takeRefocusKey(prevFocusedKey);
     const previousMain = this.container.querySelector<HTMLElement>('.channel-main');
     const previousGroupList = this.container.querySelector<HTMLElement>('.group-list');
@@ -316,7 +330,7 @@ export class ChannelList {
       ? groups.findIndex(group => `g:${group.id}` === wantedKey)
       : -1;
     const focusedGroupPosition = wantedGroupPosition >= 0 ? wantedGroupPosition : parseInt(
-      this.nav.focused?.dataset.groupPosition ?? '-1',
+      attached?.dataset.groupPosition ?? '-1',
       10,
     );
     if (ensureFocus && focusedGroupPosition >= 0) {
@@ -427,8 +441,6 @@ export class ChannelList {
       if (!target) this.nav.focusFirst();
     }
     if (target) this.nav.focus(target);
-    // The scope keeps the key of a row scrolled out of the rendered window.
-    if (!ensureFocus) this.nav.clearDetachedFocus();
     const main = this.container.querySelector<HTMLElement>('.channel-main');
     if (main && !showingRecent) {
       this.scrollGuard.syncOffset(main, 'vertical', this.channelVirtualizer.scrollOffset);
@@ -441,9 +453,9 @@ export class ChannelList {
 
     // An inline rename / new-group field owns the keyboard while it is open.
     if (Focus.owner() === this.focusScope) this.editor.focusTextInput();
-    if (this.previewFocused) this.nav.clearHighlight();
+    if (this.previewFocused) this.ringHidden = true;
     if (ensureFocus && showingRecent) this.recentToReveal = this.nav.focused?.dataset.key ?? null;
-    this.syncScope(ensureFocus ? 'key' : 'pointer');
+    this.syncScope(ensureFocus ? 'key' : 'render');
   }
 
   private showChannelScrollbar(main: HTMLElement): void {
@@ -479,7 +491,7 @@ export class ChannelList {
   // `key` names the preview control that takes the ring.
   setPreviewFocused(focused: boolean, key?: string): void {
     this.previewFocused = focused;
-    if (focused) this.nav.clearHighlight();
+    if (focused) this.ringHidden = true;
     if (focused && key) this.setScopeKey(key, 'pointer');
     else this.syncScope();
   }
@@ -496,12 +508,12 @@ export class ChannelList {
   }
 
   // Mirror SpatialNav's focus into the scope, which paints and gates the ring.
-  private syncScope(via: Via = 'pointer'): void {
+  private syncScope(via: SyncVia = 'key'): void {
     if (this.previewFocused) return;
     const el = this.nav.focused;
     const key = el && this.container.contains(el) ? el.dataset.key ?? null : null;
     if (key) this.listKey = key;
-    if (this.nav.isHighlightHidden) {
+    if (this.ringHidden) {
       if (key) this.focusScope.track(key);
       this.focusScope.conceal();
       return;
@@ -510,10 +522,30 @@ export class ChannelList {
     if (key) this.setScopeKey(key, via);
   }
 
-  // Only the owner of the keys may reveal; otherwise follow without a ring request.
-  private setScopeKey(key: string, via: Via): void {
-    if (Focus.owner() === this.focusScope) this.focusScope.focus(key, via);
-    else this.focusScope.track(key);
+  // After the pointer left, the first key only shows where focus is, so the
+  // list doesn't run on from a row the user could not see.
+  private revealRing(): boolean {
+    const el = this.nav.focused;
+    if (!this.ringHidden || !el || !this.nav.navigable(el)) return false;
+    this.nav.focus(el);
+    this.syncScope('key');
+    return true;
+  }
+
+  // Only the owner of the keys may reveal; off the keys a pointer pick still
+  // lights where the pointer rests, and any other follows without a ring.
+  private setScopeKey(key: string, via: SyncVia): void {
+    const owner = Focus.owner() === this.focusScope;
+    // A re-render asks for nothing: the owner keeps its key unrevealed.
+    // It drops a pending reveal too; in keys mode the input's pass reveals anyway.
+    if (via === 'render') {
+      if (owner) this.focusScope.focus(key, 'pointer');
+      else this.focusScope.track(key);
+    } else if (via === 'pointer' || owner) {
+      this.focusScope.focus(key, via);
+    } else {
+      this.focusScope.track(key);
+    }
   }
 
   // Release the scope id and the listeners kept outside the container.
@@ -581,8 +613,8 @@ export class ChannelList {
     if (isFocusMove(action, true) && !this.editor.ownsInput) {
       // The preview controls hold the ring, and a wheel step scrolls: both move
       // the list directly.
-      if (this.previewFocused || KeyHandler.isWheelAction()) this.nav.forgetHidden();
-      if (!this.previewFocused && (this.resumeScrolledAway() || this.nav.revealHidden())) {
+      if (this.previewFocused || KeyHandler.isWheelAction()) this.ringHidden = false;
+      if (!this.previewFocused && (this.resumeScrolledAway() || this.revealRing())) {
         // A row scrolled away resumes in view instead of being scrolled back to.
         return true;
       }
@@ -612,7 +644,8 @@ export class ChannelList {
 
       case 'select': {
         const focused = this.nav.focused;
-        if (!focused) break;
+        // A row a re-render removed is no longer what the list shows.
+        if (!focused || !this.container.contains(focused)) break;
 
         if (focused.dataset.editChannels !== undefined) {
           this.enterEditMode();
@@ -647,7 +680,9 @@ export class ChannelList {
       }
 
       case 'green': {
-        this.editor.toggleFocusedFavorite();
+        if (this.nav.focused && this.container.contains(this.nav.focused)) {
+          this.editor.toggleFocusedFavorite();
+        }
         break;
       }
 

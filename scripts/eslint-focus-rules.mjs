@@ -1,8 +1,7 @@
-// ESLint rules that keep focus handling inside src/navigation/. A legacy site
-// whose surface has not moved to a focus scope yet carries an inline
-// eslint-disable-next-line that says so.
+// ESLint rules that keep focus handling inside src/navigation/: a surface
+// requests its ring through its focus scope.
 
-const RING_WRITERS = new Set(['setRing', 'ringsIn', 'holdRing', 'releaseRing']);
+const RING_WRITERS = new Set(['setRing', 'ringsIn']);
 const MODE_WRITERS = new Set(['setInputMode']);
 const POINTER_EVENTS = new Set(['mouseover', 'mouseenter', 'mousemove', 'mouseleave', 'mouseout', 'wheel']);
 const GUARDED_MODULES = [

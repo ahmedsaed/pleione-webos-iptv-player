@@ -180,7 +180,7 @@ export class ParentalControls {
     private onChangePin: (done: () => void) => void = () => {},
     private onCreatePin: (done: () => void) => void = () => {},
   ) {
-    this.nav = new SpatialNav(container, el => this.onFocusChange(el), { paint: false });
+    this.nav = new SpatialNav(container, el => this.onFocusChange(el), { follow: false });
     this.focusScope = Focus.register({
       id: 'view.parental-controls',
       root: container,

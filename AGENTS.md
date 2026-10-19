@@ -41,16 +41,19 @@ Procedural workflows live in `.agents/skills/` (open Agent Skills format;
   feature-detected.
 - Chromium 53 treats a `scrollIntoView` options object as `true`;
   `src/polyfills.ts` fixes it, so never bypass or reimplement that call.
-- Only the surface that owns the keys shows a focus ring: `FocusRing`
-  parks every other `.focused`. A new modal or overlay registers a
-  scope on the `Focus` owner stack (`src/navigation/focus-scope.ts`)
-  at the right `Tier`, which both routes keys and picks the ring: a
+- Only the surface that owns the keys shows a focus ring. Every surface
+  owns its focus through a scope on the `Focus` owner stack
+  (`src/navigation/focus-scope.ts`): the scope tracks its focused
+  `data-key`, and only the owner scope paints its ring, by key, after
+  every key, pointer move, push/pop, and `morph()`, so a re-render or a
+  virtualized list never loses it. A new modal or overlay registers a
+  scope at the right `Tier`, which both routes keys and picks the ring: a
   prompt pushes itself while shown (as `ConfirmationPrompt` does). A
   pushed modal keeps the pointer's hover outside it from the surfaces below.
-  Write the class through `setRing()`/`ringsIn()` (ESLint enforces it;
-  a legacy site carries an inline `focus/*` disable that names the
-  surface still owning it until that surface moves to a focus scope; a
-  stale disable fails lint). Every E2E test fails when a key press
+  A `SpatialNav` only picks and hands its pick to its scope; it never
+  paints. ESLint keeps the class behind
+  `setRing()`/`ringsIn()`; the only `focus/*` disable is the player OSD's
+  activity listener. Every E2E test fails when a key press
   leaves two rings on screen. Hover never moves the keys, except that
   the tab bar releases them to hovered
   content; after a pointer tab click, `FocusRing.defer()` keeps the
@@ -150,9 +153,10 @@ build constant; `scripts/sync-version.mjs` runs on `npm version`.
 - **Navigation** (`src/navigation/`) — `SpatialNav` does geometric D-pad
   focus among `[data-focusable]` elements (grouped by
   `[data-nav-container]`); `KeyHandler` also wires pointer/Magic Remote and
-  desktop mouse/wheel input. `FocusRing` (`focus-ring.ts`) gates rings to
-  the key owner and keeps a `SpatialNav` ring through `morph()` re-renders;
-  it marks the owner root `data-ring-owner` and `data-focus-scope` and
+  desktop mouse/wheel input. `Focus` scopes (`focus-scope.ts`) own the
+  keys and paint the owner's ring by `data-key`, repainting it after every
+  `morph()`; `FocusRing` (`focus-ring.ts`) shows only the owner's ring and
+  marks the owner root `data-ring-owner` and `data-focus-scope` and
   the hover target `data-ring-hover`, which the E2E ring audit reads.
   `InputMode` (`input-mode.ts`) is the keys/pointer mode, written only
   by `KeyHandler`.

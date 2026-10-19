@@ -79,11 +79,13 @@ export function unseenLiveCategoryIds(
 }
 
 let pickerScope: FocusScope | null = null;
+let menuScope: FocusScope | null = null;
 
 export class LiveCategoryPicker {
   private el: HTMLElement | null = null;
   private nav: SpatialNav | null = null;
   private scope: FocusScope | null = null;
+  private menuScope: FocusScope | null = null;
   private switcher: AccountSwitcher | null = null;
   private options: LiveCategoryPickerOptions | null = null;
   private categories: XtreamLiveCategory[] = [];
@@ -137,7 +139,7 @@ export class LiveCategoryPicker {
       else this.switcher.handleAction(action);
       return;
     }
-    if (isFocusMove(action) && this.nav.revealHidden()) return;
+    if (isFocusMove(action) && this.nav.showConcealed()) return;
     switch (action) {
       case 'back':
       case 'yellow':
@@ -174,16 +176,37 @@ export class LiveCategoryPicker {
     this.el = el;
     // One picker per app; a new instance takes the id over.
     pickerScope?.dispose();
-    this.scope = pickerScope = Focus.register({
+    const scope = this.scope = pickerScope = Focus.register({
       id: 'prompt.live_categories',
       root: el,
       restrict: 'self-only',
       tier: Tier.prompt,
       onAction: (action) => this.handleAction(action),
+      defaultKey: () => {
+        const focused = this.nav?.focused;
+        return focused && el.contains(focused) ? focused.dataset.key ?? null : null;
+      },
+      // The avatar inside the account slot draws the slot's ring.
+      resolve: (key) => {
+        const match = Array.from(el.querySelectorAll<HTMLElement>('[data-key]'))
+          .find((item) => item.dataset.key === key) ?? null;
+        return match?.hasAttribute('data-live-category-avatar')
+          ? match.querySelector<HTMLElement>('.account-avatar') ?? match
+          : match;
+      },
     });
-    this.nav = new SpatialNav(el, focused => {
-      this.switcher?.setFocused(!!focused?.hasAttribute('data-live-category-avatar'));
+    // The open account menu paints its own row and takes the keys, which
+    // still come here to reach it. Like the bar's menu, it lets the pointer
+    // light the list it crosses.
+    menuScope?.dispose();
+    this.menuScope = menuScope = Focus.register({
+      id: 'prompt.live_categories.accounts',
+      root: () => el.querySelector<HTMLElement>('[data-live-category-avatar]'),
+      tier: Tier.prompt,
+      when: () => !!this.switcher?.menuOpen,
+      onAction: (action) => this.handleAction(action),
     });
+    this.nav = new SpatialNav(el, undefined, { scope });
     el.addEventListener('click', (event: MouseEvent) => {
       const clicked = event.target as HTMLElement;
       // The account switcher handles its own slot, and a click elsewhere
@@ -191,7 +214,7 @@ export class LiveCategoryPicker {
       if (this.switcher?.menuOpen || clicked.closest('[data-live-category-avatar]')) return;
       const target = clicked.closest<HTMLElement>('[data-focusable]');
       if (!target || !this.nav) return;
-      this.nav.focus(target);
+      this.nav.focus(target, 'pointer');
       this.activate(target);
     });
     el.addEventListener('scroll', (event: Event) => {
@@ -327,13 +350,14 @@ export class LiveCategoryPicker {
     if (!this.switcher) {
       this.switcher = new AccountSwitcher(slot, {
         onSelect: id => this.switchAccount(id),
-        onMenuHover: () => this.nav?.focus(slot),
+        onMenuOpen: () => { if (this.menuScope) Focus.push(this.menuScope); },
+        onMenuClose: () => { if (this.menuScope) Focus.pop(this.menuScope); },
+        onMenuHover: () => this.nav?.focus(slot, 'pointer'),
       });
       this.switcher.init();
     }
     const accounts = this.switchableAccounts();
     this.switcher.setAccounts(accounts, this.options.accountId);
-    this.switcher.setFocused(!!accounts.length && this.nav?.focused === slot);
   }
 
   // New categories come first under their own header; each category has one row.
@@ -481,7 +505,7 @@ export class LiveCategoryPicker {
                 <div class="live-category-auto-label">${t('liveCategories.autoShowNew')}</div>
                 <div class="live-category-auto-hint">${t('liveCategories.autoShowNewHint')}</div>
               </div>
-              ${sourceToggle(this.autoShowNew)}
+              ${sourceToggle(this.autoShowNew, 'auto-show-new')}
             </div>
             <div class="live-category-summary"><span>${t('liveCategories.selected', {
               count: this.selected.size,

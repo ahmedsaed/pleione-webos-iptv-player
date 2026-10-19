@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FocusRing, holdRing, isHovered, ringsIn, setRing } from './focus-ring';
-import { SpatialNav } from './spatial-nav';
+import { FocusRing, isHovered, ringsIn, setRing } from './focus-ring';
+import { setInputMode } from './input-mode';
 import { morph } from '../utils/morph';
 import { html } from '../utils/dom';
 
@@ -18,8 +18,6 @@ function item(parent: HTMLElement, key: string, cls = 'item'): HTMLElement {
   parent.appendChild(el);
   return el;
 }
-
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
@@ -40,11 +38,11 @@ afterEach(() => {
 describe('FocusRing', () => {
   it('marks the hover target it exempts, and clears the mark when the pointer leaves', () => {
     const row = item(lower, 'r1');
-    row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    FocusRing.hover(row);
     expect(row.hasAttribute('data-ring-hover')).toBe(true);
-    row.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    FocusRing.unhover(row);
     expect(row.hasAttribute('data-ring-hover')).toBe(false);
-    row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    FocusRing.hover(row);
     morph(lower, html`<div class="item" data-focusable data-key="r1"></div>`);
     expect(lower.firstElementChild).toBe(row);
     expect(row.hasAttribute('data-ring-hover')).toBe(true);
@@ -79,15 +77,6 @@ describe('FocusRing', () => {
     setRing(tile, false);
     FocusRing.sync();
     expect(row.className).toBe('item focused');
-  });
-
-  it('parks on its own as the DOM changes, before anyone paints', async () => {
-    const row = item(lower, 'r1');
-    setRing(row, true);
-    owner = upper;
-    upper.className = 'open';
-    await flush();
-    expect(row.classList.contains('focused')).toBe(false);
   });
 
   it('re-parks a ring a template re-render draws under another owner', () => {
@@ -137,25 +126,9 @@ describe('FocusRing', () => {
     expect(ringsIn(lower).map((el) => el.getAttribute('data-key'))).toEqual(['b']);
   });
 
-  it('keeps a SpatialNav ring parked through a morph re-render', () => {
-    morph(lower, html`<div class="item" data-focusable data-key="a"></div>`);
-    const nav = new SpatialNav(lower);
-    const a = lower.querySelector<HTMLElement>('[data-key="a"]')!;
-    nav.focus(a);
-    owner = upper;
-    FocusRing.sync();
-
-    morph(lower, html`<div class="item" data-focusable data-key="a"></div>`);
-    expect(a.className).toBe('item focused-parked');
-
-    owner = lower;
-    FocusRing.sync();
-    expect(a.className).toBe('item focused');
-  });
-
   it('lights what the pointer hovers outside the owner until a key is pressed', () => {
     const tile = item(upper, 't1');
-    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    FocusRing.hover(tile);
     setRing(tile, true);
     FocusRing.sync();
     expect(tile.classList.contains('focused')).toBe(true);
@@ -165,30 +138,40 @@ describe('FocusRing', () => {
     expect(tile.classList.contains('focused')).toBe(false);
   });
 
-  it('lights a parked ring as soon as the pointer hovers it', async () => {
+  it('parks a hovered ring outside the owner as soon as the remote takes over', () => {
+    const tile = item(upper, 't1');
+    setInputMode('pointer');
+    FocusRing.hover(tile);
+    setRing(tile, true);
+    FocusRing.sync();
+    expect(tile.classList.contains('focused')).toBe(true);
+
+    setInputMode('keys');
+    expect(tile.classList.contains('focused')).toBe(false);
+  });
+
+  it('lights a parked ring as soon as the pointer hovers it', () => {
     const tile = item(upper, 't1');
     setRing(tile, true);
     FocusRing.sync();
     expect(tile.classList.contains('focused')).toBe(false);
-    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-    await flush();
+    FocusRing.hover(tile);
     expect(tile.classList.contains('focused')).toBe(true);
   });
 
-  it('parks a hovered ring outside the owner once the pointer leaves it', async () => {
+  it('parks a hovered ring outside the owner once the pointer leaves it', () => {
     const tile = item(upper, 't1');
-    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    FocusRing.hover(tile);
     setRing(tile, true);
     FocusRing.sync();
     expect(tile.classList.contains('focused')).toBe(true);
-    tile.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
-    await flush();
+    FocusRing.unhover(tile);
     expect(tile.classList.contains('focused')).toBe(false);
   });
 
   it('keeps the hover dark behind a modal prompt', () => {
     const row = item(lower, 'r1');
-    row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    FocusRing.hover(row);
     setRing(row, true);
     owner = upper;
     modal = true;
@@ -199,7 +182,7 @@ describe('FocusRing', () => {
   it('lights a ring the hovered element hands to its child', () => {
     const slot = item(upper, 'slot');
     const avatar = item(slot, 'avatar');
-    slot.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    FocusRing.hover(slot);
     setRing(slot, true);
     setRing(avatar, true);
     FocusRing.sync();
@@ -211,17 +194,16 @@ describe('FocusRing', () => {
     const avatar = item(slot, 'avatar');
     const other = item(upper, 'other');
     expect(isHovered(avatar)).toBe(false);
-    slot.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    FocusRing.hover(slot);
     expect(isHovered(slot)).toBe(true);
     expect(isHovered(avatar)).toBe(true);
     expect(isHovered(other)).toBe(false);
-    slot.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+    FocusRing.unhover(slot);
     expect(isHovered(avatar)).toBe(false);
   });
 
   it('leaves every ring alone without an owner', () => {
     const tile = item(upper, 't1');
-    holdRing(tile);
     setRing(tile, true);
     owner = null;
     FocusRing.sync();
@@ -243,17 +225,17 @@ describe('FocusRing deferral', () => {
     setRing(row, true);
   });
 
-  it('parks the owner\'s own ring and marks the owner as waiting', async () => {
+  it('parks the owner\'s own ring and marks the owner as waiting', () => {
     const lines = logLines(() => FocusRing.defer('channels'));
     expect(row.className).toBe('item focused-parked');
     expect(lower.getAttribute('data-ring-owner')).toBe('deferred');
     expect(FocusRing.deferred).toBe(true);
     expect(lines.find((l) => l.includes('event=nav.focus.deferred'))).toContain('view=channels');
 
-    // A ring the view draws later, such as a catalog that finished loading.
+    // A ring the view's scope paints later, such as a catalog that finished loading.
     const tile = item(lower, 't1');
     setRing(tile, true);
-    await flush();
+    FocusRing.sync();
     expect(tile.className).toBe('item focused-parked');
   });
 
@@ -311,11 +293,11 @@ describe('FocusRing deferral', () => {
   it('ends on a hover over the owner, but not over another surface', () => {
     FocusRing.defer('channels');
     const tab = item(upper, 'tab');
-    tab.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    FocusRing.hover(tab);
     expect(FocusRing.deferred).toBe(true);
 
     const other = item(lower, 'r2');
-    const lines = logLines(() => { other.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })); });
+    const lines = logLines(() => { FocusRing.hover(other); });
     expect(FocusRing.deferred).toBe(false);
     expect(row.className).toBe('item focused');
     expect(lines.find((l) => l.includes('event=nav.focus.shown'))).toContain('via=hover');

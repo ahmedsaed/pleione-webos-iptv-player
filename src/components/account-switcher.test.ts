@@ -130,14 +130,6 @@ describe('AccountSwitcher', () => {
     expect(onSelect).not.toHaveBeenCalled();
     expect(sw.menuOpen).toBe(false);
   });
-
-  it('setFocused toggles the avatar focus ring', () => {
-    sw.setAccounts(A, 'a1');
-    sw.setFocused(true);
-    expect(avatar()?.classList.contains('focused')).toBe(true);
-    sw.setFocused(false);
-    expect(avatar()?.classList.contains('focused')).toBe(false);
-  });
 });
 
 describe('AccountSwitcher with a focus scope', () => {

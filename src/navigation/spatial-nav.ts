@@ -1,6 +1,6 @@
 import type { Action, NavDirection } from '../types';
 import { CONFIG } from '../config';
-import { holdRing, releaseRing, setRing } from './focus-ring';
+import type { FocusScope } from './focus-scope';
 
 interface Candidate {
   el: HTMLElement;
@@ -8,7 +8,7 @@ interface Candidate {
   container: Element | null;
 }
 
-// The keys that move focus, which a hidden highlight spends on showing itself first.
+// The keys that move focus, which a concealed ring spends on showing itself first.
 // CH± counts only where the view moves focus with it.
 export function isFocusMove(action: Action, channelKeys = false): boolean {
   return action === 'up' || action === 'down' || action === 'left' || action === 'right'
@@ -16,14 +16,23 @@ export function isFocusMove(action: Action, channelKeys = false): boolean {
 }
 
 export interface SpatialNavOptions {
-  // False for a view whose focus scope paints the ring, reveals it, and
-  // follows the pointer: the nav then only picks elements geometrically.
-  paint?: boolean;
+  // False for a view that follows the pointer and keeps focus in view itself:
+  // the nav then only picks elements geometrically.
+  follow?: boolean;
+  // The scope that paints the ring for the nav's focus, by `data-key`. The
+  // pointer leaving the focused element conceals it, and the next move only
+  // shows it again.
+  scope?: FocusScope;
+  // Hears every focus request, the focused element's own included, for a
+  // host that gates the ring itself.
+  onRequest?: (el: HTMLElement | null, via: 'key' | 'pointer') => void;
 }
 
 export class SpatialNav {
   private container: HTMLElement;
-  private readonly paint: boolean;
+  private readonly follow: boolean;
+  private readonly scope: FocusScope | null;
+  private readonly onRequest?: (el: HTMLElement | null, via: 'key' | 'pointer') => void;
   private onFocusChange?: (el: HTMLElement | null) => void;
   private restrictRoot: HTMLElement | null = null;
   private visibilityCache = new WeakMap<HTMLElement, boolean>();
@@ -33,14 +42,14 @@ export class SpatialNav {
   // Per-container memory for `data-nav-enter="last-focused"`: re-entering a
   // container returns to where focus left it instead of the nearest edge item.
   private lastFocusedIn = new Map<HTMLElement, HTMLElement>();
-  // The pointer left: focus is kept but not shown, so the next key only shows it.
-  private highlightHidden = false;
-  // Where focus last sat, to recover near it once a re-render removes the element.
+  // Where focus last sat, to recover near it once a re-render removes the
+  // element; null once the view swapped its content.
   private lastRect: DOMRect | null = null;
+  // The nav container focus sat in, kept while a re-render detaches the
+  // focused element, so its keyed counterpart is sought there first.
+  private lastContainer: HTMLElement | null = null;
   // Focus left outside a trap enters it at the first item, not the nearest one.
   private focusInTrap = true;
-  // What clearDetachedFocus dropped, so the next move can still recover near it.
-  private lost: { key: string | undefined; rect: DOMRect; inTrap: boolean } | null = null;
   focused: HTMLElement | null = null;
 
   constructor(
@@ -50,7 +59,9 @@ export class SpatialNav {
   ) {
     this.container = container;
     this.onFocusChange = onFocusChange;
-    this.paint = options.paint !== false;
+    this.follow = options.follow !== false;
+    this.scope = options.scope ?? null;
+    this.onRequest = options.onRequest;
     this.visibilityObserver = new MutationObserver((records) => {
       if (records.some((record) => this.mutationAffectsVisibility(record))) {
         this.visibilityCache = new WeakMap();
@@ -73,15 +84,18 @@ export class SpatialNav {
       attributes: true,
       attributeFilter: ['media', 'disabled', 'href'],
     });
-    if (!this.paint) return;
+    if (!this.follow) return;
     this.container.addEventListener('nav:hover', (e: Event) => {
       const target = e.target as HTMLElement;
       if (target.hasAttribute('data-focusable')) {
-        this.focus(target);
+        this.focus(target, 'pointer');
       }
     });
+    const scope = this.scope;
+    if (!scope) return;
     this.container.addEventListener('nav:unhover', (e: Event) => {
-      if (e.target === this.focused) this.clearHighlight();
+      const el = this.focused;
+      if (el && e.target === el && scope.focusKey === (el.dataset.key ?? null)) scope.conceal();
     });
   }
 
@@ -90,9 +104,10 @@ export class SpatialNav {
     return this.restrictRoot ?? this.container;
   }
 
-  // The view swapped its content, so a lost element no longer has a counterpart.
+  // The view swapped its content, so focus a re-render removes has no
+  // counterpart: the next move starts at the first item.
   resetRecovery(): void {
-    this.lost = null;
+    this.lastRect = null;
   }
 
   /**
@@ -102,9 +117,11 @@ export class SpatialNav {
    * pulling it in here would spend the keypress on a step nobody asked for.
    */
   setRestrict(el: HTMLElement | null): void {
-    if (el !== this.restrictRoot) this.lost = null;
+    // Setting the same trap again keeps what recovery knows about a focused
+    // element a re-render detached, so the next key still recovers in place.
+    const keep = el === this.restrictRoot && !!this.focused && !this.focused.isConnected;
     this.restrictRoot = el;
-    this.focusInTrap = !el || (!!this.focused && el.contains(this.focused));
+    if (!keep) this.focusInTrap = !el || (!!this.focused && el.contains(this.focused));
     this.visibilityCache = new WeakMap();
   }
 
@@ -243,24 +260,22 @@ export class SpatialNav {
     return { candidate: best, score: bestScore };
   }
 
-  focus(el: HTMLElement | null): void {
-    this.highlightHidden = false;
-    this.lost = null;
+  focus(el: HTMLElement | null, via: 'key' | 'pointer' = 'key'): void {
     if (el) this.rememberFocus(el);
-    // Already focused: re-show a ring the pointer hid, skip scroll.
+    // Already focused: skip scroll, but the scope may have hidden the ring,
+    // so it hears the request again. A host mirroring focus into its scope
+    // hears a re-hover too, which may relight a ring the pointer concealed.
     if (el && el === this.focused) {
-      this.showRing(el);
-      // The scope may have hidden the ring, so it hears the request again.
-      if (!this.paint) this.onFocusChange?.(el);
+      this.request(el, via);
+      if (!this.follow || via === 'pointer') this.onFocusChange?.(el);
       return;
     }
-    if (this.focused) this.hideRing(this.focused);
     this.focused = el;
+    this.lastContainer = el?.closest<HTMLElement>('[data-nav-container]') ?? null;
     this.focusInTrap = !this.restrictRoot || (!!el && this.restrictRoot.contains(el));
-    if (el && !this.paint) {
+    if (el && !this.follow) {
       this.lastRect = el.getBoundingClientRect();
     } else if (el) {
-      this.showRing(el);
       const now = Date.now();
       const elapsed = now - this.lastScrollFocusAt;
       const repeated = this.lastScrollFocusAt !== 0
@@ -277,7 +292,18 @@ export class SpatialNav {
       this.lastScrollFocusAt = 0;
       this.lastRect = null;
     }
+    this.request(el, via);
     this.onFocusChange?.(el);
+  }
+
+  private request(el: HTMLElement | null, via: 'key' | 'pointer'): void {
+    if (this.scope) this.scope.focus(el?.dataset.key ?? null, via);
+    this.onRequest?.(el, via);
+  }
+
+  // Whether `el` is in the nav's root and could take focus now.
+  navigable(el: HTMLElement): boolean {
+    return this.root().contains(el) && this.getCandidates([el], false).length > 0;
   }
 
   private rememberFocus(el: HTMLElement): void {
@@ -302,60 +328,6 @@ export class SpatialNav {
       return best.el;
     }
     return remembered;
-  }
-
-  private showRing(el: HTMLElement): void {
-    if (!this.paint) return;
-    setRing(el, true);
-    holdRing(el);
-  }
-
-  private hideRing(el: HTMLElement): void {
-    if (!this.paint) return;
-    setRing(el, false);
-    releaseRing(el);
-  }
-
-  /** Remove the visual highlight but keep `focused` so d-pad/hover can re-show it. */
-  clearHighlight(): void {
-    if (!this.focused) return;
-    this.hideRing(this.focused);
-    this.highlightHidden = true;
-  }
-
-  clearDetachedFocus(): void {
-    const lost = this.focused;
-    if (!lost || this.container.contains(lost)) return;
-    const recovery = this.lastRect
-      ? { key: lost.dataset.key, rect: this.lastRect, inTrap: this.focusInTrap }
-      : null;
-    this.focus(null);
-    this.lost = recovery;
-  }
-
-  /** Re-assert the highlight that morph() stripped, unless the pointer hid it. */
-  get isHighlightHidden(): boolean {
-    return this.highlightHidden;
-  }
-
-  // Another surface took the keys: the next move should move, not reveal.
-  forgetHidden(): void {
-    this.highlightHidden = false;
-  }
-
-  /**
-   * After the pointer left, the first key only shows where focus is, so a list
-   * doesn't run on from a row the user could not see. Returns true if it did.
-   */
-  revealHidden(): boolean {
-    const el = this.focused;
-    if (!this.highlightHidden || !el || !this.root().contains(el)
-        || !this.getCandidates([el], false).length) return false;
-    this.highlightHidden = false;
-    this.showRing(el);
-    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    this.lastRect = el.getBoundingClientRect();
-    return true;
   }
 
   // Where focusFirst() would land, without moving focus.
@@ -391,18 +363,56 @@ export class SpatialNav {
     return true;
   }
 
-  // Focus was re-rendered away: prefer its keyed replacement, then whatever
-  // now sits nearest where it was, instead of restarting at the view's top.
+  // A re-render replaced the focused element: its keyed counterpart is the
+  // same item, already ringed by key, so a move goes on from there. Focus
+  // left outside a trap is not the trap's item, whatever its key.
+  private adoptReplacement(root: HTMLElement): void {
+    const lost = this.focused;
+    const key = lost?.dataset.key;
+    if (!lost || this.container.contains(lost) || !this.lastRect || key === undefined
+        || !this.focusInTrap) return;
+    const matches = this.getCandidates(
+      Array.from(root.querySelectorAll<HTMLElement>('[data-focusable][data-key]'))
+        .filter((el) => el.dataset.key === key),
+      false,
+    );
+    if (!matches.length) return;
+    // Another surface may reuse the key (a Search tile and row): the item
+    // stays in its own container, else the one nearest where it was wins.
+    const container = this.lastContainer;
+    const inContainer = container?.isConnected
+      ? matches.filter((c) => c.container === container)
+      : [];
+    const keyed = this.nearest(inContainer.length ? inContainer : matches, this.lastRect).el;
+    this.focused = keyed;
+    this.lastContainer = keyed.closest<HTMLElement>('[data-nav-container]');
+    this.rememberFocus(keyed);
+    this.onFocusChange?.(keyed);
+  }
+
+  /**
+   * A ring the pointer concealed shows on the next move, so a list does not
+   * run on from a row the user could not see. Returns true if it did.
+   */
+  showConcealed(): boolean {
+    const root = this.root();
+    this.adoptReplacement(root);
+    const el = this.focused;
+    if (!this.scope?.concealed || !el || this.scope.focusKey !== (el.dataset.key ?? null)
+        || !this.navigable(el)) return false;
+    this.request(el, 'key');
+    this.lastRect = el.getBoundingClientRect();
+    return true;
+  }
+
+  // Focus was re-rendered away with no keyed counterpart: prefer whatever now
+  // sits nearest where it was, instead of restarting at the view's top.
   private replacementFor(candidates: Candidate[]): HTMLElement {
-    const lost = this.focused && this.lastRect
-      ? { key: this.focused.dataset.key, rect: this.lastRect, inTrap: this.focusInTrap }
-      : this.lost;
-    if (!lost || !lost.inTrap) return candidates[0].el;
-    if (lost.key !== undefined) {
-      const keyed = candidates.find((c) => c.el.dataset.key === lost.key);
-      if (keyed) return keyed.el;
-    }
-    const from = lost.rect;
+    if (!this.focused || !this.lastRect || !this.focusInTrap) return candidates[0].el;
+    return this.nearest(candidates, this.lastRect).el;
+  }
+
+  private nearest(candidates: Candidate[], from: DOMRect): Candidate {
     const fx = from.left + from.width / 2;
     const fy = from.top + from.height / 2;
     let best = candidates[0];
@@ -415,12 +425,12 @@ export class SpatialNav {
         bestDistance = distance;
       }
     }
-    return best.el;
+    return best;
   }
 
   move(direction: NavDirection): boolean {
+    if (this.showConcealed()) return true;
     const root = this.root();
-    if (this.revealHidden()) return true;
     const focusedContainer = this.focused?.closest<HTMLElement>('[data-nav-container]');
     if (this.focused && root.contains(this.focused) && focusedContainer
         && root.contains(focusedContainer)) {
@@ -448,7 +458,6 @@ export class SpatialNav {
       this.focus(this.replacementFor(candidates));
       return true;
     }
-    this.showRing(this.focused);
     this.lastRect = current.rect;
 
     const best = this.findBest(candidates, current, direction).candidate;

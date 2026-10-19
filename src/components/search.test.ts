@@ -171,7 +171,10 @@ async function openWith(opts: { vod?: unknown[]; series?: unknown[] } = {}) {
   return { view, handlers };
 }
 
-afterEach(() => Focus.uninstall());
+afterEach(() => {
+  Focus.setBase(() => null);
+  Focus.uninstall();
+});
 
 describe('Search', () => {
   it('renders results-only and empty on open (no in-view query box, no hint)', async () => {
@@ -397,6 +400,28 @@ describe('Search', () => {
     );
   });
 
+  it('does not open a focused result the rail scrolled out of its window', async () => {
+    const many = Array.from({ length: 400 }, (_, i) => vod(String(i), `Movie ${i}`));
+    const { view, handlers } = await openWith({ vod: many });
+    Focus.setBase(() => view.focusScope);
+    await view.setQuery('movie');
+    view.focusFirstResult();
+    Focus.flush();
+    const first = container.querySelector<HTMLElement>('.catalog-tile[data-key="v:0"]')!;
+    expect(first.classList.contains('focused')).toBe(true);
+
+    const rail = container.querySelector<HTMLElement>('[data-search-virtual="movies"]')!;
+    rail.scrollLeft = 24_000;
+    rail.dispatchEvent(new Event('scroll', { bubbles: true }));
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    Focus.flush();
+    expect(first.isConnected).toBe(false);
+    expect(container.querySelector('.focused')).toBeNull();
+
+    view.handleAction('select');
+    expect(handlers.onOpenMovie).not.toHaveBeenCalled();
+  });
+
   it('publishes only the newest query scheduled in one frame', async () => {
     playlistMock.channels = [chan('Alpha'), chan('Bravo')];
     const { view } = await openWith();
@@ -530,6 +555,7 @@ describe('Search', () => {
     handlers.onRevealTabBar.mockImplementation(() => box.focus());
     handlers.onReleaseTabBar.mockImplementation(() => box.blur());
     const view = new Search(container, handlers);
+    Focus.setBase(() => view.focusScope);
     await view.open(account, 'alpha');
     await new Promise((resolve) => setTimeout(resolve, 50));
     view.focusFirstResult();
@@ -759,6 +785,7 @@ describe('Search', () => {
     handlers.onRevealTabBar.mockImplementation(() => box.focus());
     handlers.onReleaseTabBar.mockImplementation(() => box.blur());
     const view = new Search(container, handlers);
+    Focus.setBase(() => view.focusScope);
     const opening = view.open(account);
     view.scheduleQuery('movie');
     view.focusFirstResult();
@@ -785,6 +812,7 @@ describe('Search', () => {
     const handlers = mkHandlers();
     handlers.onRevealTabBar.mockImplementation(() => box.focus());
     const view = new Search(container, handlers);
+    Focus.setBase(() => view.focusScope);
     const opening = view.open(account);
     view.scheduleQuery('movie');
     view.focusFirstResult();
@@ -1247,8 +1275,10 @@ describe('Search', () => {
   it('focusFirstResult moves focus into the first result (tab bar handoff)', async () => {
     playlistMock.channels = [chan('Channel One')];
     const { view } = await openWith();
+    Focus.setBase(() => view.focusScope);
     await view.setQuery('one');
     view.focusFirstResult();
+    Focus.flush();
     expect(container.querySelector('.catalog-tile.focused')).not.toBeNull();
   });
 

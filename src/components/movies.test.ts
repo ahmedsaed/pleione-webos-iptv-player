@@ -387,7 +387,7 @@ describe('Movies browse + grid', () => {
     bar.innerHTML = '<button data-focusable data-key="b1"></button>';
     document.body.appendChild(bar);
     let open = true;
-    Focus.layer(Focus.register({ id: 'bar', root: bar, tier: Tier.bar }), () => open);
+    Focus.push(Focus.register({ id: 'bar', root: bar, tier: Tier.bar, when: () => open }));
     Focus.flush();
     return { close: () => { open = false; Focus.flush(); } };
   }
@@ -395,10 +395,12 @@ describe('Movies browse + grid', () => {
   it('keeps a tile dark once the pointer left it under an open bar', async () => {
     await openWith([{ id: '1', name: 'Cat A' }], [vod('10', 'Movie One'), vod('11', 'Movie Two')]);
     FocusRing.install(() => ({ root: Focus.owner()?.root() ?? null }));
+    Focus.install();
     try {
       const bar = openBar();
       const tile = container.querySelector<HTMLElement>('.catalog-tile[data-item-id="11"]')!;
       tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      Focus.flush();
       expect(tile.classList.contains('focused')).toBe(true);
       tile.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
 

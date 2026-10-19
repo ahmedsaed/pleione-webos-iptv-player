@@ -1,4 +1,5 @@
 import { createLogger } from './logger';
+import { Focus } from '../navigation/focus-scope';
 
 const log = createLogger('Dom');
 
@@ -10,16 +11,21 @@ export function $$(selector: string, parent: Element | Document = document): HTM
   return Array.from(parent.querySelectorAll(selector));
 }
 
+// A shown or hidden view flips the base and every `when` that reads
+// `inShownView`, with no input or morph to settle the owner; the pass
+// runs once the whole switch is done.
 export function show(el: HTMLElement | null): void {
   if (!el) return;
   el.style.display = '';
   el.classList.remove('hidden');
+  Focus.reconcile();
 }
 
 export function hide(el: HTMLElement | null): void {
   if (!el) return;
   el.style.display = 'none';
   el.classList.add('hidden');
+  Focus.reconcile();
 }
 
 /** Whether `el` sits in the shown view, or outside every view. */

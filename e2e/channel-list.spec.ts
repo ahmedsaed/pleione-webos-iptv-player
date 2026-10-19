@@ -218,14 +218,19 @@ test('player sidebar reaches sources, groups, and channels by the shortest D-pad
   await page.keyboard.press('ArrowUp');
   const channelSource = page.locator('#view-channels [data-playlist=""].focused');
   await expect(channelSource).toBeVisible();
-  await page.waitForTimeout(250);
+  // A starved headless page renders no frames, so the focus transition can sit
+  // at its start value; suspending it reads the settled style on both engines.
   const channelSourceFocus = await channelSource.evaluate(element => {
-    const style = getComputedStyle(element);
-    return {
+    const el = element as HTMLElement;
+    el.style.transition = 'none';
+    const style = getComputedStyle(el);
+    const settled = {
       background: style.backgroundColor,
       borderBottom: style.borderBottomColor,
       boxShadow: style.boxShadow,
     };
+    el.style.transition = '';
+    return settled;
   });
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('#view-channels [data-playlist="p1"].focused')).toBeVisible();

@@ -1142,6 +1142,14 @@ describe('Sidebar', () => {
       expect(reveal).not.toHaveBeenCalled();
     });
 
+    it('keeps the ring hidden when the pointer exit closes the groups without a mouseout', () => {
+      sidebar.handleAction('left');
+      hover(groupItems()[1]);
+      sidebar.handlePointerMove(741, false);
+      expect(el.classList.contains('channels-only')).toBe(true);
+      expect(ringed()).toEqual([]);
+    });
+
     it('Back still closes the groups onto a lit channel', () => {
       sidebar.handleAction('left');
       groupItems()[1].dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: container }));

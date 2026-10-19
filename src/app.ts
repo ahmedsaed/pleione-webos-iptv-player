@@ -382,7 +382,6 @@ class App {
       FocusRing.sync();
       Focus.input();
     });
-    // Focus first: its hover gate must run before FocusRing's hover listener.
     this.initFocusScopes();
     FocusRing.install(() => {
       const owner = Focus.owner();
@@ -1545,14 +1544,19 @@ class App {
   private initFocusScopes(): void {
     const current = () => this.viewStack[this.viewStack.length - 1];
     const views = new Map<ViewName, FocusScope>();
+    const own: Partial<Record<ViewName, FocusScope>> = {
+      epg: this.epgGrid.focusScope,
+      channels: this.channelList.focusScope,
+      settings: this.settings.focusScope,
+      'parental-controls': this.parentalControls.focusScope,
+      movies: this.movies.focusScope,
+      series: this.series.focusScope,
+      search: this.search.focusScope,
+      reminders: this.reminderManager.focusScope,
+    };
     for (const name of Object.keys(this.views) as ViewName[]) {
-      views.set(name, name === 'epg' ? this.epgGrid.focusScope
-        : name === 'channels' ? this.channelList.focusScope
-          : name === 'settings' ? this.settings.focusScope
-            : name === 'parental-controls' ? this.parentalControls.focusScope
-              : name === 'movies' ? this.movies.focusScope
-                : name === 'series' ? this.series.focusScope
-                  : Focus.register({ id: `view.${name}`, root: this.views[name], leaveFor: { up: 'tabbar' } }));
+      views.set(name, own[name]
+        ?? Focus.register({ id: `view.${name}`, root: this.views[name], leaveFor: { up: 'tabbar' } }));
     }
     Focus.setBase(() => views.get(current()) ?? null);
     Focus.install();

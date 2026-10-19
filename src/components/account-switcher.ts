@@ -23,18 +23,17 @@ interface AccountSwitcherHandlers {
 
 // The circular account avatar + dropdown, mounted in a tab-bar slot. Owns its
 // own DOM (preserved across the tab bar's morph via data-morph-preserve) and its
-// pointer hit-testing. The host drives the avatar's focus; selection flows back
+// pointer hit-testing. The host's scope rings the avatar; selection flows back
 // out through onSelect. Given a scope id, the open menu is a focus scope above
 // the bar that takes the keys and paints its own ring, while the pointer still
 // lights what it rests on below; closing it hands the keys back to the scope
-// below. Otherwise the host routes the keys and the menu paints its highlight
-// itself.
+// below. Otherwise the host routes the keys to a scope it pushes for the open
+// menu, and the menu paints its highlight itself.
 export class AccountSwitcher {
   private slot: HTMLElement;
   private handlers: AccountSwitcherHandlers;
   private accounts: PlaylistEntry[] = [];
   private selectedId = '';
-  private focused = false;
   private open = false;
   private menuIndex = 0;
   private readonly scope: FocusScope | null;
@@ -62,12 +61,6 @@ export class AccountSwitcher {
     this.selectedId = selectedId;
     // Closing pops the menu's scope, so the keys return to the one below.
     if (!this.shown) this.closeMenu('host');
-    this.render();
-  }
-
-  setFocused(on: boolean): void {
-    if (on === this.focused) return;
-    this.focused = on;
     this.render();
   }
 
@@ -181,7 +174,7 @@ export class AccountSwitcher {
     // A scope paints the ring itself.
     const painted = !this.scope;
     morph(this.slot, html`
-      <button class="account-avatar ${painted && this.focused && !this.open ? 'focused' : ''}" data-key="account-avatar"
+      <button class="account-avatar" data-key="account-avatar"
               aria-label="${t('nav.switchAccount')}" style="background:${avatarColor(active.name)}">${firstLetter(active.name)}</button>
       ${this.open ? html`
         <div class="account-menu" data-nav-container>

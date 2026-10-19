@@ -24,7 +24,11 @@ function mk() {
 }
 
 const tiles = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>('.search-history-tile')];
-const focused = (root: HTMLElement) => root.querySelector<HTMLElement>('.focused');
+// The scope paints the ring on its next reconcile.
+const focused = (root: HTMLElement) => {
+  Focus.flush();
+  return root.querySelector<HTMLElement>('.focused');
+};
 
 describe('SearchHistoryDropdown', () => {
   beforeEach(() => {

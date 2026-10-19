@@ -142,7 +142,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
       return el;
     };
     this.layers = { browse: layer('browse'), grid: layer('grid'), detail: layer('detail') };
-    this.nav = new SpatialNav(container, (el) => this.onFocusChanged(el), { paint: false });
+    this.nav = new SpatialNav(container, (el) => this.onFocusChanged(el), { follow: false });
     this.nav.setRestrict(this.layers.browse);
     this.focusScope = Focus.register({
       id: `${this.scopeName()}.catalog`,

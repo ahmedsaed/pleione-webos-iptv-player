@@ -4,7 +4,7 @@ import { Focus, Tier, type FocusScope, type ScopeSpec } from './focus-scope';
 import { FocusRing, hasRing, ringsIn, setRing } from './focus-ring';
 import { setInputMode } from './input-mode';
 import { morph } from '../utils/morph';
-import { html } from '../utils/dom';
+import { hide, html, inShownView, show } from '../utils/dom';
 
 let view: HTMLElement;
 let prompt: HTMLElement;
@@ -47,14 +47,16 @@ afterEach(() => {
 });
 
 describe('Focus owner stack', () => {
-  it('puts pushed scopes above active layers, and layers above the base', () => {
+  it('counts a pushed scope only while its condition holds, above the base', () => {
     const base = Focus.register({ id: 'view.a', root: view });
     let tabBar = false;
     let menu = false;
-    const bar = Focus.register({ id: 'tabbar', root: view, tier: Tier.bar });
-    const dropdown = Focus.register({ id: 'menu', root: view, restrict: 'self-only', tier: Tier.overlay });
-    Focus.layer(bar, () => tabBar);
-    Focus.layer(dropdown, () => menu);
+    const bar = Focus.register({ id: 'tabbar', root: view, tier: Tier.bar, when: () => tabBar });
+    const dropdown = Focus.register({
+      id: 'menu', root: view, restrict: 'self-only', tier: Tier.overlay, when: () => menu,
+    });
+    Focus.push(bar);
+    Focus.push(dropdown);
     Focus.setBase(() => base);
     expect(Focus.owner()).toBe(base);
 
@@ -85,11 +87,11 @@ describe('Focus owner stack', () => {
     expect(Focus.owner()).toBe(reminder);
   });
 
-  it('ranks layers by tier before registration order', () => {
+  it('ranks pushed scopes by tier before push order', () => {
     const history = Focus.register({ id: 'search.history', root: view, restrict: 'self-only', tier: Tier.overlay });
     const bar = Focus.register({ id: 'tabbar', root: view, tier: Tier.bar });
-    Focus.layer(history, () => true);
-    Focus.layer(bar, () => true);
+    Focus.push(bar);
+    Focus.push(history);
     expect(Focus.owner()).toBe(bar);
     const confirm = Focus.register({ id: 'prompt.confirm', root: prompt, restrict: 'self-only' });
     Focus.push(confirm);
@@ -285,6 +287,38 @@ describe('Focus owner stack', () => {
     expect(Focus.owner()).toBe(menu);
   });
 
+  it('settles the owner after a view switch alone, with no input or morph', async () => {
+    const channels = document.createElement('div');
+    const player = document.createElement('div');
+    channels.className = 'view';
+    player.className = 'view hidden';
+    document.body.append(channels, player);
+    list(channels, ['c1']);
+    list(player, ['m1']);
+    let current = 'channels';
+    const released = vi.fn();
+    const acquired = vi.fn();
+    const list1 = logical('live.channels', channels, { onRelease: released });
+    const playerView = Focus.register({ id: 'view.player', root: player });
+    const menu = logical('player.menu', player, { when: () => inShownView(player), onAcquire: acquired });
+    Focus.setBase(() => (current === 'channels' ? list1 : playerView));
+    Focus.push(menu);
+    installRing();
+    await Promise.resolve();
+    expect(shown()).toEqual(['c1']);
+
+    // App.showView: the stack changes, then the views flip.
+    current = 'player';
+    hide(channels);
+    show(player);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(released).toHaveBeenCalledTimes(1);
+    expect(acquired).toHaveBeenCalledTimes(1);
+    expect(player.getAttribute('data-focus-scope')).toBe('player.menu');
+    expect(shown()).toEqual(['m1']);
+  });
+
   it('returns to the scope below when the top one pops', () => {
     const a = Focus.register({ id: 'a', root: view });
     const b = Focus.register({ id: 'b', root: prompt });
@@ -385,7 +419,7 @@ describe('Focus owner stack', () => {
 });
 
 describe('Focus reconcile', () => {
-  it('leaves an unmigrated owner\'s rings to its component', async () => {
+  it('leaves a non-logical owner\'s rings to its component', async () => {
     list(view, ['r1', 'r2']);
     setRing(row(view, 'r1'), true);
     setRing(row(view, 'r2'), true);
@@ -511,18 +545,17 @@ describe('Focus reconcile', () => {
     expect(shown()).toEqual(['r1']);
   });
 
-  it('paints when a layer takes the keys without any input', async () => {
+  it('paints when a pushed scope\'s condition hands it the keys at the next ring sync', async () => {
     list(view, ['r1']);
     list(prompt, ['p1']);
     const a = Focus.register({ id: 'view.a', root: view });
-    const sidebar = logical('player.sidebar', prompt);
     let open = false;
-    Focus.layer(sidebar, () => open);
+    const sidebar = logical('player.sidebar', prompt, { when: () => open });
+    Focus.push(sidebar);
     Focus.setBase(() => a);
     installRing();
     await Promise.resolve();
     open = true;
-    // What a class change (the sidebar sliding in) does through the observer.
     FocusRing.sync();
     await Promise.resolve();
     expect(shown()).toEqual(['p1']);
@@ -572,6 +605,25 @@ describe('Focus reconcile', () => {
     expect(shown()).toEqual(['r1']);
   });
 
+  it('restores a ring the view re-rendered under a modal once the keys return', () => {
+    list(view, ['r1', 'r2']);
+    list(prompt, ['p1']);
+    const a = logical('live.channels', view);
+    const p = logical('prompt.confirm', prompt, { restrict: 'self-only' });
+    Focus.setBase(() => a);
+    installRing();
+    a.focus('r2', 'key');
+    Focus.flush();
+    Focus.push(p);
+    Focus.flush();
+    list(view, ['r1', 'r2']);
+    Focus.flush();
+    expect(shown()).toEqual(['p1']);
+    Focus.pop(p);
+    Focus.flush();
+    expect(shown()).toEqual(['r2']);
+  });
+
   it('reconciles after a morph into the owner root', async () => {
     list(view, ['r1', 'r2']);
     const a = logical('live.channels', view);
@@ -582,6 +634,185 @@ describe('Focus reconcile', () => {
     morph(view, html`<div data-key="r2"></div>`);
     await Promise.resolve();
     expect(shown()).toEqual(['r2']);
+  });
+
+  // A style recalc between the patch and the pass would see the row ringless
+  // and restart its ring transitions twice per re-render, as a virtual list
+  // re-rendering on every scroll step does.
+  it('keeps the ring the owner painted through a re-render, with no class write', () => {
+    list(view, ['r1', 'r2']);
+    const a = logical('live.channels', view);
+    Focus.setBase(() => a);
+    installRing();
+    setInputMode('keys');
+    a.focus('r2', 'key');
+    Focus.flush();
+    const writes: (string | null)[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const r of records) if (r.target === row(view, 'r2')) writes.push(r.oldValue);
+    });
+    observer.observe(view, { subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+
+    list(view, ['r0', 'r1', 'r2']);
+    expect(shown()).toEqual(['r2']);
+    Focus.flush();
+    expect(shown()).toEqual(['r2']);
+    expect(observer.takeRecords().filter((r) => r.target === row(view, 'r2'))).toEqual([]);
+    expect(writes).toEqual([]);
+
+    // The pass after the patch still moves a ring the re-render kept.
+    a.focus('r1', 'key');
+    list(view, ['r1', 'r2']);
+    Focus.flush();
+    expect(shown()).toEqual(['r1']);
+    expect(repairs()).toEqual([]);
+    observer.disconnect();
+  });
+
+  it('drops a ring a re-render kept once another scope takes the keys first', () => {
+    list(view, ['r1', 'r2']);
+    list(prompt, ['p1']);
+    const a = logical('live.channels', view);
+    Focus.setBase(() => a);
+    installRing();
+    setInputMode('keys');
+    a.focus('r2', 'key');
+    Focus.flush();
+
+    list(view, ['r0', 'r1', 'r2']);
+    expect(hasRing(row(view, 'r2'))).toBe(true);
+    const p = logical('prompt.confirm', prompt, { restrict: 'self-only' });
+    Focus.push(p);
+    Focus.flush();
+    expect(shown()).toEqual(['p1']);
+    // Not merely parked: the template dropped it, so the pass does too.
+    expect(hasRing(row(view, 'r2'))).toBe(false);
+    expect(ringsIn(document.body)).toHaveLength(1);
+  });
+
+  it('drops a ring a re-render kept even after a nested morph in its patch threw', () => {
+    list(view, ['r1', 'r2']);
+    list(prompt, ['p1']);
+    const a = logical('live.channels', view);
+    Focus.setBase(() => a);
+    installRing();
+    setInputMode('keys');
+    a.focus('r2', 'key');
+    Focus.flush();
+
+    // Inserting r3 runs code that catches a failing morph, after r2's ring was kept.
+    const broken = document.createElement('div');
+    vi.spyOn(broken, 'insertBefore').mockImplementation(() => { throw new Error('patch failed'); });
+    const insert = view.insertBefore.bind(view);
+    vi.spyOn(view, 'insertBefore').mockImplementation(<T extends Node>(node: T, child: Node | null): T => {
+      try { morph(broken, html`<i></i>`); } catch { /* reported elsewhere */ }
+      return insert(node, child);
+    });
+    list(view, ['r1', 'r2', 'r3']);
+    vi.mocked(view.insertBefore).mockRestore();
+    expect(hasRing(row(view, 'r2'))).toBe(true);
+    const p = logical('prompt.confirm', prompt, { restrict: 'self-only' });
+    Focus.push(p);
+    Focus.flush();
+    expect(hasRing(row(view, 'r2'))).toBe(false);
+    expect(ringsIn(document.body)).toHaveLength(1);
+  });
+
+  it('settles the owner on show() alone', () => {
+    list(view, ['r1']);
+    list(prompt, ['p1']);
+    const base = logical('view.a', view);
+    const overlay = logical('overlay', prompt, { when: () => !prompt.classList.contains('hidden') });
+    prompt.classList.add('hidden');
+    Focus.push(overlay);
+    Focus.setBase(() => base);
+    installRing();
+    Focus.flush();
+    expect(shown()).toEqual(['r1']);
+    show(prompt);
+    Focus.flush();
+    expect(shown()).toEqual(['p1']);
+  });
+
+  it('settles the owner on hide() alone', () => {
+    list(view, ['r1']);
+    list(prompt, ['p1']);
+    const base = logical('view.a', view);
+    const overlay = logical('overlay', prompt, { when: () => !prompt.classList.contains('hidden') });
+    Focus.push(overlay);
+    Focus.setBase(() => base);
+    installRing();
+    Focus.flush();
+    expect(shown()).toEqual(['p1']);
+    hide(prompt);
+    Focus.flush();
+    expect(shown()).toEqual(['r1']);
+  });
+
+  it('keeps the template authoritative for a ring no scope painted', () => {
+    list(view, ['r1', 'r2']);
+    const a = logical('live.channels', view);
+    Focus.setBase(() => a);
+    a.focus('r2', 'key');
+    Focus.flush();
+    morph(prompt, html`<div class="focused" data-key="t1"></div>`);
+    morph(prompt, html`<div data-key="t1"></div>`);
+    expect(hasRing(row(prompt, 't1'))).toBe(false);
+    Focus.flush();
+    expect(shown()).toEqual(['r2']);
+  });
+
+  it('skips the pass for a morph beside the owner, but still gates a ring it draws', () => {
+    list(view, ['r1', 'r2']);
+    const resolve = vi.fn((key: string) => row(view, key));
+    const a = logical('live.channels', view, { resolve });
+    Focus.setBase(() => a);
+    installRing();
+    setInputMode('keys');
+    a.focus('r2', 'key');
+    Focus.flush();
+    resolve.mockClear();
+
+    morph(prompt, html`<div data-key="t1">1</div>`);
+    Focus.flush();
+    expect(resolve).not.toHaveBeenCalled();
+
+    morph(prompt, html`<div class="focused" data-key="t1">2</div>`);
+    Focus.flush();
+    expect(shown()).toEqual(['r2']);
+    expect(hasRing(row(prompt, 't1'))).toBe(true);
+
+    morph(view, html`<div class="row" data-key="r1"></div><div class="row" data-key="r2"></div>`);
+    Focus.flush();
+    expect(shown()).toEqual(['r2']);
+  });
+
+  it('skips the pass for a background morph that keeps only a parked ring of a scope off the keys', () => {
+    list(view, ['r1', 'r2']);
+    morph(prompt, html`<div data-key="slot" data-morph-preserve><div class="row" data-key="p1"></div></div>`);
+    const resolve = vi.fn((key: string) => row(view, key));
+    const a = logical('live.channels', view, { resolve });
+    const b = logical('view.b', prompt, { defaultKey: () => 'p1' });
+    let base: FocusScope = b;
+    Focus.setBase(() => base);
+    installRing();
+    setInputMode('keys');
+    b.focus('p1', 'key');
+    Focus.flush();
+    expect(shown()).toEqual(['p1']);
+    base = a;
+    a.focus('r2', 'key');
+    Focus.flush();
+    expect(shown()).toEqual(['r2']);
+    expect(hasRing(row(prompt, 'p1'))).toBe(true);
+    Focus.flush();
+    resolve.mockClear();
+
+    morph(prompt, html`<div data-key="slot" data-morph-preserve></div><div data-key="t1">1</div>`);
+    Focus.flush();
+    expect(resolve).not.toHaveBeenCalled();
+    expect(shown()).toEqual(['r2']);
+    expect(hasRing(row(prompt, 'p1'))).toBe(true);
   });
 
   it('reconciles after a pointer hover once installed', async () => {
@@ -602,7 +833,7 @@ describe('Focus reconcile', () => {
     list(prompt, ['m1']);
     const a = logical('view.settings', view);
     const bar = logical('tabbar', prompt, { tier: Tier.bar });
-    Focus.layer(bar, () => true);
+    Focus.push(bar);
     Focus.setBase(() => a);
     Focus.install();
     installRing();
@@ -628,6 +859,62 @@ describe('Focus reconcile', () => {
 
     row(view, 'r1').dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
     expect(shown()).toEqual(['m1']);
+    expect(ringsIn(view)).toHaveLength(0);
+  });
+
+  it('keeps the pointer\'s pick off the keys lit through a re-render of its view', () => {
+    list(view, ['r1', 'r2']);
+    list(prompt, ['m1']);
+    const a = logical('view.settings', view);
+    const bar = logical('tabbar', prompt, { tier: Tier.bar });
+    Focus.push(bar);
+    Focus.setBase(() => a);
+    Focus.install();
+    installRing();
+    setInputMode('pointer');
+    bar.focus('m1', 'key');
+    Focus.flush();
+    row(view, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    a.focus('r2', 'pointer');
+    expect(shown()).toEqual(['r2', 'm1']);
+
+    morph(view, html`<div class="row" data-focusable data-key="r1"></div>
+      <div class="row" data-focusable data-key="r2"></div>`);
+    Focus.flush();
+    expect(shown()).toEqual(['r2', 'm1']);
+    expect(Focus.owner()).toBe(bar);
+  });
+
+  it('stops relighting the pointer\'s pick off the keys once the keys take over', () => {
+    list(view, ['r1', 'r2']);
+    list(prompt, ['m1']);
+    const a = logical('view.settings', view);
+    const bar = logical('tabbar', prompt, { tier: Tier.bar });
+    Focus.push(bar);
+    Focus.setBase(() => a);
+    Focus.install();
+    installRing();
+    setInputMode('pointer');
+    bar.focus('m1', 'key');
+    Focus.flush();
+    row(view, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    a.focus('r2', 'pointer');
+    expect(shown()).toEqual(['r2', 'm1']);
+
+    setInputMode('keys');
+    Focus.reconcile();
+    Focus.flush();
+    expect(shown()).toEqual(['m1']);
+    const watch = new MutationObserver(() => {});
+    watch.observe(view, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    for (let i = 0; i < 3; i++) {
+      Focus.reconcile();
+      Focus.flush();
+    }
+    // A ring re-added and parked again in the same pass still leaves its records.
+    const records = watch.takeRecords();
+    watch.disconnect();
+    expect(records).toHaveLength(0);
     expect(ringsIn(view)).toHaveLength(0);
   });
 
@@ -666,19 +953,6 @@ describe('Focus reconcile', () => {
 
     row(prompt, 'cancel').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     expect(row(prompt, 'cancel').hasAttribute('data-ring-hover')).toBe(true);
-  });
-
-  it('leaves hover alone under a modal that is only a compat layer', () => {
-    list(view, ['r1', 'r2']);
-    const a = logical('live.channels', view);
-    const menu = Focus.register({ id: 'menu', root: prompt, restrict: 'self-only' });
-    Focus.layer(menu, () => true);
-    Focus.setBase(() => a);
-    Focus.install();
-    const hovered = vi.fn();
-    view.addEventListener('nav:hover', hovered);
-    row(view, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-    expect(hovered).toHaveBeenCalledTimes(1);
   });
 
   describe('keeping the ring in view', () => {
@@ -754,15 +1028,19 @@ describe('Focus reconcile', () => {
     it('does not chase a smooth scroll from re-renders, nor log each frame', () => {
       setInputMode('keys');
       Element.prototype.scrollIntoView = vi.fn();
-      const a = logical('live.channels', view);
+      const resolve = vi.fn((key: string) => row(scroller, key));
+      const a = logical('live.channels', view, { resolve });
       Focus.setBase(() => a);
       a.focus('r2', 'key');
       Focus.flush();
+      resolve.mockClear();
       // Still clipped while the scroll animates; each frame may re-render.
       for (let i = 0; i < 3; i++) {
         Focus.afterMorph(scroller);
         Focus.flush();
       }
+      // Each re-render inside the owner's root runs a pass, which reveals nothing.
+      expect(resolve).toHaveBeenCalledTimes(3);
       expect(row(scroller, 'r2').scrollIntoView).toHaveBeenCalledTimes(1);
       expect(repairs()).toEqual([]);
     });
@@ -882,7 +1160,7 @@ describe('Focus kept by a component', () => {
       has: (key) => key === current,
       concealOnLeave: true,
     });
-    Focus.layer(scope, () => true);
+    Focus.push(scope);
     Focus.install();
     render();
     Focus.flush();
@@ -909,7 +1187,7 @@ describe('Focus kept by a component', () => {
         return key === 'r9';
       },
     });
-    Focus.layer(scope, () => true);
+    Focus.push(scope);
     current = 'r9';
     scope.focus('r9', 'key');
     Focus.flush();
@@ -948,9 +1226,9 @@ describe('Focus requested by the pointer outside the owner', () => {
     list(view, ['r1', 'r2']);
     list(prompt, ['p1']);
     const below = logical('view.catalog', view);
-    const bar = logical('bar', prompt, { tier: Tier.bar });
     let barActive = true;
-    Focus.layer(bar, () => barActive);
+    const bar = logical('bar', prompt, { tier: Tier.bar, when: () => barActive });
+    Focus.push(bar);
     Focus.setBase(() => below);
     installRing();
     Focus.install();
@@ -976,9 +1254,9 @@ describe('Focus requested by the pointer outside the owner', () => {
     list(prompt, ['p1']);
     const reveal = vi.fn(() => true);
     const below = logical('view.catalog', view, { reveal });
-    const bar = logical('bar', prompt, { tier: Tier.bar });
     let barActive = true;
-    Focus.layer(bar, () => barActive);
+    const bar = logical('bar', prompt, { tier: Tier.bar, when: () => barActive });
+    Focus.push(bar);
     Focus.setBase(() => below);
     installRing();
     Focus.install();
@@ -1011,6 +1289,29 @@ describe('Focus requested by the pointer outside the owner', () => {
 
     row(view, 'r2').dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     below.focus('r2', 'pointer');
+    expect(shown()).toEqual(['r2', 'p1']);
+  });
+
+  it('relights the pointer\'s pick when a re-render of its scope replaces it', () => {
+    const wrap = document.createElement('div');
+    view.appendChild(wrap);
+    list(wrap, ['r1', 'r2']);
+    list(prompt, ['p1']);
+    const below = logical('view.catalog', view);
+    const bar = logical('bar', prompt, { tier: Tier.bar });
+    Focus.push(bar);
+    Focus.setBase(() => below);
+    installRing();
+    Focus.install();
+    wrap.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    below.focus('r2', 'pointer');
+    Focus.flush();
+    expect(shown()).toEqual(['r2', 'p1']);
+
+    // A new node for r2, with no ring drawn and the owner's untouched.
+    morph(wrap, html`<div class="row" data-focusable data-key="r1"></div><span class="row" data-focusable data-key="r2"></span>`);
+    expect(shown()).toEqual(['p1']);
+    Focus.flush();
     expect(shown()).toEqual(['r2', 'p1']);
   });
 });

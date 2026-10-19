@@ -363,8 +363,10 @@ describe('ChannelList edit mode', () => {
       });
       hover(items[1]);
       list.handleAction('channel_up');
+      Focus.flush();
       expect(items[0].classList.contains('focused')).toBe(true);
       list.handleAction('channel_down');
+      Focus.flush();
       expect(items[1].classList.contains('focused')).toBe(true);
     });
 

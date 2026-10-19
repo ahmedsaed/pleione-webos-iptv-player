@@ -4,8 +4,8 @@
 // it; the reconcile pass after each input paints the one ring and keeps it in
 // view.
 //
-// A scope without `defaultKey` is not migrated yet: its component still paints
-// its own ring, which FocusRing gates, and reconcile leaves it alone.
+// A scope without `defaultKey` only routes keys: it paints no ring, and
+// reconcile only re-gates the rings for it.
 
 import type { Action, NumberEvent } from '../types';
 import { createLogger } from '../utils/logger';
@@ -19,7 +19,7 @@ export type EnterTo = 'last' | 'default';
 export type LeaveDir = 'up' | 'down' | 'left' | 'right';
 
 // Who wins when several scopes want the keys: the higher tier, then within a
-// tier the latest push, then layers in registration order.
+// tier the latest push.
 export const Tier = {
   panel: 5,     // a player panel the menus open over: the subtitle search
   overlay: 10,  // dropdowns and player overlays
@@ -36,7 +36,7 @@ export interface ScopeSpec {
   restrict?: 'self-only' | 'self-first';
   // Defaults to `prompt` for a self-only scope, else `overlay`.
   tier?: number;
-  // A pushed or layered scope counts only while this holds, such as while
+  // A pushed scope counts only while this holds, such as while
   // its view is the shown one; it keeps its place on the stack meanwhile.
   when?: () => boolean;
   // Takes the keys while the scope owns them; without it the shown view routes them.
@@ -78,6 +78,8 @@ export interface FocusScope {
   readonly modal: boolean;
   readonly logical: boolean;
   readonly focusKey: string | null;
+  // Whether the ring is hidden while the key is kept, until the next request.
+  readonly concealed: boolean;
   root(): HTMLElement | null;
   /** Route `action` to the scope; false when it has no handler of its own. */
   handle(action: Action, event?: NumberEvent): boolean;
@@ -143,6 +145,8 @@ class Scope implements FocusScope {
   focusKey: string | null = null;
   // The ring reconcile painted, so a ring anyone else left in the root shows.
   painted: Element | null = null;
+  // Whether `painted` is the pointer's pick lit while another scope owns the keys.
+  hoverLit = false;
   // The key the last reconcile settled on, so a clip of unchanged focus shows.
   settledKey: string | null = null;
   // A focus request other than the pointer's, which may reveal its key.
@@ -188,14 +192,13 @@ class Scope implements FocusScope {
   // Off the keys, as under an open bar menu, the pointer's pick lights only
   // while the pointer rests on it, and only it; FocusRing parks it once the
   // pointer goes.
-  private lightHovered(): boolean {
+  lightHovered(): boolean {
     if (!this.logical || Focus.owner() === this) return false;
     const root = this.root();
     const el = root && !this.concealed && this.focusKey !== null
       ? within(root, this.element(this.focusKey)) : null;
     if (!root || !el || !isHovered(el)) {
-      if (this.painted) setRing(this.painted, false);
-      this.painted = null;
+      this.unlight();
       return false;
     }
     // An owner nested in this root keeps its ring.
@@ -206,8 +209,16 @@ class Scope implements FocusScope {
     }
     setRing(el, true);
     this.painted = el;
+    this.hoverLit = true;
     FocusRing.sync();
     return true;
+  }
+
+  // Drop the pointer's pick lit off the keys; the pointer's next use hovers afresh.
+  unlight(): void {
+    if (this.painted) setRing(this.painted, false);
+    this.painted = null;
+    this.hoverLit = false;
   }
 
   track(key: string | null, show = false): void {
@@ -251,14 +262,12 @@ class Scope implements FocusScope {
 
   dispose(): void {
     Focus.pop(this);
-    layers = layers.filter((layer) => layer.scope !== this);
     if (registry.get(this.id) === this) registry.delete(this.id);
   }
 }
 
 const registry = new Map<string, Scope>();
 let stack: Scope[] = [];
-let layers: { scope: Scope; active: () => boolean }[] = [];
 let base: (() => FocusScope | null) | null = null;
 let scheduled = false;
 let listening = false;
@@ -268,6 +277,9 @@ let listening = false;
 let pendingHover = false;
 let pendingOther = false;
 let lastOwner: string | null = null;
+// Rings a morph kept against its template; the next pass drops any whose
+// scope no longer paints them, as the template would have.
+let held: Element[] = [];
 // Where the pointer last rested (client coordinates), from KeyHandler.
 let pointerAt: { x: number; y: number } | null = null;
 const pointerListeners = new Set<(x: number, y: number) => void>();
@@ -285,7 +297,48 @@ function within(root: HTMLElement, el: HTMLElement | null): HTMLElement | null {
   return el && root.contains(el) ? el : null;
 }
 
+function apart(a: Element, b: Element): boolean {
+  return !a.contains(b) && !b.contains(a);
+}
+
+// Whether a morph of `root` could change what a pass paints: a pass that
+// finds the owner's ring in place, outside the morph, with no ring shown
+// there (a template draws one shown) and no pointer's pick lit in it, would
+// change nothing. A parked ring off the keys stays parked.
+function touches(root: HTMLElement, owner: Scope): boolean {
+  const ownerRoot = owner.root();
+  const painted = owner.painted;
+  if (scheduled || !owner.logical || owner.concealed || !ownerRoot || !painted) return true;
+  if (!ownerRoot.contains(painted) || !hasRing(painted)) return true;
+  if (!document.documentElement.contains(root) || !document.documentElement.contains(ownerRoot)) return true;
+  if (!apart(root, ownerRoot)) return true;
+  if (ringsIn(root).some((el) => ringShown(el) || Focus.paints(el))) return true;
+  for (const scope of Array.from(registry.values())) {
+    const lit = scope.hoverLit ? scope.root() : null;
+    if (lit && !apart(root, lit)) return true;
+  }
+  return false;
+}
+
 function run(): void {
+  paint();
+  const kept = held;
+  held = [];
+  for (const el of kept) if (!Focus.paints(el)) setRing(el, false);
+  // A re-render drops the class of a pick the pointer lit off the keys. Once
+  // the keys take over it stays dark, so it is dropped rather than relit for
+  // FocusRing to park again on every pass.
+  const owner = Focus.owner();
+  const keys = InputMode.current === 'keys';
+  for (const scope of Array.from(registry.values())) {
+    if (scope === owner || !scope.hoverLit) continue;
+    if (keys) scope.unlight();
+    else scope.lightHovered();
+  }
+  FocusRing.sync();
+}
+
+function paint(): void {
   const hovered = pendingHover;
   const other = pendingOther;
   pendingHover = pendingOther = false;
@@ -300,8 +353,8 @@ function run(): void {
   if (owner.concealed) {
     for (const other of ringsIn(root)) setRing(other, false);
     owner.painted = null;
+    owner.hoverLit = false;
     root.removeAttribute(UNRESOLVED_ATTR);
-    FocusRing.sync();
     return;
   }
 
@@ -353,7 +406,7 @@ function run(): void {
   if (stray) repaired('two_rings', owner);
   if (el && !hasRing(el)) setRing(el, true);
   owner.painted = el;
-  FocusRing.sync();
+  owner.hoverLit = false;
 }
 
 function topmost(...skip: Scope[]): Scope | null {
@@ -361,10 +414,6 @@ function topmost(...skip: Scope[]): Scope | null {
   for (let i = stack.length - 1; i >= 0; i--) {
     const s = stack[i];
     if (skip.indexOf(s) < 0 && s.live && (!best || s.tier > best.tier)) best = s;
-  }
-  for (const layer of layers) {
-    const s = layer.scope;
-    if (skip.indexOf(s) < 0 && (!best || s.tier > best.tier) && layer.active() && s.live) best = s;
   }
   return best;
 }
@@ -415,13 +464,23 @@ function onHoverInput(): void {
 }
 
 // A pushed modal keeps the pointer's hover outside it from reaching the
-// surfaces below, so nothing behind it moves focus or lights up. Installed
-// before FocusRing, so stopping it here also keeps FocusRing's hover mark off.
+// surfaces below, so nothing behind it moves focus or lights up. A hover
+// that passes marks the ring's hover target before any component sees it.
 function onHoverGate(e: Event): void {
+  if (!(e.target instanceof Element)) return;
   const owner = Focus.owner() as Scope | null;
-  if (!owner?.modal || stack.indexOf(owner) < 0) return;
-  const root = owner.root();
-  if (root && e.target instanceof Node && !root.contains(e.target)) e.stopImmediatePropagation();
+  if (owner?.modal && stack.indexOf(owner) >= 0) {
+    const root = owner.root();
+    if (root && !root.contains(e.target)) {
+      e.stopImmediatePropagation();
+      return;
+    }
+  }
+  FocusRing.hover(e.target);
+}
+
+function onUnhover(e: Event): void {
+  if (e.target instanceof Element) FocusRing.unhover(e.target);
 }
 
 function onLeave(e: MouseEvent): void {
@@ -462,16 +521,8 @@ export const Focus = {
     stack = stack.filter((entry) => entry !== s);
     if (s.painted) setRing(s.painted, false);
     s.painted = null;
+    s.hoverLit = false;
     if (stack.length !== before) Focus.reconcile();
-  },
-
-  /**
-   * A scope that owns the keys while `active()` holds, below pushed scopes of
-   * its tier and below the layers registered before it. For components that
-   * do not push and pop themselves yet.
-   */
-  layer(scope: FocusScope, active: () => boolean): void {
-    layers.push({ scope: scope as Scope, active });
   },
 
   /** The scope that owns the keys when nothing above it does: the shown view. */
@@ -481,8 +532,9 @@ export const Focus = {
 
   owner(): FocusScope | null {
     let { owner, best } = resolveOwner();
-    // A layer or a `when` can change the owner without a push, a pop, or an
-    // input: whoever asks first (FocusRing.sync) triggers the pass.
+    // A `when` or the shown view can change the owner without a push, a pop,
+    // or an input: whoever asks first (a key, a morph, FocusRing.sync)
+    // triggers the pass.
     const id = owner ? owner.id : null;
     if (id !== lastOwner) {
       const released = lastOwner !== null ? registry.get(lastOwner) : undefined;
@@ -565,12 +617,27 @@ export const Focus = {
     run();
   },
 
-  /** Note a morph() into `parent`, which may have replaced the owner's ring. */
-  afterMorph(parent: Element): void {
-    const owner = Focus.owner();
-    if (!owner?.logical) return;
-    const root = owner.root();
-    if (root && (root.contains(parent) || parent.contains(root))) Focus.reconcile();
+  /** Whether `el` wears the ring the owner painted, or the pointer's pick lit off the keys. */
+  paints(el: Element): boolean {
+    // The owner as it resolves now: a morph may run before anyone settles a new one.
+    const owner = resolveOwner().owner;
+    for (const scope of Array.from(registry.values())) {
+      if (scope.painted === el && (scope === owner || scope.hoverLit)) return true;
+    }
+    return false;
+  },
+
+  /** Note a morph(): the template may have replaced the owner's ring or drawn one to gate. */
+  afterMorph(root?: HTMLElement, kept: Element[] = []): void {
+    if (kept.length) {
+      held = held.concat(kept);
+      Focus.reconcile();
+      return;
+    }
+    const before = lastOwner;
+    const owner = Focus.owner() as Scope | null;
+    if (root && owner && lastOwner === before && !touches(root, owner)) return;
+    Focus.reconcile();
   },
 
   /** Reconcile after the pointer inputs that can move focus; keys come from the host. */
@@ -578,6 +645,7 @@ export const Focus = {
     if (listening) return;
     listening = true;
     document.addEventListener('nav:hover', onHoverGate, true);
+    document.addEventListener('nav:unhover', onUnhover, true);
     document.addEventListener('nav:hover', onHoverInput);
     document.addEventListener('click', onInput);
     document.addEventListener('nav:wheel', onWheel);
@@ -587,6 +655,7 @@ export const Focus = {
   uninstall(): void {
     if (listening) {
       document.removeEventListener('nav:hover', onHoverGate, true);
+      document.removeEventListener('nav:unhover', onUnhover, true);
       document.removeEventListener('nav:hover', onHoverInput);
       document.removeEventListener('click', onInput);
       document.removeEventListener('nav:wheel', onWheel);
@@ -595,11 +664,11 @@ export const Focus = {
     listening = false;
     for (const scope of Array.from(registry.values())) scope.dispose();
     stack = [];
-    layers = [];
     base = null;
     scheduled = false;
     pendingHover = pendingOther = false;
     lastOwner = null;
+    held = [];
     pointerAt = null;
     cancelSettle();
   },

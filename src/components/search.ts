@@ -1,5 +1,6 @@
 import type { Action, CatchupInfo, Channel, PlaylistEntry, Programme, VodItem, SeriesItem } from '../types';
 import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
+import { Focus, type FocusScope } from '../navigation/focus-scope';
 import { html, raw } from '../utils/dom';
 import { channelLockBadge, seriesLockBadge, vodLockBadge } from './parental-badge';
 import { morph } from '../utils/morph';
@@ -144,6 +145,7 @@ function sameCatalogSource(left: SearchCachedNames | null, right: SearchCachedNa
 // keys.
 export class Search {
   private nav: SpatialNav;
+  readonly focusScope: FocusScope;
   private account: PlaylistEntry | null = null;
   private query = '';
   private allVod: VodItem[] = [];
@@ -211,7 +213,14 @@ export class Search {
   private readonly scrollGuard = new VirtualScrollGuard();
 
   constructor(private container: HTMLElement, private handlers: SearchHandlers) {
-    this.nav = new SpatialNav(container);
+    this.focusScope = Focus.register({
+      id: 'view.search',
+      root: container,
+      leaveFor: { up: 'tabbar' },
+      defaultKey: () => this.navKey(),
+      resolve: (key) => this.resolveKey(key),
+    });
+    this.nav = new SpatialNav(container, undefined, { scope: this.focusScope });
     // Activate the result under the pointer by coordinate hit-test, so it lands
     // here regardless of D-pad focus; the container is marked `data-self-activate`
     // so the global click handler skips this subtree and doesn't double-fire.
@@ -224,8 +233,22 @@ export class Search {
   private onPointerRelease(x: number, y: number): void {
     const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-focusable]');
     if (!el || !this.container.contains(el)) return;
-    this.nav.focus(el);
+    this.nav.focus(el, 'pointer');
     this.onSelect();
+  }
+
+  private navKey(): string | null {
+    const el = this.nav.focused;
+    return el && this.container.contains(el) ? el.dataset.key ?? null : null;
+  }
+
+  // A channel can show as both a tile and a row: the ring goes on the one
+  // the nav holds.
+  private resolveKey(key: string): HTMLElement | null {
+    const el = this.nav.focused;
+    if (el && this.container.contains(el) && el.dataset.key === key) return el;
+    return Array.from(this.container.querySelectorAll<HTMLElement>('[data-focusable][data-key]'))
+      .find((item) => item.dataset.key === key) ?? null;
   }
 
   async open(account: PlaylistEntry | null, query = ''): Promise<void> {
@@ -427,7 +450,7 @@ export class Search {
       this.resumePrompt.handleAction(action);
       return;
     }
-    if (isFocusMove(action) && this.nav.revealHidden()) return;
+    if (isFocusMove(action) && this.nav.showConcealed()) return;
     if (this.moveVirtualFocus(action)) return;
     switch (action) {
       case 'up':
@@ -641,7 +664,8 @@ export class Search {
 
   private onSelect(): void {
     const el = this.nav.focused;
-    if (!el) return;
+    // A result a re-render removed opens nothing; the next arrow recovers focus.
+    if (!el || !this.container.contains(el)) return;
     if (el.classList.contains('search-input')) {
       const input = el as HTMLInputElement;
       input.focus();
@@ -1502,7 +1526,6 @@ export class Search {
       </div>
     `);
     this.restoreVirtualOffsets();
-    this.nav.clearDetachedFocus();
   }
 
   private createVirtualizer(
@@ -1573,7 +1596,9 @@ export class Search {
 
   private moveVirtualFocus(action: Action): boolean {
     const focused = this.nav.focused;
-    const cell = focused?.closest<HTMLElement>('[data-search-section]');
+    // Focus a re-render removed recovers through the nav first.
+    if (!focused || !this.container.contains(focused)) return false;
+    const cell = focused.closest<HTMLElement>('[data-search-section]');
     const key = cell?.dataset.searchSection;
     const rawIndex = cell?.dataset.searchIndex;
     if (!key || rawIndex === undefined) return false;

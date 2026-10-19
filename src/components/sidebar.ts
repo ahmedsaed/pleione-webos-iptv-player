@@ -200,6 +200,9 @@ export class Sidebar {
 
     if (this.groupsExpanded && !overSidebar && clientX > this.pointerDismissX) {
       this.collapseGroups(true);
+      // The hovered row may have been re-rendered away, so no mouseout
+      // reached the panel to conceal its ring.
+      this.focusScope.conceal();
       this.pointerExitPending = true;
       this.pointerExitTimer = setTimeout(() => {
         this.pointerExitTimer = null;
