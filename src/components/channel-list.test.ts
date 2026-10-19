@@ -422,6 +422,25 @@ describe('ChannelList.render', () => {
       expect(main.querySelector('[data-list-position="0"]')).toBeNull();
       expect(ringedEl(container, '.focused')).toBeNull();
     });
+
+    it('renders at where a smooth scroll is by the next frame, not where it fired', () => {
+      const frames: FrameRequestCallback[] = [];
+      const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+        frames.push(cb);
+        return frames.length;
+      });
+      try {
+        main.scrollTop = 1000;
+        main.dispatchEvent(new Event('scroll'));
+        // The smooth scroll moves on before the frame runs.
+        main.scrollTop = 3000;
+        frames.splice(0).forEach((cb) => { cb(0); });
+
+        expect(main.scrollTop).toBe(3000);
+      } finally {
+        raf.mockRestore();
+      }
+    });
   });
 
   it('renders a bounded window for 50,000 channels', () => {

@@ -467,6 +467,67 @@ test('a stationary pointer over the channel list does not trap D-pad Down', asyn
   expect(events.some((text) => text.includes('event=nav.hover.resumed'))).toBe(true);
 });
 
+test('rapid D-pad under full animation moves one row per key press', async ({ page }) => {
+  const events: string[] = [];
+  page.on('console', (msg) => events.push(msg.text()));
+  await page.addInitScript(() => localStorage.setItem('iptv_animation_mode', JSON.stringify('full')));
+  await routePlaylist(page, longPlaylist(900));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await expect(page.locator('html')).toHaveAttribute('data-animation', 'full');
+  await focusFirstChannelRow(page);
+  const main = page.locator('#view-channels .channel-main');
+  for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowDown');
+  await expect(main.locator('[data-list-position="10"]')).toHaveClass(/\bfocused\b/);
+
+  // Each press lands while the previous smooth scroll is still running.
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(250);
+  }
+  await expect(main.locator('[data-list-position="22"]')).toHaveClass(/\bfocused\b/);
+  for (let i = 0; i < 8; i++) {
+    await page.keyboard.press('ArrowUp');
+    await page.waitForTimeout(250);
+  }
+  await expect(main.locator('[data-list-position="14"]')).toHaveClass(/\bfocused\b/);
+  expect(events.filter((text) => text.includes('event=nav.focus.repaired'))).toEqual([]);
+});
+
+test('Up at the top of the sidebar goes to the tab bar, not the scrolled list', async ({ page }) => {
+  await routePlaylist(page, longPlaylist(300));
+  await seedPlaylist(page);
+  await page.goto('/');
+  await focusFirstChannelRow(page);
+  for (let i = 0; i < 40; i++) await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#view-channels .channel-main [data-list-position="40"]'))
+    .toHaveClass(/\bfocused\b/);
+
+  await page.keyboard.press('ArrowLeft');
+  const group = page.locator('#view-channels .sidebar [data-group-position].focused');
+  await expect(group).toHaveCount(1);
+  for (let i = 0; i < 10 && !(await page.locator('[data-edit-channels].focused').count()); i++) {
+    await page.keyboard.press('ArrowUp');
+  }
+  await expect(page.locator('[data-edit-channels]')).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('.tab-bar-item[data-section="live"].focused')).toHaveCount(1);
+  await expect(page.locator('#view-channels .focused')).toHaveCount(0);
+
+  // Edit mode has no edit button: the top group hands off the same way.
+  await page.keyboard.press('ArrowDown');
+  await enterEditMode(page);
+  const sidebarRing = page.locator('#view-channels .sidebar .focused');
+  if (!(await sidebarRing.count())) await page.keyboard.press('ArrowLeft');
+  for (let i = 0; i < 10 && (await sidebarRing.getAttribute('data-group-position')) !== '0'; i++) {
+    await page.keyboard.press('ArrowUp');
+  }
+  await expect(sidebarRing).toHaveAttribute('data-group-position', '0');
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('.tab-bar-item[data-section="live"].focused')).toHaveCount(1);
+  await expect(page.locator('#view-channels .focused')).toHaveCount(0);
+});
+
 // The list moved focus scrolled out of view to a row of `list`.
 function repairedIn(events: string[], list: 'channel' | 'group', target: 'nearest' | 'grabbed'): boolean {
   const fields = [

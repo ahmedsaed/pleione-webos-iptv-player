@@ -236,6 +236,8 @@ export class ChannelList {
         if (this.groupScrollFrame !== null) return;
         this.groupScrollFrame = requestAnimationFrame(() => {
           this.groupScrollFrame = null;
+          // A smooth scroll keeps moving after the event; render at where it is now.
+          this.groupVirtualizer.setScrollOffset(target.scrollTop);
           this.render(false);
         });
         return;
@@ -249,6 +251,7 @@ export class ChannelList {
       if (this.scrollFrame !== null) return;
       this.scrollFrame = requestAnimationFrame(() => {
         this.scrollFrame = null;
+        this.channelVirtualizer.setScrollOffset(target.scrollTop);
         this.render(false);
       });
     }, true);
@@ -627,6 +630,13 @@ export class ChannelList {
       case 'up':
       case 'down':
         if (this.moveVirtualFocus(action === 'up' ? -1 : 1)) return true;
+        // Above the sidebar's top sits the tab bar, never the channel list.
+        if (action === 'up' && this.nav.focused?.closest('.sidebar')) {
+          const edit = this.container.querySelector<HTMLElement>('[data-edit-channels]');
+          if (!edit || edit === this.nav.focused) return false;
+          this.nav.focus(edit);
+          return true;
+        }
         return this.nav.move(action);
       case 'left':
         return this.nav.move(action);

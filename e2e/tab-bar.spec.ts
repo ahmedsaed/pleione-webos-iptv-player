@@ -617,14 +617,15 @@ test.describe('the Guide channel column under the pointer', () => {
     await expect(page.locator('.tab-bar-item.focused')).toHaveCount(0);
     await expect(channels.first()).toHaveClass(/\bfocused\b/);
 
-    // Right moves the Guide's focus off its channel column instead of
-    // switching the bar to the next section.
+    // Right stays in the Guide instead of switching the bar to the next
+    // section; with no programmes to move to, the ring stays on the channel.
     await page.keyboard.press('ArrowRight');
     await expect(page.locator('#view-epg')).toBeVisible();
     await expect(page.locator('.tab-bar-item[data-section="epg"].active')).toHaveCount(1);
     await expect(page.locator('.tab-bar .focused')).toHaveCount(0);
     await expect(page.locator('#view-epg')).toHaveAttribute('data-ring-owner', '');
-    await expect(page.locator('#view-epg .epg-channel-item.focused')).toHaveCount(0);
+    await expect(page.locator('#epg-programmes .epg-no-data')).toBeVisible();
+    await expect(channels.first()).toHaveClass(/\bfocused\b/);
   });
 });
 

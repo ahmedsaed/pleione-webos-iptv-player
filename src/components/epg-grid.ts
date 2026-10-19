@@ -1339,7 +1339,7 @@ export class EpgGrid {
             this.focusProg = 0;
             this.render();
           }
-        } else if (this.focusCol === 'dates' || this.focusCol === 'legend') {
+        } else if ((this.focusCol === 'dates' || this.focusCol === 'legend') && progCount) {
           this.focusCol = 'programmes';
           this.focusProg = 0;
           this.render();
@@ -1392,6 +1392,7 @@ export class EpgGrid {
             this.render();
           }
         } else if (this.focusCol === 'channels') {
+          if (!progCount) break;
           this.focusCol = 'programmes';
           this.focusProg = 0;
           this.render();
@@ -1449,6 +1450,7 @@ export class EpgGrid {
         } else if (this.focusCol === 'programmes') {
           void this.activateFocusedProgramme();
         } else if (this.focusCol === 'dates') {
+          if (!progCount) break;
           this.focusCol = 'programmes';
           this.focusProg = 0;
           this.render();
