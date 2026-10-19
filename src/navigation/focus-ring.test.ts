@@ -273,6 +273,18 @@ describe('FocusRing deferral', () => {
     expect(row.className).toBe('item focused');
   });
 
+  it('consumes only the keys that act on the focused item', () => {
+    for (const action of ['up', 'select', 'channel_down', 'green'] as const) {
+      FocusRing.defer('channels');
+      expect(FocusRing.revealForKey(action)).toBe(true);
+    }
+    for (const action of ['back', 'number', 'play'] as const) {
+      FocusRing.defer('channels');
+      expect(FocusRing.revealForKey(action)).toBe(false);
+      expect(FocusRing.deferred).toBe(false);
+    }
+  });
+
   it('lets the key act when the focused element is gone', () => {
     FocusRing.defer('channels');
     row.remove();

@@ -317,3 +317,43 @@ test('a channel-list click that dismisses a pointer-opened menu hands the remote
   await expect(page.locator('.account-menu')).toHaveCount(0);
   await expect(page.locator('#view-channels .focused')).not.toHaveCount(0);
 });
+
+test('the pointer moves the account menu ring, and Back from a remote-opened menu returns to the avatar', async ({ page }) => {
+  await seedTwoAccounts(page);
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  await openAccountMenu(page);
+  const bravo = page.locator('.account-menu-item[data-account-id="a2"]');
+  const box = (await bravo.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2 + 2, box.y + box.height / 2);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(bravo).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+
+  // The content under the open menu lights where the pointer rests, but the
+  // keys stay in the menu.
+  const row = page.locator('#view-channels .channel-main [data-channel-index]').nth(1);
+  const r = (await row.boundingBox())!;
+  await page.mouse.move(r.x + r.width / 2 + 2, r.y + r.height / 2);
+  await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2);
+  await expect(row).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('#view-channels .focused')).toHaveCount(1);
+  await expect(page.locator('[data-ring-owner]')).toHaveAttribute('data-focus-scope', 'tabbar.accounts');
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('.account-menu-item[data-account-id="a1"]')).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.account-menu')).toHaveCount(0);
+  await expect(page.locator('.account-avatar')).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.tab-bar .focused')).toHaveCount(0);
+  // Back resumes the list on the row the pointer rested on.
+  await expect(row).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('#view-channels .focused')).toHaveCount(1);
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('#view-channels .channel-main [data-channel-index]').first()).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+});

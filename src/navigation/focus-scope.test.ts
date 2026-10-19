@@ -325,6 +325,46 @@ describe('Focus owner stack', () => {
     expect(without.handle('select')).toBe(false);
   });
 
+  it('hands a key off the edge to the scope named for that side', () => {
+    list(prompt, ['t1', 't2']);
+    let barShown = true;
+    const bar = logical('bar', prompt, { tier: Tier.bar, when: () => barShown, enterTo: 'default' });
+    const a = Focus.register({ id: 'view.a', root: view, leaveFor: { up: 'bar', down: null } });
+    bar.focus('t2', 'key');
+
+    expect(a.leave('up')).toBe(true);
+    expect(bar.focusKey).toBe('t1');
+    // A blocked side keeps the key without moving it; an unnamed one is free.
+    expect(a.leave('down')).toBe(true);
+    expect(a.leave('left')).toBe(false);
+    barShown = false;
+    expect(a.leave('up')).toBe(false);
+  });
+
+  it('lets the scope left for take the keys its own way', () => {
+    const onEnter = vi.fn();
+    Focus.register({ id: 'bar', root: prompt, onEnter });
+    const a = Focus.register({ id: 'view.a', root: view, leaveFor: { up: 'bar', left: 'missing' } });
+    expect(a.leave('up')).toBe(true);
+    expect(onEnter).toHaveBeenCalledWith('key');
+    expect(a.leave('left')).toBe(false);
+  });
+
+  it('names the scope that would own the keys without a given one, even one above it', () => {
+    const base = Focus.register({ id: 'view.a', root: view });
+    const bar = Focus.register({ id: 'bar', root: prompt, tier: Tier.bar });
+    const menu = Focus.register({ id: 'menu', root: prompt, restrict: 'self-only' });
+    Focus.setBase(() => base);
+    Focus.push(bar);
+    expect(Focus.ownerWithout(bar)).toBe(base);
+    Focus.push(menu);
+    expect(Focus.ownerWithout(menu)).toBe(bar);
+    expect(Focus.ownerWithout(bar)).toBe(menu);
+    expect(Focus.ownerWithout(menu, bar)).toBe(base);
+    expect(Focus.owner()).toBe(menu);
+    expect(Focus.base()).toBe(base);
+  });
+
   it('rejects a second scope with the same id', () => {
     Focus.register({ id: 'a', root: view });
     expect(() => Focus.register({ id: 'a', root: prompt })).toThrow(/already registered/);

@@ -51,7 +51,7 @@ import { truncate } from './utils/text';
 import { $, show, hide } from './utils/dom';
 import { createLogger, installGlobalErrorHandlers, logEnvironment } from './utils/logger';
 import { FocusRing } from './navigation/focus-ring';
-import { Focus, Tier, type FocusScope } from './navigation/focus-scope';
+import { Focus, type FocusScope } from './navigation/focus-scope';
 import type {
   Action,
   NumberEvent,
@@ -64,13 +64,6 @@ import type {
 import { getLocale, initLocale, resolveLocale, setLocale, t, tp } from './i18n';
 
 const log = createLogger('App');
-
-// Keys that act on the focused item, so they only show a deferred focus. Back,
-// number entry, and the media keys still act.
-const REVEAL_ACTIONS: ReadonlySet<Action> = new Set<Action>([
-  'up', 'down', 'left', 'right', 'select', 'channel_up', 'channel_down',
-  'red', 'green', 'yellow', 'blue',
-]);
 
 type ViewName = 'channels' | 'player' | 'epg' | 'settings' | 'parental-controls' | 'reminders'
   | 'loading' | 'movies' | 'series' | 'search';
@@ -199,7 +192,7 @@ class App {
     this.epgGrid = new EpgGrid(
       this.views.epg,
       (idx, catchup, scope) => this.playChannel(idx, catchup, scope),
-      () => this.tabBar.focus(),
+      () => this.leaveUp(),
       () => this.openReminderManager('epg'),
     );
     this.reminderManager = new ReminderManager(this.views.reminders, () => {
@@ -278,7 +271,7 @@ class App {
     );
 
     this.movies = new Movies(this.views.movies, {
-      onRevealTabBar: () => this.tabBar.focus(),
+      onRevealTabBar: () => this.leaveUp(),
       onBack: () => this.goLive(),
       onPlayVod: (req) => {
         this.player.playVod({
@@ -291,7 +284,7 @@ class App {
       },
     });
     this.series = new Series(this.views.series, {
-      onRevealTabBar: () => this.tabBar.focus(),
+      onRevealTabBar: () => this.leaveUp(),
       onBack: () => this.goLive(),
       onPlayVod: (req) => {
         this.player.playVod({
@@ -304,7 +297,7 @@ class App {
       },
     });
     this.search = new Search(this.views.search, {
-      onRevealTabBar: () => this.tabBar.focus(),
+      onRevealTabBar: () => this.leaveUp(),
       onReleaseTabBar: () => this.tabBar.blur(),
       // Step back out to the search box, which a second Back closes.
       onBack: () => {
@@ -362,7 +355,7 @@ class App {
       onSearchClose: () => this.handleSearchClose(),
       onSelectAccount: (id) => this.selectXtreamAccount(id),
       onAccountMenuOpen: () => this.historyDropdown.close('account-menu'),
-      onAccountMenuClose: (reason) => {
+      onAccountMenuClose: (reason, hit) => {
         // A click into the content dismissed the menu; that click's select
         // must reach the content, so don't pull focus back into the box.
         if (reason === 'outside' || !this.tabBar.searchOpen || !this.tabBar.shown) {
@@ -370,13 +363,14 @@ class App {
           return;
         }
         this.tabBar.focus();
+        // The scrim's own click handler dismisses search next.
+        if (hit && this.historyDropdown.dismissedBy(hit)) return;
+        // So does a tab's or the magnifier's: the switcher's capture-phase
+        // listener closes the menu before the bar's handler acts on it.
+        if (hit?.closest('.tab-bar-item')) return;
         if (!this.lastSearchQuery.trim()) this.openHistoryDropdown();
       },
       onLockNow: () => ParentalControlService.lock('lock-now'),
-      contentHas: (node) => {
-        const current = this.viewStack[this.viewStack.length - 1];
-        return Focus.owner()?.id === 'tabbar' && this.views[current].contains(node);
-      },
     });
     this.tabBar.init();
 
@@ -1114,6 +1108,8 @@ class App {
         this.player.stop();
         this.showView('channels');
         this.channelList.render();
+        // A switch from the bar lands on the entry point the bar's Down resumes.
+        if (this.tabBar.focused) this.channelList.highlightEntryPoint();
       }
       return;
     }
@@ -1312,13 +1308,13 @@ class App {
     this.parentalPinPrompt.showVerify(t('settings.parentalControls'), open);
   }
 
-  // Down/Select from the bar, or a click on a tab: switch to the section and
-  // drop focus into content.
-  private enterSection(section: Section, via: 'key' | 'pointer' | 'resume'): void {
+  // Down/Select/Back from the bar, or a click on a tab: switch to the section
+  // and drop focus into content.
+  private enterSection(section: Section, via: 'key' | 'pointer'): void {
     this.tabBar.setActive(section);
-    // Back into the content Up left: re-opening it would drop unsaved edits
-    // and the position the ring comes back to.
-    if (via === 'resume' && sectionForView(this.viewStack[this.viewStack.length - 1]) === section) {
+    // Back into the shown section: re-opening it would drop unsaved edits and
+    // the position the ring comes back to.
+    if (via === 'key' && sectionForView(this.viewStack[this.viewStack.length - 1]) === section) {
       if (section === 'settings') {
         this.settings.resumeFocus();
         return;
@@ -1329,7 +1325,7 @@ class App {
         (section === 'movies' ? this.movies : this.series).resumeFocus();
         return;
       }
-      // A legacy layer keeps its own DOM focus and has no key to resume.
+      // A view scope without keys of its own (a plain `view.*`) has nothing to resume.
       const owner = Focus.owner();
       if (owner?.logical) owner.enter('resume');
       return;
@@ -1543,28 +1539,11 @@ class App {
   // The one answer to "who gets the next key": handleKey routes by the owner,
   // the key diagnostic timeline names it, and FocusRing lets only its root
   // show a ring. A "button does nothing" report is usually an unexpected
-  // owner. Prompts, the sidebar, and the player's overlays push themselves
-  // while shown (the player view still routes the menu's and the subtitle
-  // search's keys); the layers here win by tier, then in the order
-  // registered, above the shown view.
+  // owner. Prompts, the tab bar, the sidebar, and the player's overlays push
+  // themselves while shown (the player view still routes the menu's and the
+  // subtitle search's keys); below them the shown view owns the keys.
   private initFocusScopes(): void {
     const current = () => this.viewStack[this.viewStack.length - 1];
-    let tier: number = Tier.bar;
-    const layer = (
-      id: string,
-      root: () => HTMLElement | null,
-      active: () => boolean,
-      restrict: 'self-only' | 'self-first',
-      onAction?: (action: Action, event?: NumberEvent) => void,
-    ) => Focus.layer(Focus.register({ id, root, restrict, onAction, tier }), active);
-
-    layer('tabbar', () => this.tabBar.ringRoot, () => this.tabBar.focused, 'self-first',
-      (action) => this.tabBar.handleAction(action));
-    tier = Tier.overlay;
-    // Recent searches drop over the current view and take its input.
-    layer('search.history', () => this.historyDropdown.ringRoot,
-      () => this.historyDropdown.isOpen, 'self-only', (action) => this.historyDropdown.handleAction(action));
-
     const views = new Map<ViewName, FocusScope>();
     for (const name of Object.keys(this.views) as ViewName[]) {
       views.set(name, name === 'epg' ? this.epgGrid.focusScope
@@ -1573,10 +1552,15 @@ class App {
             : name === 'parental-controls' ? this.parentalControls.focusScope
               : name === 'movies' ? this.movies.focusScope
                 : name === 'series' ? this.series.focusScope
-                  : Focus.register({ id: `view.${name}`, root: this.views[name] }));
+                  : Focus.register({ id: `view.${name}`, root: this.views[name], leaveFor: { up: 'tabbar' } }));
     }
     Focus.setBase(() => views.get(current()) ?? null);
     Focus.install();
+  }
+
+  // Up off a view's top edge: the keys go wherever the owner hands them.
+  private leaveUp(): void {
+    Focus.owner()?.leave('up');
   }
 
   private handleKey(action: Action, event?: NumberEvent): void {
@@ -1588,13 +1572,15 @@ class App {
       `number=${event ? String(event.number) : 'none'}`);
 
     // The digit OSD is body-mounted and outlives every view, so an abandoned
-    // entry must be cleared before a modal gets a chance to swallow this.
+    // or committed entry must be cleared before a modal gets a chance to
+    // swallow this.
     if (action === 'number_cancel') {
       hideNumberEntry();
       return;
     }
+    if (action === 'number') hideNumberEntry();
 
-    // Layers above the view take every key; their order lives in initFocusScopes().
+    // The scope that owns the keys (by tier, then latest push) takes them first.
     if (owner?.handle(action, event)) return;
 
     // Direct channel entry: echo the digits while KeyHandler buffers them, in
@@ -1605,7 +1591,6 @@ class App {
       }
       return;
     }
-    if (action === 'number') hideNumberEntry();
 
     // The manager owns its color keys (Lock all, Clear exceptions).
     if (currentView === 'parental-controls') {
@@ -1695,14 +1680,14 @@ class App {
 
     // The first key into a section the pointer entered only shows its focus:
     // it must not act on an item nobody has seen yet.
-    if (FocusRing.reveal('key', action, REVEAL_ACTIONS.has(action))) return;
+    if (FocusRing.revealForKey(action)) return;
 
     // Delegate to active view
     switch (currentView) {
       case 'channels': {
         if (this.livePreview.handleAction(action)) break;
         const moved = this.channelList.handleAction(action, event);
-        if (action === 'up' && !moved && this.tabBar.shown) this.tabBar.focus();
+        if (action === 'up' && !moved) this.leaveUp();
         break;
       }
       case 'movies':
@@ -1762,8 +1747,8 @@ class App {
         if (action === 'back') {
           this.channelList.render();
           this.showView('channels');
-        } else if (!this.settings.handleAction(action) && action === 'up' && this.tabBar.shown) {
-          this.tabBar.focus();
+        } else if (!this.settings.handleAction(action) && action === 'up') {
+          this.leaveUp();
         }
         break;
       case 'reminders':

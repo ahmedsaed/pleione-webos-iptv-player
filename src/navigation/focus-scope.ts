@@ -16,6 +16,7 @@ const log = createLogger('Focus');
 
 export type Via = 'key' | 'pointer' | 'resume' | 'back';
 export type EnterTo = 'last' | 'default';
+export type LeaveDir = 'up' | 'down' | 'left' | 'right';
 
 // Who wins when several scopes want the keys: the higher tier, then within a
 // tier the latest push, then layers in registration order.
@@ -42,6 +43,12 @@ export interface ScopeSpec {
   onAction?: (action: Action, event?: NumberEvent) => void;
   defaultKey?: () => string | null;
   enterTo?: EnterTo | ((via: Via) => EnterTo);
+  // Where a key off this scope's edge goes: another scope's id, or null to
+  // keep it here.
+  leaveFor?: Partial<Record<LeaveDir, string | null>>;
+  // How the scope takes the keys when another leaves for it; without it,
+  // its `enterTo` rule applies.
+  onEnter?: (via: Via) => void;
   resolve?: (key: string) => HTMLElement | null;
   // A key still in the model but not rendered, such as a virtual list row
   // scrolled away: no fallback and no ring until a reveal renders it.
@@ -87,6 +94,8 @@ export interface FocusScope {
   conceal(): void;
   /** Apply the scope's `enterTo` rule. */
   enter(via: Via): void;
+  /** Hand a key off the edge to the `leaveFor` scope; false when none takes it. */
+  leave(dir: LeaveDir): boolean;
   dispose(): void;
 }
 
@@ -229,6 +238,17 @@ class Scope implements FocusScope {
     this.focus(keep ? this.focusKey : this.spec.defaultKey?.() ?? null, via);
   }
 
+  leave(dir: LeaveDir): boolean {
+    const id = this.spec.leaveFor?.[dir];
+    if (id === undefined) return false;
+    if (id === null) return true;
+    const target = registry.get(id);
+    if (!target || !target.live) return false;
+    if (target.spec.onEnter) target.spec.onEnter('key');
+    else target.enter('key');
+    return true;
+  }
+
   dispose(): void {
     Focus.pop(this);
     layers = layers.filter((layer) => layer.scope !== this);
@@ -336,6 +356,19 @@ function run(): void {
   FocusRing.sync();
 }
 
+function topmost(...skip: Scope[]): Scope | null {
+  let best: Scope | null = null;
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const s = stack[i];
+    if (skip.indexOf(s) < 0 && s.live && (!best || s.tier > best.tier)) best = s;
+  }
+  for (const layer of layers) {
+    const s = layer.scope;
+    if (skip.indexOf(s) < 0 && (!best || s.tier > best.tier) && layer.active() && s.live) best = s;
+  }
+  return best;
+}
+
 function cancelSettle(): void {
   if (settleFrame !== null) cancelAnimationFrame(settleFrame);
   settleFrame = null;
@@ -402,15 +435,7 @@ function onLeave(e: MouseEvent): void {
 }
 
 function resolveOwner(): { owner: FocusScope | null; best: Scope | null } {
-  let best: Scope | null = null;
-  for (let i = stack.length - 1; i >= 0; i--) {
-    const s = stack[i];
-    if (s.live && (!best || s.tier > best.tier)) best = s;
-  }
-  for (const layer of layers) {
-    const s = layer.scope;
-    if ((!best || s.tier > best.tier) && layer.active() && s.live) best = s;
-  }
+  const best = topmost();
   return { owner: best ?? (base ? base() : null), best };
 }
 
@@ -472,6 +497,16 @@ export const Focus = {
       else cancelSettle();
     }
     return owner;
+  },
+
+  /** The scope that would own the keys if `scopes` were gone; it may sit above them. */
+  ownerWithout(...scopes: FocusScope[]): FocusScope | null {
+    return topmost(...(scopes as Scope[])) ?? (base ? base() : null);
+  },
+
+  /** The shown view's scope, which owns the keys when nothing else does. */
+  base(): FocusScope | null {
+    return base ? base() : null;
   },
 
   /** Note where the pointer rests, in client coordinates. */

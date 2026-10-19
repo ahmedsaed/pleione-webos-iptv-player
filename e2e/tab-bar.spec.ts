@@ -660,3 +660,187 @@ test('Up to the tab bar and back keeps unsaved Settings and their position', asy
   await expect(nav.first()).toHaveClass(/\bactive\b/);
   await expect(active).toHaveAttribute('data-value', changed);
 });
+
+test('a channel number that lands while the bar owns the keys still clears its readout', async ({ page }) => {
+  await seedXtream(page);
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels .channel-main [data-channel-index]').first()).toBeVisible();
+  const committed = page.waitForEvent('console', (m) => m.text().includes('event=key.number '));
+  await page.keyboard.press('2');
+  await expect(page.locator('.number-entry')).toHaveClass(/\bvisible\b/);
+  await enterTab(page, 'search');
+  await expect(page.locator('.tab-bar-search-input')).toBeFocused();
+  await committed;
+  // Read at once: the readout's own fallback timer would hide it a moment later.
+  expect(await page.locator('.number-entry').evaluate((el) => el.classList.contains('visible'))).toBe(false);
+});
+
+test.describe('switching sections from the bar with the D-pad', () => {
+  test('Down onto Live rings its entry point, not the bar, and never two rings', async ({ page }) => {
+    await seedXtream(page);
+    await routeLiveManifest(page);
+    await page.goto('/');
+    const rows = page.locator('#view-channels .channel-main [data-channel-index]');
+    await expect(rows.first()).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await expect(rows.nth(1)).toHaveClass(/\bfocused\b/);
+
+    await enterTab(page, 'settings');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowUp');
+    await expect(page.locator('.tab-bar-item[data-section="settings"]')).toHaveClass(/\bfocused\b/);
+    for (const section of ['series', 'movies', 'epg', 'live']) {
+      await page.keyboard.press('ArrowLeft');
+      await expect(page.locator(`.tab-bar-item[data-section="${section}"]`)).toHaveClass(/\bfocused\b/);
+      await expect(page.locator('.focused:visible')).toHaveCount(1);
+    }
+    await expect(page.locator('#view-channels')).toBeVisible();
+
+    await page.keyboard.press('ArrowDown');
+    await expect(rows.first()).toHaveClass(/\bfocused\b/);
+    await expect(page.locator('.focused:visible')).toHaveCount(1);
+    await page.keyboard.press('ArrowDown');
+    await expect(rows.nth(1)).toHaveClass(/\bfocused\b/);
+  });
+
+  test('a tab click between keys leaves the content dark until the next key', async ({ page }) => {
+    await seedXtream(page);
+    await routeLiveManifest(page);
+    await page.goto('/');
+    const rows = page.locator('#view-channels .channel-main [data-channel-index]');
+    await expect(rows.first()).toBeVisible();
+    await page.keyboard.press('ArrowUp');
+    await expect(page.locator('.tab-bar-item[data-section="live"]')).toHaveClass(/\bfocused\b/);
+
+    await enterTab(page, 'settings');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    await expect(page.locator('.focused:visible')).toHaveCount(0);
+    await expect(page.locator('#view-settings')).toHaveAttribute('data-ring-owner', 'deferred');
+
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('#view-settings .settings-nav-item').first()).toHaveClass(/\bfocused\b/);
+    await expect(page.locator('.focused:visible')).toHaveCount(1);
+  });
+
+  test('Up from a Search result reaches the box, and Down from the box returns to the results', async ({ page }) => {
+    await seedXtream(page);
+    await routeLiveManifest(page);
+    await page.goto('/');
+    await expect(page.locator('#view-channels .channel-item').first()).toBeVisible();
+    await page.keyboard.press('ArrowUp');
+    for (let i = 0; i < 6 && !(await page.locator('.tab-bar-item[data-section="search"].focused').count()); i++) {
+      await page.keyboard.press('ArrowRight');
+    }
+    await page.keyboard.press('Enter');
+    const input = page.locator('.tab-bar-search-input');
+    await expect(input).toBeFocused();
+    await page.keyboard.type('Channel');
+    const result = page.locator('#view-search [data-focusable].focused');
+    await page.keyboard.press('ArrowDown');
+    await expect(result).toHaveCount(1);
+
+    await page.keyboard.press('ArrowUp');
+    await expect(input).toBeFocused();
+    await expect(page.locator('#view-search .focused')).toHaveCount(0);
+    await page.keyboard.press('ArrowDown');
+    await expect(result).toHaveCount(1);
+    await expect(page.locator('.focused:visible')).toHaveCount(1);
+  });
+});
+
+test('a hover on the Guide under its open group menu hands the bar\'s keys back without moving the grid', async ({ page }) => {
+  const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:T]/g, '').slice(0, 14) + ' +0000';
+  const now = Date.now();
+  const hour = 3_600_000;
+  const xmltv = `<?xml version="1.0" encoding="UTF-8"?><tv>
+<channel id="one"><display-name>Channel One</display-name></channel>
+<programme channel="one" start="${stamp(now - hour)}" stop="${stamp(now + hour)}"><title>Show 1</title></programme>
+<programme channel="one" start="${stamp(now + hour)}" stop="${stamp(now + 2 * hour)}"><title>Show 2</title></programme>
+<programme channel="one" start="${stamp(now + 2 * hour)}" stop="${stamp(now + 3 * hour)}"><title>Show 3</title></programme>
+</tv>`;
+  await seedXtream(page);
+  await page.route('**/xmltv.php*', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/xml', body: xmltv }));
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'epg');
+  await expect(page.locator('#view-epg')).toBeVisible();
+  const cell = page.locator('#epg-programmes [data-prog-idx="1"]');
+  await expect(cell).toBeVisible();
+
+  await page.locator('[data-epg-group-toggle]').click();
+  await expect(page.locator('.epg-group-menu')).toBeVisible();
+  await page.locator('.account-avatar').click();
+  await expect(page.locator('.account-menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.account-menu')).toHaveCount(0);
+  const owner = page.locator('[data-ring-owner]');
+  await expect(owner).toHaveAttribute('data-focus-scope', 'tabbar');
+
+  await cell.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  await expect(page.locator('.epg-group-menu')).toBeVisible();
+  await expect(owner).toHaveAttribute('data-focus-scope', 'guide.groups');
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+  await expect(page.locator('.epg-group-option.focused')).toHaveCount(1);
+  // The grid's focus stays where the menu opened from.
+  await expect(cell).not.toHaveAttribute('data-ring-hover');
+  await expect(page.locator('#epg-programmes')).not.toHaveClass(/\bpane-focused\b/);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.epg-group-menu')).toHaveCount(0);
+  await expect(page.locator('[data-epg-group-toggle]')).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+});
+
+test('a hover under the account menu stays out of the Guide while its group menu is open', async ({ page }) => {
+  const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:T]/g, '').slice(0, 14) + ' +0000';
+  const now = Date.now();
+  const hour = 3_600_000;
+  const xmltv = `<?xml version="1.0" encoding="UTF-8"?><tv>
+<channel id="one"><display-name>Channel One</display-name></channel>
+<programme channel="one" start="${stamp(now - hour)}" stop="${stamp(now + hour)}"><title>Show 1</title></programme>
+<programme channel="one" start="${stamp(now + hour)}" stop="${stamp(now + 2 * hour)}"><title>Show 2</title></programme>
+<programme channel="one" start="${stamp(now + 2 * hour)}" stop="${stamp(now + 3 * hour)}"><title>Show 3</title></programme>
+</tv>`;
+  await seedXtream(page);
+  await page.route('**/xmltv.php*', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/xml', body: xmltv }));
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'epg');
+  await expect(page.locator('#view-epg')).toBeVisible();
+  const cell = page.locator('#epg-programmes [data-prog-idx="1"]');
+  await expect(cell).toBeVisible();
+
+  await page.locator('[data-epg-group-toggle]').click();
+  await expect(page.locator('.epg-group-menu')).toBeVisible();
+  await page.locator('.account-avatar').click();
+  await expect(page.locator('.account-menu')).toBeVisible();
+  const owner = page.locator('[data-ring-owner]');
+  await expect(owner).toHaveAttribute('data-focus-scope', 'tabbar.accounts');
+
+  const box = (await cell.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2 + 2, box.y + box.height / 2);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  // The group menu below the account menu keeps the Guide dark.
+  await expect(page.locator('.account-menu')).toBeVisible();
+  await expect(owner).toHaveAttribute('data-focus-scope', 'tabbar.accounts');
+  await expect(cell).not.toHaveAttribute('data-ring-hover');
+  await expect(cell).not.toHaveClass(/\bfocused\b/);
+  await expect(page.locator('#epg-programmes')).not.toHaveClass(/\bpane-focused\b/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.account-menu')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(owner).toHaveAttribute('data-focus-scope', 'guide.groups');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.epg-group-menu')).toHaveCount(0);
+  await expect(owner).toHaveAttribute('data-focus-scope', 'guide.grid');
+  await expect(page.locator('[data-epg-group-toggle]')).toHaveClass(/\bfocused\b/);
+  await expect(cell).not.toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+});

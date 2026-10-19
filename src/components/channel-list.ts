@@ -142,6 +142,7 @@ export class ChannelList {
     this.focusScope = Focus.register({
       id: 'live.channels',
       root: () => this.container.closest<HTMLElement>('.view') ?? this.container,
+      leaveFor: { up: 'tabbar' },
       defaultKey: () => this.defaultKey(),
       has: (key) => this.rowPosition(key) !== null,
       reveal: (key) => this.reveal(key),

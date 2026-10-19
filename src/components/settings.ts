@@ -551,6 +551,7 @@ export class Settings {
     this.focusScope = Focus.register({
       id: 'view.settings',
       root: container,
+      leaveFor: { up: 'tabbar' },
       defaultKey: () => this.defaultKey(),
       resolve: (key) => this.resolveKey(key),
       reveal: (key) => this.revealLanded(key),

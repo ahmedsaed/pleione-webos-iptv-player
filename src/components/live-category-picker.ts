@@ -325,7 +325,10 @@ export class LiveCategoryPicker {
     const slot = this.el?.querySelector<HTMLElement>('[data-live-category-avatar]');
     if (!slot || !this.options) return;
     if (!this.switcher) {
-      this.switcher = new AccountSwitcher(slot, { onSelect: id => this.switchAccount(id) });
+      this.switcher = new AccountSwitcher(slot, {
+        onSelect: id => this.switchAccount(id),
+        onMenuHover: () => this.nav?.focus(slot),
+      });
       this.switcher.init();
     }
     const accounts = this.switchableAccounts();

@@ -350,6 +350,50 @@ async function pressBack(page: import('@playwright/test').Page): Promise<void> {
   }, BACK);
 }
 
+test('a search finishing under an open account menu leaves the keys in the menu', async ({ page }) => {
+  await seedSearch(page);
+  await page.addInitScript(() => {
+    const playlists = JSON.parse(localStorage.getItem('iptv_playlists') ?? '[]');
+    playlists.push({ id: 'x2', name: 'Y Account', url: 'http://host.example.com:8080',
+      source: 'xtream', xtream: { username: 'v', password: 'q' } });
+    localStorage.setItem('iptv_playlists', JSON.stringify(playlists));
+    // Hold search queries on their way to the worker until the test lets them go.
+    const held: Array<() => void> = [];
+    const w = window as unknown as { holdQueries: boolean; releaseQueries: () => void };
+    w.holdQueries = false;
+    w.releaseQueries = () => { w.holdQueries = false; held.splice(0).forEach(post => post()); };
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (this: Worker, message: unknown, ...rest: unknown[]) {
+      const send = () => (post as (...args: unknown[]) => void).call(this, message, ...rest);
+      if (w.holdQueries && (message as { task?: string } | null)?.task === 'search.query') held.push(send);
+      else send();
+    };
+  });
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterSearch(page);
+  const input = page.locator('.tab-bar-search-input');
+  await input.fill('one');
+  await expect(page.locator('#view-search .catalog-tile[data-stream-id="10"]')).toContainText('Movie One');
+
+  await page.evaluate(() => { (window as unknown as { holdQueries: boolean }).holdQueries = true; });
+  await input.fill('zzz');
+  // Down waits for the query in flight, which matches nothing.
+  await input.press('ArrowDown');
+  await page.locator('.account-avatar').click();
+  const menu = page.locator('.account-menu');
+  await expect(menu).toBeVisible();
+  await page.evaluate(() => (window as unknown as { releaseQueries: () => void }).releaseQueries());
+  await expect(page.locator('#view-search .catalog-tile')).toHaveCount(0);
+
+  await expect(menu).toBeVisible();
+  await expect(menu.locator('.account-menu-item[data-account-id="x1"]')).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+  await page.keyboard.press('ArrowDown');
+  await expect(menu.locator('.account-menu-item[data-account-id="x2"]')).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+});
+
 test('recent searches drop down over the current view, refill the query, and clear without confirming', async ({ page }) => {
   await seedSearch(page);
   await page.addInitScript(() => {
@@ -566,13 +610,44 @@ test('a scrim click that dismisses the account menu leaves search like it does w
 
   await page.locator('.account-avatar').click();
   await expect(page.locator('.account-menu')).toBeVisible();
+  const events: string[] = [];
+  page.on('console', (msg) => events.push(msg.text()));
   await page.mouse.click(200, 800);
   await expect(page.locator('.account-menu')).toHaveCount(0);
   await expect(page.locator('.tab-bar-search.expanded')).toHaveCount(0);
   await expect(page.locator('#view-channels')).toBeVisible();
   // The bar's ring must not be left on the avatar, where Down reopens the menu.
   await expect(page.locator('.account-avatar.focused')).toHaveCount(0);
+  // The click that dismisses search must not flash recent searches back open.
+  expect(events.some((text) => text.includes('event=search.box.collapsed reason=dismiss'))).toBe(true);
+  expect(events.filter((text) => text.includes('event=search.history.opened'))).toEqual([]);
 });
+
+for (const target of ['magnifier', 'Movies tab'] as const) {
+  test(`a ${target} click that dismisses the account menu does not flash recent searches`, async ({ page }) => {
+    await seedSearch(page);
+    await page.addInitScript(() => {
+      localStorage.setItem('iptv_search_history', JSON.stringify(['one']));
+    });
+    await page.goto('/');
+    await expect(page.locator('#view-channels')).toBeVisible();
+    await enterSearch(page);
+    await expect(page.locator('.search-history-dropdown .search-history-panel')).toBeVisible();
+
+    await page.locator('.account-avatar').click();
+    await expect(page.locator('.account-menu')).toBeVisible();
+    const events: string[] = [];
+    page.on('console', (msg) => events.push(msg.text()));
+    const item = target === 'magnifier'
+      ? page.locator('.tab-bar-item.search-icon')
+      : page.locator('.tab-bar-item[data-section="movies"]');
+    await item.click();
+    await expect(page.locator('.account-menu')).toHaveCount(0);
+    await expect(page.locator('.tab-bar-search.expanded')).toHaveCount(0);
+    expect(events.some((text) => text.includes('event=account.menu.closed reason=bar'))).toBe(true);
+    expect(events.filter((text) => text.includes('event=search.history.opened'))).toEqual([]);
+  });
+}
 
 test('a blank click that dismisses the account menu keeps the remote in the search box', async ({ page }) => {
   await seedSearch(page);

@@ -147,6 +147,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I> {
     this.focusScope = Focus.register({
       id: `${this.scopeName()}.catalog`,
       root: container,
+      leaveFor: { up: 'tabbar' },
       defaultKey: () => this.defaultKey(),
       resolve: (key) => this.resolveKey(key),
       has: (key) => this.hasKey(key),

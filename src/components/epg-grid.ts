@@ -143,6 +143,7 @@ export class EpgGrid {
     this.focusScope = Focus.register({
       id: 'guide.grid',
       root: container,
+      leaveFor: { up: 'tabbar' },
       defaultKey: () => this.gridKey(),
       resolve: (key) => this.resolveGridKey(key),
       has: (key) => this.hasRow(key),

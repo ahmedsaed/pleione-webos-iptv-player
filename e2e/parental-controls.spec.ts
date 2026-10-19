@@ -1389,3 +1389,43 @@ test('Lock now from the bar resumes Live on a row still shown', async ({ page })
   await expect(page.locator('#view-channels .focused')).toHaveCount(1);
   await expect(page.locator('#view-channels .focused')).toBeInViewport();
 });
+
+test('the pointer on the account menu keeps one ring, and Back returns to the avatar', async ({ page }) => {
+  await seedVodAccount(page);
+  await page.addInitScript(() => {
+    const playlists = JSON.parse(localStorage.getItem('iptv_playlists') ?? '[]');
+    playlists.push({ id: 'x2', name: 'Y Account', url: 'http://host.example.com:8080',
+      source: 'xtream', xtream: { username: 'v', password: 'q' } });
+    localStorage.setItem('iptv_playlists', JSON.stringify(playlists));
+  });
+  await page.goto('/');
+  await createPinFromSettings(page);
+  const view = page.locator('#view-parental-controls');
+  const playlist = view.locator('.parental-column-source [data-parental-source]').first();
+  await expect(playlist).toBeVisible();
+  const hover = async (target: typeof playlist) => {
+    const box = (await target.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2 + 2, box.y + box.height / 2);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  };
+
+  await view.locator('.account-avatar').click();
+  await expect(view.locator('.account-menu')).toBeVisible();
+  // The pointer crosses the list on its way back to the menu, which keeps
+  // the hover outside it dark.
+  await hover(playlist);
+  await expect(playlist).not.toHaveClass(/\bfocused\b/);
+  const bravo = view.locator('.account-menu-item[data-account-id="x2"]');
+  await hover(bravo);
+  await expect(bravo).toHaveClass(/\bfocused\b/);
+  await expect(playlist).not.toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('ArrowUp');
+  await expect(view.locator('.account-menu-item[data-account-id="x1"]')).toHaveClass(/\bfocused\b/);
+  await expect(view.locator('.focused:not(.parental-account-slot)')).toHaveCount(1);
+
+  await page.keyboard.press('Escape');
+  await expect(view.locator('.account-menu')).toHaveCount(0);
+  await expect(view).toBeVisible();
+  await expect(view.locator('.account-avatar')).toHaveClass(/\bfocused\b/);
+  await expect(view.locator('.focused:not(.parental-account-slot)')).toHaveCount(1);
+});

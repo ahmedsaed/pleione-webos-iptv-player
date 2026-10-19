@@ -45,9 +45,8 @@ Procedural workflows live in `.agents/skills/` (open Agent Skills format;
   parks every other `.focused`. A new modal or overlay registers a
   scope on the `Focus` owner stack (`src/navigation/focus-scope.ts`)
   at the right `Tier`, which both routes keys and picks the ring: a
-  prompt pushes itself while shown (as `ConfirmationPrompt` does), a
-  legacy surface is a layer in `App.initFocusScopes()`. A pushed
-  modal keeps the pointer's hover outside it from the surfaces below.
+  prompt pushes itself while shown (as `ConfirmationPrompt` does). A
+  pushed modal keeps the pointer's hover outside it from the surfaces below.
   Write the class through `setRing()`/`ringsIn()` (ESLint enforces it;
   a legacy site carries an inline `focus/*` disable that names the
   surface still owning it until that surface moves to a focus scope; a

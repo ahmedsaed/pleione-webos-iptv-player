@@ -3,6 +3,7 @@
 // parked (its class swapped for a style-less twin) and comes back unchanged
 // when the keys return, so no view has to know which surface sits above it.
 
+import type { Action } from '../types';
 import { createLogger } from '../utils/logger';
 import { InputMode } from './input-mode';
 
@@ -26,6 +27,13 @@ const HOVER_ATTR = 'data-ring-hover';
 const SCOPE_ATTR = 'data-focus-scope';
 // Set by the reconcile pass on a migrated owner whose logical focus resolves to nothing.
 export const UNRESOLVED_ATTR = 'data-focus-unresolved';
+
+// Keys that act on the focused item, so they only show a deferred focus. Back,
+// number entry, and the media keys still act.
+const REVEAL_ACTIONS: ReadonlySet<Action> = new Set<Action>([
+  'up', 'down', 'left', 'right', 'select', 'channel_up', 'channel_down',
+  'red', 'green', 'yellow', 'blue',
+]);
 
 let resolver: OwnerResolver | null = null;
 let marked: Element | null = null;
@@ -118,7 +126,8 @@ function swap(el: Element, from: string, to: string): void {
 function allowed(el: Element, owner: Element, modal: boolean): boolean {
   if (owner.contains(el)) return owner !== deferredRoot;
   // The pointer may point anywhere; what it hovers stays lit until a key.
-  // Hover never moves the keys, except that TabBar releases them to hovered content.
+  // Hover never moves the keys, except that the tab bar releases them to the
+  // scope below it.
   return !modal && !!hoverTarget && hoverTarget.contains(el)
     && InputMode.current !== 'keys';
 }
@@ -205,6 +214,11 @@ export const FocusRing = {
     log.debug('Focus ring shown', 'event=nav.focus.shown', `via=${via}`, ...fields);
     FocusRing.sync();
     return consumed;
+  },
+
+  /** End a deferral on a key; true when the key only showed the focus and must not act. */
+  revealForKey(action: Action): boolean {
+    return FocusRing.reveal('key', action, REVEAL_ACTIONS.has(action));
   },
 
   sync(): void {

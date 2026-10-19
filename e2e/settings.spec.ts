@@ -1522,6 +1522,49 @@ test.describe('Settings Xtream live categories', () => {
       .toHaveClass(/focused/);
   });
 
+  test('the pointer on the picker account menu keeps one ring, and Back returns to the avatar', async ({ page }) => {
+    await routeAccount(page, () => 3);
+    await page.addInitScript(() => {
+      if (localStorage.getItem('iptv_playlists')) return;
+      localStorage.setItem('iptv_playlists', JSON.stringify(['1', '2'].map(n => ({
+        id: `x${n}`,
+        name: `Account ${n}`,
+        url: `http://host.example.com:808${n}`,
+        source: 'xtream',
+        xtream: { username: `u${n}`, password: `p${n}` },
+      }))));
+    });
+    await page.goto('/');
+    await expect(channels(page)).toHaveCount(3);
+    await enterTab(page, 'settings');
+    await page.locator('[data-settings-target="sources"]').click();
+    await page.locator('.xtream-card[data-id="x1"] .xtream-live-categories').click();
+    const picker = page.locator('.live-category-picker');
+    await expect(picker.locator('[data-category-id]')).toHaveCount(3);
+    const hover = async (target: Locator) => {
+      const box = (await target.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2 + 2, box.y + box.height / 2);
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    };
+
+    await picker.locator('.account-avatar').click();
+    await expect(picker.locator('.account-menu')).toBeVisible();
+    // The pointer crosses the list on its way back to the menu.
+    const row = picker.locator('[data-key="all:c3"]');
+    await hover(row);
+    await expect(row).toHaveClass(/\bfocused\b/);
+    const second = picker.locator('.account-menu-item[data-account-id="x2"]');
+    await hover(second);
+    await expect(second).toHaveClass(/\bfocused\b/);
+    await expect(picker.locator('.focused:not(.live-category-account-slot)')).toHaveCount(1);
+
+    await press(page, 461);
+    await expect(picker.locator('.account-menu')).toHaveCount(0);
+    await expect(picker).toBeVisible();
+    await expect(picker.locator('.account-avatar')).toHaveClass(/\bfocused\b/);
+    await expect(picker.locator('.focused:not(.live-category-account-slot)')).toHaveCount(1);
+  });
+
   test('a new provider category stays hidden and is announced once', async ({ page }) => {
     let count = 2;
     await routeAccount(page, () => count);
