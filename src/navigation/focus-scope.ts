@@ -7,6 +7,7 @@
 // A scope without `defaultKey` only routes keys: it paints no ring, and
 // reconcile only re-gates the rings for it.
 
+import { CONFIG } from '../config';
 import type { Action, NumberEvent } from '../types';
 import { createLogger } from '../utils/logger';
 import { FocusRing, hasRing, isHovered, ringShown, ringsIn, setRing, UNRESOLVED_ATTR } from './focus-ring';
@@ -113,9 +114,9 @@ function byKey(root: HTMLElement, key: string): HTMLElement | null {
   return root.querySelector<HTMLElement>(`[data-key="${cssString(key)}"]`);
 }
 
-// Whether the element sits partly outside the viewport or a clipping
-// ancestor; an element larger than its scroller only has to fill it.
-function clipped(el: Element): boolean {
+// How much of the element the viewport or a clipping ancestor hides; an
+// element larger than its scroller only has to fill it.
+function hiddenBy(el: Element): number {
   const r = el.getBoundingClientRect();
   let left = 0;
   let top = 0;
@@ -135,11 +136,13 @@ function clipped(el: Element): boolean {
     }
     if (s.position === 'fixed') break;
   }
-  if (right <= left || bottom <= top) return false;
+  if (right <= left || bottom <= top) return 0;
   const slack = 1;
   const w = Math.min(r.right, right) - Math.max(r.left, left);
   const h = Math.min(r.bottom, bottom) - Math.max(r.top, top);
-  return w < Math.min(r.width, right - left) - slack || h < Math.min(r.height, bottom - top) - slack;
+  const hiddenX = Math.min(r.width, right - left) - Math.max(0, w);
+  const hiddenY = Math.min(r.height, bottom - top) - Math.max(0, h);
+  return (hiddenX > slack ? hiddenX : 0) + (hiddenY > slack ? hiddenY : 0);
 }
 
 class Scope implements FocusScope {
@@ -288,6 +291,8 @@ let settleFrame: number | null = null;
 // KeyHandler's hover, so a settled panel's hover is one it tracks.
 let hoverAt: ((x: number, y: number, within: HTMLElement) => void) | null = null;
 const SETTLE_MAX_FRAMES = 60;
+// Per scope, so one surface's reveal never makes another's jump.
+const lastReveal = new WeakMap<Scope, { key: string; at: number; hidden: number }>();
 
 function repaired(reason: RepairReason, scope: Scope, ...fields: string[]): void {
   log.debug('Focus repaired', 'event=nav.focus.repaired', `reason=${reason}`, `scope=${scope.id}`,
@@ -387,10 +392,25 @@ function paint(): void {
     let revealed = own === true;
     if (revealed) {
       el = within(root, owner.element(key));
-    } else if (own === false && el && clipped(el)) {
-      // The polyfill makes this mean `nearest` on Chromium 53 too.
-      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      revealed = true;
+    }
+    const hidden = !revealed && own === false && el ? hiddenBy(el) : 0;
+    if (el && hidden > 0) {
+      const now = Date.now();
+      const last = lastReveal.get(owner);
+      const age = last ? now - last.at : -1;
+      // The same key still sliding in from its own reveal: hidden less each pass.
+      const sliding = !!last && last.key === key && age >= 0 && age < CONFIG.NAVIGATION.REVEAL_SETTLE_MS
+        && hidden < last.hidden;
+      if (last) last.hidden = hidden;
+      if (!sliding) {
+        // A held key steps faster than a smooth scroll settles; each step jumps.
+        const repeated = !!last && last.key !== key
+          && age >= 0 && age <= CONFIG.NAVIGATION.FOCUS_REPEAT_WINDOW_MS;
+        lastReveal.set(owner, { key, at: now, hidden });
+        // The polyfill makes this mean `nearest` on Chromium 53 too.
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: repeated ? 'instant' : 'auto' });
+        revealed = true;
+      }
     }
     if (revealed && unchanged && !pending) repaired('clipped', owner);
   }

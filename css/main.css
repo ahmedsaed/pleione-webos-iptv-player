@@ -138,7 +138,13 @@ html[data-animation="full"] .catalog-rails,
 html[data-animation="full"] .catalog-rail-track,
 html[data-animation="full"] .search-view,
 html[data-animation="full"] .search-virtual-scroll,
-html[data-animation="full"] .reminder-manager-view {
+html[data-animation="full"] .reminder-manager-view,
+html[data-animation="full"] .group-picker,
+html[data-animation="full"] .epg-date-list,
+html[data-animation="full"] .parental-options-pane,
+html[data-animation="full"] .sidebar-tabs,
+html[data-animation="full"] .menu-items,
+html[data-animation="full"] .subs-list {
   scroll-behavior: smooth;
 }
 

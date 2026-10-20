@@ -1,5 +1,6 @@
 import type { Action, AudioTrackOption, Channel, SubtitleTrackOption } from '../types';
-import { $, html, inShownView, onceTransitionEnd, raw } from '../utils/dom';
+import { CONFIG } from '../config';
+import { $, html, inShownView, onceTransitionEnd, raw, withInstantScroll } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { AUDIO_ICON, SPEED_ICON, SUBTITLE_ICON } from './icons';
 import { t } from '../i18n';
@@ -46,6 +47,9 @@ const PICK_SPEED = '__speed_rate__';
  */
 export class PlayerMenu {
   private el: HTMLElement | null;
+  private lastReveal: { key: string; at: number; hidden: number } | null = null;
+  // Opening a menu swaps its content; it lands on its row without a glide.
+  private instantReveal = false;
   private getCurrentChannel: () => Channel | null;
   private onAction: (action: Action) => void;
   private getAudioTracks: () => AudioTrackOption[];
@@ -127,7 +131,7 @@ export class PlayerMenu {
       this.el.classList.add('visible');
     }
     if (this.scope) Focus.push(this.scope);
-    this.moveTo(0, 'key');
+    this.openAt(0);
     this.resetTimer();
   }
 
@@ -225,6 +229,15 @@ export class PlayerMenu {
     Focus.flush();
   }
 
+  private openAt(idx: number): void {
+    this.instantReveal = true;
+    try {
+      this.moveTo(idx, 'key');
+    } finally {
+      this.instantReveal = false;
+    }
+  }
+
   // Scroll only the menu's list to a row past its viewport, never the page:
   // mid slide-in the panel is off-screen, and a scrollIntoView would shift the
   // whole view. (Magic-Remote wheel scrolling is native — the wheel handler
@@ -236,13 +249,31 @@ export class PlayerMenu {
 
     const listRect = list.getBoundingClientRect();
     const rowRect = row.getBoundingClientRect();
+    let delta: number;
     if (rowRect.top < listRect.top) {
-      list.scrollTop -= listRect.top - rowRect.top;
+      delta = rowRect.top - listRect.top;
     } else if (rowRect.bottom > listRect.bottom) {
-      list.scrollTop += rowRect.bottom - listRect.bottom;
+      delta = rowRect.bottom - listRect.bottom;
     } else {
       return null;
     }
+    const now = Date.now();
+    const hidden = Math.abs(delta);
+    const last = this.lastReveal;
+    const age = last ? now - last.at : -1;
+    // The same row still sliding in from its own reveal: hidden less each pass.
+    if (!this.instantReveal && last && last.key === key && age >= 0
+      && age < CONFIG.NAVIGATION.REVEAL_SETTLE_MS && hidden < last.hidden) {
+      last.hidden = hidden;
+      return null;
+    }
+    // A held key steps faster than a smooth scroll settles; each step jumps.
+    const repeated = !!last && last.key !== key
+      && age >= 0 && age <= CONFIG.NAVIGATION.FOCUS_REPEAT_WINDOW_MS;
+    this.lastReveal = { key, at: now, hidden };
+    const target = list.scrollTop + delta;
+    if (repeated || this.instantReveal) withInstantScroll([list], () => { list.scrollTop = target; });
+    else list.scrollTop = target;
     return true;
   }
 
@@ -290,7 +321,7 @@ export class PlayerMenu {
     const tracks = this.getAudioTracks();
     const active = tracks.findIndex(t => t.active);
     this.render();
-    this.moveTo(active >= 0 ? active + 1 : 0, 'key'); // +1 for the Back row
+    this.openAt(active >= 0 ? active + 1 : 0); // +1 for the Back row
     this.resetTimer();
   }
 
@@ -300,7 +331,7 @@ export class PlayerMenu {
     const active = tracks.findIndex(t => t.active);
     // Rows: Back (0), Off (1), then tracks. Focus the active track, else Off.
     this.render();
-    this.moveTo(active >= 0 ? active + 2 : 1, 'key');
+    this.openAt(active >= 0 ? active + 2 : 1);
     this.resetTimer();
   }
 
@@ -308,14 +339,14 @@ export class PlayerMenu {
     this.mode = 'speed';
     const active = PLAYBACK_RATES.indexOf(this.getPlaybackRateState().rate);
     this.render();
-    this.moveTo(active >= 0 ? active + 1 : 1, 'key');
+    this.openAt(active >= 0 ? active + 1 : 1);
     this.resetTimer();
   }
 
   private openMain(): void {
     this.mode = 'main';
     this.render();
-    this.moveTo(0, 'key');
+    this.openAt(0);
     this.resetTimer();
   }
 

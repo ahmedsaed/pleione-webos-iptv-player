@@ -143,6 +143,84 @@ describe('PlayerMenu', () => {
       expect(scrollIntoView).not.toHaveBeenCalled();
     });
 
+    it('steps a held key instantly and an isolated one through the smooth policy', () => {
+      const list = el.querySelector<HTMLElement>('.menu-items')!;
+      list.style.setProperty('scroll-behavior', 'smooth');
+      const writes: string[] = [];
+      let top = 0;
+      Object.defineProperty(list, 'scrollTop', {
+        configurable: true,
+        get: () => top,
+        set: (value: number) => {
+          writes.push(list.style.getPropertyValue('scroll-behavior'));
+          top = value;
+        },
+      });
+      list.getBoundingClientRect = () => ({ top: 100, bottom: 300 }) as DOMRect;
+      for (const item of items()) {
+        item.getBoundingClientRect = () => ({ top: 280, bottom: 340 }) as DOMRect;
+      }
+
+      menu.handleAction('down');
+      vi.advanceTimersByTime(80);
+      menu.handleAction('down');
+      vi.advanceTimersByTime(1000);
+      menu.handleAction('down');
+
+      expect(writes).toEqual(['smooth', 'auto', 'smooth']);
+      expect(list.style.getPropertyValue('scroll-behavior')).toBe('smooth');
+    });
+
+    function recordListWrites(rowTop: () => number): string[] {
+      const list = el.querySelector<HTMLElement>('.menu-items')!;
+      list.style.setProperty('scroll-behavior', 'smooth');
+      const writes: string[] = [];
+      let top = 0;
+      Object.defineProperty(list, 'scrollTop', {
+        configurable: true,
+        get: () => top,
+        set: (value: number) => {
+          writes.push(list.style.getPropertyValue('scroll-behavior'));
+          top = value;
+        },
+      });
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+        if (this.classList.contains('menu-items')) return { top: 100, bottom: 300 } as DOMRect;
+        return { top: rowTop(), bottom: rowTop() + 60 } as DOMRect;
+      });
+      return writes;
+    }
+
+    it('opens a sub-menu on its active row without a glide', () => {
+      menu.hide();
+      subtitleTracks = Array.from({ length: 6 }, (_, i) => ({ index: i, label: `Track ${i + 1}`, active: i === 5 }));
+      menu.show();
+      const writes = recordListWrites(() => 280);
+      vi.advanceTimersByTime(1000);
+
+      items().find((i) => i.dataset.menuAction === '__subs_open__')!.click();
+
+      expect(writes).toEqual(['auto']);
+      vi.restoreAllMocks();
+    });
+
+    it('lets a row slide in instead of snapping it, and treats only another row as a held key', () => {
+      let rowTop = 280;
+      const writes = recordListWrites(() => rowTop);
+
+      menu.handleAction('up'); // a key that moves nothing re-reveals the row
+      rowTop = 270; // still sliding in
+      vi.advanceTimersByTime(80);
+      menu.handleAction('up');
+      expect(writes).toEqual(['smooth']);
+
+      rowTop = 280; // a reset left it no closer
+      vi.advanceTimersByTime(20);
+      menu.handleAction('up');
+      expect(writes).toEqual(['smooth', 'smooth']);
+      vi.restoreAllMocks();
+    });
+
     it('select emits the focused action and hides the menu', () => {
       menu.handleAction('down'); // focus "green"
       menu.handleAction('select');

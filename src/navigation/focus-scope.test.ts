@@ -1015,9 +1015,87 @@ describe('Focus reconcile', () => {
       Focus.setBase(() => a);
       a.focus('r2', 'key');
       Focus.flush();
-      expect(row(scroller, 'r2').scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+      expect(row(scroller, 'r2').scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
       // A move onto a clipped key is routine; only a clip of unchanged focus is reported.
       expect(repairs()).toEqual([]);
+    });
+
+    it('jumps a held key instead of restarting a smooth reveal', () => {
+      setInputMode('keys');
+      const now = vi.spyOn(Date, 'now').mockReturnValue(50_000);
+      const a = logical('live.channels', view);
+      Focus.setBase(() => a);
+      for (const [key, at] of [['r1', 50_000], ['r2', 50_080], ['r1', 51_000]] as const) {
+        clip = true;
+        now.mockReturnValue(at);
+        a.focus(key, 'key');
+        Focus.flush();
+      }
+      const calls = vi.mocked(Element.prototype.scrollIntoView).mock.calls;
+      expect(calls.map(([arg]) => (arg as ScrollIntoViewOptions).behavior)).toEqual(['auto', 'instant', 'auto']);
+      now.mockRestore();
+    });
+
+    it('lets a smooth reveal finish instead of restarting it, or reporting a clip', () => {
+      setInputMode('keys');
+      Element.prototype.scrollIntoView = vi.fn();
+      let slide = 0;
+      for (const el of Array.from(scroller.children)) {
+        vi.spyOn(el, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 90 - slide, 100, 40));
+      }
+      const now = vi.spyOn(Date, 'now').mockReturnValue(50_000);
+      const a = logical('live.channels', view);
+      Focus.setBase(() => a);
+      a.focus('r2', 'key');
+      Focus.flush();
+      // A key that moves nothing, while the row still slides in on a slow TV.
+      slide = 10;
+      now.mockReturnValue(50_600);
+      a.focus('r2', 'key');
+      Focus.flush();
+      expect(row(scroller, 'r2').scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(repairs()).toEqual([]);
+      // Long after, a row still clipped is a real clip.
+      now.mockReturnValue(51_000);
+      a.focus('r2', 'key');
+      Focus.flush();
+      expect(row(scroller, 'r2').scrollIntoView).toHaveBeenCalledTimes(2);
+      expect(repairs()).toEqual([expect.stringContaining('reason=clipped scope=live.channels')]);
+      now.mockRestore();
+    });
+
+    it('reveals again a row that a reveal left no closer, such as a pane reset under it', () => {
+      setInputMode('keys');
+      Element.prototype.scrollIntoView = vi.fn();
+      const now = vi.spyOn(Date, 'now').mockReturnValue(50_000);
+      const a = logical('live.channels', view);
+      Focus.setBase(() => a);
+      a.focus('r2', 'key');
+      Focus.flush();
+      now.mockReturnValue(50_200);
+      a.focus('r2', 'key');
+      Focus.flush();
+      expect(row(scroller, 'r2').scrollIntoView).toHaveBeenCalledTimes(2);
+      now.mockRestore();
+    });
+
+    it('times a held key per surface, so another surface\'s reveal stays smooth', () => {
+      setInputMode('keys');
+      const now = vi.spyOn(Date, 'now').mockReturnValue(50_000);
+      const a = logical('live.channels', view);
+      const b = logical('live.sidebar', view);
+      Focus.setBase(() => a);
+      a.focus('r1', 'key');
+      Focus.flush();
+      clip = true;
+      now.mockReturnValue(50_080);
+      Focus.push(b);
+      b.focus('r2', 'key');
+      Focus.flush();
+      const calls = vi.mocked(Element.prototype.scrollIntoView).mock.calls;
+      expect(calls.map(([arg]) => (arg as ScrollIntoViewOptions).behavior)).toEqual(['auto', 'auto']);
+      Focus.pop(b);
+      now.mockRestore();
     });
 
     it('reports a clip of unchanged focus, such as a key that moved nothing', () => {

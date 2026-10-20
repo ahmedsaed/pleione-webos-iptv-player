@@ -29,6 +29,8 @@ export const CONFIG = {
     // Treat fast successive focus changes as held-key navigation. The repeat
     // interval measured on LG remotes is around 80 ms; leave room for load.
     FOCUS_REPEAT_WINDOW_MS: 180,
+    // Longer than a native smooth reveal takes to bring its row in on a TV.
+    REVEAL_SETTLE_MS: 800,
     EDGE_SCROLL_DWELL_MS: 400,
     EDGE_SCROLL_ZONE_PX: 64,
     // Edge scroll starts slow for precise stops and eases up to the top

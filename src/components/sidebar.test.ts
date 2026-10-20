@@ -1338,7 +1338,7 @@ describe('Sidebar', () => {
       tab.scrollIntoView = reveal;
       hover(tab);
       expect(ringed()).toEqual([tab]);
-      expect(reveal).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+      expect(reveal).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
     });
 
     it('lights a half-hidden row under the pointer where it is', () => {
