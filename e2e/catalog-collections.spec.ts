@@ -264,6 +264,47 @@ test('keeps one ring through virtualized deletion, tab-bar handoff, and manageme
   await expect(grid.locator('[data-collection-action="manage"]')).toHaveClass(/focused/);
 });
 
+test('leaves a managed collection where each spaced wheel step stops it', async ({ page }) => {
+  await seedCollections(page, 35);
+  await page.goto('/');
+  await enterTab(page, 'series');
+  await page.locator('#view-series [data-collection-manage="continue"]').click();
+  const grid = layer(page, 'series');
+  const view = grid.locator('.catalog-grid.catalog-managing');
+  await expect(view).toBeVisible();
+  await page.mouse.move(700, 600);
+  // Only the wheel may move the grid while the pointer rests.
+  await view.evaluate(el => {
+    const writes: string[] = [];
+    (window as unknown as { gridWrites: string[] }).gridWrites = writes;
+    const top = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop')!;
+    Object.defineProperty(el, 'scrollTop', {
+      configurable: true,
+      get() { return top.get!.call(el) as number; },
+      set(value: number) { writes.push(`scrollTop=${String(value)}`); top.set!.call(el, value); },
+    });
+    const reveal = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element, ...args: unknown[]) {
+      writes.push('scrollIntoView');
+      return reveal.apply(this, args as []);
+    };
+  });
+  const scrollTop = () => view.evaluate(el => el.scrollTop);
+  const max = await view.evaluate(el => el.scrollHeight - el.clientHeight);
+  let expected = 0;
+  for (const step of [80, 80, 80, 80, -80, 80, -80, -80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80]) {
+    expected = Math.max(0, Math.min(max, expected + step));
+    await page.mouse.wheel(0, step);
+    await expect.poll(scrollTop).toBe(expected);
+    // Longer than any settle delay, so a late correction would show.
+    await page.waitForTimeout(250);
+    expect(await scrollTop()).toBe(expected);
+  }
+  expect(expected).toBe(max);
+  expect(await page.evaluate(() => (window as unknown as { gridWrites: string[] }).gridWrites)).toEqual([]);
+  expect(await grid.locator('.focused').count()).toBeLessThanOrEqual(1);
+});
+
 test('rejects a full Watchlist without replacing saved titles and shows an actionable message', async ({ page }) => {
   await seedCollections(page, 200);
   await page.goto('/');

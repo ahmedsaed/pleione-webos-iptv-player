@@ -117,6 +117,54 @@ describe('Movies browse + grid', () => {
       expect(container.querySelector('.catalog-layer-grid .focused')?.getAttribute('data-item-id')).toBe('11');
     });
 
+    it('leaves a managed collection grid where the wheel stops it', async () => {
+      savedTitles(80);
+      const { view } = await openWith();
+      container.querySelector<HTMLElement>('[data-collection-manage="watchlist"]')!.click();
+      vi.useFakeTimers();
+      try {
+        const grid = container.querySelector<HTMLElement>('.catalog-layer-grid .catalog-grid.catalog-managing')!;
+        const track = grid.querySelector<HTMLElement>('.catalog-grid-track')!;
+        let top = 0;
+        Object.defineProperty(grid, 'scrollTop', {
+          configurable: true, get: () => top, set: (value: number) => { top = value; },
+        });
+        Object.defineProperty(grid, 'clientHeight', { value: 900, configurable: true });
+        grid.getBoundingClientRect = () => ({ top: 0 } as DOMRect);
+        track.getBoundingClientRect = () => ({ top: 180 - top } as DOMRect);
+        const reveal = vi.mocked(Element.prototype.scrollIntoView);
+        // Wheel steps shorter than half a row, each settling before the next,
+        // from above the first row, mid-grid, both ways, and near the end.
+        const stops = [80, 160, 240, 320, 240, 400, 700, 620, 1000, 920, 1000, 4300, 4380, 4300];
+        for (const stop of stops) {
+          top = stop;
+          grid.dispatchEvent(new Event('scroll', { bubbles: true }));
+          vi.advanceTimersByTime(250);
+          expect(top).toBe(stop);
+          // The pointer at rest hovers what slid under it; that never scrolls.
+          const remove = grid.querySelector<HTMLElement>('[data-collection-action="remove"]')!;
+          remove.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+          Focus.flush();
+          vi.advanceTimersByTime(250);
+          expect(top).toBe(stop);
+        }
+        expect(reveal).not.toHaveBeenCalled();
+        expect(grid.querySelectorAll('.focused')).toHaveLength(1);
+
+        // The D-pad still brings its pick into view.
+        top = 80;
+        grid.dispatchEvent(new Event('scroll', { bubbles: true }));
+        vi.advanceTimersByTime(250);
+        grid.querySelector<HTMLElement>('[data-grid-index="0"] [data-collection-action="remove"]')!
+          .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+        for (let row = 0; row < 3; row++) pressKey(view, 'down');
+        expect(top).toBeGreaterThan(180 + 395);
+        expect(grid.querySelectorAll('.focused')).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('caps collection previews and opens a counted virtual grid without sorting controls', async () => {
       savedTitles(200);
       const { view } = await openWith();
@@ -1239,7 +1287,7 @@ describe('Movies browse + grid', () => {
     rendered.mockRestore();
   });
 
-  it('snaps free grid scrolling to the nearest row after it stops', async () => {
+  it('leaves free grid scrolling where it stops', async () => {
     const cats = Array.from(
       { length: 7 },
       (_, index) => ({ id: String(index + 1), name: `Cat ${String(index + 1)}` }),
@@ -1266,9 +1314,9 @@ describe('Movies browse + grid', () => {
       track.getBoundingClientRect = () => ({ top: 126 - grid.scrollTop } as DOMRect);
       grid.scrollTop = 577;
       grid.dispatchEvent(new Event('scroll', { bubbles: true }));
-      vi.advanceTimersByTime(100);
+      vi.advanceTimersByTime(1000);
 
-      expect(grid.scrollTop).toBe(521);
+      expect(grid.scrollTop).toBe(577);
     } finally {
       vi.useRealTimers();
     }

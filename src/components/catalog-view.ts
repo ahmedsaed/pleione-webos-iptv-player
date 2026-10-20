@@ -63,7 +63,6 @@ const CATALOG_GRID_VIEWPORT_WIDTH = 1760;
 const CATALOG_GRID_VIEWPORT_HEIGHT = 900;
 const CATEGORY_RAIL_STRIDE = 320;
 const CATEGORY_RAIL_VIEWPORT = 1760;
-const GRID_SNAP_DELAY_MS = 95;
 
 // Matches the rail track's padding and its end spacer in catalog-view.css.
 const RAIL_EDGE_GUTTER = 12;
@@ -167,7 +166,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   });
   private categoryScrollFrame: number | null = null;
   protected readonly scrollGuard = new VirtualScrollGuard();
-  private gridSnapTimer: ReturnType<typeof setTimeout> | null = null;
   private requestController: AbortController | null = null;
   private readonly layers: Record<Mode, HTMLElement>;
   private browseReturn: BrowseReturn | null = null;
@@ -248,11 +246,10 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       this.gridVirtualizer.setScrollOffset(
         Math.max(0, scrollTop - this.gridTrackStart(target, track)),
       );
-      this.scheduleGridSnap(target);
       if (this.gridScrollFrame !== null) return;
       this.gridScrollFrame = requestAnimationFrame(() => {
         this.gridScrollFrame = null;
-        if (this.mode === 'grid') this.renderGrid(false);
+        if (this.mode === 'grid') this.renderGrid(false, true);
       });
     }, true);
   }
@@ -1232,8 +1229,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       }));
       this.gridFocusIndex = 0;
       this.gridVirtualizer.setScrollOffset(0);
-      if (this.gridSnapTimer !== null) clearTimeout(this.gridSnapTimer);
-      this.gridSnapTimer = null;
       this.resetBrowseRailOffsets = true;
     }
     if (this.mode === 'grid') this.renderGrid(false);
@@ -1533,7 +1528,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     `;
   }
 
-  protected renderGrid(restoreFocus = true): void {
+  // `followView`: the window follows a user scroll, whose offset stays as is;
+  // above the first row the window's offset is 0 while the view's is not.
+  protected renderGrid(restoreFocus = true, followView = false): void {
     this.dismissSort(null);
     this.showLayer('grid');
     const gridLayer = this.layers.grid;
@@ -1608,7 +1605,17 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     const viewOffset = this.gridVirtualizer.scrollOffset === 0
       ? 0
       : this.gridVirtualizer.scrollOffset + this.gridTrackStart(view, track);
-    if (view) this.scrollGuard.syncOffset(view, 'vertical', viewOffset);
+    // A view already showing the window's offset keeps its own: above the
+    // first row every position maps to 0, and an update in place must not
+    // move it.
+    if (view && !followView) {
+      const shown = Math.max(0, view.scrollTop - this.gridTrackStart(view, track));
+      this.scrollGuard.syncOffset(
+        view,
+        'vertical',
+        !restoreFocus && shown === this.gridVirtualizer.scrollOffset ? view.scrollTop : viewOffset,
+      );
+    }
     if (restoreFocus) {
       const focused = gridLayer.querySelector<HTMLElement>(
         `[data-grid-index="${this.gridFocusIndex}"] [data-focusable]`,
@@ -1677,30 +1684,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       'key',
     );
     return true;
-  }
-
-  private scheduleGridSnap(view: HTMLElement): void {
-    if (this.gridSnapTimer !== null) clearTimeout(this.gridSnapTimer);
-    this.gridSnapTimer = setTimeout(() => {
-      this.gridSnapTimer = null;
-      if (this.mode !== 'grid') return;
-      const count = this.gridSource().count;
-      const track = this.layers.grid.querySelector<HTMLElement>('.catalog-grid-track');
-      const viewportWidth = track?.clientWidth || CATALOG_GRID_VIEWPORT_WIDTH;
-      const viewportHeight = view.clientHeight || CATALOG_GRID_VIEWPORT_HEIGHT;
-      const maxOffset = Math.max(
-        0,
-        this.gridVirtualizer.getTotalSize(count, viewportWidth) - viewportHeight,
-      );
-      const snapped = Math.min(
-        maxOffset,
-        Math.round(this.gridVirtualizer.scrollOffset / CATALOG_GRID_ROW_STRIDE)
-          * CATALOG_GRID_ROW_STRIDE,
-      );
-      if (snapped === this.gridVirtualizer.scrollOffset) return;
-      this.gridVirtualizer.setScrollOffset(snapped);
-      this.renderGrid(false);
-    }, GRID_SNAP_DELAY_MS);
   }
 
   private gridTrackStart(
