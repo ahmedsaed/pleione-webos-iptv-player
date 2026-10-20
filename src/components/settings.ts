@@ -47,7 +47,7 @@ import {
 } from './dropdown';
 import qrcode from 'qrcode-generator';
 import { createLogger } from '../utils/logger';
-import { ParentalControlService } from '../services/parental-control';
+import { ParentalControlService, isResumeConcealed, isWatchlistConcealed } from '../services/parental-control';
 import { parentalPinSupported } from '../services/parental-pin';
 import {
   formatNumber,
@@ -687,6 +687,37 @@ export class Settings {
     });
   }
 
+  private collectionDescription(kind: 'continue' | 'watchlist'): string {
+    const account = this.watchlistAccount;
+    if (!account) return '';
+    let count: number;
+    let concealed: boolean;
+    if (kind === 'continue') {
+      const entries = StorageService.getResumeList(account.id);
+      count = entries.length;
+      concealed = entries.some(isResumeConcealed);
+    } else {
+      const entries = [
+        ...StorageService.getWatchlist(account.id, 'vod'),
+        ...StorageService.getWatchlist(account.id, 'series'),
+      ];
+      count = entries.length;
+      concealed = entries.some(isWatchlistConcealed);
+    }
+    return t(kind === 'continue'
+      ? concealed ? 'settings.clearContinueWatchingDescriptionUncounted' : 'settings.clearContinueWatchingDescription'
+      : concealed ? 'settings.clearWatchlistDescriptionUncounted' : 'settings.clearWatchlistDescription', {
+      account: account.name, count,
+    });
+  }
+
+  refreshCollectionCounts(): void {
+    const resumeHint = this.container.querySelector<HTMLElement>('#continue-watching-count-hint');
+    const watchlistHint = this.container.querySelector<HTMLElement>('#watchlist-count-hint');
+    if (resumeHint) morph(resumeHint, html`${this.collectionDescription('continue')}`);
+    if (watchlistHint) morph(watchlistHint, html`${this.collectionDescription('watchlist')}`);
+  }
+
   render(): void {
     this.pendingLiveCategories.clear();
     const allPlaylists = StorageService.getPlaylists();
@@ -1143,11 +1174,19 @@ export class Settings {
                 </div>
                 ${this.watchlistAccount ? html`
                   <div class="settings-item settings-item--action">
+                    <div class="settings-item-title">${t('catalog.continueWatching')}</div>
+                    <button class="btn btn-danger" data-focusable id="clear-continue-watching"
+                            aria-label="${t('settings.clearContinueWatching')}">${t('settings.clearContinueWatching')}</button>
+                    <div class="settings-item-hint" id="continue-watching-count-hint" aria-live="polite">
+                      ${this.collectionDescription('continue')}
+                    </div>
+                  </div>
+                  <div class="settings-item settings-item--action">
                     <div class="settings-item-title">${t('common.watchlist')}</div>
                     <button class="btn btn-danger" data-focusable id="clear-watchlist"
                             aria-label="${t('settings.clearWatchlist')}">${t('settings.clearWatchlist')}</button>
-                    <div class="settings-item-hint">
-                      ${t('settings.clearWatchlistDescription', { account: this.watchlistAccount.name })}
+                    <div class="settings-item-hint" id="watchlist-count-hint" aria-live="polite">
+                      ${this.collectionDescription('watchlist')}
                     </div>
                   </div>
                 ` : ''}
@@ -1531,6 +1570,20 @@ export class Settings {
         },
         onCancel: () => {},
       });
+    } else if (el.id === 'clear-continue-watching' && this.watchlistAccount) {
+      const account = this.watchlistAccount;
+      this.confirmationPrompt.show({
+        title: t('catalog.clearContinueWatchingTitle'),
+        message: t('settings.clearContinueWatchingMessage', { account: account.name }),
+        confirmLabel: t('common.clearAll'),
+        cancelLabel: t('common.cancel'),
+        onConfirm: () => {
+          StorageService.clearResumeList(account.id);
+          this.refreshCollectionCounts();
+          showToast(t('settings.continueWatchingCleared', { account: account.name }));
+        },
+        onCancel: () => {},
+      });
     } else if (el.id === 'clear-watchlist' && this.watchlistAccount) {
       const account = this.watchlistAccount;
       this.confirmationPrompt.show({
@@ -1540,6 +1593,7 @@ export class Settings {
         cancelLabel: t('common.cancel'),
         onConfirm: () => {
           StorageService.clearWatchlist(account.id);
+          this.refreshCollectionCounts();
           showToast(t('settings.watchlistCleared', { account: account.name }));
         },
         onCancel: () => {},

@@ -219,8 +219,8 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
     color var(--transition);
 }
 
-button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggle):not(.epg-reminder-entry):not(.parental-row):not(.live-category-row):not(.search-icon):hover,
-button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggle):not(.epg-reminder-entry):not(.parental-row):not(.live-category-row):not(.search-icon).focused {
+button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggle):not(.epg-reminder-entry):not(.parental-row):not(.live-category-row):not(.search-icon):not(.catalog-remove-mark):hover,
+button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggle):not(.epg-reminder-entry):not(.parental-row):not(.live-category-row):not(.search-icon):not(.catalog-remove-mark).focused {
   transform: scale(1.03);
 }
 

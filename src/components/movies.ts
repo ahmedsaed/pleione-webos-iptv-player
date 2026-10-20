@@ -4,8 +4,8 @@ import { morph } from '../utils/morph';
 import { StorageService } from '../services/storage-service';
 import { loadVodCategories, loadVodStreams, loadVodInfo } from '../services/xtream-catalog';
 import { xtreamVodUrl } from '../utils/xtream-url';
-import { CatalogView } from './catalog-view';
-import { PLAY_ICON, watchlistIcon } from './icons';
+import { CatalogView, type CollectionKind, type CollectionEntry } from './catalog-view';
+import { PLAY_ICON, REMOVE_ICON, watchlistIcon } from './icons';
 import { showToast } from './toast';
 import { t, tp } from '../i18n';
 
@@ -70,27 +70,33 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
     return { accountId: r.accountId, streamId: r.itemId, name: r.name, poster: r.poster, rating: '', categoryId: r.categoryId ?? '', containerExtension: r.ext };
   }
 
-  protected continueRail(): Safe | '' {
-    return this.resume.length
-      ? this.rail('continue', t('catalog.continueWatching'), this.resume.map((r) => this.tile(this.resumeToVod(r.itemId)!)))
-      : '';
+  protected collectionEntries(kind: CollectionKind): CollectionEntry[] {
+    if (kind === 'continue') {
+      return this.resume.map(entry => {
+        const vod = this.resumeToVod(entry.itemId)!;
+        const key = `i:${vod.categoryId}:${vod.streamId}`;
+        return {
+          id: entry.itemId, key,
+          tile: managing => this.tile(vod, html`
+            ${this.progressBar(entry.position, entry.duration)}${this.removeMark(managing, key)}
+          `, managing),
+        };
+      });
+    }
+    return this.visibleWatchlist('vod').map(entry => ({
+      id: entry.itemId, key: `w:${entry.itemId}`,
+      tile: managing => this.watchlistTile(entry, managing),
+    }));
   }
 
-  protected watchlistRail(): Safe | '' {
-    const entries = this.visibleWatchlist('vod');
-    return entries.length
-      ? this.rail('watchlist', t('common.watchlist'), entries.map((entry) => this.watchlistTile(entry)))
-      : '';
-  }
-
-  private watchlistTile(entry: WatchlistEntry): Safe {
+  private watchlistTile(entry: WatchlistEntry, managing = false): Safe {
     const vod = this.watchlistEntryToVod(entry);
     return html`
-      <div class="catalog-tile" data-focusable data-key="w:${vod.streamId}"
+      <div class="catalog-tile" ${raw(managing ? '' : 'data-focusable')} data-key="w:${vod.streamId}"
            data-item-id="${vod.streamId}" data-category-id="${vod.categoryId}"
            data-watchlist-item="${vod.streamId}">
         <div class="catalog-poster-wrap">${this.posterCell(vod.name, vod.poster)}${
-          this.itemLockBadge(vod.categoryId, vod.streamId)}</div>
+          this.itemLockBadge(vod.categoryId, vod.streamId)}${this.removeMark(managing, `w:${vod.streamId}`)}</div>
         <div class="catalog-tile-name">${vod.name}</div>
       </div>
     `;
@@ -115,6 +121,12 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
   }
 
   protected selectExtra(el: HTMLElement): boolean {
+    if (el.dataset.action === 'remove-resume' && this.account && this.currentVod) {
+      StorageService.clearResume(this.account.id, 'vod', this.currentVod.streamId);
+      showToast(t('catalog.continueWatchingRemoved'));
+      this.renderDetail();
+      return true;
+    }
     if (el.dataset.watchlistItem !== undefined) {
       const vod = this.watchlistToVod(el.dataset.watchlistItem);
       if (vod) void this.openDetail(vod, true);
@@ -135,7 +147,7 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
     const vod = this.currentVod;
     const account = this.account;
     if (!vod || !account) return;
-    const added = StorageService.toggleWatchlist({
+    const result = StorageService.toggleWatchlist({
       accountId: account.id,
       kind: 'vod',
       itemId: vod.streamId,
@@ -146,7 +158,8 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
       containerExtension: vod.containerExtension,
       addedAt: Date.now(),
     });
-    showToast(t(added ? 'catalog.watchlistAdded' : 'catalog.watchlistRemoved'));
+    showToast(t(result === 'full' ? 'catalog.watchlistFull'
+      : result === 'added' ? 'catalog.watchlistAdded' : 'catalog.watchlistRemoved'));
     this.renderDetail();
   }
 
@@ -257,6 +270,12 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
               <span class="detail-btn-icon">${raw(watchlistIcon(watchlisted))}</span>
               <span>${t(watchlisted ? 'catalog.removeWatchlist' : 'catalog.addWatchlist')}</span>
             </button>
+            ${saved ? html`
+              <button class="detail-btn detail-btn-danger" data-focusable data-key="remove-resume" data-action="remove-resume">
+                <span class="detail-btn-icon">${raw(REMOVE_ICON)}</span>
+                <span>${t('catalog.removeContinueWatching')}</span>
+              </button>
+            ` : ''}
           </div>
         </div>
       </div>

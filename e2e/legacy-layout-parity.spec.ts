@@ -701,6 +701,16 @@ const XTREAM_SCREENS: Screen[] = [
     },
   },
   {
+    name: 'movies-continue-management',
+    budget: 0,
+    go: async p => {
+      await p.locator('#view-movies [data-collection-manage="continue"]').click();
+      await expect(p.locator('#view-movies .catalog-managing')).toBeVisible();
+      await p.locator('#view-movies .catalog-remove-mark').hover();
+      await expect(p.locator('#view-movies .catalog-remove-mark')).toHaveClass(/focused/);
+    },
+  },
+  {
     // The Movies kind drops the playlist column and docks the account slot.
     name: 'parental-controls-movies',
     budget: 0,

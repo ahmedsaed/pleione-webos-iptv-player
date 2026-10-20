@@ -156,6 +156,9 @@ const {
       remove: vi.fn(),
       clearRecentlyWatched: vi.fn(),
       clearWatchlist: vi.fn(),
+      clearResumeList: vi.fn(),
+      getResumeList: vi.fn((_accountId: string): unknown[] => []),
+      getWatchlist: vi.fn((_accountId: string, _kind: 'vod' | 'series'): unknown[] => []),
     },
     toastMock: { showToast: vi.fn() },
     setupMock: {
@@ -239,6 +242,7 @@ import { channelKey, legacyChannelKey } from '../utils/channel';
 import { morph } from '../utils/morph';
 import { Focus } from '../navigation/focus-scope';
 import { CONFIG } from '../config';
+import { ParentalControlService } from '../services/parental-control';
 
 let container: HTMLElement;
 let onSave: ReturnType<typeof vi.fn>;
@@ -1316,10 +1320,101 @@ describe('Settings Recently Watched clearing', () => {
       settings.render();
     });
 
+    it('hides both collection clear settings without an enabled Xtream account', () => {
+      const collections = (): Element[] => ['#clear-continue-watching', '#clear-watchlist']
+        .map(id => container.querySelector(id)).filter((el): el is Element => !!el);
+      expect(collections()).toHaveLength(2);
+
+      state.playlists = [{ id: 'p1', name: 'P1', url: 'http://host/a', source: 'url' }];
+      settings.render();
+      expect(collections()).toEqual([]);
+
+      state.playlists = [{
+        id: 'x1', name: 'Account Alpha', url: 'http://host', source: 'xtream', enabled: false,
+        xtream: { username: 'u', password: 'p' },
+      }];
+      settings.render();
+      expect(collections()).toEqual([]);
+    });
+
     it('shows the selected account in the Watchlist clear setting', () => {
       const action = container.querySelector('#clear-watchlist')?.closest('.settings-item--action');
       expect(action?.textContent).toContain('Watchlist');
       expect(action?.textContent).toContain('Account Bravo');
+    });
+
+    it('shows counts for the selected account in both collection settings', () => {
+      storageMock.getResumeList.mockReturnValueOnce([{}, {}, {}]);
+      storageMock.getWatchlist.mockReturnValueOnce([{}, {}]).mockReturnValueOnce([{}]);
+      settings.render();
+      const resume = container.querySelector('#clear-continue-watching')?.closest('.settings-item--action');
+      const watchlist = container.querySelector('#clear-watchlist')?.closest('.settings-item--action');
+      expect(resume?.textContent).toContain('Account Bravo');
+      expect(resume?.textContent).toContain('Clear saved playback progress for movies and series in "Account Bravo" (3).');
+      expect(resume?.textContent).toContain('(3)');
+      expect(watchlist?.textContent).toContain('(3)');
+      expect(storageMock.getResumeList).toHaveBeenLastCalledWith('x2');
+      expect(storageMock.getWatchlist).toHaveBeenCalledWith('x2', 'vod');
+      expect(storageMock.getWatchlist).toHaveBeenCalledWith('x2', 'series');
+    });
+
+    it('omits only concealed collection counts and retains account-wide clearing', () => {
+      const concealed = vi.spyOn(ParentalControlService, 'isConcealed')
+        .mockImplementation(request => request.target.kind === 'vod-item'
+          && request.target.itemId === 'hidden1');
+      const hiddenResume = {
+        accountId: 'x2', kind: 'vod', itemId: 'hidden1', name: 'Title 1', poster: '',
+        ext: 'mp4', position: 100, duration: 600, updatedAt: 1,
+      };
+      const hiddenWatchlist = {
+        accountId: 'x2', kind: 'vod', itemId: 'hidden1', name: 'Title 1', poster: '',
+        categoryId: '1', addedAt: 1,
+      };
+      try {
+        storageMock.getResumeList.mockReturnValue([hiddenResume]);
+        storageMock.getWatchlist.mockImplementation((_accountId, kind) => kind === 'vod' ? [hiddenWatchlist] : []);
+        settings.render();
+        const resumeHint = () => container.querySelector('#continue-watching-count-hint')?.textContent;
+        const watchlistHint = () => container.querySelector('#watchlist-count-hint')?.textContent;
+        expect(resumeHint()).toContain('Account Bravo');
+        expect(resumeHint()).toContain('Clear saved playback progress for movies and series in "Account Bravo".');
+        expect(watchlistHint()).toContain('Account Bravo');
+        expect(resumeHint()).not.toMatch(/\(\d+\)/);
+        expect(watchlistHint()).not.toMatch(/\(\d+\)/);
+
+        storageMock.getResumeList.mockReturnValue([]);
+        click('#clear-continue-watching');
+        settings.handleAction('left');
+        settings.handleAction('select');
+        expect(storageMock.clearResumeList).toHaveBeenCalledExactlyOnceWith('x2');
+        expect(resumeHint()).toContain('(0)');
+        expect(watchlistHint()).not.toMatch(/\(\d+\)/);
+
+        click('#clear-watchlist');
+        settings.handleAction('left');
+        settings.handleAction('select');
+        expect(storageMock.clearWatchlist).toHaveBeenCalledExactlyOnceWith('x2');
+      } finally {
+        concealed.mockRestore();
+        storageMock.getResumeList.mockReturnValue([]);
+        storageMock.getWatchlist.mockReturnValue([]);
+      }
+    });
+
+    it('confirms clearing movie and episode progress for only the selected account', () => {
+      click('#clear-continue-watching');
+      expect(document.querySelector('.confirmation-title')?.textContent).toBe('Clear Continue Watching?');
+      expect(document.querySelector('.confirmation-message')?.textContent).toContain('Account Bravo');
+      expect(document.querySelector('.confirmation-message')?.textContent).toBe(
+        'Clear all saved playback progress for movies and series in "Account Bravo"? Watchlist is not affected.',
+      );
+      expect(storageMock.clearResumeList).not.toHaveBeenCalled();
+      settings.handleAction('left');
+      settings.handleAction('select');
+      expect(storageMock.clearResumeList).toHaveBeenCalledExactlyOnceWith('x2');
+      expect(storageMock.clearWatchlist).not.toHaveBeenCalled();
+      expect(toastMock.showToast).toHaveBeenCalledWith('Continue Watching cleared for "Account Bravo"');
+      expect(container.querySelector('#continue-watching-count-hint')?.textContent).toContain('(0)');
     });
 
     it('requires confirmation and clears only the selected account', () => {

@@ -40,6 +40,8 @@ export const REFRESH_INTERVAL_HOUR_OPTIONS: readonly number[] = [0, 1, 3, 6, 12,
 export const XTREAM_CATALOG_REFRESH_HOUR_OPTIONS: readonly number[] = [1, 3, 6, 12, 24];
 const HOUR_MS = 60 * 60 * 1000;
 
+export type WatchlistToggleResult = 'added' | 'removed' | 'full';
+
 type StoredCatchup = CatchupProgressEntry & { expiresAt: number };
 
 interface UserDataState {
@@ -162,6 +164,45 @@ function reminderKey(item: Reminder): string {
 
 function resumeKey(entry: Pick<ResumeEntry, 'accountId' | 'kind' | 'itemId'>): string {
   return `resume:${entry.accountId}|${entry.kind}|${entry.itemId}`;
+}
+
+// Drops the oldest entries of each over-cap account+kind scope (or only `scope`)
+// from `all`; `keepKey`, the entry just written, is never the one evicted.
+function trimResume(
+  all: Record<string, ResumeEntry>,
+  scope?: Pick<ResumeEntry, 'accountId' | 'kind'>,
+  keepKey?: string,
+): ResumeEntry[] {
+  const scopes: Record<string, string[]> = {};
+  for (const key of Object.keys(all)) {
+    const entry = all[key];
+    if (scope && (entry.accountId !== scope.accountId || entry.kind !== scope.kind)) continue;
+    const id = `${entry.accountId}|${entry.kind}`;
+    (scopes[id] = scopes[id] ?? []).push(key);
+  }
+  const removed: ResumeEntry[] = [];
+  for (const id of Object.keys(scopes)) {
+    const keys = scopes[id];
+    if (keys.length <= CONFIG.XTREAM.RESUME_MAX_ITEMS) continue;
+    keys.sort((a, b) => {
+      if (a === keepKey) return -1;
+      if (b === keepKey) return 1;
+      return all[b].updatedAt - all[a].updatedAt || (a < b ? -1 : a > b ? 1 : 0);
+    });
+    for (const key of keys.slice(CONFIG.XTREAM.RESUME_MAX_ITEMS)) {
+      removed.push(all[key]);
+      delete all[key];
+    }
+  }
+  return removed;
+}
+
+// Without IndexedDB the localStorage map is the store, so an over-cap one
+// (saved before the cap existed) is trimmed and rewritten the first time it is read.
+function fallbackResume(): Record<string, ResumeEntry> {
+  const all = get<Record<string, ResumeEntry>>('resume', {});
+  if (trimResume(all).length) set('resume', all);
+  return all;
 }
 
 function watchlistKey(entry: Pick<WatchlistEntry, 'accountId' | 'kind' | 'itemId'>): string {
@@ -483,6 +524,8 @@ async function initUserData(): Promise<void> {
   const loadedUserData = await loadUserDataState();
   for (const [key] of migrations) remove(key);
   remove('parental_control');
+  const trimmed = trimResume(loadedUserData.resume);
+  if (trimmed.length) persistUserChanges('playback-progress', [], trimmed.map(resumeKey));
   userData = loadedUserData;
 }
 
@@ -585,6 +628,7 @@ export const StorageService = {
             'operation=init',
             err,
           );
+          if (!userData) fallbackResume();
         });
     }
     await userDataInitPromise;
@@ -1151,7 +1195,7 @@ export const StorageService = {
 
   // Resume points keyed `${accountId}|${kind}|${itemId}`.
   getResume(accountId: string, kind: ResumeKind, itemId: string): ResumeEntry | null {
-    const all = userData ? userData.resume : get<Record<string, ResumeEntry>>('resume', {});
+    const all = userData ? userData.resume : fallbackResume();
     const entry = all[`${accountId}|${kind}|${itemId}`] ?? null;
     return entry ? cloneValue(entry) : null;
   },
@@ -1164,22 +1208,24 @@ export const StorageService = {
         persistUserChanges('playback-progress', [], [resumeKey(entry)]);
       } else {
         userData.resume[key] = cloneValue(entry);
+        const evicted = trimResume(userData.resume, entry, key);
         persistUserChanges('playback-progress', [
           record(resumeKey(entry), entry, { updatedAt: entry.updatedAt }),
-        ]);
+        ], evicted.map(resumeKey));
       }
       return;
     }
-    const all = get<Record<string, ResumeEntry>>('resume', {});
+    const all = fallbackResume();
     if (finished || entry.position < CONFIG.XTREAM.RESUME_MIN_SECS) {
       delete all[key];
     } else {
       all[key] = cloneValue(entry);
+      trimResume(all, entry, key);
     }
     set('resume', all);
   },
   getResumeList(accountId: string): ResumeEntry[] {
-    const all = userData ? userData.resume : get<Record<string, ResumeEntry>>('resume', {});
+    const all = userData ? userData.resume : fallbackResume();
     return Object.keys(all)
       .map((k) => all[k])
       .filter((e) => e.accountId === accountId)
@@ -1195,9 +1241,25 @@ export const StorageService = {
       ]);
       return;
     }
-    const all = get<Record<string, ResumeEntry>>('resume', {});
+    const all = fallbackResume();
     delete all[key];
     set('resume', all);
+  },
+  clearResumeList(accountId: string, kind?: ResumeKind): void {
+    const all = userData ? userData.resume : fallbackResume();
+    const removed: ResumeEntry[] = [];
+    for (const key of Object.keys(all)) {
+      const entry = all[key];
+      if (entry.accountId === accountId && (!kind || entry.kind === kind)) {
+        removed.push(entry);
+        delete all[key];
+      }
+    }
+    if (userData) {
+      persistUserChanges('playback-progress', [], removed.map(resumeKey));
+    } else if (removed.length) {
+      set('resume', all);
+    }
   },
 
   // Which Xtream account drives Movies / Series / Search. Null = pick the first.
@@ -1219,36 +1281,31 @@ export const StorageService = {
   isWatchlisted(accountId: string, kind: WatchlistKind, itemId: string): boolean {
     return this.getWatchlist(accountId, kind).some((entry) => entry.itemId === itemId);
   },
-  toggleWatchlist(entry: WatchlistEntry): boolean {
+  toggleWatchlist(entry: WatchlistEntry): WatchlistToggleResult {
     const all = userData ? userData.watchlist : get<Record<string, WatchlistEntry>>('watchlist', {});
     const key = `${entry.accountId}|${entry.kind}|${entry.itemId}`;
     if (all[key]) {
       delete all[key];
       if (userData) persistUserChanges('watchlist', [], [watchlistKey(entry)]);
       else set('watchlist', all);
-      return false;
+      return 'removed';
     }
 
+    // A full list refuses the add rather than dropping something the user saved.
+    const count = Object.keys(all).filter((itemKey) =>
+      all[itemKey].accountId === entry.accountId && all[itemKey].kind === entry.kind).length;
+    if (count >= CONFIG.XTREAM.WATCHLIST_MAX_ITEMS) return 'full';
+
     all[key] = cloneValue(entry);
-    const scoped = Object.keys(all)
-      .map((itemKey) => ({ key: itemKey, entry: all[itemKey] }))
-      .filter((item) => item.entry.accountId === entry.accountId && item.entry.kind === entry.kind)
-      .sort((a, b) => b.entry.addedAt - a.entry.addedAt);
-    const removed = scoped.slice(CONFIG.XTREAM.WATCHLIST_MAX_ITEMS);
-    for (const item of removed) delete all[item.key];
     if (userData) {
-      persistUserChanges(
-        'watchlist',
-        [record(watchlistKey(entry), entry, {
-          scope: `${entry.accountId}|${entry.kind}`,
-          updatedAt: entry.addedAt,
-        })],
-        removed.map(item => watchlistKey(item.entry)),
-      );
+      persistUserChanges('watchlist', [record(watchlistKey(entry), entry, {
+        scope: `${entry.accountId}|${entry.kind}`,
+        updatedAt: entry.addedAt,
+      })]);
     } else {
       set('watchlist', all);
     }
-    return true;
+    return 'added';
   },
   removeWatchlist(accountId: string, kind: WatchlistKind, itemId: string): void {
     const key = `${accountId}|${kind}|${itemId}`;
@@ -1262,11 +1319,11 @@ export const StorageService = {
     delete all[key];
     set('watchlist', all);
   },
-  clearWatchlist(accountId: string): void {
+  clearWatchlist(accountId: string, kind?: WatchlistKind): void {
     const all = userData ? userData.watchlist : get<Record<string, WatchlistEntry>>('watchlist', {});
     const removed: WatchlistEntry[] = [];
     for (const key of Object.keys(all)) {
-      if (all[key].accountId === accountId) {
+      if (all[key].accountId === accountId && (!kind || all[key].kind === kind)) {
         removed.push(all[key]);
         delete all[key];
       }

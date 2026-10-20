@@ -20,10 +20,10 @@ const { catalogMock, storageMock, watchlistState, toastMock } = vi.hoisted(() =>
         const index = watchlistState.entries.findIndex((item) => item.itemId === entry.itemId);
         if (index >= 0) {
           watchlistState.entries.splice(index, 1);
-          return false;
+          return 'removed' as const;
         }
         watchlistState.entries.unshift(entry);
-        return true;
+        return 'added' as const;
       }),
     },
     toastMock: { showToast: vi.fn() },
@@ -74,6 +74,61 @@ async function openWith(cats = [{ id: '1', name: 'Cat A' }], items = [series('s1
 }
 
 describe('Series browse + grid', () => {
+  it('returns to the neighboring episode after direct browse playback completes', async () => {
+    const entries = ['e1', 'e2', 'e3', 'e4'].map((itemId, i) => ({
+      accountId: 'x1', kind: 'episode', itemId, name: `Title ${i}`, poster: '', ext: 'mp4',
+      position: 100, duration: 600, updatedAt: 4 - i,
+    }));
+    storageMock.getResumeList.mockReturnValue(entries);
+    const { view, handlers } = await openWith();
+    const episode = container.querySelector<HTMLElement>('[data-resume-episode="e3"]')!;
+    episode.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e3' }));
+    storageMock.getResumeList.mockReturnValue([entries[0], entries[1], entries[3]]);
+    view.refreshPlaybackState();
+    expect(container.querySelector('.catalog-layer-browse .focused')?.getAttribute('data-key')).toBe('r:e4');
+  });
+
+  it('leaves the collection when playback completes its final episode', async () => {
+    storageMock.getResumeList.mockReturnValue([{
+      accountId: 'x1', kind: 'episode', itemId: 'e1', name: 'Title 1', poster: '', ext: 'mp4',
+      position: 100, duration: 600, updatedAt: 1,
+    }]);
+    const { view } = await openWith();
+    container.querySelector<HTMLElement>('[data-collection-manage="continue"]')!.click();
+    view.handleAction('back');
+    const episode = container.querySelector<HTMLElement>('.catalog-layer-grid [data-resume-episode]')!;
+    episode.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    storageMock.getResumeList.mockReturnValue([]);
+    view.refreshPlaybackState();
+    expect(container.querySelector('.catalog-layer-grid')?.textContent).toBe('');
+    expect(container.querySelector('[data-rail-key="continue"]')).toBeNull();
+    expect(container.querySelector('.catalog-layer-browse .focused')).not.toBeNull();
+  });
+
+  it('keeps the resumed episode focused when playback moves it to the front of the collection', async () => {
+    const entries = ['e1', 'e2', 'e3'].map((itemId, i) => ({
+      accountId: 'x1', kind: 'episode', itemId, name: `Title ${i}`, poster: '', ext: 'mp4',
+      position: 100, duration: 600, updatedAt: 3 - i,
+    }));
+    storageMock.getResumeList.mockReturnValue(entries);
+    const { view, handlers } = await openWith();
+    const manage = container.querySelector<HTMLElement>('[data-collection-manage="continue"]')!;
+    manage.click();
+    view.handleAction('back');
+    const episode = container.querySelector<HTMLElement>('.catalog-layer-grid [data-resume-episode="e2"]')!;
+    episode.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e2' }));
+    storageMock.getResumeList.mockReturnValue([entries[1], entries[0], entries[2]]);
+    view.refreshPlaybackState();
+    expect(container.querySelector('.catalog-layer-grid .focused')?.getAttribute('data-key')).toBe('r:e2');
+    expect(container.querySelector('.catalog-layer-grid .focused')?.closest('[data-grid-index]')
+      ?.getAttribute('data-grid-index')).toBe('0');
+  });
+
   it('restores its own saved sort field and direction', async () => {
     storageMock.getCatalogSort.mockReturnValue({ by: 'name', direction: 'desc' });
     await openWith(undefined, [series('s1', 'Title 1'), series('s2', 'Title 2'), series('s10', 'Title 10')]);

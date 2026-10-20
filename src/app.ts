@@ -1435,6 +1435,7 @@ class App {
     const current = this.viewStack[this.viewStack.length - 1];
     if (current === 'channels') this.channelList.render();
     else if (current === 'epg') this.epgGrid.render();
+    else if (current === 'settings' && concealmentChanged) this.settings.refreshCollectionCounts();
     // The search box can be open over another view, with Search still live behind it.
     if (current === 'search' || this.tabBar.searchOpen) {
       if (concealmentChanged) void this.search.refreshConcealment();

@@ -4,7 +4,7 @@ import { morph } from '../utils/morph';
 import { StorageService } from '../services/storage-service';
 import { loadSeriesCategories, loadSeries, loadSeriesInfo } from '../services/xtream-catalog';
 import { xtreamEpisodeUrl, type XtreamCredentials } from '../utils/xtream-url';
-import { CatalogView, type CatalogHandlers } from './catalog-view';
+import { CatalogView, type CatalogHandlers, type CollectionKind, type CollectionEntry } from './catalog-view';
 import { PLAY_ICON, watchlistIcon } from './icons';
 import { showToast } from './toast';
 import { t, tp } from '../i18n';
@@ -78,17 +78,21 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     this.detailController = null;
   }
 
-  protected continueRail(): Safe | '' {
-    return this.resume.length
-      ? this.rail('continue', t('catalog.continueWatching'), this.resume.map((r) => this.resumeTile(r)))
-      : '';
-  }
-
-  protected watchlistRail(): Safe | '' {
-    const entries = this.visibleWatchlist('series');
-    return entries.length
-      ? this.rail('watchlist', t('common.watchlist'), entries.map((entry) => this.tile(this.watchlistEntryToSeries(entry))))
-      : '';
+  protected collectionEntries(kind: CollectionKind): CollectionEntry[] {
+    if (kind === 'continue') {
+      return this.resume.map(entry => ({
+        id: entry.itemId, key: `r:${entry.itemId}`,
+        tile: managing => this.resumeTile(entry, managing),
+      }));
+    }
+    return this.visibleWatchlist('series').map(entry => {
+      const series = this.watchlistEntryToSeries(entry);
+      const key = `i:${series.categoryId}:${series.seriesId}`;
+      return {
+        id: entry.itemId, key,
+        tile: managing => this.tile(series, this.removeMark(managing, key), managing),
+      };
+    });
   }
 
   protected fallbackItem(seriesId: string): SeriesItem | null {
@@ -125,7 +129,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     const series = this.currentSeries;
     const account = this.account;
     if (!series || !account) return;
-    const added = StorageService.toggleWatchlist({
+    const result = StorageService.toggleWatchlist({
       accountId: account.id,
       kind: 'series',
       itemId: series.seriesId,
@@ -135,7 +139,8 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       categoryId: series.categoryId,
       addedAt: Date.now(),
     });
-    showToast(t(added ? 'catalog.watchlistAdded' : 'catalog.watchlistRemoved'));
+    showToast(t(result === 'full' ? 'catalog.watchlistFull'
+      : result === 'added' ? 'catalog.watchlistAdded' : 'catalog.watchlistRemoved'));
     this.renderDetail();
   }
 
@@ -257,11 +262,12 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     });
   }
 
-  private resumeTile(r: ResumeEntry): Safe {
+  private resumeTile(r: ResumeEntry, managing = false): Safe {
     return html`
-      <div class="catalog-tile" data-focusable data-key="r:${r.itemId}" data-resume-episode="${r.itemId}">
+      <div class="catalog-tile" ${raw(managing ? '' : 'data-focusable')} data-key="r:${r.itemId}" data-resume-episode="${r.itemId}">
         <div class="catalog-poster-wrap">${this.posterCell(r.name, r.poster)}${
-          this.itemLockBadge(r.categoryId ?? '', r.watchlistOwner?.itemId ?? r.itemId)}</div>
+          this.itemLockBadge(r.categoryId ?? '', r.watchlistOwner?.itemId ?? r.itemId)}${
+          this.progressBar(r.position, r.duration)}${this.removeMark(managing, `r:${r.itemId}`)}</div>
         <div class="catalog-tile-name">${r.name}</div>
       </div>
     `;

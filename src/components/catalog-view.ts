@@ -13,7 +13,10 @@ import { FocusRing, ringShown } from '../navigation/focus-ring';
 import { InputMode } from '../navigation/input-mode';
 import { html, raw, Safe, withInstantScroll } from '../utils/dom';
 import { categoryLockBadge, lockBadge } from './parental-badge';
-import { SORT_ASCENDING_ICON, SORT_DESCENDING_ICON, SEE_ALL_ICON } from './icons';
+import { SORT_ASCENDING_ICON, SORT_DESCENDING_ICON, SEE_ALL_ICON, REMOVE_ICON, CHECK_ICON, TRASH_ICON, PENCIL_ICON } from './icons';
+import { ConfirmationPrompt } from './confirmation-prompt';
+import { backKey, okHint } from './key-hints';
+import { showToast } from './toast';
 import { dropdown, toggleDropdown, closeDropdown, commitDropdownOption } from './dropdown';
 import { morph } from '../utils/morph';
 import { StorageService } from '../services/storage-service';
@@ -24,7 +27,7 @@ import {
   ParentalControlService,
 } from '../services/parental-control';
 import { CONFIG } from '../config';
-import { getLocale, t } from '../i18n';
+import { getLocale, t, tp } from '../i18n';
 import { VirtualGrid } from '../utils/virtual-grid';
 import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard } from '../utils/virtual-scroll';
@@ -53,6 +56,7 @@ function sortDirections(by: CatalogSort): CatalogSortDirection[] {
 }
 
 const CATALOG_GRID_COLUMN_STRIDE = 244;
+const CATALOG_GRID_POSTER_WIDTH = 220;
 const CATALOG_GRID_ROW_STRIDE = 395;
 const CATALOG_GRID_OVERSCAN_ROWS = 2;
 const CATALOG_GRID_VIEWPORT_WIDTH = 1760;
@@ -71,6 +75,20 @@ export interface CatalogHandlers {
 }
 
 type Mode = 'browse' | 'grid' | 'detail';
+
+export type CollectionKind = 'continue' | 'watchlist';
+
+export interface CollectionEntry {
+  id: string;
+  key: string;
+  tile: (managing: boolean) => Safe;
+}
+
+interface GridSource {
+  count: number;
+  keyAt: (index: number) => string;
+  render: (index: number) => Safe;
+}
 
 interface BrowseReturn {
   el: HTMLElement;
@@ -127,8 +145,12 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private resetBrowseRailOffsets = false;
   private browseSortReturn: string | null = null;
   protected gridCategory: C | null = null;
+  private collection: CollectionKind | null = null;
+  private managing = false;
+  private readonly clearPrompt: ConfirmationPrompt;
   protected deepLinkBack: (() => void) | null = null;
   private gridFocusIndex = 0;
+  private gridReturnKey: string | null = null;
   // The browse tile that opened a grid or detail, refocused on Back.
   private readonly gridVirtualizer = new VirtualGrid({
     columnStride: CATALOG_GRID_COLUMN_STRIDE,
@@ -169,6 +191,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     this.layers = { browse: layer('browse'), grid: layer('grid'), detail: layer('detail') };
     this.nav = new SpatialNav(container, (el) => this.onFocusChanged(el), { follow: false });
     this.nav.setRestrict(this.layers.browse);
+    this.clearPrompt = new ConfirmationPrompt(`prompt.${this.scopeName()}.collection`);
     this.focusScope = Focus.register({
       id: `${this.scopeName()}.catalog`,
       root: container,
@@ -189,7 +212,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     });
     this.container.addEventListener('click', (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (!target.closest('.catalog-sort')) return;
+      if (!target.closest('.catalog-sort, [data-collection-manage], [data-collection-see-all], [data-collection-action]')) return;
       const el = target.closest<HTMLElement>('[data-focusable]');
       if (!el || !this.layers[this.mode].contains(el)) return;
       this.place(el, 'pointer');
@@ -270,10 +293,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   }
   protected handleExtraScroll(_target: HTMLElement): boolean { return false; }
   protected onRequestSessionReset(): void {}
-  // The Continue Watching rail (or '' when there is nothing to resume).
-  protected abstract continueRail(): Safe | '';
-  // The Watchlist rail (or '' when it is empty).
-  protected abstract watchlistRail(): Safe | '';
+  protected abstract collectionEntries(kind: CollectionKind): CollectionEntry[];
   // A tile id that isn't in a loaded category (Continue/Watchlist); default none.
   protected fallbackItem(_id: string): I | null { return null; }
   // Hero when no rail item exists (Movies falls back to a resumed item); default none.
@@ -301,11 +321,13 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   }
 
   protected clearLayer(mode: Mode): void {
+    if (mode === 'grid') this.gridReturnKey = null;
     morph(this.layers[mode], html``);
   }
 
   // Detail entry for subclasses: remembers where browse focus was first.
   protected enterDetail(): void {
+    if (this.mode === 'grid') this.gridReturnKey = this.focusedKey();
     this.showLayer('detail');
     // A new item's detail starts on its first button.
     this.focusScope.track(null);
@@ -358,9 +380,29 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   }
 
   private gridIndexOf(key: string): number {
+    const source = this.gridSource();
+    for (let index = 0; index < source.count; index++) {
+      if (source.keyAt(index) === key) return index;
+    }
+    return -1;
+  }
+
+  private gridSource(): GridSource {
+    if (this.collection) {
+      const entries = this.collectionEntries(this.collection);
+      return {
+        count: entries.length,
+        keyAt: index => entries[index].key,
+        render: index => entries[index].tile(this.managing),
+      };
+    }
     const cat = this.gridCategory;
     const items = cat ? (this.itemsByCategory[cat.id] ?? []) : [];
-    return items.findIndex((it) => `i:${this.itemCategoryId(it)}:${this.itemId(it)}` === key);
+    return {
+      count: items.length,
+      keyAt: index => `i:${this.itemCategoryId(items[index])}:${this.itemId(items[index])}`,
+      render: index => this.tile(items[index]),
+    };
   }
 
   private categoryIndexOf(key: string): number {
@@ -563,6 +605,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
 
   setAccount(account: PlaylistEntry): void {
     if (this.account?.id !== account.id) {
+      this.clearPrompt.hide();
       this.dismissSort(null);
       this.requestController?.abort();
       this.onRequestSessionReset();
@@ -595,9 +638,15 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
 
   refreshPlaybackState(): void {
     if (this.mode === 'detail') this.renderDetail();
+    else if (this.mode === 'grid') this.renderGrid();
+    else {
+      this.leaveBrowse();
+      this.renderBrowse();
+    }
   }
 
   deactivate(): void {
+    this.clearPrompt.hide();
     this.dismissSort(null);
     this.requestController?.abort();
     this.requestController = null;
@@ -605,6 +654,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   }
 
   async open(account: PlaylistEntry): Promise<void> {
+    this.clearPrompt.hide();
+    this.collection = null;
+    this.managing = false;
     this.dismissSort(null);
     const signal = this.beginRequests();
     this.account = account;
@@ -693,6 +745,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     if (this.account && this.account.id !== account.id
         && this.layers.browse.querySelector('.catalog-view')) {
       this.gridCategory = null;
+      this.collection = null;
+      this.managing = false;
       this.browseReturn = null;
       this.clearLayer('grid');
       morph(this.layers.browse, this.loadingMarkup());
@@ -707,7 +761,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   // A detail the deep link replaced is not restored: Back skips to its grid or
   // browse.
   private restoreBeneathDeepLink(): void {
-    if (this.gridCategory && this.layers.grid.querySelector('.catalog-grid')) {
+    if ((this.gridCategory || this.collection) && this.layers.grid.querySelector('.catalog-grid')) {
       this.renderGrid();
       return;
     }
@@ -774,7 +828,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       return;
     }
     const current = this.current();
-    const sortRow = current?.closest<HTMLElement>('.catalog-sort');
+    const sortRow = current?.closest<HTMLElement>('.catalog-sort, .catalog-collection-actions');
     const horizontalRegion = sortRow ?? (this.mode === 'browse'
       ? current?.closest<HTMLElement>('.catalog-rail-track:not(.catalog-category-rail)') : null);
     if (horizontalRegion && (action === 'left' || action === 'right')) {
@@ -803,7 +857,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
         && this.moveCategoryFocus(action)) return;
     if (this.mode === 'grid'
         && (action === 'up' || action === 'down' || action === 'left' || action === 'right')) {
-      if (this.current()?.closest('.catalog-sort')) {
+      if (this.current()?.closest('.catalog-sort, .catalog-collection-actions')) {
         if (!this.nav.move(action) && action === 'up') this.handlers.onRevealTabBar();
         return;
       }
@@ -858,12 +912,17 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
         back();
         return;
       }
-      this.gridCategory ? this.renderGrid() : this.renderBrowse();
+      this.gridCategory || this.collection ? this.renderGrid() : this.renderBrowse();
       this.clearLayer('detail');
       return;
     }
     if (this.mode === 'grid') {
+      if (this.managing) {
+        this.setManaging(false);
+        return;
+      }
       this.gridCategory = null;
+      this.collection = null;
       this.renderBrowse();
       this.clearLayer('grid');
       return;
@@ -899,6 +958,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       }
       return;
     }
+    if (this.selectCollection(el)) return;
     if (el.dataset.categoryId !== undefined
         && (el.classList.contains('catalog-cat') || el.classList.contains('catalog-see-all'))) {
       void this.openGrid(el.dataset.categoryId);
@@ -909,6 +969,157 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       const item = this.findItem(el.dataset.categoryId ?? '', el.dataset.itemId);
       if (item) void this.openDetail(item);
     }
+  }
+
+  private selectCollection(el: HTMLElement): boolean {
+    const manage = el.dataset.collectionManage;
+    const seeAll = el.dataset.collectionSeeAll;
+    const kind = manage ?? seeAll;
+    if (kind === 'continue' || kind === 'watchlist') {
+      this.gridCategory = null;
+      this.collection = kind;
+      this.managing = manage !== undefined;
+      this.gridRequest++;
+      this.clearLayer('grid');
+      this.gridFocusIndex = 0;
+      this.gridVirtualizer.setScrollOffset(0);
+      this.renderGrid();
+      return true;
+    }
+    const action = el.dataset.collectionAction;
+    if (!this.collection || this.mode !== 'grid') return false;
+    if (action === 'manage' || action === 'done') {
+      this.setManaging(action === 'manage');
+      return true;
+    }
+    if (action === 'clear') {
+      this.confirmClear();
+      return true;
+    }
+    const cell = el.closest<HTMLElement>('[data-grid-index]');
+    if (this.managing && action === 'remove' && cell) {
+      const index = Number(cell.dataset.gridIndex);
+      const entries = this.collectionEntries(this.collection);
+      const entry = entries[index];
+      if (!entry) return true;
+      this.removeCollectionEntry(this.collection, entry.id);
+      if (entries.length === 1) {
+        this.leaveCollection();
+        return true;
+      }
+      this.gridFocusIndex = Math.min(index, entries.length - 2);
+      this.renderGrid(false);
+      this.revealGridIndex(this.gridFocusIndex);
+      this.place(this.layers.grid.querySelector<HTMLElement>(
+        `[data-grid-index="${this.gridFocusIndex}"] [data-focusable]`,
+      ), this.placementVia());
+      return true;
+    }
+    return false;
+  }
+
+  private removeCollectionEntry(kind: CollectionKind, id: string): void {
+    const account = this.account;
+    if (!account) return;
+    if (kind === 'continue') {
+      StorageService.clearResume(account.id, this.resumeKind, id);
+      this.resume = this.visibleResume(account.id);
+    } else {
+      StorageService.removeWatchlist(account.id, this.parentalKind, id);
+    }
+  }
+
+  private setManaging(managing: boolean): void {
+    if (!this.collection) return;
+    this.managing = managing;
+    this.renderGrid(false);
+    this.place(this.layers.grid.querySelector<HTMLElement>(managing
+      ? `[data-grid-index="${this.gridFocusIndex}"] [data-focusable]`
+      : '[data-collection-action="manage"]'), this.placementVia());
+  }
+
+  private leaveCollection(): void {
+    this.collection = null;
+    this.managing = false;
+    this.renderBrowse();
+    this.clearLayer('grid');
+  }
+
+  private confirmClear(): void {
+    const kind = this.collection;
+    const account = this.account;
+    const returnKey = this.focusScope.focusKey;
+    if (!kind || !account) return;
+    this.clearPrompt.show({
+      title: t(kind === 'continue' ? 'catalog.clearContinueWatchingTitle' : 'settings.clearWatchlistTitle'),
+      message: t(kind === 'continue' ? 'catalog.clearContinueWatchingMessage' : 'catalog.clearWatchlistMessage', {
+        account: account.name, section: this.kicker,
+      }),
+      confirmLabel: t('common.clearAll'),
+      cancelLabel: t('common.cancel'),
+      onConfirm: () => {
+        if (this.account?.id !== account.id || this.collection !== kind) return;
+        // Only the visible list is cleared; concealed titles stay untouched.
+        this.collectionEntries(kind).forEach(entry => this.removeCollectionEntry(kind, entry.id));
+        this.leaveCollection();
+        showToast(t(kind === 'continue' ? 'catalog.continueWatchingCleared' : 'catalog.watchlistCleared'));
+      },
+      onCancel: () => {
+        if (InputMode.current === 'keys') this.request(returnKey, 'back');
+      },
+    });
+  }
+
+  private collectionTitle(kind: CollectionKind): string {
+    return t(kind === 'continue' ? 'catalog.continueWatching' : 'common.watchlist');
+  }
+
+  private collectionCount(kind: CollectionKind, count: number): string {
+    return kind === 'continue' && this.resumeKind === 'episode'
+      ? tp('catalog.episodeCount', count) : this.itemCount(count);
+  }
+
+  private collectionRail(kind: CollectionKind): Safe | '' {
+    const entries = this.collectionEntries(kind);
+    if (!entries.length) return '';
+    return html`
+      <div class="catalog-rail" data-key="rail:${kind}" data-rail-key="${kind}">
+        <div class="catalog-rail-head">
+          <h2 class="catalog-rail-title">${this.collectionTitle(kind)}</h2>
+          <button class="btn catalog-collection-button catalog-collection-manage" type="button"
+                  data-self-activate data-focusable data-key="manage:${kind}" data-collection-manage="${kind}">
+            <span class="catalog-action-icon">${raw(PENCIL_ICON)}</span>
+            <span>${t('parental.manage')}</span>
+          </button>
+        </div>
+        <div class="catalog-rail-track">
+          ${entries.slice(0, CONFIG.XTREAM.RAIL_ITEMS).map(entry => entry.tile(false))}
+          ${entries.length > CONFIG.XTREAM.RAIL_ITEMS ? html`
+            <div class="catalog-tile catalog-see-all" data-self-activate data-focusable
+                 data-key="all:${kind}" data-collection-see-all="${kind}">
+              <div class="catalog-poster-wrap catalog-see-all-card">
+                ${raw(SEE_ALL_ICON)}
+                <div class="catalog-see-all-label">${t('catalog.seeAll')}</div>
+                <div class="catalog-see-all-count">${this.collectionCount(kind, entries.length)}</div>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  protected removeMark(managing: boolean, key: string): Safe | '' {
+    return managing ? html`
+      <button class="catalog-remove-mark" type="button" data-self-activate data-focusable data-key="${key}"
+              data-collection-action="remove" aria-label="${t('common.remove')}">${raw(REMOVE_ICON)}</button>
+    ` : '';
+  }
+
+  protected progressBar(position: number, duration: number): Safe | '' {
+    if (duration <= 0) return '';
+    const percent = Math.max(2, Math.min(100, Math.round(position / duration * 100)));
+    return html`<div class="catalog-progress"><div class="catalog-progress-fill" style="width:${percent}%"></div></div>`;
   }
 
   // SpatialNav picked `el`: hand it to the scope, and keep the browse hero
@@ -1051,6 +1262,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     const account = this.account;
     const signal = this.requestSignal;
     if (!signal || signal.aborted) return;
+    this.collection = null;
+    this.managing = false;
     this.gridCategory = this.categories.find((c) => c.id === categoryId) ?? null;
     const request = ++this.gridRequest;
     this.clearLayer('grid');
@@ -1117,14 +1330,14 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     else if (this.mode === 'grid') this.renderGrid(false);
   }
 
-  protected tile(item: I): Safe {
+  protected tile(item: I, overlay: Safe | '' = '', managing = false): Safe {
     const id = this.itemId(item);
     const cat = this.itemCategoryId(item);
     return html`
-      <div class="catalog-tile" data-focusable data-key="i:${cat}:${id}"
+      <div class="catalog-tile" ${raw(managing ? '' : 'data-focusable')} data-key="i:${cat}:${id}"
            data-item-id="${id}" data-category-id="${cat}">
         <div class="catalog-poster-wrap">${this.posterCell(this.itemName(item), this.itemPoster(item))}${
-          this.itemLockBadge(cat, id)}</div>
+          this.itemLockBadge(cat, id)}${overlay}</div>
         <div class="catalog-tile-name">${this.itemName(item)}</div>
       </div>
     `;
@@ -1211,8 +1424,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     const browse = this.layers.browse;
     this.resume = this.visibleResume(this.account!.id);
     const hero = this.railGroups[0]?.items[0] ?? this.heroFallback();
-    const continueRail = this.continueRail();
-    const watchlistRail = this.watchlistRail();
+    const continueRail = this.collectionRail('continue');
+    const watchlistRail = this.collectionRail('watchlist');
     const hasContent = this.categories.length > 0 || !!continueRail || !!watchlistRail;
     // A poster URL sits inside a CSS url('…') string, where the html escaper's
     // entity encoding is decoded before CSS parses it; percent-encode the
@@ -1295,13 +1508,54 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     if (restoreFocus) this.restoreBrowseFocus();
   }
 
+  private collectionActions(width: number): Safe {
+    return html`
+      <div class="catalog-collection-actions" style="width:${width}px" data-nav-container data-self-activate>
+        ${this.managing ? html`
+          <button class="btn btn-primary catalog-collection-button" type="button" data-focusable
+                  data-key="collection:done" data-collection-action="done">
+            <span class="catalog-action-icon">${raw(CHECK_ICON)}</span>
+            <span>${t('channel.editDone')}</span>
+          </button>
+          <button class="btn catalog-collection-button catalog-collection-clear" type="button" data-focusable
+                  data-key="collection:clear" data-collection-action="clear">
+            <span class="catalog-action-icon">${raw(TRASH_ICON)}</span>
+            <span>${t('common.clearAll')}</span>
+          </button>
+        ` : html`
+          <button class="btn catalog-collection-button catalog-collection-manage" type="button" data-focusable
+                  data-key="collection:manage" data-collection-action="manage">
+            <span class="catalog-action-icon">${raw(PENCIL_ICON)}</span>
+            <span>${t('parental.manage')}</span>
+          </button>
+        `}
+      </div>
+    `;
+  }
+
   protected renderGrid(restoreFocus = true): void {
     this.dismissSort(null);
     this.showLayer('grid');
     const gridLayer = this.layers.grid;
     const cat = this.gridCategory;
-    const items = cat ? (this.itemsByCategory[cat.id] ?? []) : [];
-    this.gridFocusIndex = Math.max(0, Math.min(this.gridFocusIndex, items.length - 1));
+    const kind = this.collection;
+    if (kind && this.account) this.resume = this.visibleResume(this.account.id);
+    const source = this.gridSource();
+    const count = source.count;
+    if (kind && count === 0) {
+      this.leaveCollection();
+      return;
+    }
+    if (restoreFocus) {
+      const focused = parseKey(this.focusScope.focusKey);
+      const key = this.gridReturnKey ?? (focused?.mode === 'grid' ? focused.key : null);
+      if (kind && key) {
+        const index = this.gridIndexOf(key);
+        if (index >= 0) this.gridFocusIndex = index;
+      }
+      this.gridReturnKey = null;
+    }
+    this.gridFocusIndex = Math.max(0, Math.min(this.gridFocusIndex, count - 1));
     const previousView = gridLayer.querySelector<HTMLElement>('.catalog-grid');
     const previousTrack = gridLayer.querySelector<HTMLElement>('.catalog-grid-track');
     if (restoreFocus && previousView) {
@@ -1311,34 +1565,43 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     }
     const viewportWidth = previousTrack?.clientWidth || CATALOG_GRID_VIEWPORT_WIDTH;
     const viewportHeight = previousView?.clientHeight || CATALOG_GRID_VIEWPORT_HEIGHT;
-    if (restoreFocus && items.length) {
+    if (restoreFocus && count) {
       this.gridVirtualizer.ensureVisible(this.gridFocusIndex, viewportWidth, viewportHeight);
     }
-    const range = this.gridVirtualizer.getRange(items.length, viewportWidth, viewportHeight);
+    const range = this.gridVirtualizer.getRange(count, viewportWidth, viewportHeight);
+    const actionWidth = this.gridVirtualizer.getItemPosition(range.columns - 1, range.columns).left
+      + CATALOG_GRID_POSTER_WIDTH;
+    const cells: Safe[] = [];
+    for (let index = range.start; index < range.end; index++) {
+      const position = this.gridVirtualizer.getItemPosition(index, range.columns);
+      cells.push(html`
+        <div class="catalog-grid-cell" data-key="grid:${source.keyAt(index)}" data-grid-index="${index}"
+             style="left:${position.left}px;top:${position.top}px">${source.render(index)}</div>
+      `);
+    }
+    const managing = !!kind && this.managing;
     morph(gridLayer, html`
-      <div class="catalog-view catalog-grid" data-nav-container>
-        <h1 class="catalog-grid-title">${cat ? cat.name : this.kicker}</h1>
-        ${this.sortControls()}
-        ${items.length === 0
-          ? html`<p class="catalog-hint">${this.gridEmptyMessage}</p>`
+      <div class="catalog-view catalog-grid${managing ? ' catalog-managing' : ''}" data-nav-container>
+        <h1 class="catalog-grid-title">${kind ? html`
+          ${this.collectionTitle(kind)} <span class="catalog-grid-count">${this.collectionCount(kind, count)}</span>
+        ` : cat ? cat.name : this.kicker}</h1>
+        ${kind ? this.collectionActions(actionWidth) : this.sortControls()}
+        ${count === 0
+          ? html`<p class="catalog-hint">${kind
+            ? t(kind === 'continue' ? 'catalog.continueWatchingEmpty' : 'catalog.watchlistEmpty')
+            : this.gridEmptyMessage}</p>`
           : html`
             <div class="catalog-grid-track"
-                 style="height:${this.gridVirtualizer.getTotalSize(items.length, viewportWidth)}px">
-              ${items.slice(range.start, range.end).map((it, offset) => {
-                const index = range.start + offset;
-                const position = this.gridVirtualizer.getItemPosition(index, range.columns);
-                return html`
-                  <div class="catalog-grid-cell"
-                       data-key="grid:${this.itemId(it)}"
-                       data-grid-index="${index}"
-                       style="left:${position.left}px;top:${position.top}px">
-                    ${this.tile(it)}
-                  </div>
-                `;
-              })}
+                 style="height:${this.gridVirtualizer.getTotalSize(count, viewportWidth)}px">${cells}
             </div>
           `}
       </div>
+      ${managing ? html`
+        <div class="edit-hints catalog-manage-hints">
+          ${okHint(t('common.remove'))}
+          <span class="edit-hint">${backKey()}<span>${t('channel.editDone')}</span></span>
+        </div>
+      ` : ''}
     `);
     const view = gridLayer.querySelector<HTMLElement>('.catalog-grid');
     const track = gridLayer.querySelector<HTMLElement>('.catalog-grid-track');
@@ -1350,21 +1613,20 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       const focused = gridLayer.querySelector<HTMLElement>(
         `[data-grid-index="${this.gridFocusIndex}"] [data-focusable]`,
       );
-      this.place(focused, this.placementVia());
+      this.place(focused ?? gridLayer.querySelector<HTMLElement>('[data-focusable]'), this.placementVia());
     }
   }
 
   private moveGridFocus(direction: Action & ('up' | 'down' | 'left' | 'right')): boolean {
-    const cat = this.gridCategory;
-    const items = cat ? (this.itemsByCategory[cat.id] ?? []) : [];
-    if (!items.length) return false;
+    const count = this.gridSource().count;
+    if (!count) return false;
     const track = this.layers.grid.querySelector<HTMLElement>('.catalog-grid-track');
     const view = this.layers.grid.querySelector<HTMLElement>('.catalog-grid');
     const viewportWidth = track?.clientWidth || CATALOG_GRID_VIEWPORT_WIDTH;
     const next = this.gridVirtualizer.getAdjacentIndex(
       this.gridFocusIndex,
       direction,
-      items.length,
+      count,
       viewportWidth,
     );
     if (next === this.gridFocusIndex) return false;
@@ -1422,14 +1684,13 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     this.gridSnapTimer = setTimeout(() => {
       this.gridSnapTimer = null;
       if (this.mode !== 'grid') return;
-      const category = this.gridCategory;
-      const items = category ? (this.itemsByCategory[category.id] ?? []) : [];
+      const count = this.gridSource().count;
       const track = this.layers.grid.querySelector<HTMLElement>('.catalog-grid-track');
       const viewportWidth = track?.clientWidth || CATALOG_GRID_VIEWPORT_WIDTH;
       const viewportHeight = view.clientHeight || CATALOG_GRID_VIEWPORT_HEIGHT;
       const maxOffset = Math.max(
         0,
-        this.gridVirtualizer.getTotalSize(items.length, viewportWidth) - viewportHeight,
+        this.gridVirtualizer.getTotalSize(count, viewportWidth) - viewportHeight,
       );
       const snapped = Math.min(
         maxOffset,
