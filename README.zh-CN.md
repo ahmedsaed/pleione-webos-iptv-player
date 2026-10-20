@@ -23,23 +23,23 @@
 
 | 回看续播 | 频道信息 |
 | --- | --- |
-| ![回看续播](https://github.com/user-attachments/assets/9a49fa89-b3ae-4b27-bcd6-b93de2c3e1e1) | ![频道信息](https://github.com/user-attachments/assets/9adf8302-750f-429b-9155-828c8c30f097) |
+| ![回看续播](https://github.com/user-attachments/assets/641a72bf-db7e-4757-ac71-c8add5114c7a) | ![频道信息](https://github.com/user-attachments/assets/9adf8302-750f-429b-9155-828c8c30f097) |
 
 | 播放浮层 | 字幕 |
 | --- | --- |
-| ![播放浮层](https://github.com/user-attachments/assets/6a75885d-6464-4ae8-a4f8-35774ab20838) | ![字幕](https://github.com/user-attachments/assets/5d1fab57-1087-414b-9a20-f900589eac4a) |
+| ![播放浮层](https://github.com/user-attachments/assets/08c81dd7-5811-4fe3-9ed0-3e766d7124f9) | ![字幕](https://github.com/user-attachments/assets/5d1fab57-1087-414b-9a20-f900589eac4a) |
 
 | 字幕搜索 | 电影 |
 | --- | --- |
-| ![字幕搜索](https://github.com/user-attachments/assets/4ef9c97e-131b-4e4f-bf9a-c753d66f2956) | ![电影](https://github.com/user-attachments/assets/a6b09baf-0342-4e02-9d7e-5cf7677d1ecf) |
+| ![字幕搜索](https://github.com/user-attachments/assets/4ef9c97e-131b-4e4f-bf9a-c753d66f2956) | ![电影](https://github.com/user-attachments/assets/6d4d65c4-9719-4a2f-93a0-2fff4f8c0b2d) |
 
 | 电影详情 | 剧集详情 |
 | --- | --- |
-| ![电影详情](https://github.com/user-attachments/assets/1380b0b2-680f-49bb-a470-336c9e14a54a) | ![剧集详情](https://github.com/user-attachments/assets/2962184e-cc95-455d-aea7-888ff3297dc4) |
+| ![电影详情](https://github.com/user-attachments/assets/b1acbc3c-47f7-4cd2-9fe6-f3b3aca03768) | ![剧集详情](https://github.com/user-attachments/assets/2962184e-cc95-455d-aea7-888ff3297dc4) |
 
 | 搜索 | 设置 |
 | --- | --- |
-| ![搜索](https://github.com/user-attachments/assets/94bd8f82-1774-4a46-a607-206cf8321c4d) | ![设置](https://github.com/user-attachments/assets/59b155ed-40b6-4ebd-b063-a1e8cbd4de33) |
+| ![搜索](https://github.com/user-attachments/assets/0c6c54e2-6fb3-4fb2-a0da-7f6459815390) | ![设置](https://github.com/user-attachments/assets/8d47b502-ddcf-447f-a6b1-5afbf1b6b9ba) |
 
 | 主题选择器 | 节目提醒 |
 | --- | --- |
@@ -65,6 +65,8 @@
 - **最近观看** — 快速返回最近收看的直播频道，或从上次进度继续播放回看节目
 - **直播预览** — 浏览频道列表时在右侧持续播放，并提供节目信息和快捷控制
 - **电影和剧集** — 浏览 Xtream 账号提供的视频点播（VOD）内容，并按账号分别维护“继续观看”和“稍后观看”列表
+- **片库排序** — 电影和剧集可按名称、加入日期、评分或年份升序或降序排列，两个分区分别记住各自的排序方式
+- **管理“继续观看”和“稍后观看”** — 可逐个移除影片、清空整个列表，或在电影详情页清除观看进度
 - **视频点播自动连播队列** — 自动接续播放后续剧集或“稍后观看”中的电影，并在播放完成后将其移出列表
 - **回看与直播时移** — 播放已播出的节目；观看直播时可暂停、回退或一键返回直播点
 - **家长控制** — 使用 PIN 锁定直播分组、电影和剧集分类或单个节目，并建议锁定疑似成人内容的分组；锁定的内容可带锁显示或隐藏，并可设置何时再次要求输入 PIN
@@ -83,14 +85,16 @@
 
 **导航**
 
-- **全局搜索** — 同时搜索频道、EPG 节目、电影和剧集，并可从搜索结果直接观看直播、播放回看或设置提醒；搜索框下方会列出最近搜索，一键即可再次搜索
+- **全局搜索** — 同时搜索频道、EPG 节目、电影和剧集，并可从搜索结果直接观看直播、播放回看或设置提醒；搜索框下方会列出最近搜索，一键即可再次搜索；搜索索引会在后台预先构建并缓存，打开搜索几乎无需等待
 - **频道侧边栏** — 无需离开播放画面即可按分组切换频道，并查看当前节目信息
 - **频道自定义** — 支持调整顺序、隐藏、重命名、重新分组和管理收藏，还可修正各频道的 EPG 匹配及时间偏差
 - **自动播放与类型分组图标** — 让内容浏览更加快捷
 - **数字键选台** — 在频道列表或播放界面按遥控器数字键输入频道号直接切换，并在屏幕上显示输入中的数字
 - **全面支持 LG 遥控器与动感遥控器** — 所有界面均支持方向键空间导航和指针操作
+- **动感遥控器边缘滚动** — 将指针停在片库或搜索结果横排、标签栏或节目指南日期栏的边缘即可自动滚动，停留越久滚动越快
 - **多款配色主题** — 可实时预览并选择全局浅色或深色主题，播放器浮层另有深色和毛玻璃样式可选；所有选择均会自动保存
 - **文字大小可调** — 在不改变控件尺寸的前提下，可将文字缩放至 80%–150%
+- **动画模式** — “基础”在较旧的电视上关闭高开销的动态效果，“均衡”保留视觉效果但立即滚动到焦点项，“完整”在单次导航时平滑滚动
 - **多语言界面** — 支持 English、Deutsch、Español、Français、Italiano、Polski、Português (Brasil)、Русский、Türkçe、Українська 和简体中文；默认跟随电视的系统语言，也可在设置中手动指定
 
 **开发**

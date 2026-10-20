@@ -23,23 +23,23 @@
 
 | Catch-up resume | Channel info |
 | --- | --- |
-| ![Catch-up resume](https://github.com/user-attachments/assets/9a49fa89-b3ae-4b27-bcd6-b93de2c3e1e1) | ![Channel info](https://github.com/user-attachments/assets/9adf8302-750f-429b-9155-828c8c30f097) |
+| ![Catch-up resume](https://github.com/user-attachments/assets/641a72bf-db7e-4757-ac71-c8add5114c7a) | ![Channel info](https://github.com/user-attachments/assets/9adf8302-750f-429b-9155-828c8c30f097) |
 
 | Playback overlays | Subtitles |
 | --- | --- |
-| ![Playback overlays](https://github.com/user-attachments/assets/6a75885d-6464-4ae8-a4f8-35774ab20838) | ![Subtitles](https://github.com/user-attachments/assets/5d1fab57-1087-414b-9a20-f900589eac4a) |
+| ![Playback overlays](https://github.com/user-attachments/assets/08c81dd7-5811-4fe3-9ed0-3e766d7124f9) | ![Subtitles](https://github.com/user-attachments/assets/5d1fab57-1087-414b-9a20-f900589eac4a) |
 
 | Subtitle search | Movies |
 | --- | --- |
-| ![Subtitle search](https://github.com/user-attachments/assets/4ef9c97e-131b-4e4f-bf9a-c753d66f2956) | ![Movies](https://github.com/user-attachments/assets/a6b09baf-0342-4e02-9d7e-5cf7677d1ecf) |
+| ![Subtitle search](https://github.com/user-attachments/assets/4ef9c97e-131b-4e4f-bf9a-c753d66f2956) | ![Movies](https://github.com/user-attachments/assets/6d4d65c4-9719-4a2f-93a0-2fff4f8c0b2d) |
 
 | Movie detail | Series detail |
 | --- | --- |
-| ![Movie detail](https://github.com/user-attachments/assets/1380b0b2-680f-49bb-a470-336c9e14a54a) | ![Series detail](https://github.com/user-attachments/assets/2962184e-cc95-455d-aea7-888ff3297dc4) |
+| ![Movie detail](https://github.com/user-attachments/assets/b1acbc3c-47f7-4cd2-9fe6-f3b3aca03768) | ![Series detail](https://github.com/user-attachments/assets/2962184e-cc95-455d-aea7-888ff3297dc4) |
 
 | Search | Settings |
 | --- | --- |
-| ![Search](https://github.com/user-attachments/assets/94bd8f82-1774-4a46-a607-206cf8321c4d) | ![Settings](https://github.com/user-attachments/assets/59b155ed-40b6-4ebd-b063-a1e8cbd4de33) |
+| ![Search](https://github.com/user-attachments/assets/0c6c54e2-6fb3-4fb2-a0da-7f6459815390) | ![Settings](https://github.com/user-attachments/assets/8d47b502-ddcf-447f-a6b1-5afbf1b6b9ba) |
 
 | Theme picker | Reminder manager |
 | --- | --- |
@@ -65,6 +65,8 @@
 - **Recently Watched** — return to recent live channels or resume partially watched catch-up programs
 - **Live preview** — keep live playback beside the channel list while browsing, with program info and quick controls
 - **Movies & Series** — browse an Xtream account's VOD catalogs, with Continue Watching and account-scoped Watchlist rails
+- **Catalog sorting** — sort Movies and Series by name, date added, rating, or year in either direction; each section remembers its choice
+- **Continue Watching & Watchlist management** — remove individual titles, clear a whole list, or clear a movie's saved progress from its details page
 - **Automatic VOD queues** — continue through series episodes or remaining Watchlist movies, removing completed titles from the Watchlist
 - **Catch-up & Live DVR** — replay past programs, and pause / rewind / return to the live edge on live streams
 - **Parental controls** — lock Live TV groups, movie and series categories, or individual titles with a PIN, with adult groups suggested for locking; locked content can stay listed with a lock or be hidden, and you choose when the PIN is asked again
@@ -83,14 +85,16 @@
 
 **Navigation**
 
-- **Search** — across channels, EPG programs, movies, and series, with direct live, catch-up, and reminder actions; recent searches drop down under the search box for one-press repeat searches
+- **Search** — across channels, EPG programs, movies, and series, with direct live, catch-up, and reminder actions; recent searches drop down under the search box for one-press repeat searches; the search index is prebuilt in the background and cached, so Search is ready almost instantly
 - **Channel sidebar** — switch channels over the video with current-program info, organized by group
 - **Channel customization** — reorder, hide, rename, regroup, manage favorites, and correct per-channel EPG matching or timing
 - **Auto-play and genre group icons** for faster browsing
 - **Number-key channel entry** — press the remote's number keys to tune by channel number from the channel list or while watching, with on-screen digit feedback
 - **Full remote & Magic Remote** — spatial D-pad navigation and pointer control across every view
+- **Magic Remote edge scrolling** — rest the pointer near the edge of a catalog or search rail, tab row, or Guide date strip to scroll it, faster the longer it stays
 - **Color themes** — choose from light and dark app-wide themes with live previews, plus Dark or Frosted player overlays; selections persist across launches
 - **Adjustable text size** — scale text from 80%–150% without resizing controls
+- **Animation mode** — Essential turns off costly motion on older TVs, Reduced keeps visual effects but scrolls instantly, and Full smooth-scrolls single navigation steps
 - **Multilingual interface** — available in English, Deutsch, Español, Français, Italiano, Polski, Português (Brasil), Русский, Türkçe, Українська, and 简体中文; follows the TV language by default or can be selected explicitly in Settings
 
 **Development**
