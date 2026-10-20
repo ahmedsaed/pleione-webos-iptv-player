@@ -1384,12 +1384,12 @@ try {
     }, { inner: FRAME_INNER, outer: FRAME_OUTER });
     // Open the VOD menu (pointer to the right edge), then select Subtitles →
     // "Search online…" by dispatching real clicks (no mouse move, so the pointer
-    // handler doesn't dismiss the menu). SEARCH_ONLINE_INDEX is -3.
+    // handler doesn't dismiss the menu).
     await page.mouse.move(1900, 540);
     await page.locator('#player-menu.visible').waitFor({ state: 'visible' });
     await page.locator('#player-menu .menu-item[data-menu-action="__subs_open__"]').dispatchEvent('click');
-    await page.locator('#player-menu .menu-item[data-track-index="-3"]').waitFor({ state: 'visible' });
-    await page.locator('#player-menu .menu-item[data-track-index="-3"]').dispatchEvent('click');
+    await page.locator('#player-menu .menu-item[data-menu-action="__subs_search__"]').waitFor({ state: 'visible' });
+    await page.locator('#player-menu .menu-item[data-menu-action="__subs_search__"]').dispatchEvent('click');
     // The real providers resolve and SubtitleSearchOverlay renders the ranked rows.
     await page.locator('#subtitle-search .subs-row').first().waitFor({ state: 'visible', timeout: 10_000 });
     await page.locator('#subtitle-search .subs-count').first().waitFor({ state: 'visible', timeout: 10_000 });

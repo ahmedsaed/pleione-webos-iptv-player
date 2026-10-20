@@ -783,6 +783,14 @@ export class Player {
     this.tracks.closeSubtitleSearch();
   }
 
+  subtitleSearchAvailable(): boolean {
+    return this.tracks.subtitleSearchAvailable();
+  }
+
+  openSubtitleSearch(): void {
+    void this.tracks.openSubtitleSearch();
+  }
+
   openSubtitleOffset(): void {
     this.tracks.openSubtitleOffset();
   }

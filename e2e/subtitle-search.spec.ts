@@ -102,7 +102,7 @@ async function startVodPlayback(page: Page): Promise<void> {
 }
 
 // Open the right-edge VOD menu, dive into Subtitles, and pick "Search online…"
-// to raise the search overlay. Leaves the (now redundant) menu open behind it.
+// to raise the search overlay; the menu closes as the overlay opens.
 async function openSearchOverlay(page: Page): Promise<void> {
   await page.mouse.move(1900, 540);
   const menu = page.locator('#player-menu');
@@ -116,14 +116,6 @@ async function openSearchOverlay(page: Page): Promise<void> {
   await page.keyboard.press('Enter');     // open the search overlay
   // The container collapses (its .subs-overlay is absolutely positioned), so
   // anchor visibility on the overlay itself.
-  await expect(page.locator('#subtitle-search .subs-overlay')).toBeVisible();
-}
-
-// The menu stays open behind the overlay and captures D-pad input; one Back
-// dismisses it (the overlay survives) so the overlay owns the D-pad afterwards.
-async function dismissMenuBehindOverlay(page: Page): Promise<void> {
-  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
-  await expect(page.locator('#player-menu')).not.toHaveClass(/visible/);
   await expect(page.locator('#subtitle-search .subs-overlay')).toBeVisible();
 }
 
@@ -150,16 +142,20 @@ test('"Search online…" opens the results overlay, ranked and provider-labeled'
   await expect(rows.nth(1)).toContainText('Rare Release');
 });
 
-test('the menu keeps the keys over the overlay until Back closes it', async ({ page }) => {
+test('"Search online…" closes the menu and hands the D-pad to the first result', async ({ page }) => {
   await seedVod(page);
-  await routeAssrtSearch(page, () => []);
+  await routeAssrtSearch(page, () => ['a', 'b'].map((id, i) =>
+    assrtSub({ id: `30${String(i)}`, langDesc: '英', name: `Release ${id}`, downloads: 20 - i })));
   await startVodPlayback(page);
   await openSearchOverlay(page);
-  const owner = page.locator('[data-ring-owner]');
-  await expect(owner).toHaveAttribute('data-focus-scope', 'player.menu');
+  const rows = page.locator('#subtitle-search .subs-row');
+  await expect(rows).toHaveCount(2);
+  await expect(page.locator('#player-menu')).not.toHaveClass(/visible/);
+  await expect(page.locator('[data-ring-owner]')).toHaveAttribute('data-focus-scope', 'player.subtitle_search');
+  await expect(rows.nth(0)).toHaveClass(/focused/);
 
-  await dismissMenuBehindOverlay(page);
-  await expect(owner).toHaveAttribute('data-focus-scope', 'player.subtitle_search');
+  await page.keyboard.press('ArrowDown');
+  await expect(rows.nth(1)).toHaveClass(/focused/);
 });
 
 test('the overlay ring follows the pointer, and the D-pad steps on from it', async ({ page }) => {
@@ -170,7 +166,6 @@ test('the overlay ring follows the pointer, and the D-pad steps on from it', asy
   await openSearchOverlay(page);
   const rows = page.locator('#subtitle-search .subs-row');
   await expect(rows).toHaveCount(4);
-  await dismissMenuBehindOverlay(page);
   await expect(rows.nth(0)).toHaveClass(/focused/);
 
   const box = await rows.nth(2).boundingBox();
@@ -191,7 +186,6 @@ test('a row hovered while the search box has the caret stays dark until Down lan
   const rows = page.locator('#subtitle-search .subs-row');
   const input = page.locator('.subs-search-input');
   await expect(rows).toHaveCount(4);
-  await dismissMenuBehindOverlay(page);
   await page.keyboard.press('ArrowUp');
   await expect(input).toBeFocused();
 
@@ -216,7 +210,6 @@ test('the menu opened at the screen edge takes the arrow keys from the search bo
   const menu = page.locator('#player-menu');
   const menuRows = menu.locator('.menu-item');
   const rows = page.locator('#subtitle-search .subs-row');
-  await dismissMenuBehindOverlay(page);
   await page.keyboard.press('ArrowUp');
   await expect(input).toBeFocused();
   const box = await rows.nth(2).boundingBox();
@@ -248,7 +241,6 @@ test('taking the caret from the search box with a click leaves the list where it
   const rows = page.locator('#subtitle-search .subs-row');
   const list = page.locator('#subtitle-search .subs-list');
   await expect(rows).toHaveCount(20);
-  await dismissMenuBehindOverlay(page);
   await page.keyboard.press('ArrowUp');
   await expect(page.locator('.subs-search-input')).toBeFocused();
 
@@ -281,7 +273,6 @@ test('the D-pad keeps the focused result in view down a long list', async ({ pag
   await openSearchOverlay(page);
   const rows = page.locator('#subtitle-search .subs-row');
   await expect(rows).toHaveCount(20);
-  await dismissMenuBehindOverlay(page);
 
   for (let i = 0; i < 19; i++) await page.keyboard.press('ArrowDown');
   await expect(rows.nth(19)).toHaveClass(/focused/);
@@ -342,7 +333,6 @@ test('picking a result downloads it into the application subtitle track', async 
   await expect(page.locator('#subtitle-search .subs-row')).toContainText('Popular Release');
 
   // Hand the D-pad to the overlay, then select the (focused) first result.
-  await dismissMenuBehindOverlay(page);
   await page.keyboard.press('Enter');
 
   // The pick applies: a toast, the overlay closes, and the downloaded subtitle

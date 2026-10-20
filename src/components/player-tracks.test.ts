@@ -243,7 +243,8 @@ describe('PlayerTracks', () => {
     internals.assSubs = assSubs;
 
     expect(tracks.getSubtitleTracks().map(item => item.index))
-      .toEqual([0, ASS_SUBTITLE_BASE, -3]);
+      .toEqual([0, ASS_SUBTITLE_BASE]);
+    expect(tracks.subtitleSearchAvailable()).toBe(true);
     tracks.selectSubtitleTrack(ASS_SUBTITLE_BASE);
     expect(native.mode).toBe('disabled');
     expect(assSubs.show).toHaveBeenCalledWith(0);

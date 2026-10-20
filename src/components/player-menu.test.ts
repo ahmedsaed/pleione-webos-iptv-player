@@ -41,6 +41,8 @@ let getSubtitleOffsetState: ReturnType<typeof vi.fn>;
 let openSubtitleOffset: ReturnType<typeof vi.fn>;
 let getPlaybackRateState: ReturnType<typeof vi.fn>;
 let selectPlaybackRate: ReturnType<typeof vi.fn>;
+let subtitleSearchAvailable: ReturnType<typeof vi.fn>;
+let openSubtitleSearch: ReturnType<typeof vi.fn>;
 let menu: PlayerMenu;
 
 beforeEach(() => {
@@ -64,12 +66,15 @@ beforeEach(() => {
   openSubtitleOffset = vi.fn();
   getPlaybackRateState = vi.fn((): PlaybackRateState => ({ available: false, rate: 1 }));
   selectPlaybackRate = vi.fn().mockResolvedValue(true);
+  subtitleSearchAvailable = vi.fn(() => false);
+  openSubtitleSearch = vi.fn();
   menu = new PlayerMenu(
     container, getCurrentChannel, onAction,
     getAudioTracks, selectAudioTrack,
     getSubtitleTracks, selectSubtitleTrack,
     getSubtitleOffsetState, openSubtitleOffset,
     getPlaybackRateState, selectPlaybackRate,
+    subtitleSearchAvailable, openSubtitleSearch,
   );
 });
 
@@ -410,14 +415,17 @@ describe('PlayerMenu', () => {
       expect(menu.visible).toBe(true);
     });
 
-    it('routes the Search online row through selectSubtitleTrack(-3)', () => {
-      subtitleTracks = [{ index: -3, label: 'Search online…', active: false, available: true }];
+    it('opens the Subtitles row for search alone, and Search online closes the menu', () => {
+      subtitleSearchAvailable.mockReturnValue(true);
       menu.show();
       for (let i = 0; i < MENU_ACTIONS; i++) menu.handleAction('down');
       menu.handleAction('select');     // open picker
       menu.handleAction('down');       // move past "Off" to "Search online…"
+      expect(items()[2].dataset.menuAction).toBe('__subs_search__');
       menu.handleAction('select');
-      expect(selectSubtitleTrack).toHaveBeenCalledWith(-3);
+      expect(openSubtitleSearch).toHaveBeenCalledTimes(1);
+      expect(selectSubtitleTrack).not.toHaveBeenCalled();
+      expect(menu.visible).toBe(false);
     });
 
     it('shows a Subtitle Sync row in the subtitles submenu and opens the adjuster', () => {

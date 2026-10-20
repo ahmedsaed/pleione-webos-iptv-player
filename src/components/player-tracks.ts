@@ -60,8 +60,6 @@ const log = createLogger('Player');
 // setSubtitleEnable (channel selection is impossible — selectTrack decode-freezes).
 const CC_SUBTITLE_INDEX = -2;
 
-// Sentinel for the "Search online…" subtitle row, which opens the search overlay.
-const SEARCH_ONLINE_INDEX = -3;
 
 // Base for the synthetic picker indices of ASS/SSA sidecars, which can't surface
 // as native <track>s (assjs draws them). Kept high so it never collides with a
@@ -282,7 +280,11 @@ export class PlayerTracks {
     };
   }
 
-  private async openSubtitleSearch(): Promise<void> {
+  subtitleSearchAvailable(): boolean {
+    return !!this.options.getVod() && subtitleSearchService.isAvailable();
+  }
+
+  async openSubtitleSearch(): Promise<void> {
     const overlay = this.ensureSubsOverlay();
     const vod = this.options.getVod();
     if (!overlay || !vod) return;
@@ -601,14 +603,6 @@ export class PlayerTracks {
         available: true,
       });
     }
-    if (this.options.getVod() && subtitleSearchService.isAvailable()) {
-      tracks.push({
-        index: SEARCH_ONLINE_INDEX,
-        label: t('player.searchOnline'),
-        active: false,
-        available: true,
-      });
-    }
     return tracks;
   }
 
@@ -622,10 +616,6 @@ export class PlayerTracks {
    *  for this channel. No-op for a grayed (unavailable) track the platform didn't
    *  expose. CC and the other subtitle paths are mutually exclusive. */
   selectSubtitleTrack(index: number): void {
-    if (index === SEARCH_ONLINE_INDEX) {
-      void this.openSubtitleSearch();
-      return;
-    }
     if (index === CC_SUBTITLE_INDEX) {
       this.subs.stop(); // self-render and the native compositor can't both draw
       this.dashSubs.stop();

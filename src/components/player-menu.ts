@@ -31,6 +31,7 @@ const PICK_AUDIO = '__audio_track__';
 const OPEN_SUBS = '__subs_open__';
 const PICK_SUB = '__subs_track__';
 const OPEN_OFFSET = '__subs_offset__';
+const OPEN_SEARCH = '__subs_search__';
 const OPEN_SPEED = '__speed_open__';
 const PICK_SPEED = '__speed_rate__';
 
@@ -53,6 +54,8 @@ export class PlayerMenu {
   private selectSubtitleTrack: (index: number) => void;
   private getSubtitleOffsetState: () => { available: boolean; label: string };
   private openSubtitleOffset: () => void;
+  private subtitleSearchAvailable: () => boolean;
+  private openSubtitleSearch: () => void;
   private getPlaybackRateState: () => PlaybackRateState;
   private selectPlaybackRate: (rate: PlaybackRate) => Promise<boolean>;
   private isVisible = false;
@@ -75,6 +78,8 @@ export class PlayerMenu {
     openSubtitleOffset: () => void,
     getPlaybackRateState: () => PlaybackRateState,
     selectPlaybackRate: (rate: PlaybackRate) => Promise<boolean>,
+    subtitleSearchAvailable: () => boolean,
+    openSubtitleSearch: () => void,
   ) {
     this.getCurrentChannel = getCurrentChannel;
     this.onAction = onAction;
@@ -86,6 +91,8 @@ export class PlayerMenu {
     this.openSubtitleOffset = openSubtitleOffset;
     this.getPlaybackRateState = getPlaybackRateState;
     this.selectPlaybackRate = selectPlaybackRate;
+    this.subtitleSearchAvailable = subtitleSearchAvailable;
+    this.openSubtitleSearch = openSubtitleSearch;
     this.el = $('#player-menu', container);
     this.bindEvents();
   }
@@ -258,6 +265,9 @@ export class PlayerMenu {
       const idx = Number(item.dataset.trackIndex);
       if (!Number.isNaN(idx)) this.selectSubtitleTrack(idx);
       this.openMain();
+    } else if (action === OPEN_SEARCH) {
+      this.hide();
+      this.openSubtitleSearch();
     } else if (action === OPEN_OFFSET) {
       this.hide();
       this.openSubtitleOffset();
@@ -363,7 +373,7 @@ export class PlayerMenu {
             <span class="menu-item-value">${activeTrack?.label || ''}</span>
           </div>
         ` : ''}
-        ${subtitles.length >= 1 ? html`
+        ${subtitles.length >= 1 || this.subtitleSearchAvailable() ? html`
           <div class="menu-item"
                data-key="${OPEN_SUBS}"
                data-focusable data-menu-action="${OPEN_SUBS}">
@@ -459,6 +469,13 @@ export class PlayerMenu {
             <span class="menu-track-label">${t.label}</span>
           </div>
         `)}
+        ${this.subtitleSearchAvailable() ? html`
+          <div class="menu-item" data-key="${OPEN_SEARCH}"
+               data-focusable data-menu-action="${OPEN_SEARCH}">
+            <span class="menu-check"></span>
+            <span class="menu-track-label">${t('player.searchOnline')}</span>
+          </div>
+        ` : ''}
         ${(() => {
           const st = this.getSubtitleOffsetState();
           return st.available ? html`

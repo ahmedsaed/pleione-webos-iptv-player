@@ -652,7 +652,7 @@ const XTREAM_SCREENS: Screen[] = [
     go: async (p) => {
       await p.locator('[data-menu-action="__menu_back__"]').click();
       await p.locator('[data-menu-action="__subs_open__"]').click();
-      await expect(p.locator('[data-menu-action="__subs_track__"][data-track-index="-3"]')).toBeVisible();
+      await expect(p.locator('[data-menu-action="__subs_search__"]')).toBeVisible();
     },
   },
   {
@@ -677,7 +677,7 @@ const XTREAM_SCREENS: Screen[] = [
       await p.keyboard.press('Escape');
       await p.mouse.move(1900, 540);
       await p.locator('[data-menu-action="__subs_open__"]').click();
-      await p.locator('[data-menu-action="__subs_track__"][data-track-index="-3"]').click();
+      await p.locator('[data-menu-action="__subs_search__"]').click();
       await expect(p.locator('#subtitle-search .subs-count').first()).toBeVisible();
     },
   },

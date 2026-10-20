@@ -268,6 +268,8 @@ class App {
       () => this.player.openSubtitleOffset(),
       () => this.player.getPlaybackRateState(),
       (rate) => this.player.setPlaybackRate(rate),
+      () => this.player.subtitleSearchAvailable(),
+      () => this.player.openSubtitleSearch(),
     );
 
     this.movies = new Movies(this.views.movies, {
