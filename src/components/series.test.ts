@@ -194,6 +194,30 @@ describe('Series browse + grid', () => {
     }));
   });
 
+  it.each([true, false])('updates the hero from resumed episodes with a loaded category: %s', async withCategory => {
+    storageMock.getResumeList.mockReturnValue([1, 2].map(n => ({
+      accountId: 'x1', kind: 'episode', itemId: `e${n}`, name: `Episode ${n}`,
+      poster: `http://host/episode${n}.jpg`, ext: 'mp4',
+      position: 100, duration: 600, updatedAt: 3 - n,
+    })));
+    await openWith(withCategory ? [{ id: '1', name: 'Cat A' }] : [], withCategory
+      ? [{ ...series('s1', 'Series One'), poster: 'http://host/catalog.jpg' }] : []);
+    const hero = container.querySelector<HTMLElement>('.catalog-hero')!;
+    for (const n of [2, 1]) {
+      container.querySelector<HTMLElement>(`[data-resume-episode="e${n}"]`)!
+        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      expect(container.querySelector('.catalog-hero-title')?.textContent).toBe(`Episode ${n}`);
+      expect(hero.style.backgroundImage).toContain(`episode${n}.jpg`);
+    }
+    if (withCategory) {
+      container.querySelector<HTMLElement>('[data-item-id="s1"]')!
+        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      expect(container.querySelector('.catalog-hero-title')?.textContent).toBe('Series One');
+      expect(hero.style.backgroundImage).toContain('catalog.jpg');
+    }
+    expect(catalogMock.loadSeriesInfo).not.toHaveBeenCalled();
+  });
+
   it('shows a Watchlist rail from stored series snapshots', async () => {
     watchlistState.entries = [{
       accountId: 'x1', kind: 'series', itemId: 's9', name: 'Saved Series',

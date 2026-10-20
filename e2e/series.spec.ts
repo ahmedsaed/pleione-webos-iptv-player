@@ -38,6 +38,46 @@ async function seedSeries(page: import('@playwright/test').Page): Promise<void> 
   });
 }
 
+test('Continue Watching updates the hero from saved episodes by pointer and remote without loading details', async ({ page }) => {
+  await seedSeries(page);
+  const details: string[] = [];
+  page.on('request', request => {
+    if (request.url().includes('action=get_series_info')) details.push(request.url());
+  });
+  await page.route('http://host/hero/**', route => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="#468"/></svg>',
+  }));
+  await page.addInitScript(() => {
+    const resume: Record<string, unknown> = {};
+    for (const n of [1, 2]) {
+      resume[`x1|episode|e${n}`] = {
+        accountId: 'x1', kind: 'episode', itemId: `e${n}`, name: `Episode ${n}`,
+        poster: `http://host/hero/${n}.svg`, ext: 'mp4',
+        position: 100, duration: 600, updatedAt: 3 - n,
+      };
+    }
+    localStorage.setItem('iptv_resume', JSON.stringify(resume));
+  });
+  await page.goto('/');
+  await enterTab(page, 'series');
+  const view = page.locator('#view-series');
+  const hero = view.locator('.catalog-hero');
+  const first = view.locator('[data-resume-episode="e1"]');
+  const second = view.locator('[data-resume-episode="e2"]');
+  await first.hover();
+  await expect(view.locator('.catalog-hero-title')).toHaveText('Episode 1');
+  await expect(hero).toHaveCSS('background-image', /\/hero\/1\.svg/);
+  await second.hover();
+  await expect(view.locator('.catalog-hero-title')).toHaveText('Episode 2');
+  await expect(hero).toHaveCSS('background-image', /\/hero\/2\.svg/);
+  await page.keyboard.press('ArrowLeft');
+  await expect(first).toHaveClass(/focused/);
+  await expect(view.locator('.catalog-hero-title')).toHaveText('Episode 1');
+  await expect(hero).toHaveCSS('background-image', /\/hero\/1\.svg/);
+  expect(details).toEqual([]);
+});
+
 test('browse Series, open a detail, and play an episode', async ({ page }) => {
   await seedSeries(page);
   await routeLiveManifest(page);

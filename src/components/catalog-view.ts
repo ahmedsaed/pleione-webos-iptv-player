@@ -1133,6 +1133,11 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     const categoryCell = el?.closest<HTMLElement>('[data-category-virtual-index]');
     if (this.mode === 'browse' && categoryCell) return;
     if (this.mode !== 'browse' || !el) return;
+    if (el.dataset.resumeEpisode !== undefined) {
+      const entry = this.resume.find(entry => entry.itemId === el.dataset.resumeEpisode);
+      if (entry) this.updateHero(entry.name, entry.poster);
+      return;
+    }
     const id = el.dataset.itemId;
     if (id === undefined) return;
     const item = this.findItem(el.dataset.categoryId ?? '', id);
