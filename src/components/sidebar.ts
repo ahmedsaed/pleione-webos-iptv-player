@@ -183,7 +183,8 @@ export class Sidebar {
     this.resetTimer();
   }
 
-  handlePointerMove(clientX: number, overSidebar: boolean): boolean {
+  // `overTabs`: the tab row's own edge belongs to edge scrolling.
+  handlePointerMove(clientX: number, overSidebar: boolean, overTabs = false): boolean {
     if (!this.isVisible || this.keyboardOn) {
       this.pointerAtGroupEdge = false;
       this.clearGroupDwell();
@@ -192,7 +193,7 @@ export class Sidebar {
 
     if (overSidebar) this.resetTimer();
 
-    this.pointerAtGroupEdge = clientX <= GROUP_DWELL_EDGE;
+    this.pointerAtGroupEdge = clientX <= GROUP_DWELL_EDGE && !overTabs;
     if (!this.groupsExpanded && this.pointerAtGroupEdge && !this.opening) {
       this.startGroupDwell();
     } else {
@@ -920,7 +921,7 @@ export class Sidebar {
                data-search-pending="${this.channelSearchPending ? 'true' : 'false'}"
                placeholder="${searchPlaceholder}" value="${this.searchQuery}">
         ${showTabs ? html`
-          <div class="sidebar-tabs">
+          <div class="sidebar-tabs" data-edge-scroll>
             <div class="sidebar-tab ${!this.playlist ? 'active' : ''}" data-hover-target
                  data-key="tab:"
                  data-sidebar-playlist="">${t('common.all')}</div>

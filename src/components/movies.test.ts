@@ -1189,6 +1189,24 @@ describe('Movies browse + grid', () => {
       .toBe('2821485px');
   });
 
+  it('re-renders a scrolled All categories rail only when its window changes', async () => {
+    const cats = Array.from({ length: 200 }, (_, i) => ({ id: String(i + 1), name: `Category ${String(i + 1)}` }));
+    const { view } = await openWith(cats, [vod('1', 'Movie 1', '1')]);
+    const rail = container.querySelector<HTMLElement>('.catalog-category-rail')!;
+    const render = vi.spyOn(view as unknown as { renderBrowse(restore?: boolean): void }, 'renderBrowse');
+    const scrollTo = async (left: number): Promise<void> => {
+      rail.scrollLeft = left;
+      rail.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    };
+    // An edge scroll moves a few pixels a frame; the same cells stay.
+    for (const left of [10, 20, 30]) await scrollTo(left);
+    expect(render).not.toHaveBeenCalled();
+    await scrollTo(320 * 50);
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-category-virtual-index="50"]')).not.toBeNull();
+  });
+
   // The grid virtualizer is only measured while rendering, so a call to
   // getTotalSize is the observable trace of a full grid render.
   const openGrid = async () => {

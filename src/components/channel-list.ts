@@ -362,7 +362,7 @@ export class ChannelList {
               `}
           </div>
           ${showTabs ? html`
-            <div class="playlist-tabs">
+            <div class="playlist-tabs" data-edge-scroll>
               <div class="playlist-tab ${!this.currentPlaylist ? 'active' : ''}"
                    data-key="tab:"
                    data-focusable data-playlist="">${t('common.all')}</div>

@@ -1782,12 +1782,13 @@ class App {
 
       // Protect the full-width area beside and below the OSD too: its edge
       // controls sit next to margins where an imprecise cursor can open a panel.
+      const overTabs = !!(e.target as HTMLElement).closest('.player-sidebar .sidebar-tabs');
       if (!overOsd && !vod && !modal && e.clientX < 80 && !this.menu.visible) {
         this.sidebar.show();
-        this.sidebar.handlePointerMove(e.clientX, false);
+        this.sidebar.handlePointerMove(e.clientX, false, overTabs);
       } else if (this.sidebar.visible) {
         const overSidebar = !!(e.target as HTMLElement).closest('.player-sidebar');
-        const delayingDismiss = this.sidebar.handlePointerMove(e.clientX, overSidebar);
+        const delayingDismiss = this.sidebar.handlePointerMove(e.clientX, overSidebar, overTabs);
         if (!delayingDismiss && !overSidebar
             && e.clientX > this.sidebar.pointerDismissX && !this.sidebar.keyboardOn) {
           // Never dismiss while the keyboard is on — the pointer naturally

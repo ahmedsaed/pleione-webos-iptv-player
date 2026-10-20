@@ -29,6 +29,17 @@ export const CONFIG = {
     // Treat fast successive focus changes as held-key navigation. The repeat
     // interval measured on LG remotes is around 80 ms; leave room for load.
     FOCUS_REPEAT_WINDOW_MS: 180,
+    EDGE_SCROLL_DWELL_MS: 400,
+    EDGE_SCROLL_ZONE_PX: 64,
+    // Edge scroll starts slow for precise stops and eases up to the top
+    // speed over the ramp while the pointer stays on the same edge.
+    EDGE_SCROLL_MIN_SPEED_PX_PER_SECOND: 600,
+    EDGE_SCROLL_MAX_SPEED_PX_PER_SECOND: 2400,
+    EDGE_SCROLL_RAMP_MS: 2500,
+    // A track that reached its end under a resting pointer may still grow,
+    // such as search results loading more: watch it this long to resume.
+    EDGE_SCROLL_PARK_MS: 3000,
+    EDGE_SCROLL_PARK_POLL_MS: 150,
   },
   PLAYER: {
     LIVE_PREVIEW_UPCOMING_COUNT: 4,

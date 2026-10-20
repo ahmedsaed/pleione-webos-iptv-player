@@ -77,6 +77,7 @@ export interface FocusScope {
   readonly id: string;
   readonly modal: boolean;
   readonly logical: boolean;
+  readonly tier: number;
   readonly focusKey: string | null;
   // Whether the ring is hidden while the key is kept, until the next request.
   readonly concealed: boolean;

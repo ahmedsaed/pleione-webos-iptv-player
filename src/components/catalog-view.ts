@@ -165,6 +165,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     fallbackViewportSize: CATEGORY_RAIL_VIEWPORT,
   });
   private categoryScrollFrame: number | null = null;
+  // The All categories window last rendered; its cells sit at fixed offsets,
+  // so a scroll inside the window needs no render.
+  private categoryWindow = '';
   protected readonly scrollGuard = new VirtualScrollGuard();
   private requestController: AbortController | null = null;
   private readonly layers: Record<Mode, HTMLElement>;
@@ -234,7 +237,13 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
         if (this.categoryScrollFrame === null) {
           this.categoryScrollFrame = requestAnimationFrame(() => {
             this.categoryScrollFrame = null;
-            if (this.mode === 'browse') this.renderBrowse(false);
+            if (this.mode === 'browse') {
+              const latest = this.scrollGuard.readUserOffset(target, 'horizontal');
+              if (latest !== null) this.categoryVirtualizer.setScrollOffset(latest);
+              if (this.categoryWindow !== this.categoryWindowFor(target.clientWidth)) {
+                this.renderBrowse(false);
+              }
+            }
           });
         }
         return;
@@ -459,7 +468,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private revealCategoryIndex(index: number): boolean {
     if (index < 0) return false;
     const rail = this.layers.browse.querySelector<HTMLElement>('.catalog-category-rail');
-    if (!this.categoryVirtualizer.ensureVisible(index, rail?.clientWidth || CATEGORY_RAIL_VIEWPORT)) {
+    if (!this.categoryVirtualizer.ensureVisible(index, this.categoryRailContentWidth(rail))) {
       return false;
     }
     this.renderBrowse(false);
@@ -1089,7 +1098,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
             <span>${t('parental.manage')}</span>
           </button>
         </div>
-        <div class="catalog-rail-track">
+        <div class="catalog-rail-track" data-edge-scroll>
           ${entries.slice(0, CONFIG.XTREAM.RAIL_ITEMS).map(entry => entry.tile(false))}
           ${entries.length > CONFIG.XTREAM.RAIL_ITEMS ? html`
             <div class="catalog-tile catalog-see-all" data-self-activate data-focusable
@@ -1153,8 +1162,11 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       - track.clientLeft + track.scrollLeft;
     const end = start + el.offsetWidth;
     const current = track.scrollLeft;
+    // A tile leaving on the left lines up with the rail's keyline, not the
+    // screen edge the track bleeds to.
+    const lead = Math.max(RAIL_EDGE_GUTTER, parseFloat(getComputedStyle(track).paddingLeft) || 0);
     let target: number;
-    if (start - RAIL_EDGE_GUTTER < current) target = Math.max(0, start - RAIL_EDGE_GUTTER);
+    if (start - lead < current) target = Math.max(0, start - lead);
     else if (end + RAIL_EDGE_GUTTER > current + track.clientWidth) {
       target = end + RAIL_EDGE_GUTTER - track.clientWidth;
     } else return false;
@@ -1368,7 +1380,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     return html`
       <div class="catalog-rail" data-key="rail:${key}" data-rail-key="${key}">
         <h2 class="catalog-rail-title">${title}</h2>
-        <div class="catalog-rail-track">${items}</div>
+        <div class="catalog-rail-track" data-edge-scroll>${items}</div>
       </div>
     `;
   }
@@ -1440,6 +1452,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     }
     const categoryViewport = previousCategoryRail?.clientWidth || CATEGORY_RAIL_VIEWPORT;
     const categoryRange = this.categoryVirtualizer.getRange(moreCats.length, categoryViewport);
+    this.categoryWindow = `${String(moreCats.length)}:${String(categoryRange.start)}:${String(categoryRange.end)}`;
 
     morph(browse, html`
       <div class="catalog-view catalog-browse" data-nav-container>
@@ -1464,7 +1477,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
                   <div class="catalog-rail" data-key="rail:all-categories"
                        data-rail-key="all-categories">
                     <h2 class="catalog-rail-title">${t('catalog.allCategories')}</h2>
-                    <div class="catalog-rail-track catalog-category-rail">
+                    <div class="catalog-rail-track catalog-category-rail" data-edge-scroll>
                       <div class="catalog-category-rail-spacer"
                            style="width:${this.categoryVirtualizer.getTotalSize(moreCats.length)}px">
                         ${moreCats.slice(categoryRange.start, categoryRange.end)
@@ -1667,6 +1680,19 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     return true;
   }
 
+  private categoryWindowFor(viewport: number): string {
+    const count = this.categories.length > this.railGroups.length ? this.categories.length : 0;
+    const range = this.categoryVirtualizer.getRange(count, viewport || CATEGORY_RAIL_VIEWPORT);
+    return `${String(count)}:${String(range.start)}:${String(range.end)}`;
+  }
+
+  // The cells sit inside the rail's padding, which bleeds under the margin.
+  private categoryRailContentWidth(rail: HTMLElement | null): number {
+    if (!rail?.clientWidth) return CATEGORY_RAIL_VIEWPORT;
+    const style = getComputedStyle(rail);
+    return rail.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+  }
+
   private moveCategoryFocus(direction: 'left' | 'right'): boolean {
     const parsed = parseKey(this.focusScope.focusKey);
     if (!parsed || parsed.mode !== 'browse' || parsed.rail !== 'all-categories') return false;
@@ -1677,10 +1703,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     // At either end, stay put: SpatialNav would jump to another rail's tile.
     if (next < 0 || next >= categories.length) return true;
     const rail = this.layers.browse.querySelector<HTMLElement>('.catalog-category-rail');
-    this.categoryVirtualizer.ensureVisible(
-      next,
-      rail?.clientWidth || CATEGORY_RAIL_VIEWPORT,
-    );
+    this.categoryVirtualizer.ensureVisible(next, this.categoryRailContentWidth(rail));
     this.renderBrowse(false);
     this.place(
       this.layers.browse.querySelector<HTMLElement>(

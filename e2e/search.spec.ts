@@ -202,6 +202,10 @@ test('program search shows XMLTV metadata and toggles a future reminder', async 
   await expect(result).toContainText('Future Report');
   await expect(result).toContainText('Channel One');
   await expect(result).toContainText('Set reminder');
+  // Only the poster rails bleed; a list keeps both screen margins.
+  const box = await result.boundingBox();
+  expect(Math.round(box!.x)).toBe(80);
+  expect(Math.round(1920 - box!.x - box!.width)).toBe(80);
 
   await result.click();
   await expect(result).toContainText('Reminder set');

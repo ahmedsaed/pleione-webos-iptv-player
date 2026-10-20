@@ -172,6 +172,9 @@ export class Search {
   private readonly movieVirtualizer = this.createVirtualizer(240, SEARCH_RAIL_OVERSCAN, SEARCH_RAIL_VIEWPORT);
   private readonly seriesVirtualizer = this.createVirtualizer(240, SEARCH_RAIL_OVERSCAN, SEARCH_RAIL_VIEWPORT);
   private scrollFrame: number | null = null;
+  // The window each virtual rail last rendered; its cells sit at fixed
+  // offsets, so a scroll inside the window needs no render.
+  private readonly railWindows = new Map<string, string>();
   private queryFrame: number | null = null;
   private queryGeneration = 0;
   private queryPending = false;
@@ -188,6 +191,7 @@ export class Search {
   private programIndexGeneration = 0;
   private resultLimit: number = CONFIG.SEARCH.INITIAL_RESULTS;
   private hasMoreResults = false;
+  private expandingGeneration: number | null = null;
   private workerSession = 0;
   private workerIndexReady = false;
   // A post failed, so the worker may hold a partial index; the next query rebuilds it.
@@ -774,13 +778,14 @@ export class Search {
       `[data-search-virtual="${key}"]`,
     )?.clientWidth || SEARCH_RAIL_VIEWPORT;
     const range = virtualizer.getRange(items.length, viewport);
+    this.railWindows.set(key, this.railWindow(items.length, range));
     return html`
       <div class="catalog-rail">
         <h2 class="catalog-rail-title">${title}</h2>
         <div class="catalog-rail-track search-virtual-rail ${
                key === 'channels-rail' ? 'search-channel-rail' : ''
              }"
-             data-search-virtual="${key}" data-search-axis="horizontal">
+             data-edge-scroll data-search-virtual="${key}" data-search-axis="horizontal">
           <div class="search-virtual-rail-spacer"
                style="width:${virtualizer.getTotalSize(items.length)}px">
             ${items.slice(range.start, range.end).map((item, offset) => {
@@ -1686,13 +1691,23 @@ export class Search {
     if (this.scrollFrame !== null) return;
     this.scrollFrame = requestAnimationFrame(() => {
       this.scrollFrame = null;
+      const latest = this.scrollGuard.readUserOffset(target, axis);
+      if (latest !== null) virtualizer.setScrollOffset(latest);
       const viewport = axis === 'horizontal' ? target.clientWidth : target.clientHeight;
       const total = virtualizer.getTotalSize(this.resultCount(key));
-      if (offset + viewport >= total - this.resultItemSize(key) * 2) {
+      if (virtualizer.scrollOffset + viewport >= total - this.resultItemSize(key) * 2) {
         this.expandResults();
       }
+      if (axis === 'horizontal' && this.railWindows.get(key) === this.railWindow(
+        this.resultCount(key),
+        virtualizer.getRange(this.resultCount(key), target.clientWidth || SEARCH_RAIL_VIEWPORT),
+      )) return;
       this.render();
     });
+  }
+
+  private railWindow(count: number, range: { start: number; end: number }): string {
+    return `${String(count)}:${String(range.start)}:${String(range.end)}`;
   }
 
   private moveVirtualFocus(action: Action): boolean {
@@ -1731,7 +1746,7 @@ export class Search {
     virtualizer.ensureVisible(
       next,
       horizontal
-        ? scroll?.clientWidth || SEARCH_RAIL_VIEWPORT
+        ? this.railContentWidth(scroll)
         : scroll?.clientHeight || SEARCH_LIST_VIEWPORT,
     );
     this.render();
@@ -1741,6 +1756,14 @@ export class Search {
       ),
     );
     return true;
+  }
+
+  // Item offsets start after the rail's padding, so a tile kept in view
+  // rests on the left keyline and clears the right edge's ring gutter.
+  private railContentWidth(rail: HTMLElement | null): number {
+    if (!rail?.clientWidth) return SEARCH_RAIL_VIEWPORT;
+    const style = getComputedStyle(rail);
+    return rail.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
   }
 
   private resultCount(key: string): number {
@@ -1757,14 +1780,21 @@ export class Search {
   }
 
   private expandResults(): boolean {
-    if (!this.hasMoreResults || this.resultLimit >= CONFIG.SEARCH.RESULT_CAP) {
+    if (!this.hasMoreResults || this.resultLimit >= CONFIG.SEARCH.RESULT_CAP
+        // A scroll keeps asking each frame until the batch it asked for lands.
+        || this.expandingGeneration === this.queryGeneration) {
       return false;
     }
     this.resultLimit = Math.min(
       CONFIG.SEARCH.RESULT_CAP,
       this.resultLimit * CONFIG.SEARCH.EXPANSION_FACTOR,
     );
-    void this.startQuery(++this.queryGeneration, true);
+    const generation = ++this.queryGeneration;
+    this.expandingGeneration = generation;
+    const settle = (): void => {
+      if (this.expandingGeneration === generation) this.expandingGeneration = null;
+    };
+    this.startQuery(generation, true).then(settle, settle);
     return true;
   }
 

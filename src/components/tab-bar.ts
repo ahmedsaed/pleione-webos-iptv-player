@@ -291,6 +291,11 @@ export class TabBar {
     document.addEventListener('nav:hover', (e: Event) => {
       if (this.hoverReleasesTo(e)) this.releaseOnHover();
     });
+    // Edge scrolling a rail below works the content as a hover would, even
+    // from a gutter that has nothing to hover.
+    document.addEventListener('nav:edge-scroll', (e: Event) => {
+      if (this.hoverReleasesTo(e)) this.releaseOnHover();
+    });
     // A self-only scope below, such as the Guide's open group menu, still
     // takes the keys, but a hover outside it stays out of the content, as
     // that scope's own hover gate would keep it. The capture phase runs

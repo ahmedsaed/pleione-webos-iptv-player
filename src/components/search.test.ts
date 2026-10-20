@@ -1167,6 +1167,52 @@ describe('Search', () => {
     );
   });
 
+  it('asks for one more batch at a time while scrolling past the rail boundary', async () => {
+    const many = Array.from({ length: 2_000 }, (_, i) => vod(String(i), `Movie ${i}`));
+    const { view } = await openWith({ vod: many });
+    await view.setQuery('movie');
+    const internals = view as unknown as {
+      startQuery(generation: number, preserveOffsets?: boolean): Promise<void>;
+      resultLimit: number;
+    };
+    let finish = (): void => {};
+    const start = vi.spyOn(internals, 'startQuery')
+      .mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    const rail = container.querySelector<HTMLElement>('[data-search-virtual="movies"]')!;
+    for (let i = 0; i < 4; i++) {
+      rail.scrollLeft = CONFIG.SEARCH.INITIAL_RESULTS * 240 - 300 + i * 10;
+      rail.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    }
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(internals.resultLimit).toBe(CONFIG.SEARCH.INITIAL_RESULTS * CONFIG.SEARCH.EXPANSION_FACTOR);
+    finish();
+    await Promise.resolve();
+    await Promise.resolve();
+    rail.dispatchEvent(new Event('scroll', { bubbles: true }));
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    expect(start).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-renders a scrolled virtual rail only when its window changes', async () => {
+    const many = Array.from({ length: 400 }, (_, i) => vod(String(i), `Movie ${i}`));
+    const { view } = await openWith({ vod: many });
+    await view.setQuery('movie');
+    const rail = container.querySelector<HTMLElement>('[data-search-virtual="movies"]')!;
+    const render = vi.spyOn(view as unknown as { render(): void }, 'render');
+    const scrollTo = async (left: number): Promise<void> => {
+      rail.scrollLeft = left;
+      rail.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    };
+    // An edge scroll moves a few pixels a frame; the same cells stay.
+    for (const left of [10, 20, 30]) await scrollTo(left);
+    expect(render).not.toHaveBeenCalled();
+    await scrollTo(240 * 20);
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-search-index="20"]')).not.toBeNull();
+  });
+
   it('does not open a focused result the rail scrolled out of its window', async () => {
     const many = Array.from({ length: 400 }, (_, i) => vod(String(i), `Movie ${i}`));
     const { view, handlers } = await openWith({ vod: many });

@@ -221,6 +221,15 @@ describe('TabBar', () => {
       expect(onSwitch).not.toHaveBeenCalled();
     });
 
+    it('releases the bar when a rail below starts edge scrolling from a gutter', () => {
+      bar.focus();
+      row.parentElement!.dispatchEvent(new CustomEvent('nav:edge-scroll', { bubbles: true }));
+      expect(bar.focused).toBe(false);
+      expect(contentHover).not.toHaveBeenCalled();
+      press('right');
+      expect(onSwitch).not.toHaveBeenCalled();
+    });
+
     it('keeps the keys while the pointer moves on the bar', () => {
       bar.focus();
       hover(document.querySelector('.tab-bar-item')!);

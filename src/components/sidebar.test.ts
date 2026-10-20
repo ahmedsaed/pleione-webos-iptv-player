@@ -1112,6 +1112,17 @@ describe('Sidebar', () => {
       expect(el.classList.contains('groups-expanded')).toBe(true);
     });
 
+    it('leaves the tab row edge to edge scrolling instead of opening groups', () => {
+      sidebar.handlePointerMove(30, true, true);
+      finishOpening();
+      vi.advanceTimersByTime(1000);
+      expect(el.classList.contains('groups-expanded')).toBe(false);
+
+      sidebar.handlePointerMove(30, true);
+      vi.advanceTimersByTime(500);
+      expect(el.classList.contains('groups-expanded')).toBe(true);
+    });
+
     it('cancels group expansion when the pointer leaves the edge', () => {
       sidebar.handlePointerMove(30, true);
       finishOpening();

@@ -639,7 +639,7 @@ export class EpgGrid {
           </div>
           <div class="epg-right-pane">
             <div class="epg-date-bar">
-              <div class="epg-date-list ${this.focusCol === 'dates' ? 'pane-focused' : ''}" id="epg-dates">
+              <div class="epg-date-list ${this.focusCol === 'dates' ? 'pane-focused' : ''}" id="epg-dates" data-edge-scroll>
                 ${dateOptions.map((d, i) => {
                   const sel = i === this.selectedDay;
                   const isToday = d.getTime() === todayMs;

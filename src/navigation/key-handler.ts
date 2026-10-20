@@ -1,8 +1,9 @@
 import { CONFIG } from '../config';
 import { StorageService } from '../services/storage-service';
 import { createLogger } from '../utils/logger';
-import { Focus } from './focus-scope';
+import { Focus, type FocusScope } from './focus-scope';
 import { InputMode, setInputMode } from './input-mode';
+import { edgeScrollTrackAt, installEdgeScroll } from './edge-scroll';
 import type { Action, NumberEvent } from '../types';
 
 type ActionHandler = (action: Action, event?: NumberEvent) => void;
@@ -164,6 +165,9 @@ export const KeyHandler = {
     // under a resting cursor, and the first one only seeds the position.
     let pointerX: number | null = null;
     let pointerY: number | null = null;
+    let edgeScrollTrack: HTMLElement | null = null;
+    let edgeScrollOwner: FocusScope | null = null;
+    let edgeScrollActive = false;
 
     // Mouse support for desktop preview. Skip re-dispatching when the focusable hasn't changed.
     let lastHover: HTMLElement | null = null;
@@ -186,6 +190,47 @@ export const KeyHandler = {
     const closestFocusable = (el: unknown): HTMLElement | null => el instanceof Element
       ? el.closest<HTMLElement>('[data-focusable], [data-hover-target]') : null;
     const focusableAt = (e: MouseEvent): HTMLElement | null => closestFocusable(e.target);
+    const settleEdgeFocus = (): void => {
+      const track = edgeScrollTrack;
+      const owner = edgeScrollOwner;
+      edgeScrollTrack = null;
+      edgeScrollOwner = null;
+      edgeScrollActive = false;
+      const point = Focus.pointerPosition();
+      const root = owner?.root();
+      if (InputMode.current !== 'pointer' || !track || !point
+          || !root?.contains(track) || Focus.owner() !== owner) return;
+      const hit = document.elementFromPoint(point.x, point.y);
+      if (!hit || edgeScrollTrackAt(root, point.x, point.y) !== track) return;
+      let target = closestFocusable(hit);
+      if (!target || !track.contains(target)) {
+        const box = track.getBoundingClientRect();
+        const left = Math.max(0, box.left + track.clientLeft);
+        const right = Math.min(window.innerWidth, box.left + track.clientLeft + track.clientWidth);
+        const top = Math.max(0, box.top + track.clientTop);
+        const bottom = Math.min(window.innerHeight, box.top + track.clientTop + track.clientHeight);
+        let nearest = Infinity;
+        target = null;
+        for (const item of Array.from(track.querySelectorAll<HTMLElement>('[data-focusable], [data-hover-target]'))) {
+          const r = item.getBoundingClientRect();
+          if (r.width <= 0 || r.height <= 0 || r.right <= left || r.left >= right
+              || r.bottom <= top || r.top >= bottom || getComputedStyle(item).visibility === 'hidden') continue;
+          const dx = Math.max(r.left - point.x, 0, point.x - r.right);
+          const dy = Math.max(r.top - point.y, 0, point.y - r.bottom);
+          const distance = dx * dx + dy * dy;
+          if (distance < nearest) {
+            nearest = distance;
+            target = item;
+          }
+        }
+      }
+      if (target) {
+        // Hand the keys the visible pick, not the tile the scroll left behind.
+        hoverStale = true;
+        setHoverTarget(target);
+        Focus.flush();
+      }
+    };
     // A panel that settled under the resting pointer: hover what lies there.
     // It moved since any hover the pointer gave it, so that hover is stale:
     // even the same item is hovered afresh. The browser still holds its own
@@ -219,8 +264,12 @@ export const KeyHandler = {
     document.addEventListener('keydown', (e: KeyboardEvent) => {
       // webOS reports its cursor appearing or hiding as a key press; neither
       // is the D-pad taking over.
-      if (e.keyCode === K.CURSOR_HIDE) Focus.pointerGone();
+      if (e.keyCode === K.CURSOR_HIDE) {
+        settleEdgeFocus();
+        Focus.pointerGone();
+      }
       if (e.keyCode === K.CURSOR_SHOW || e.keyCode === K.CURSOR_HIDE) return;
+      settleEdgeFocus();
       setInputMode('keys');
       hoverStale = true;
     }, true);
@@ -234,36 +283,53 @@ export const KeyHandler = {
       pointerClientY = e.clientY;
       Focus.pointer(e.clientX, e.clientY);
       if (!moved) return;
+      // Pointing off a stopped scroll's track: the keys follow the pointer again.
+      if (edgeScrollTrack && !edgeScrollActive) {
+        const root = edgeScrollOwner?.root();
+        if (!root || edgeScrollTrackAt(root, e.clientX, e.clientY) !== edgeScrollTrack) {
+          edgeScrollTrack = null;
+          edgeScrollOwner = null;
+        }
+      }
       if (InputMode.current === 'keys') resumePointer(e, 'move');
       else if (hoverStale || focusableAt(e) !== lastHover) setHoverTarget(focusableAt(e));
     }, true);
     // Scrolling content with the wheel is pointer use even with the cursor at
     // rest; the hovers it causes must follow the pointer again. A wheel that
     // only steps channels moves nothing under the pointer.
-    let wheelScrollUntil = 0;
+    let pointerScrollUntil = 0;
+    let scrollVia: 'wheel' | 'edge' = 'wheel';
     document.addEventListener('wheel', (e: WheelEvent) => {
       // An SVG icon under the pointer still sits in the scrolled list.
       if (e.target instanceof Element && hasScrollableAncestor(e.target)) {
         pointerClientX = e.clientX;
         pointerClientY = e.clientY;
         Focus.pointer(e.clientX, e.clientY);
-        wheelScrollUntil = Date.now() + WHEEL_SCROLL_WINDOW_MS;
+        pointerScrollUntil = Date.now() + WHEEL_SCROLL_WINDOW_MS;
+        scrollVia = 'wheel';
         resumePointer(e, 'wheel');
       }
     }, true);
-    // webOS fires no mouseover as wheel-scrolled content slides under a resting
+    // webOS fires no mouseover as scrolled content slides under a resting
     // cursor, so hover what lands under it once the scroll (and any virtual
     // list re-render) settles.
     let hoverSyncTimer: ReturnType<typeof setTimeout> | null = null;
-    document.addEventListener('scroll', () => {
-      if (Date.now() > wheelScrollUntil) return;
+    const syncScrollHover = (): void => {
+      if (Date.now() > pointerScrollUntil) return;
       if (hoverSyncTimer !== null) clearTimeout(hoverSyncTimer);
+      const via = scrollVia;
+      const owner = Focus.owner();
       hoverSyncTimer = setTimeout(() => {
         hoverSyncTimer = null;
-        if (InputMode.current === 'keys') return;
+        if (InputMode.current === 'keys' || document.hidden) return;
+        if (via === 'edge' && (edgeScrollActive || !Focus.pointerPosition() || Focus.owner() !== owner)) return;
         const hit = document.elementFromPoint(pointerClientX, pointerClientY);
         if (!hit) return;
-        log.debug('Hover synced after scroll', 'event=nav.hover.synced', 'via=wheel');
+        const root = owner?.root();
+        // A gutter has no hover target; keep the track available for the keys.
+        if (via === 'edge' && edgeScrollTrack && root && !closestFocusable(hit)
+            && edgeScrollTrackAt(root, pointerClientX, pointerClientY) === edgeScrollTrack) return;
+        log.debug('Hover synced after scroll', 'event=nav.hover.synced', `via=${via}`);
         // A real mouseover, so views with their own hover handling follow too.
         hit.dispatchEvent(new MouseEvent('mouseover', {
           bubbles: true,
@@ -272,12 +338,52 @@ export const KeyHandler = {
           screenX: pointerX ?? 0,
           screenY: pointerY ?? 0,
         }));
+        if (via === 'edge') {
+          edgeScrollTrack = null;
+          edgeScrollOwner = null;
+        }
       }, HOVER_SYNC_DELAY_MS);
-    }, true);
+    };
+    const cancelEdgeHover = (): void => {
+      if (scrollVia !== 'edge') return;
+      pointerScrollUntil = 0;
+      edgeScrollTrack = null;
+      edgeScrollOwner = null;
+      edgeScrollActive = false;
+      if (hoverSyncTimer !== null) clearTimeout(hoverSyncTimer);
+      hoverSyncTimer = null;
+    };
+    document.addEventListener('scroll', syncScrollHover, true);
+    installEdgeScroll(track => {
+      pointerScrollUntil = Date.now() + WHEEL_SCROLL_WINDOW_MS;
+      scrollVia = 'edge';
+      edgeScrollTrack = track;
+      edgeScrollOwner = Focus.owner();
+      edgeScrollActive = true;
+    }, () => {
+      if (!edgeScrollTrack) return;
+      edgeScrollActive = false;
+      if (scrollVia !== 'edge') {
+        edgeScrollTrack = null;
+        edgeScrollOwner = null;
+        return;
+      }
+      if (Focus.owner() === edgeScrollOwner) syncScrollHover();
+      else cancelEdgeHover();
+    });
+    document.addEventListener('mousedown', cancelEdgeHover, true);
+    document.addEventListener('click', cancelEdgeHover, true);
+    window.addEventListener('blur', cancelEdgeHover);
     // While the D-pad drives, rows scrolling under a resting cursor fire
     // mouseover too; following them would pull focus back under the pointer.
     // Capture phase, so components with their own mouseover never see them.
     document.addEventListener('mouseover', (e: MouseEvent) => {
+      // Hover reveal would add a second scroll as new tiles slide under it.
+      if (edgeScrollActive && edgeScrollTrack && !movedFrom(e)
+          && e.target instanceof Node && edgeScrollTrack.contains(e.target)) {
+        e.stopImmediatePropagation();
+        return;
+      }
       if (InputMode.current !== 'keys') return;
       if (movedFrom(e)) {
         resumePointer(e, 'move');
@@ -295,12 +401,16 @@ export const KeyHandler = {
     // Cursor left the window: forget the last hover so returning to the same
     // element re-dispatches nav:hover (re-showing a cleared highlight).
     document.documentElement.addEventListener('mouseleave', () => {
+      settleEdgeFocus();
       Focus.pointerGone();
       setHoverTarget(null);
     });
     document.addEventListener('cursorStateChange', (e: Event) => {
       const detail = (e as CustomEvent<{ visibility?: boolean } | null>).detail;
-      if (detail && detail.visibility === false) Focus.pointerGone();
+      if (detail && detail.visibility === false) {
+        settleEdgeFocus();
+        Focus.pointerGone();
+      }
     });
 
     // Magic Remote scroll wheel / desktop mouse wheel

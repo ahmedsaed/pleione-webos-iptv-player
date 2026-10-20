@@ -68,13 +68,16 @@
 .catalog-rails-spacer { height: 45%; }
 .catalog-rails-body {
   min-height: 55%;
-  padding: 8px 80px 60px;
+  padding: 8px 12px 60px 80px;
   background: linear-gradient(180deg, transparent 0, rgb(var(--catalog-hero-scrim-rgb) / 0.85) 90px, var(--bg-primary) 240px);
 }
 
 .catalog-rail { margin-bottom: 28px; }
 .catalog-rail-title { margin: 0 0 12px; font-size: 30px; font-weight: 600; color: var(--text-primary); }
 .catalog-rail-track { display: flex; gap: 20px; overflow-x: auto; padding: 12px 12px 20px; margin: 0 -12px; }
+.catalog-rails-body .catalog-rail-track { margin-left: -80px; padding-left: 80px; }
+/* The bar starts at the keyline the posters rest on, not the bleed edge. */
+.catalog-rails-body .catalog-rail-track::-webkit-scrollbar-track { margin-left: 80px; }
 .catalog-category-rail { height: 152px; display: block; overflow-anchor: none; }
 .catalog-category-rail-spacer { position: relative; height: 120px; }
 .catalog-category-rail-cell {

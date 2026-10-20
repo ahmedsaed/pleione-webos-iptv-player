@@ -168,8 +168,18 @@ test('Left and Right stop at the ends of All categories', async ({ page }) => {
   // SpatialNav would otherwise carry focus off the rail to another rail's tile.
   await page.keyboard.press('ArrowLeft');
   await expect.poll(focusedKey).toBe('c:1');
-  for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowRight');
-  await expect.poll(focusedKey).toBe('c:8');
+  // The rail bleeds under the left margin; a cell revealed on the right
+  // must still end inside the rail, ring included.
+  const clearOfRightEdge = () => page.locator('#view-movies .catalog-category-rail .focused').evaluate((el) => {
+    const rail = el.closest<HTMLElement>('.catalog-category-rail')!;
+    const right = rail.getBoundingClientRect().left + rail.clientLeft + rail.clientWidth;
+    return Math.round(right - el.getBoundingClientRect().right);
+  });
+  for (let i = 2; i <= 8; i++) {
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(focusedKey).toBe(`c:${String(i)}`);
+    await expect.poll(clearOfRightEdge).toBeGreaterThanOrEqual(11);
+  }
   await page.keyboard.press('ArrowRight');
   await expect.poll(focusedKey).toBe('c:8');
 });

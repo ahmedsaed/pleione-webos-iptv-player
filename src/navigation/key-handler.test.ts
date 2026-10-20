@@ -790,6 +790,167 @@ describe('KeyHandler', () => {
     });
   });
 
+  describe('hover after edge scrolling', () => {
+    let track: HTMLElement;
+    let first: HTMLElement;
+    let next: HTMLElement;
+    let hit: HTMLElement;
+    let onNext: ReturnType<typeof vi.fn>;
+    let root: HTMLElement;
+    let screen = 10000;
+
+    beforeEach(() => {
+      root = document.createElement('div');
+      track = document.createElement('div');
+      track.setAttribute('data-edge-scroll', '');
+      first = document.createElement('button');
+      next = document.createElement('button');
+      first.setAttribute('data-focusable', '');
+      next.setAttribute('data-focusable', '');
+      track.append(first, next);
+      root.appendChild(track);
+      document.body.appendChild(root);
+      hit = first;
+      Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => hit });
+      Object.defineProperties(track, {
+        clientWidth: { value: 500 }, clientHeight: { value: 200 }, scrollWidth: { value: 2000 },
+      });
+      track.getBoundingClientRect = () => new DOMRect(0, 100, 500, 200);
+      const scope = Focus.register({ id: 'edge-hover', root });
+      Focus.setBase(() => scope);
+      onNext = vi.fn();
+      next.addEventListener('nav:hover', onNext);
+      for (const clientX of [200, 490]) {
+        screen++;
+        first.dispatchEvent(new MouseEvent('mousemove', {
+          bubbles: true, clientX, clientY: 150, screenX: screen, screenY: screen,
+        }));
+      }
+      vi.advanceTimersByTime(CONFIG.NAVIGATION.EDGE_SCROLL_DWELL_MS + 100);
+      expect(track.scrollLeft).toBeGreaterThan(0);
+      hit = next;
+      track.dispatchEvent(new Event('scroll'));
+    });
+
+    afterEach(() => {
+      press(K.CURSOR_HIDE);
+      Focus.uninstall();
+      Reflect.deleteProperty(document, 'elementFromPoint');
+    });
+
+    it('hovers the item that settles under a resting pointer', () => {
+      const lines: string[] = [];
+      const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+      track.scrollLeft = 1500;
+      vi.advanceTimersByTime(100);
+      spy.mockRestore();
+      expect(onNext).toHaveBeenCalledTimes(1);
+      expect(lines).toContainEqual(expect.stringContaining('event=nav.hover.synced via=edge'));
+    });
+
+    it('does not reveal new tiles sliding under a stationary pointer mid-scroll', () => {
+      next.dispatchEvent(new MouseEvent('mouseover', {
+        bubbles: true, clientX: 490, clientY: 150, screenX: screen, screenY: screen,
+      }));
+      vi.advanceTimersByTime(100);
+      expect(onNext).not.toHaveBeenCalled();
+      expect(track.scrollLeft).toBeGreaterThan(0);
+    });
+
+    it('still hovers a real pointer move during edge scrolling', () => {
+      next.dispatchEvent(new MouseEvent('mouseover', {
+        bubbles: true, clientX: 485, clientY: 150, screenX: screen + 1, screenY: screen,
+      }));
+      expect(onNext).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['key', 'cursor-hide key', 'hidden cursor event'])('hands off the visible pick before %s', cause => {
+      const modes: boolean[] = [];
+      next.addEventListener('nav:hover', () => modes.push(document.documentElement.classList.contains('keyboard-nav')));
+      if (cause === 'key') press(K.RIGHT);
+      else if (cause === 'cursor-hide key') press(K.CURSOR_HIDE);
+      else document.dispatchEvent(new CustomEvent('cursorStateChange', { detail: { visibility: false } }));
+      expect(onNext).toHaveBeenCalledTimes(1);
+      expect(modes).toEqual([false]);
+      if (cause !== 'key') {
+        press(K.RIGHT);
+        expect(onNext).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    it('hands off the nearest visible pick when the pointer rests in a gap', () => {
+      hit = track;
+      first.getBoundingClientRect = () => new DOMRect(-200, 100, 80, 180);
+      next.getBoundingClientRect = () => new DOMRect(400, 100, 80, 180);
+      press(K.RIGHT);
+      expect(onNext).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['moving', 'stopped'])('hands off the nearest visible pick from the outer gutter while %s', state => {
+      root.getBoundingClientRect = () => new DOMRect(0, 0, 600, 400);
+      first.getBoundingClientRect = () => new DOMRect(-200, 100, 80, 180);
+      next.getBoundingClientRect = () => new DOMRect(400, 100, 80, 180);
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true, value: (px: number) => px < 500 ? next : root,
+      });
+      screen++;
+      root.dispatchEvent(new MouseEvent('mousemove', {
+        bubbles: true, clientX: 590, clientY: 150, screenX: screen, screenY: screen,
+      }));
+      if (state === 'stopped') track.scrollLeft = 1500;
+      vi.advanceTimersByTime(100);
+      press(K.RIGHT);
+      expect(onNext).toHaveBeenCalledTimes(1);
+    });
+
+    it('forgets a stopped gutter scroll once the pointer moves elsewhere', () => {
+      const other = document.createElement('button');
+      other.setAttribute('data-focusable', '');
+      root.appendChild(other);
+      root.getBoundingClientRect = () => new DOMRect(0, 0, 600, 400);
+      first.getBoundingClientRect = () => new DOMRect(-200, 100, 80, 180);
+      next.getBoundingClientRect = () => new DOMRect(400, 100, 80, 180);
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true, value: (px: number, py: number) => py > 300 ? other : px < 500 ? next : root,
+      });
+      const moveTo = (target: Element, clientX: number, clientY: number): void => {
+        screen++;
+        target.dispatchEvent(new MouseEvent('mousemove', {
+          bubbles: true, clientX, clientY, screenX: screen, screenY: screen,
+        }));
+      };
+      moveTo(root, 590, 150);
+      track.scrollLeft = 1500;
+      vi.advanceTimersByTime(100);
+      moveTo(other, 200, 350);
+      other.dispatchEvent(new MouseEvent('mouseover', {
+        bubbles: true, clientX: 200, clientY: 350, screenX: screen, screenY: screen,
+      }));
+      moveTo(root, 590, 150);
+      press(K.DOWN);
+      expect(onNext).not.toHaveBeenCalled();
+      other.remove();
+    });
+
+    it('keeps the visible handoff available just after reaching the end', () => {
+      track.scrollLeft = 1500;
+      vi.advanceTimersByTime(20);
+      press(K.CURSOR_HIDE);
+      expect(onNext).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['key', 'click', 'owner', 'hidden cursor'])('does not replay a stale hover after %s', cause => {
+      if (cause === 'key') press(K.RIGHT);
+      else if (cause === 'click') track.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      else if (cause === 'owner') Focus.push(Focus.register({ id: 'edge-menu', root: next }));
+      else Focus.pointerGone();
+      vi.advanceTimersByTime(80);
+      expect(onNext).toHaveBeenCalledTimes(cause === 'key' ? 1 : 0);
+    });
+  });
+
   describe('a panel settling under the resting pointer', () => {
     let hit: Element | null;
     let root: HTMLElement;
