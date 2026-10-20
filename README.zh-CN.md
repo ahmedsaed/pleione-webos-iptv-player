@@ -309,3 +309,10 @@ mpegts.js 和 Shaka 播放相应格式的视频。
 - [`docs/storage-and-data.md`](docs/storage-and-data.md) — 应用的数据存储范围与位置，以及用户数据和临时缓存的隔离方式
 - [`docs/lan-service.md`](docs/lan-service.md) — 通过内置局域网服务完成手机端设置和 M3U 文件上传
 - [`docs/unsupported-features.md`](docs/unsupported-features.md) — webOS 不允许或有意不提供的功能，以及替代方案
+
+## 许可证与第三方声明
+
+本项目使用 [Apache-2.0](LICENSE) 许可证。第三方软件与图标保留各自的许可证，
+详见[来源与署名清单](THIRD_PARTY_NOTICES.txt)。每次构建都会将 `LICENSE`、
+`THIRD_PARTY_NOTICES.txt` 和 `licenses/` 目录放入 `dist/`，随安装包一起分发。
+此清单仅覆盖正式安装包，不包含仅供本地开发的桌面预览播放库。

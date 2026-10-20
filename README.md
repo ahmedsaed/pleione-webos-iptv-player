@@ -309,3 +309,12 @@ some of the features above:
 - [`docs/storage-and-data.md`](docs/storage-and-data.md) — what the app stores, where it lives, and how user data is separated from disposable caches
 - [`docs/lan-service.md`](docs/lan-service.md) — phone setup and M3U uploads over the bundled LAN service
 - [`docs/unsupported-features.md`](docs/unsupported-features.md) — features that webOS does not allow or that are intentionally out of scope, with alternatives
+
+## License and third-party notices
+
+This project is licensed under [Apache-2.0](LICENSE). Third-party software and
+artwork retain their own licenses; see [the attribution inventory](THIRD_PARTY_NOTICES.txt).
+Every build includes `LICENSE`, `THIRD_PARTY_NOTICES.txt`, and a `licenses/`
+directory in `dist/`, so the notices accompany the packaged app. This inventory
+covers the production IPK, not the additional playback libraries used only for
+local desktop preview.

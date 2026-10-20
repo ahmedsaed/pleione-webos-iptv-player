@@ -6,6 +6,7 @@ import {
   formatViolations,
 } from './scripts/compat-gate.mjs';
 import { validateShakaBundle } from './scripts/shaka-compat-gate.mjs';
+import { writeThirdPartyNotices } from './scripts/third-party-notices.mjs';
 import {
   convertLegacyColorSyntax,
   generateFlexGapFallback,
@@ -103,8 +104,8 @@ const shippedBuilds = [
 ];
 
 // Shipped bundles (minified, both go into the IPK).
-await Promise.all(shippedBuilds.map(({ config }) =>
-  esbuild.build({ ...config, minify: true })));
+const bundled = await Promise.all(shippedBuilds.map(({ config }) =>
+  esbuild.build({ ...config, minify: true, metafile: true })));
 
 const shakaBundle = readFileSync('node_modules/shaka-player/dist/shaka-player.dash.js', 'utf8');
 validateShakaBundle(shakaBundle);
@@ -137,5 +138,10 @@ if (isPreview) {
 } else {
   rmSync('dist/js/preview-libs.js', { force: true });
 }
+
+writeThirdPartyNotices({
+  outDir: 'dist',
+  metafiles: bundled.map(({ metafile }) => metafile),
+});
 
 console.log('Build complete.');
