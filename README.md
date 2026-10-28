@@ -2,6 +2,7 @@
   <img src="assets/icon.svg" alt="webOS IPTV Player icon">
   <h1>webOS IPTV Player</h1>
   <p>An IPTV player for LG webOS TVs. Supports M3U playlists, Xtream Codes accounts, XMLTV program guides, and catch-up/timeshift playback.</p>
+  <p><strong>More webOS tools:</strong> <a href="https://github.com/lennylxx/lg-devmode-forever">DevMode Forever</a> · <a href="https://github.com/lennylxx/lg-geolock-bypass">GeoLock Bypass</a> · <a href="https://github.com/lennylxx/lg-ipk-download">IPK Download</a></p>
   <p>English | <a href="README.zh-CN.md">简体中文</a></p>
   <p>
   <a href="#supported-webos-versions"><img src="https://img.shields.io/badge/webOS-4%2B-e6007e?logo=webos&logoColor=white" alt="webOS 4+"></a>
@@ -147,13 +148,13 @@ Install the community
 then open **Settings → Add repository** and enter:
 
 ```text
-https://raw.githubusercontent.com/lennylxx/webos-iptv-player/main/homebrew-repository.json
+https://raw.githubusercontent.com/lennylxx/webos-homebrew/main/repository.json
 ```
 
 To prefill the repository URL from a computer configured with `ares-cli`, run:
 
 ```bash
-ares-launch --device tv org.webosbrew.hbchannel -p '{"launchMode":"addRepository","url":"https://raw.githubusercontent.com/lennylxx/webos-iptv-player/main/homebrew-repository.json"}'
+ares-launch --device tv org.webosbrew.hbchannel -p '{"launchMode":"addRepository","url":"https://raw.githubusercontent.com/lennylxx/webos-homebrew/main/repository.json"}'
 ```
 
 Confirm **Add repository** on the TV. Homebrew Channel can then install the app

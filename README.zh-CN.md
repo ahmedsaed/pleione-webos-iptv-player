@@ -2,6 +2,7 @@
   <img src="assets/icon.svg" alt="webOS IPTV Player 图标">
   <h1>webOS IPTV Player</h1>
   <p>一款专为 LG webOS 电视打造的 IPTV 播放器，支持 M3U 播放列表、Xtream Codes 账号、XMLTV 节目指南（EPG）、回看及直播时移。</p>
+  <p><strong>更多 webOS 工具：</strong> <a href="https://github.com/lennylxx/lg-devmode-forever">DevMode Forever</a> · <a href="https://github.com/lennylxx/lg-geolock-bypass">GeoLock Bypass</a> · <a href="https://github.com/lennylxx/lg-ipk-download">IPK Download</a></p>
   <p><a href="README.md">English</a> | 简体中文</p>
   <p>
   <a href="#支持的-webos-版本"><img src="https://img.shields.io/badge/webOS-4%2B-e6007e?logo=webos&logoColor=white" alt="webOS 4+"></a>
@@ -146,13 +147,13 @@ npm install -g @webos-tools/cli
 然后打开 **Settings → Add repository** 并输入：
 
 ```text
-https://raw.githubusercontent.com/lennylxx/webos-iptv-player/main/homebrew-repository.json
+https://raw.githubusercontent.com/lennylxx/webos-homebrew/main/repository.json
 ```
 
 如果电脑已配置 `ares-cli`，可运行以下命令预填仓库地址：
 
 ```bash
-ares-launch --device tv org.webosbrew.hbchannel -p '{"launchMode":"addRepository","url":"https://raw.githubusercontent.com/lennylxx/webos-iptv-player/main/homebrew-repository.json"}'
+ares-launch --device tv org.webosbrew.hbchannel -p '{"launchMode":"addRepository","url":"https://raw.githubusercontent.com/lennylxx/webos-homebrew/main/repository.json"}'
 ```
 
 在电视上确认 **Add repository**。添加完成后，即可通过 Homebrew Channel
