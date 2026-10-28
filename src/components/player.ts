@@ -30,6 +30,7 @@ import { StartupWatchdog, type StartupFailure, type StartupProbe } from '../util
 import { resolutionBadge, hdrLabel, frameRateLabel, pickVariant, codecName, audioSummary, subtitleSummary, type StreamVariant, type MediaInfo } from '../utils/stream-info';
 import { extFromUrl, diagnosticStreamUrl, streamUrlMime } from '../utils/url';
 import { isWebOS } from '../utils/platform';
+import { InputMode } from '../navigation/input-mode';
 import { probeMedia } from '../services/media-probe';
 import { ChannelHealthService } from '../services/channel-health';
 import { createLogger } from '../utils/logger';
@@ -106,6 +107,8 @@ export class Player {
   private stallWatchdog: StallWatchdog;
   private startupWatchdog: StartupWatchdog;
   private startupPending = false;
+  // The user paused the element; startup, reloads, and `play` clear it.
+  private userPaused = false;
   private liveSessionActive = false;
   private playbackActive = false;
   private livePreviewMode = false;
@@ -321,6 +324,11 @@ export class Player {
       this.logLateVodTracks(el, e.track as TextTrack | null);
       this.tracks.applyNativeSubtitleSelection();
     });
+    // Any unpause, the pipeline's own play() included, ends the user's pause; a
+    // `play` queued before a quick re-pause finds the element paused again.
+    onCurrent('play', () => {
+      if (!el.paused) this.userPaused = false;
+    });
     onCurrent('playing', () => {
       this.startupPending = false;
       const recovered = this.errorRetryPending;
@@ -436,6 +444,7 @@ export class Player {
   private recreateVideoEl(): void {
     const old = this.videoEl;
     if (!old) return;
+    this.userPaused = false;
     old.pause();
     old.removeAttribute('src');
     old.innerHTML = '';
@@ -666,6 +675,21 @@ export class Player {
     return !this.canSeek() && !this.tracks.isSubtitleSearchOpen() && this.upNextTimer === null;
   }
 
+  // Back hides the OSD of a stream the user paused before it stops playback:
+  // that OSD never auto-hides, and with it hidden Right reaches the menu. A
+  // playing or still-starting stream's OSD hides by itself, a reconnect or
+  // error message would only re-show, and a cursor still on screen re-reveals
+  // it, so Back stops right away then.
+  hideOsdForBack(): boolean {
+    if (!this.userPaused || !this.videoEl?.paused || !this.osd.isVisible()
+        || this.osd.showsMessage() || this.tracks.isSubtitleSearchOpen()
+        || this.upNextTimer !== null || InputMode.keyAfterPointer) return false;
+    // Back skips handleAction, which drops a stale pointer before OK seeks to it.
+    this.osd.clearPointer();
+    this.osd.hide();
+    return true;
+  }
+
   // `audio=none` means the engine lacks the audioTracks API, unlike an empty
   // list; under MSE the element's audioTracks don't describe the stream.
   private logVodTracks(el: HTMLVideoElement, phase?: 'late'): void {
@@ -894,6 +918,7 @@ export class Player {
     this.restoreLiveMute();
     this.playbackActive = false;
     this.wasPlayingBeforeHide = false;
+    this.userPaused = false;
     this.startPlaybackGeneration();
     this.clearUpNextTimer();
     this.vodTracksLatePending = false;
@@ -986,6 +1011,7 @@ export class Player {
     this.tracks.resetForLoad();
     this.vodTracksLatePending = false;
     this.manifestVariants = [];
+    this.userPaused = false;
     this.startupPending = true;
     this.startupWatchdog.stop();
     this.pipeline.load(url, extras, opts);
@@ -1338,9 +1364,11 @@ export class Player {
       if (win && v.currentTime < win.start) {
         v.currentTime = this.oldestDvrTarget(win);
       }
+      this.userPaused = false;
       v.play?.().catch(() => {});
       this.stopDvrPauseTick();
     } else {
+      this.userPaused = true;
       v.pause?.();
       if (this.catchupInfo) this.saveCatchupProgress();
       if (this.isLiveDvr()) this.startDvrPauseTick();
@@ -1358,8 +1386,8 @@ export class Player {
   private startDvrPauseTick(): void {
     this.stopDvrPauseTick();
     this.dvrPauseTick = setInterval(() => {
-      if (this.osd.isVisible() && this.videoEl?.paused && this.isLiveDvr()) this.refreshProgress();
-      else this.stopDvrPauseTick();
+      if (!this.videoEl?.paused || !this.isLiveDvr()) this.stopDvrPauseTick();
+      else if (this.osd.isVisible()) this.refreshProgress();
     }, 1000);
   }
 

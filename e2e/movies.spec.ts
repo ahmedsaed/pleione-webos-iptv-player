@@ -1,4 +1,4 @@
-import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab, type Page } from './helpers';
+import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab, type Page, pressStepsAndReadPlayer } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 
 // A minimal ASS body with one dialogue active from t=0, so assjs renders it as
@@ -407,6 +407,58 @@ test('VOD Right opens the menu while the OSD is hidden and seeks while it shows'
   await page.keyboard.press('ArrowRight');
   await expect.poll(seeks).toEqual([30]);
   await expect(menu).toBeHidden();
+});
+
+async function startFakeVod(page: Page): Promise<void> {
+  await seedMovies(page);
+  await routeLiveManifest(page);
+  await neuterVideo(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  await enterTab(page, 'movies');
+  await page.locator('.catalog-tile[data-item-id="10"]')
+    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-movies .detail-plot')).toContainText('A plot.');
+  await page.locator('[data-action="play"]')
+    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-player')).toBeVisible();
+  await page.locator('#video-player').evaluate((video: HTMLVideoElement) => {
+    let paused = false;
+    let time = 0;
+    Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true, get: () => time, set: (t: number) => { time = t; },
+    });
+    Object.defineProperty(video, 'paused', { configurable: true, get: () => paused });
+    video.play = () => { paused = false; return Promise.resolve(); };
+    video.pause = () => { paused = true; };
+  });
+}
+
+const [ENTER, RIGHT, BACK, YELLOW] = [13, 39, 461, 405];
+
+test('VOD Back leaves playback even with the OSD up', async ({ page }) => {
+  await startFakeVod(page);
+  const [shown, left] = await pressStepsAndReadPlayer(page, [[YELLOW], [BACK]]);
+  expect(shown).toMatchObject({ osd: true, paused: false });
+  expect(left).toMatchObject({ osdBefore: true, player: false });
+  await expect(page.locator('#view-movies')).toBeVisible();
+});
+
+test('VOD Back hides a paused OSD, so Right reaches the menu, then leaves', async ({ page }) => {
+  await startFakeVod(page);
+  const [paused, hidden, menu, closed, left] = await pressStepsAndReadPlayer(page, [
+    [YELLOW, ENTER], [BACK], [RIGHT], [BACK], [BACK],
+  ]);
+  expect(paused).toMatchObject({ osd: true, paused: true, currentTime: 0 });
+  expect(hidden).toMatchObject({ osdBefore: true, osd: false, player: true, paused: true });
+  expect(menu).toMatchObject({ osd: false, menu: true, paused: true, currentTime: 0 });
+  expect(closed).toMatchObject({ menu: false, player: true });
+  expect(left.player).toBe(false);
+  await expect(page.locator('#view-movies')).toBeVisible();
 });
 
 test('a VOD sidecar subtitle creates its application track when selected', async ({ page }) => {

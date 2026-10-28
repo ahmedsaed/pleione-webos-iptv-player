@@ -9,6 +9,7 @@ import { Focus, type FocusScope } from './focus-scope';
 // state. init() must run only once (re-running would stack duplicate listeners),
 // so we init in beforeAll and just swap the active handler per test.
 let KeyHandler: typeof import('./key-handler').KeyHandler;
+let InputMode: typeof import('./input-mode').InputMode;
 let handler: ReturnType<typeof vi.fn>;
 
 const K = CONFIG.KEYS;
@@ -26,6 +27,7 @@ function wheel(deltaY: number, target: EventTarget = document.body): void {
 describe('KeyHandler', () => {
   beforeAll(async () => {
     ({ KeyHandler } = await import('./key-handler'));
+    ({ InputMode } = await import('./input-mode'));
     KeyHandler.init();
   });
 
@@ -82,6 +84,50 @@ describe('KeyHandler', () => {
       press(K.DOWN);
       move(104, 100);
       expect(root.classList.contains('keyboard-nav')).toBe(false);
+    });
+
+    // A Back right after the pointer doesn't hide the player OSD, which the
+    // cursor would re-reveal; once webOS hid the cursor, nothing re-reveals it.
+    it('counts a key as after the pointer only while the cursor shows', () => {
+      const seen: boolean[] = [];
+      KeyHandler.setHandler(() => { seen.push(InputMode.keyAfterPointer); });
+      press(K.DOWN);
+      move(108, 100);
+      press(K.BACK);
+      move(112, 100);
+      press(K.CURSOR_HIDE);
+      press(K.BACK);
+      move(116, 100);
+      press(K.CURSOR_HIDE);
+      press(K.CURSOR_SHOW);
+      press(K.BACK);
+      expect(seen).toEqual([false, true, false, true]);
+    });
+
+    it('counts a key as after the pointer once the pointer moves after the cursor hid', () => {
+      const seen: boolean[] = [];
+      KeyHandler.setHandler(() => { seen.push(InputMode.keyAfterPointer); });
+      move(120, 100);
+      press(K.CURSOR_HIDE);
+      move(124, 100);
+      press(K.BACK);
+      expect(seen).toEqual([true]);
+    });
+
+    it('stops counting a key as after the pointer once cursorStateChange hides the cursor', () => {
+      const seen: boolean[] = [];
+      KeyHandler.setHandler(() => { seen.push(InputMode.keyAfterPointer); });
+      const cursor = (visibility: boolean) => document.dispatchEvent(
+        new CustomEvent('cursorStateChange', { detail: { visibility } }));
+      move(126, 100);
+      move(128, 100);
+      cursor(false);
+      press(K.BACK);
+      move(132, 100);
+      cursor(false);
+      cursor(true);
+      press(K.BACK);
+      expect(seen).toEqual([false, true]);
     });
   });
 

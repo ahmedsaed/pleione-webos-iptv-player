@@ -51,6 +51,7 @@ vi.mock('../services/subtitle-search/subtitle-search-service', () => ({
 
 import { Player } from './player';
 import { Focus } from '../navigation/focus-scope';
+import { setCursorHidden, setInputMode } from '../navigation/input-mode';
 import {
   containerMime,
   diagnosticStreamUrl,
@@ -265,11 +266,15 @@ beforeEach(() => {
 });
 afterEach(() => {
   Focus.uninstall();
+  setInputMode('pointer');
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 const bar = () => container.querySelector('.osd-progress-bar') as HTMLElement;
+// The remote's keys drive the player, as KeyHandler records a key press that
+// follows another key.
+const remoteKeys = () => { setInputMode('keys'); setInputMode('keys'); };
 const elapsed = () => container.querySelector('.osd-time-current')!.textContent;
 
 describe('Player authorization gates', () => {
@@ -447,6 +452,19 @@ describe('Player catch-up seeking', () => {
     expect(video.paused).toBe(true); // paused (cursor cleared), not seeked to the stale pointer
   });
 
+  it('Back drops a stale cursor, so OK resumes rather than seeking to it', () => {
+    stubBar();
+    player.handleAction('pause');
+    container.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 250, clientY: 18 }));
+    remoteKeys();
+    expect(player.hideOsdForBack()).toBe(true);
+    player.handleAction('select'); // shows the OSD
+    expect(player.canSeek()).toBe(true);
+    player.handleAction('select');
+    expect(video.paused).toBe(false); // resumed
+    expect(video.currentTime).toBe(0); // not seeked to the stale cursor
+  });
+
   it('is no longer seekable once the OSD hides', () => {
     player.hideOSD();
     expect(player.canSeek()).toBe(false);
@@ -477,6 +495,38 @@ describe('Player catch-up pause/play', () => {
     expect(video.paused).toBe(true);
     player.handleAction('play');
     expect(video.paused).toBe(false);
+  });
+
+  it('lets Back hide the OSD only while paused', () => {
+    remoteKeys();
+    expect(player.hideOsdForBack()).toBe(false); // playing: Back stops
+    player.handleAction('select'); // pauses
+    expect(video.paused).toBe(true);
+    expect(player.hideOsdForBack()).toBe(true);
+    expect(video.paused).toBe(true);
+    expect(player.canSeek()).toBe(false); // Right opens the menu
+    vi.advanceTimersByTime(60_000);
+    expect(container.querySelector('#player-osd')!.classList.contains('hidden')).toBe(true);
+  });
+
+  it('lets Back stop once the pipeline resumed a user pause, even if it paused again', () => {
+    remoteKeys();
+    player.handleAction('pause');
+    video.play();
+    video.dispatchEvent(new Event('play'));
+    video.pause();
+    video.dispatchEvent(new Event('pause'));
+    expect(container.querySelector('#player-osd')!.classList.contains('hidden')).toBe(false);
+    expect(player.hideOsdForBack()).toBe(false);
+  });
+
+  it('keeps a user re-pause when the resume\'s `play` event arrives after it', () => {
+    remoteKeys();
+    player.handleAction('pause');
+    player.handleAction('play');
+    player.handleAction('pause');
+    video.dispatchEvent(new Event('play'));
+    expect(player.hideOsdForBack()).toBe(true);
   });
 
   // The control is driven from click by coordinates — mirror the live DVR
@@ -657,6 +707,13 @@ describe('Player catch-up completion', () => {
 });
 
 describe('Player live playback', () => {
+  it('lets Back stop playing live with the OSD up', () => {
+    player.play(0);
+    remoteKeys();
+    expect(container.querySelector('#player-osd')!.classList.contains('hidden')).toBe(false);
+    expect(player.hideOsdForBack()).toBe(false);
+  });
+
   it('has no seek bar and is not seekable', () => {
     player.play(0); // live, no catch-up
     expect(player.canSeek()).toBe(false);
@@ -1010,6 +1067,18 @@ describe('Player live DVR', () => {
     expect(live.paused).toBe(true);
   });
 
+  it('keeps a paused OSD current after Back hid it and OK showed it again', () => {
+    remoteKeys();
+    player.handleAction('pause');
+    expect(player.hideOsdForBack()).toBe(true);
+    vi.advanceTimersByTime(1000);
+    player.handleAction('select'); // hidden OSD: OK shows it, still paused
+    expect(live.paused).toBe(true);
+    setWindow(0, 120); // the live edge moves on while paused
+    vi.advanceTimersByTime(1000);
+    expect((container.querySelector('.osd-progress-bar') as HTMLElement).style.width).toBe('50%');
+  });
+
   it('holds the paused point until resume, then clamps into the rolled window', () => {
     player.handleAction('rewind');
     player.handleAction('pause');
@@ -1122,6 +1191,47 @@ describe('Player stall reconnect OSD', () => {
     // Recovery (loadedmetadata) must repaint over the message, not leave it stuck.
     container.querySelector('video')!.dispatchEvent(new Event('loadedmetadata'));
     expect(osd.textContent).not.toContain('Reconnecting');
+  });
+
+  it('lets Back stop at once over a Reconnecting… message and while the reload starts', async () => {
+    HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+    HTMLMediaElement.prototype.pause = vi.fn();
+    HTMLMediaElement.prototype.load = vi.fn();
+    const v = document.createElement('video');
+    container.appendChild(v);
+    player.init(v);
+    player.play(0); // live
+    await flush();
+    (player as unknown as { reloadCurrentStream(): void }).reloadCurrentStream();
+    await flush();
+    remoteKeys();
+    expect(v.paused).toBe(true); // the mocked play() never starts it
+    expect(player.hideOsdForBack()).toBe(false);
+    container.querySelector('video')!.dispatchEvent(new Event('loadedmetadata'));
+    expect(container.querySelector('#player-osd')!.classList.contains('hidden')).toBe(false);
+    expect(player.hideOsdForBack()).toBe(false); // recovered metadata, not yet playing
+  });
+
+  it('lets Back stop a stream still starting with the OSD up', async () => {
+    HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+    HTMLMediaElement.prototype.pause = vi.fn();
+    HTMLMediaElement.prototype.load = vi.fn();
+    const v = document.createElement('video');
+    container.appendChild(v);
+    player.init(v);
+    player.play(0); // live
+    await flush();
+    remoteKeys();
+    expect(v.paused).toBe(true); // the mocked play() never starts it
+    expect(container.querySelector('#player-osd')!.classList.contains('hidden')).toBe(false);
+    expect(player.hideOsdForBack()).toBe(false);
+    player.playVod({
+      url: 'http://host/a.mp4', title: 'Movie One', poster: '', accountId: 'x1', itemId: '10',
+      kind: 'vod', resumeSecs: 0, subtitles: [], onBack: vi.fn(),
+    });
+    await flush();
+    expect(container.querySelector('video')!.paused).toBe(true);
+    expect(player.hideOsdForBack()).toBe(false);
   });
 });
 
@@ -1351,6 +1461,44 @@ describe('Player VOD mode', () => {
     player.init(video);
     player.playVod(req());
     expect(player.canSeek()).toBe(true); // playVod shows the OSD
+  });
+
+  it('lets Back hide the OSD unless the subtitle search or up-next owns it', () => {
+    const video = fakeVideo(3600);
+    player.init(video);
+    player.playVod(req());
+    remoteKeys();
+    expect(player.hideOsdForBack()).toBe(false); // playing: Back stops
+    player.handleAction('select'); // pause
+    expect(player.vodRightOpensMenu()).toBe(false);
+    const internals = player as unknown as {
+      tracks: { subsOverlay: { visible: boolean } | null };
+      upNextTimer: ReturnType<typeof setInterval> | null;
+    };
+    internals.tracks.subsOverlay = { visible: true };
+    expect(player.hideOsdForBack()).toBe(false);
+    internals.tracks.subsOverlay = null;
+    internals.upNextTimer = 1 as unknown as ReturnType<typeof setInterval>;
+    expect(player.hideOsdForBack()).toBe(false);
+    internals.upNextTimer = null;
+    expect(player.hideOsdForBack()).toBe(true);
+    expect(video.paused).toBe(true);
+    expect(player.vodRightOpensMenu()).toBe(true);
+  });
+
+  // A cursor on screen re-reveals the OSD, so hiding it would trap Back.
+  it('lets Back stop a paused VOD when the pointer drove it last, unless webOS hid the cursor', () => {
+    const video = fakeVideo(3600);
+    player.init(video);
+    player.playVod(req());
+    player.handleAction('select'); // pause
+    setInputMode('pointer');
+    setInputMode('keys'); // Back is the first key after the pointer
+    expect(player.hideOsdForBack()).toBe(false);
+    setInputMode('pointer');
+    setCursorHidden(true);
+    setInputMode('keys');
+    expect(player.hideOsdForBack()).toBe(true);
   });
 
   it('offers and applies playback speed for VOD in the desktop preview', async () => {

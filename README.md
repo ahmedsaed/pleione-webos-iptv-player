@@ -284,7 +284,7 @@ Open with the **Blue** key or the **Settings** tab in the top bar. Sections:
 | Left | Open sidebar, then groups; seek −30s when available | Move toward groups | Previous pane or day |
 | Right | Open menu; seek +30s while the OSD shows on seekable playback (press OK to show it) | Move toward channels | Next pane, day, or Reminder Manager |
 | OK/Enter | Toggle OSD; pause/resume; activate overlay | Select channel | Play channel/program or open Reminder Manager |
-| Back | Back out of sidebar/menu; stop & return | Exit app (press twice) | Close guide |
+| Back | Back out of sidebar/menu, then hide a paused OSD; stop & return | Exit app (press twice) | Close guide |
 | Red | Open EPG | Open EPG | — |
 | Blue | Open settings | Open settings | Open settings |
 | Yellow | Show OSD | Edit channel list | Search guide |
