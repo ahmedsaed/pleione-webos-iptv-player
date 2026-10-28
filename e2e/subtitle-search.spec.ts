@@ -1,4 +1,4 @@
-import { test, expect, routeLiveManifest, SAMPLE_M3U, enterTab, type Page } from './helpers';
+import { test, expect, routeLiveManifest, SAMPLE_M3U, enterTab, type Page, pressAndReadPlayer } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 
 // Online-subtitle search for Xtream VOD. The player's "Search online…" subtitle
@@ -101,6 +101,20 @@ async function startVodPlayback(page: Page): Promise<void> {
   await expect(page.locator('#player-osd .osd-channel-name')).toBeVisible();
 }
 
+// Back hides an OSD the user paused, so pause through the app's Pause key for
+// tests that need the overlay, not the OSD, to take Back. The mock file never
+// plays, so the element first gets a play state the Pause key can toggle.
+async function userPause(page: Page): Promise<void> {
+  await page.locator('#video-player').evaluate((video: HTMLVideoElement) => {
+    let paused = false;
+    Object.defineProperty(video, 'paused', { configurable: true, get: () => paused });
+    video.play = () => { paused = false; return Promise.resolve(); };
+    video.pause = () => { paused = true; };
+  });
+  const s = await pressAndReadPlayer(page, [19]);
+  expect(s).toMatchObject({ osd: true, player: true, paused: true });
+}
+
 // Open the right-edge VOD menu, dive into Subtitles, and pick "Search online…"
 // to raise the search overlay; the menu closes as the overlay opens.
 async function openSearchOverlay(page: Page): Promise<void> {
@@ -156,6 +170,38 @@ test('"Search online…" closes the menu and hands the D-pad to the first result
 
   await page.keyboard.press('ArrowDown');
   await expect(rows.nth(1)).toHaveClass(/focused/);
+});
+
+test('Right over the overlay stays with it while the OSD is hidden', async ({ page }) => {
+  await seedVod(page);
+  await routeAssrtSearch(page, () => [
+    assrtSub({ id: '401', langDesc: '英', name: 'Release a', downloads: 10 }),
+  ]);
+  await startVodPlayback(page);
+  const osd = page.locator('#player-osd');
+  const menu = page.locator('#player-menu');
+  await page.keyboard.press('Enter'); // no duration, so OK hides the OSD
+  await expect(osd).toHaveClass(/hidden/);
+  await page.keyboard.press('ArrowRight');
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('ArrowDown'); // Title Info -> Settings
+  await page.keyboard.press('ArrowDown'); // Settings -> Playback Speed
+  await page.keyboard.press('ArrowDown'); // Playback Speed -> Subtitles
+  await page.keyboard.press('Enter');
+  await expect(menu).toContainText('Search online');
+  await page.keyboard.press('ArrowDown'); // Off -> Search online…
+  await page.keyboard.press('Enter');
+  const overlay = page.locator('#subtitle-search .subs-overlay');
+  await expect(overlay).toBeVisible();
+  await expect(page.locator('#subtitle-search .subs-row')).toHaveCount(1);
+  await expect(osd).toHaveClass(/hidden/);
+
+  await page.keyboard.press('ArrowRight');
+  // Read once: a retrying check would also pass after the menu auto-hides.
+  await page.waitForTimeout(400);
+  expect(await menu.getAttribute('class')).not.toMatch(/visible/);
+  await expect(overlay).toBeVisible();
+  await expect(page.locator('[data-ring-owner]')).toHaveAttribute('data-focus-scope', 'player.subtitle_search');
 });
 
 test('the overlay ring follows the pointer, and the D-pad steps on from it', async ({ page }) => {
@@ -321,6 +367,42 @@ test('the subtitle sync adjuster keeps the keys, and the screen edge keeps the m
   await expect(menu).toHaveClass(/visible/);
   await expect(owner).toHaveAttribute('data-focus-scope', 'player.menu');
   await expect(page.locator('.focused')).toHaveCount(1);
+});
+
+test('Back closes the search overlay over a shown OSD and leaves the OSD up', async ({ page }) => {
+  await seedVod(page);
+  await routeAssrtSearch(page, () => [
+    assrtSub({ id: '601', langDesc: '英', name: 'Release a', downloads: 10 }),
+  ]);
+  await startVodPlayback(page);
+  await userPause(page);
+  await openSearchOverlay(page);
+  await expect(page.locator('#subtitle-search .subs-row')).toHaveCount(1);
+  await expect(page.locator('#subtitle-search .subs-search-input')).not.toBeFocused();
+
+  const s = await pressAndReadPlayer(page, [461]);
+  expect(s).toMatchObject({ osdBefore: true, osd: true, player: true, paused: true });
+  await expect(page.locator('#subtitle-search .subs-overlay')).toBeHidden();
+});
+
+test('Back closes the subtitle sync adjuster over a shown OSD and leaves the OSD up', async ({ page }) => {
+  await seedXtream(page);
+  await startVodPlayback(page);
+  await userPause(page);
+  const menu = page.locator('#player-menu');
+  await page.mouse.move(1900, 540);
+  await expect(menu).toHaveClass(/visible/);
+  await expect.poll(() => menu.evaluate((el) => el.getBoundingClientRect().right)).toBe(1920);
+  await menu.locator('[data-menu-action="__subs_open__"]').click();
+  await menu.locator('[data-menu-action="__subs_track__"][data-track-index="2000"]').click();
+  await menu.locator('[data-menu-action="__subs_open__"]').click();
+  await menu.locator('[data-menu-action="__subs_offset__"]').click();
+  await expect(page.locator('#subtitle-offset:not(.hidden)')).toBeVisible();
+
+  // Up (unused by the adjuster) hands the keys back from the pointer first.
+  const s = await pressAndReadPlayer(page, [38, 461]);
+  expect(s).toMatchObject({ osdBefore: true, osd: true, player: true, menu: false, paused: true });
+  await expect(page.locator('#subtitle-offset')).toBeHidden();
 });
 
 test('picking a result downloads it into the application subtitle track', async ({ page }) => {

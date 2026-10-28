@@ -9,6 +9,7 @@ import {
   measureRowTextFit,
   enterTab,
   SEARCH_M3U,
+  pressStepsAndReadPlayer,
 } from './helpers';
 
 // The player view: playback start, sidebar, action menu, OSD, and live DVR.
@@ -28,6 +29,8 @@ async function pressRemoteBack(page: Page): Promise<void> {
   await page.evaluate(() =>
     document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
 }
+
+const [ENTER, RIGHT, BACK, YELLOW] = [13, 39, 461, 405];
 
 test('remote arrow keys move focus and Enter starts playback', async ({ page }) => {
   await routePlaylist(page);
@@ -1077,6 +1080,27 @@ test.describe('DVR', () => {
     const state = await okAndReadVideo(page, '[data-golive]');
 
     expect(state.currentTime).toBe(57);
+  });
+
+  test('Back leaves a playing DVR stream even with the OSD up', async ({ page }) => {
+    await gotoDvrPlayer(page);
+    const [shown, left] = await pressStepsAndReadPlayer(page, [[YELLOW], [BACK]]);
+    expect(shown).toMatchObject({ osd: true, paused: false });
+    expect(left).toMatchObject({ osdBefore: true, player: false });
+    await expect(page.locator('#view-channels')).toBeVisible();
+  });
+
+  test('Back hides a paused DVR OSD, so Right reaches the menu, then leaves', async ({ page }) => {
+    await gotoDvrPlayer(page);
+    const [paused, hidden, menu, closed, left] = await pressStepsAndReadPlayer(page, [
+      [YELLOW, ENTER], [BACK], [RIGHT], [BACK], [BACK],
+    ]);
+    expect(paused).toMatchObject({ osd: true, message: false, paused: true });
+    expect(hidden).toMatchObject({ osdBefore: true, osd: false, player: true, paused: true });
+    expect(menu).toMatchObject({ osd: false, menu: true, paused: true, currentTime: paused.currentTime });
+    expect(closed).toMatchObject({ menu: false, player: true });
+    expect(left.player).toBe(false);
+    await expect(page.locator('#view-channels')).toBeVisible();
   });
 });
 

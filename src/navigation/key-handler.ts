@@ -2,7 +2,7 @@ import { CONFIG } from '../config';
 import { StorageService } from '../services/storage-service';
 import { createLogger } from '../utils/logger';
 import { Focus, type FocusScope } from './focus-scope';
-import { InputMode, setInputMode } from './input-mode';
+import { InputMode, setCursorHidden, setInputMode } from './input-mode';
 import { edgeScrollTrackAt, installEdgeScroll } from './edge-scroll';
 import type { Action, NumberEvent } from '../types';
 
@@ -268,7 +268,10 @@ export const KeyHandler = {
         settleEdgeFocus();
         Focus.pointerGone();
       }
-      if (e.keyCode === K.CURSOR_SHOW || e.keyCode === K.CURSOR_HIDE) return;
+      if (e.keyCode === K.CURSOR_SHOW || e.keyCode === K.CURSOR_HIDE) {
+        setCursorHidden(e.keyCode === K.CURSOR_HIDE);
+        return;
+      }
       settleEdgeFocus();
       setInputMode('keys');
       hoverStale = true;
@@ -283,6 +286,8 @@ export const KeyHandler = {
       pointerClientY = e.clientY;
       Focus.pointer(e.clientX, e.clientY);
       if (!moved) return;
+      // Firmware may re-show its cursor on a move without reporting it.
+      setCursorHidden(false);
       // Pointing off a stopped scroll's track: the keys follow the pointer again.
       if (edgeScrollTrack && !edgeScrollActive) {
         const root = edgeScrollOwner?.root();
@@ -407,6 +412,7 @@ export const KeyHandler = {
     });
     document.addEventListener('cursorStateChange', (e: Event) => {
       const detail = (e as CustomEvent<{ visibility?: boolean } | null>).detail;
+      if (detail && typeof detail.visibility === 'boolean') setCursorHidden(detail.visibility === false);
       if (detail && detail.visibility === false) {
         settleEdgeFocus();
         Focus.pointerGone();

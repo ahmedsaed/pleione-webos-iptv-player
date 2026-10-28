@@ -1641,7 +1641,7 @@ class App {
         } else if (this.menu.visible) {
           // Let the menu step out of its audio sub-menu before closing.
           if (!this.menu.handleBack()) this.menu.hide();
-        } else if (!this.livePreview.returnFromFullscreen(true)) {
+        } else if (!this.player.hideOsdForBack() && !this.livePreview.returnFromFullscreen(true)) {
           this.player.handleAction('back');
         }
         return;
@@ -1708,11 +1708,14 @@ class App {
         break;
       case 'player':
         if (this.player.isVod()) {
-          // A VOD menu (opened by the pointer) captures D-pad nav; Left closes
-          // it. Otherwise D-pad drives VOD playback (seek / pause / OSD).
+          // An open VOD menu captures D-pad nav; Left or Right closes it. Right
+          // opens it unless the player can seek; with the OSD up (kept up while
+          // paused, until Back hides it), Left/Right seek and D-pad drives playback.
           if (this.menu.visible) {
             if (action === 'up' || action === 'down' || action === 'select') this.menu.handleAction(action);
-            else if (action === 'left') this.menu.hide();
+            else if (action === 'left' || action === 'right') this.menu.hide();
+          } else if (action === 'right' && this.player.vodRightOpensMenu()) {
+            this.menu.show();
           } else {
             this.player.handleAction(action, event);
           }

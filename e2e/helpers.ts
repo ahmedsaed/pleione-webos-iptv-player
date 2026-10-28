@@ -90,6 +90,46 @@ export async function neuterVideo(page: Page): Promise<void> {
   });
 }
 
+export interface PlayerKeyState {
+  osdBefore: boolean;
+  osd: boolean;
+  message: boolean;
+  player: boolean;
+  menu: boolean;
+  paused: boolean;
+  currentTime: number;
+}
+
+// Press remote keys and read the player back in the same page task, so the OSD's
+// auto-hide or a stream retry can't land in between.
+export async function pressAndReadPlayer(page: Page, keyCodes: number[]): Promise<PlayerKeyState> {
+  return (await pressStepsAndReadPlayer(page, [keyCodes]))[0];
+}
+
+// Each step's keys and the read after them, all in one page task: a fake
+// stream's retry would otherwise resume a paused element between steps.
+export async function pressStepsAndReadPlayer(page: Page, steps: number[][]): Promise<PlayerKeyState[]> {
+  return page.evaluate((keySteps) => {
+    const shown = (id: string) => document.getElementById(id)!.getClientRects().length > 0;
+    const video = document.getElementById('video-player') as HTMLVideoElement;
+    return keySteps.map((codes) => {
+      const osdBefore = shown('player-osd');
+      for (const keyCode of codes) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { keyCode, bubbles: true }));
+      }
+      return {
+        osdBefore,
+        osd: shown('player-osd'),
+        message: document.querySelector('#player-osd .osd-message') !== null,
+        player: shown('view-player'),
+        menu: document.getElementById('player-menu')!.classList.contains('visible'),
+        paused: video.paused,
+        currentTime: video.currentTime,
+      };
+    });
+  }, steps);
+}
+
 /** Pre-seed one configured URL playlist so the app boots into the channel list. */
 export async function seedPlaylist(page: Page, url = PLAYLIST_URL): Promise<void> {
   await page.addInitScript((u) => {
