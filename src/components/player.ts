@@ -76,6 +76,7 @@ export class Player {
   private upNextSeconds = 0;
   private upNextTimer: ReturnType<typeof setInterval> | null = null;
   private upNextAuthorized = false;
+  private vodTracksLatePending = false;
   private pendingResumeSecs = 0;
   private pendingSeekTarget: number | null = null;
   private wasPlayingBeforeHide = false;
@@ -271,6 +272,7 @@ export class Player {
     // the attach by up to MANIFEST_TIMEOUT — and recreateVideoEl() loads a
     // sourceless element, which is not a startup attempt.
     onCurrent('loadstart', () => {
+      this.vodTracksLatePending = false;
       if (!el.currentSrc && !el.getAttribute('src') && !el.querySelector('source')) return;
       this.startupWatchdog.start();
     });
@@ -278,6 +280,10 @@ export class Player {
       update();
       log.info('loadedmetadata', this.videoLabel(el), el.videoWidth + 'x' + el.videoHeight,
         this.mediaState(el), '| pendingResume:', this.pendingResumeSecs);
+      if (this.vod) {
+        this.logVodTracks(el);
+        this.vodTracksLatePending = true;
+      }
       if ((this.vod || this.catchupInfo) && this.pendingResumeSecs > 0 && Number.isFinite(el.duration) && el.duration > 0) {
         const target = Math.min(this.pendingResumeSecs, el.duration - 1);
         log.info('resume seek', this.videoLabel(el), '| requested:', this.pendingResumeSecs,
@@ -306,10 +312,14 @@ export class Player {
     });
     // Some platforms populate audio/text tracks asynchronously, after loadedmetadata.
     el.audioTracks?.addEventListener?.('addtrack', () => {
-      if (el === this.videoEl) this.tracks.applyNativeAudioSelection();
+      if (el !== this.videoEl) return;
+      this.logLateVodTracks(el, null);
+      this.tracks.applyNativeAudioSelection();
     });
-    el.textTracks?.addEventListener?.('addtrack', () => {
-      if (el === this.videoEl) this.tracks.applyNativeSubtitleSelection();
+    el.textTracks?.addEventListener?.('addtrack', (e: TrackEvent) => {
+      if (el !== this.videoEl) return;
+      this.logLateVodTracks(el, e.track as TextTrack | null);
+      this.tracks.applyNativeSubtitleSelection();
     });
     onCurrent('playing', () => {
       this.startupPending = false;
@@ -650,6 +660,29 @@ export class Player {
 
   isVod(): boolean { return this.vod !== null; }
 
+  // Right opens the VOD menu unless it can seek (OSD up with a usable
+  // duration), or the subtitle search overlay or up-next countdown owns the key.
+  vodRightOpensMenu(): boolean {
+    return !this.canSeek() && !this.tracks.isSubtitleSearchOpen() && this.upNextTimer === null;
+  }
+
+  // `audio=none` means the engine lacks the audioTracks API, unlike an empty
+  // list; under MSE the element's audioTracks don't describe the stream.
+  private logVodTracks(el: HTMLVideoElement, phase?: 'late'): void {
+    log.info('VOD tracks', 'event=vod.tracks', ...(phase ? [`phase=${phase}`] : []),
+      `audio=${el.audioTracks ? el.audioTracks.length : 'none'}`,
+      `text=${this.tracks.nativeTextTrackCount(el.textTracks)}`,
+      `mse=${this.pipeline.isMseActive() ? 1 : 0}`);
+  }
+
+  // Tracks can arrive after loadedmetadata; report the first such add once per load.
+  private logLateVodTracks(el: HTMLVideoElement, track: TextTrack | null): void {
+    if (!this.vod || !this.vodTracksLatePending) return;
+    if (track && this.tracks.ownsTextTrack(track)) return;
+    this.vodTracksLatePending = false;
+    this.logVodTracks(el, 'late');
+  }
+
   playVod(v: VodPlayback): void {
     this.authorizeVod(v, () => this.playVodResolved(v));
   }
@@ -863,6 +896,7 @@ export class Player {
     this.wasPlayingBeforeHide = false;
     this.startPlaybackGeneration();
     this.clearUpNextTimer();
+    this.vodTracksLatePending = false;
     if (this.vod) this.saveVodResume();
     this.saveCatchupProgress(); // save before the video element is torn down
     this.stallWatchdog.stop();
@@ -950,6 +984,7 @@ export class Player {
 
   private loadStream(url: string, extras: Record<string, string> | null, opts?: { direct?: boolean }): void {
     this.tracks.resetForLoad();
+    this.vodTracksLatePending = false;
     this.manifestVariants = [];
     this.startupPending = true;
     this.startupWatchdog.stop();

@@ -66,6 +66,9 @@ import { probeMedia } from '../services/media-probe';
 import { CONFIG } from '../config';
 import { channelKey, legacyChannelKey } from '../utils/channel';
 import { ParentalControlService } from '../services/parental-control';
+import { VodSubtitles } from '../services/vod-subtitles';
+import { HlsSubtitles } from '../services/hls-subtitles';
+import { DashSubtitles } from '../services/dash-subtitles';
 
 const CHANNEL = {
   id: 'c1', name: 'Chan', logo: '', group: '', url: 'http://host/play/c1', extras: null,
@@ -135,6 +138,19 @@ function fakeVideo(duration: number): HTMLVideoElement {
     dispatchEvent(e: Event) { (listeners[e.type] || []).forEach((fn) => fn()); return true; },
   } as unknown as HTMLVideoElement;
 }
+
+// An AudioTrackList/TextTrackList stand-in whose add() fires `addtrack`.
+function trackList<T>(items: T[]) {
+  const listeners: Array<(e: { track: T }) => void> = [];
+  const list = Object.assign(items.slice(), {
+    addEventListener(_type: string, fn: (e: { track: T }) => void) { listeners.push(fn); },
+    add(track: T) { list.push(track); listeners.forEach(fn => fn({ track })); },
+  });
+  return list;
+}
+
+const vodTrackEvents = (log: { mock: { calls: unknown[][] } }) => log.mock.calls
+  .map(args => args.join(' ')).filter(text => text.includes('event=vod.tracks'));
 
 function fakeAsyncSeekVideo(duration: number) {
   let currentTime = 0;
@@ -1124,7 +1140,7 @@ describe('Player VOD mode', () => {
     document.body.appendChild(container);
     player = new Player(container, () => {});
   });
-  afterEach(() => { container.remove(); });
+  afterEach(() => { container.remove(); vi.restoreAllMocks(); });
 
   it('defers VOD playback until the authorizer runs the action', () => {
     let deferred: (() => void) | null = null;
@@ -1204,6 +1220,130 @@ describe('Player VOD mode', () => {
     video.dispatchEvent(new Event('loadedmetadata'));
     expect(video.currentTime).toBe(900);
     expect(player.isVod()).toBe(true);
+  });
+
+  it('logs the native track counts once metadata is known', () => {
+    const counted = fakeVideo(3600);
+    const audio = (enabled: boolean) => ({ enabled, label: '', language: '', id: '', kind: 'main' });
+    const sidecar = { kind: 'subtitles', label: '', language: '', mode: 'hidden' };
+    Object.defineProperty(counted, 'audioTracks', { value: [audio(true), audio(false)] });
+    Object.defineProperty(counted, 'textTracks', {
+      value: [{ kind: 'subtitles', label: '', language: '', mode: 'disabled' }, sidecar],
+    });
+    vi.spyOn(VodSubtitles.prototype, 'owns').mockImplementation((track) => track === sidecar as unknown);
+    const bare = fakeVideo(3600);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    player.init(counted);
+    player.playVod(req());
+    counted.dispatchEvent(new Event('loadedmetadata'));
+    player.init(bare);
+    player.playVod(req());
+    bare.dispatchEvent(new Event('loadedmetadata'));
+
+    expect(vodTrackEvents(log)).toEqual([
+      expect.stringContaining('event=vod.tracks audio=2 text=1 mse=0'),
+      expect.stringContaining('event=vod.tracks audio=none text=0 mse=0'),
+    ]);
+  });
+
+  it('flags MSE playback in the track counts', () => {
+    const video = fakeVideo(3600);
+    vi.spyOn((player as unknown as { pipeline: { isMseActive(): boolean } }).pipeline, 'isMseActive')
+      .mockReturnValue(true);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    player.init(video);
+    player.playVod(req());
+    video.dispatchEvent(new Event('loadedmetadata'));
+
+    expect(vodTrackEvents(log)).toEqual([expect.stringContaining('mse=1')]);
+  });
+
+  it('logs the first native track added after metadata once per load', () => {
+    const video = fakeVideo(3600);
+    const audio = () => ({ enabled: false, label: '', language: '', id: '', kind: 'main' });
+    const text = () => ({ kind: 'subtitles', label: '', language: '', mode: 'disabled' });
+    const audioTracks = trackList([audio()]);
+    const textTracks = trackList<unknown>([]);
+    Object.defineProperty(video, 'audioTracks', { value: audioTracks });
+    Object.defineProperty(video, 'textTracks', { value: textTracks });
+    const sidecar = text();
+    vi.spyOn(VodSubtitles.prototype, 'owns').mockImplementation((track) => track === sidecar as unknown);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    player.init(video);
+    player.playVod(req());
+    audioTracks.add(audio()); // before metadata: covered by the loadedmetadata event
+    video.dispatchEvent(new Event('loadedmetadata'));
+    textTracks.add(sidecar); // the app's own sidecar track is not a late arrival
+    textTracks.add(text());
+    audioTracks.add(audio());
+    video.dispatchEvent(new Event('loadstart'));
+    video.dispatchEvent(new Event('loadedmetadata'));
+    video.dispatchEvent(new Event('loadstart')); // a new load disarms the last one's late event
+    textTracks.add(text());
+    video.dispatchEvent(new Event('loadedmetadata'));
+    audioTracks.add(audio());
+
+    expect(vodTrackEvents(log)).toEqual([
+      expect.stringContaining('event=vod.tracks audio=2 text=0 mse=0'),
+      expect.stringContaining('event=vod.tracks phase=late audio=2 text=1 mse=0'),
+      expect.stringContaining('event=vod.tracks audio=3 text=1 mse=0'),
+      expect.stringContaining('event=vod.tracks audio=3 text=2 mse=0'),
+      expect.stringContaining('event=vod.tracks phase=late audio=4 text=2 mse=0'),
+    ]);
+  });
+
+  it('leaves the HLS and DASH renderer tracks out of the track counts', () => {
+    const video = fakeVideo(3600);
+    const text = () => ({ kind: 'subtitles', label: '', language: '', mode: 'disabled' });
+    const textTracks = trackList<unknown>([]);
+    Object.defineProperty(video, 'audioTracks', { value: trackList([]) });
+    Object.defineProperty(video, 'textTracks', { value: textTracks });
+    const hlsTrack = text();
+    const dashTrack = text();
+    vi.spyOn(HlsSubtitles.prototype, 'owns').mockImplementation((track) => track === hlsTrack as unknown);
+    vi.spyOn(DashSubtitles.prototype, 'owns').mockImplementation((track) => track === dashTrack as unknown);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    player.init(video);
+    player.playVod(req());
+    textTracks.add(hlsTrack);
+    video.dispatchEvent(new Event('loadedmetadata'));
+    textTracks.add(dashTrack); // a FORCED or saved subtitle the app renders itself
+    textTracks.add(text());
+
+    expect(vodTrackEvents(log)).toEqual([
+      expect.stringContaining('event=vod.tracks audio=0 text=0 mse=0'),
+      expect.stringContaining('event=vod.tracks phase=late audio=0 text=1 mse=0'),
+    ]);
+  });
+
+  it('lets Right open the menu only over bare video', () => {
+    const video = fakeVideo(3600);
+    player.init(video);
+    player.playVod(req());
+    const internals = player as unknown as {
+      osd: { hide(): void };
+      tracks: { subsOverlay: { visible: boolean } | null };
+    };
+    expect(player.vodRightOpensMenu()).toBe(false); // the OSD shows
+    internals.osd.hide();
+    expect(player.vodRightOpensMenu()).toBe(true);
+    internals.tracks.subsOverlay = { visible: true };
+    expect(player.vodRightOpensMenu()).toBe(false);
+  });
+
+  it('lets Right open the menu over the OSD until the duration is usable', () => {
+    const video = fakeVideo(NaN);
+    player.init(video);
+    player.playVod(req()); // the OSD shows before loadedmetadata
+    expect(player.vodRightOpensMenu()).toBe(true);
+    (video as { duration: number }).duration = Infinity;
+    expect(player.vodRightOpensMenu()).toBe(true);
+    (video as { duration: number }).duration = 3600;
+    expect(player.vodRightOpensMenu()).toBe(false);
   });
 
   it('is seekable while the OSD is up (finite duration)', () => {
@@ -1351,6 +1491,26 @@ describe('Player VOD mode', () => {
     expect(StorageService.clearResume).toHaveBeenCalledWith('x1', 'vod', '10');
     expect(StorageService.removeWatchlist).toHaveBeenCalledWith('x1', 'vod', '10');
     expect(r.onBack).toHaveBeenCalled();
+  });
+
+  it('keeps Right from opening the menu during the up-next countdown', () => {
+    HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+    HTMLMediaElement.prototype.pause = vi.fn();
+    HTMLMediaElement.prototype.load = vi.fn();
+    const video = document.createElement('video');
+    Object.defineProperty(video, 'duration', { value: 1800, configurable: true });
+    container.appendChild(video);
+    player.init(video);
+    player.playVod(req({ watchlistQueue: [{
+      url: 'http://host:8080/movie/u/p/11.mp4', title: 'Movie Two',
+      poster: '', accountId: 'x1', itemId: '11', kind: 'vod' as const, subtitles: [],
+    }] }));
+
+    video.dispatchEvent(new Event('ended'));
+    expect(container.textContent).toContain('Starts in 10 seconds');
+    (player as unknown as { osd: { hide(): void } }).osd.hide();
+    expect(player.vodRightOpensMenu()).toBe(false);
+    player.stop();
   });
 
   it('counts down and starts the next movie from a Watchlist queue', async () => {

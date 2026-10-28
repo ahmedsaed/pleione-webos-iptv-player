@@ -158,6 +158,38 @@ test('"Search online…" closes the menu and hands the D-pad to the first result
   await expect(rows.nth(1)).toHaveClass(/focused/);
 });
 
+test('Right over the overlay stays with it while the OSD is hidden', async ({ page }) => {
+  await seedVod(page);
+  await routeAssrtSearch(page, () => [
+    assrtSub({ id: '401', langDesc: '英', name: 'Release a', downloads: 10 }),
+  ]);
+  await startVodPlayback(page);
+  const osd = page.locator('#player-osd');
+  const menu = page.locator('#player-menu');
+  await page.keyboard.press('Enter'); // no duration, so OK hides the OSD
+  await expect(osd).toHaveClass(/hidden/);
+  await page.keyboard.press('ArrowRight');
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('ArrowDown'); // Title Info -> Settings
+  await page.keyboard.press('ArrowDown'); // Settings -> Playback Speed
+  await page.keyboard.press('ArrowDown'); // Playback Speed -> Subtitles
+  await page.keyboard.press('Enter');
+  await expect(menu).toContainText('Search online');
+  await page.keyboard.press('ArrowDown'); // Off -> Search online…
+  await page.keyboard.press('Enter');
+  const overlay = page.locator('#subtitle-search .subs-overlay');
+  await expect(overlay).toBeVisible();
+  await expect(page.locator('#subtitle-search .subs-row')).toHaveCount(1);
+  await expect(osd).toHaveClass(/hidden/);
+
+  await page.keyboard.press('ArrowRight');
+  // Read once: a retrying check would also pass after the menu auto-hides.
+  await page.waitForTimeout(400);
+  expect(await menu.getAttribute('class')).not.toMatch(/visible/);
+  await expect(overlay).toBeVisible();
+  await expect(page.locator('[data-ring-owner]')).toHaveAttribute('data-focus-scope', 'player.subtitle_search');
+});
+
 test('the overlay ring follows the pointer, and the D-pad steps on from it', async ({ page }) => {
   await seedVod(page);
   await routeAssrtSearch(page, () => ['a', 'b', 'c', 'd'].map((id, i) =>

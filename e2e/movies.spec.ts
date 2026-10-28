@@ -355,6 +355,60 @@ test('VOD playback suppresses the live channel sidebar and shows a VOD-only menu
     .evaluate((video: HTMLVideoElement) => video.playbackRate)).toBe(1.5);
 });
 
+test('VOD Right opens the menu while the OSD is hidden and seeks while it shows', async ({ page }) => {
+  await seedMovies(page);
+  await routeLiveManifest(page);
+  await neuterVideo(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  await enterTab(page, 'movies');
+  await page.locator('.catalog-tile[data-item-id="10"]')
+    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-movies .detail-plot')).toContainText('A plot.');
+  await page.locator('[data-action="play"]')
+    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-player')).toBeVisible();
+  const osd = page.locator('#player-osd');
+  await expect(osd.locator('.osd-channel-name')).toBeVisible();
+
+  // With no duration yet canSeek() is false, so OK toggles the (paused, so
+  // persistent) OSD off instead of pausing.
+  await page.keyboard.press('Enter');
+  await expect(osd).toHaveClass(/hidden/);
+  await page.locator('#video-player').evaluate((video) => {
+    const seeks: number[] = [];
+    (window as unknown as { seeks: number[] }).seeks = seeks;
+    Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true, get: () => 0, set: (t: number) => { seeks.push(t); },
+    });
+  });
+  const seeks = () => page.evaluate(() => (window as unknown as { seeks: number[] }).seeks);
+
+  const menu = page.locator('#player-menu');
+  await page.keyboard.press('ArrowRight');
+  await expect(menu).toBeVisible();
+  await expect(menu).toContainText('Title Info');
+  expect(await seeks()).toEqual([]);
+
+  // Right closes the open menu, as during live playback.
+  await page.keyboard.press('ArrowRight');
+  await expect(menu).toBeHidden();
+  expect(await seeks()).toEqual([]);
+
+  // OK with the OSD hidden reveals it: canSeek() is false while the OSD is
+  // hidden, so OK runs osd.toggle() rather than pausing. With the OSD up,
+  // Right seeks forward and leaves the menu shut.
+  await page.keyboard.press('Enter');
+  await expect(osd).not.toHaveClass(/hidden/);
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(seeks).toEqual([30]);
+  await expect(menu).toBeHidden();
+});
+
 test('a VOD sidecar subtitle creates its application track when selected', async ({ page }) => {
   await seedMovies(page, { subtitles: true });
   await routeLiveManifest(page);

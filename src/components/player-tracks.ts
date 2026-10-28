@@ -163,6 +163,22 @@ export class PlayerTracks {
     return true;
   }
 
+  isSubtitleSearchOpen(): boolean {
+    return !!this.subsOverlay?.visible;
+  }
+
+  // Whether one of the app's own subtitle renderers created this track.
+  ownsTextTrack(track: TextTrack): boolean {
+    return this.subs.owns(track) || this.dashSubs.owns(track) || this.vodSubs.owns(track);
+  }
+
+  // In-container text tracks, without the app's own renderer tracks.
+  nativeTextTrackCount(list: TextTrackList | undefined): number {
+    let count = 0;
+    for (let i = 0; list && i < list.length; i++) if (!this.ownsTextTrack(list[i])) count++;
+    return count;
+  }
+
   /** Dismiss the online subtitle-search overlay if it is open. Called on every
    *  view transition (App.showView) so it never lingers over another view or
    *  reappears when its player view is shown again. */
@@ -239,8 +255,7 @@ export class PlayerTracks {
     if (list) for (let i = 0; i < list.length; i++) {
       const track = list[i];
       if (track.kind !== 'subtitles' && track.kind !== 'captions') continue;
-      if (this.subs.owns(track) || this.dashSubs.owns(track)
-          || this.vodSubs.owns(track)) continue; // an engine already shifted these
+      if (this.ownsTextTrack(track)) continue; // an engine already shifted these
       shiftForeignTrack(track, seconds);
     }
   }
