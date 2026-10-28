@@ -944,8 +944,8 @@ describe('parsePerformanceArgs', () => {
       intervalMs: 1000,
       durationMs: null,
       mode: 'monitor',
-      appId: 'com.lennylxx.iptv',
-      target: 'com.lennylxx.iptv',
+      appId: 'com.merope.pleione',
+      target: 'com.merope.pleione',
       targetSelection: 'legacy-tv-app',
     });
   });

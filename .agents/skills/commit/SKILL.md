@@ -67,5 +67,5 @@ text right above the options.
 
 ## Media for README or GitHub
 
-Upload with `gh image --repo lennylxx/webos-iptv-player -- <files>`; it
+Upload with `gh image --repo ahmedsaed/webos-iptv-player -- <files>`; it
 prints ready-to-use Markdown attachment URLs.

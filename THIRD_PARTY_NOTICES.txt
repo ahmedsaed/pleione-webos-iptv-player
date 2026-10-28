@@ -1,7 +1,9 @@
 Third-party software and artwork
 ===============================
 
-webOS IPTV Player is licensed under Apache-2.0; see LICENSE.
+Pleione is licensed under Apache-2.0; see LICENSE. It is a modified version
+of webOS IPTV Player by lennylxx (https://github.com/lennylxx/webos-iptv-player);
+see NOTICE.
 Third-party components retain their own copyrights and licenses.
 The following notices and the referenced licenses directory accompany the
 application distribution. Installed npm package versions are appended at build

@@ -61,6 +61,7 @@ export function writeThirdPartyNotices({
 
   const files = new Map([
     ['LICENSE', readRequired(rootDir, 'LICENSE')],
+    ['NOTICE', readRequired(rootDir, 'NOTICE')],
   ]);
   const versions = [];
   for (const [name, license, licenseFile] of PACKAGES) {

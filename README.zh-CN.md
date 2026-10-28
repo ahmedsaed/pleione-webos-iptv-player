@@ -1,15 +1,19 @@
 <div align="center">
-  <img src="assets/icon.svg" alt="webOS IPTV Player 图标">
-  <h1>webOS IPTV Player</h1>
-  <p>一款专为 LG webOS 电视打造的 IPTV 播放器，支持 M3U 播放列表、Xtream Codes 账号、XMLTV 节目指南（EPG）、回看及直播时移。</p>
+  <img src="assets/icon.svg" alt="Pleione 图标">
+  <h1>Pleione</h1>
+  <p>Merope 出品，一款专为 LG webOS 电视打造的 IPTV 播放器，支持 M3U 播放列表、Xtream Codes 账号、XMLTV 节目指南（EPG）、回看及直播时移。</p>
   <p><a href="README.md">English</a> | 简体中文</p>
   <p>
   <a href="#支持的-webos-版本"><img src="https://img.shields.io/badge/webOS-4%2B-e6007e?logo=webos&logoColor=white" alt="webOS 4+"></a>
-  <a href="https://github.com/lennylxx/webos-iptv-player/releases/latest"><img src="https://img.shields.io/github/v/release/lennylxx/webos-iptv-player" alt="最新版本"></a>
-  <a href="https://github.com/lennylxx/webos-iptv-player/releases"><img src="https://img.shields.io/github/downloads/lennylxx/webos-iptv-player/total" alt="GitHub 下载量"></a>
-  <a href="https://lennylxx.github.io/webos-iptv-player/"><img src="https://img.shields.io/badge/Website-222?logo=github" alt="项目网站"></a>
+  <a href="https://github.com/ahmedsaed/webos-iptv-player/releases/latest"><img src="https://img.shields.io/github/v/release/ahmedsaed/webos-iptv-player" alt="最新版本"></a>
+  <a href="https://github.com/ahmedsaed/webos-iptv-player/releases"><img src="https://img.shields.io/github/downloads/ahmedsaed/webos-iptv-player/total" alt="GitHub 下载量"></a>
+  <a href="https://ahmedsaed.github.io/webos-iptv-player/"><img src="https://img.shields.io/badge/Website-222?logo=github" alt="项目网站"></a>
   </p>
 </div>
+
+## 致谢
+
+Pleione 基于 lennylxx 的 [webOS IPTV Player](https://github.com/lennylxx/webos-iptv-player)，遵循 Apache-2.0 许可证。详见 [NOTICE](NOTICE)。
 
 ## 截图
 
@@ -146,13 +150,13 @@ npm install -g @webos-tools/cli
 然后打开 **Settings → Add repository** 并输入：
 
 ```text
-https://raw.githubusercontent.com/lennylxx/webos-iptv-player/main/homebrew-repository.json
+https://raw.githubusercontent.com/ahmedsaed/webos-iptv-player/main/homebrew-repository.json
 ```
 
 如果电脑已配置 `ares-cli`，可运行以下命令预填仓库地址：
 
 ```bash
-ares-launch --device tv org.webosbrew.hbchannel -p '{"launchMode":"addRepository","url":"https://raw.githubusercontent.com/lennylxx/webos-iptv-player/main/homebrew-repository.json"}'
+ares-launch --device tv org.webosbrew.hbchannel -p '{"launchMode":"addRepository","url":"https://raw.githubusercontent.com/ahmedsaed/webos-iptv-player/main/homebrew-repository.json"}'
 ```
 
 在电视上确认 **Add repository**。添加完成后，即可通过 Homebrew Channel
@@ -161,7 +165,7 @@ ares-launch --device tv org.webosbrew.hbchannel -p '{"launchMode":"addRepository
 ### 开发者模式
 
 1. **下载应用安装包。** 在电脑上打开
-   [Releases 页面](https://github.com/lennylxx/webos-iptv-player/releases/latest)，
+   [Releases 页面](https://github.com/ahmedsaed/webos-iptv-player/releases/latest)，
    下载最新的 `.ipk` 文件。
 
 2. **在电视上开启开发者模式。**
@@ -187,7 +191,7 @@ ares-launch --device tv org.webosbrew.hbchannel -p '{"launchMode":"addRepository
 4. **安装应用。**
 
    ```bash
-   ares-install --device tv ./com.lennylxx.iptv_<version>_all.ipk
+   ares-install --device tv ./com.merope.pleione_<version>_all.ipk
    ```
 
 ## 开发
@@ -220,7 +224,7 @@ Windows 请使用 WSL 2；不支持原生 Windows 环境。
 无需在命令中手动填写密钥或密码短语。
 
 ```bash
-scripts/tv.sh logs --app com.lennylxx.iptv       # 实时查看应用的 DevTools 控制台
+scripts/tv.sh logs --app com.merope.pleione       # 实时查看应用的 DevTools 控制台
 scripts/tv.sh eval 'document.visibilityState'    # 在应用页面中执行 JavaScript
 scripts/tv.sh perf --duration 30                 # 采样 CPU、堆、DOM 和布局
 scripts/tv.sh diag                               # 生成经过脱敏的诊断报告

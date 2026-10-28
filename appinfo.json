@@ -1,14 +1,14 @@
 {
-  "id": "com.lennylxx.iptv",
+  "id": "com.merope.pleione",
   "version": "1.17.0",
-  "vendor": "lennylxx",
+  "vendor": "Merope",
   "type": "web",
   "main": "index.html",
-  "title": "webOS IPTV Player",
+  "title": "Pleione",
   "appDescription": "IPTV player with M3U, Xtream, XMLTV, and catch-up.",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
-  "iconColor": "#241e52",
+  "iconColor": "#0b0d2e",
   "resolution": "1920x1080",
   "disableBackHistoryAPI": true,
   "transparent": false

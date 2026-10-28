@@ -1,15 +1,20 @@
 <div align="center">
-  <img src="assets/icon.svg" alt="webOS IPTV Player icon">
-  <h1>webOS IPTV Player</h1>
-  <p>An IPTV player for LG webOS TVs. Supports M3U playlists, Xtream Codes accounts, XMLTV program guides, and catch-up/timeshift playback.</p>
+  <img src="assets/icon.svg" alt="Pleione icon">
+  <h1>Pleione</h1>
+  <p>An IPTV player for LG webOS TVs by Merope. Supports M3U playlists, Xtream Codes accounts, XMLTV program guides, and catch-up/timeshift playback.</p>
   <p>English | <a href="README.zh-CN.md">简体中文</a></p>
   <p>
   <a href="#supported-webos-versions"><img src="https://img.shields.io/badge/webOS-4%2B-e6007e?logo=webos&logoColor=white" alt="webOS 4+"></a>
-  <a href="https://github.com/lennylxx/webos-iptv-player/releases/latest"><img src="https://img.shields.io/github/v/release/lennylxx/webos-iptv-player" alt="Latest release"></a>
-  <a href="https://github.com/lennylxx/webos-iptv-player/releases"><img src="https://img.shields.io/github/downloads/lennylxx/webos-iptv-player/total" alt="GitHub downloads"></a>
-  <a href="https://lennylxx.github.io/webos-iptv-player/"><img src="https://img.shields.io/badge/Website-222?logo=github" alt="Project website"></a>
+  <a href="https://github.com/ahmedsaed/webos-iptv-player/releases/latest"><img src="https://img.shields.io/github/v/release/ahmedsaed/webos-iptv-player" alt="Latest release"></a>
+  <a href="https://github.com/ahmedsaed/webos-iptv-player/releases"><img src="https://img.shields.io/github/downloads/ahmedsaed/webos-iptv-player/total" alt="GitHub downloads"></a>
+  <a href="https://ahmedsaed.github.io/webos-iptv-player/"><img src="https://img.shields.io/badge/Website-222?logo=github" alt="Project website"></a>
   </p>
 </div>
+
+## Credits
+
+Pleione is based on [webOS IPTV Player](https://github.com/lennylxx/webos-iptv-player)
+by lennylxx, licensed under Apache-2.0. See [NOTICE](NOTICE).
 
 ## Screenshots
 
@@ -147,13 +152,13 @@ Install the community
 then open **Settings → Add repository** and enter:
 
 ```text
-https://raw.githubusercontent.com/lennylxx/webos-iptv-player/main/homebrew-repository.json
+https://raw.githubusercontent.com/ahmedsaed/webos-iptv-player/main/homebrew-repository.json
 ```
 
 To prefill the repository URL from a computer configured with `ares-cli`, run:
 
 ```bash
-ares-launch --device tv org.webosbrew.hbchannel -p '{"launchMode":"addRepository","url":"https://raw.githubusercontent.com/lennylxx/webos-iptv-player/main/homebrew-repository.json"}'
+ares-launch --device tv org.webosbrew.hbchannel -p '{"launchMode":"addRepository","url":"https://raw.githubusercontent.com/ahmedsaed/webos-iptv-player/main/homebrew-repository.json"}'
 ```
 
 Confirm **Add repository** on the TV. Homebrew Channel can then install the app
@@ -162,7 +167,7 @@ and detect updates from later GitHub releases.
 ### Developer Mode
 
 1. **Download the app.** On your computer, open the
-   [Releases page](https://github.com/lennylxx/webos-iptv-player/releases/latest)
+   [Releases page](https://github.com/ahmedsaed/webos-iptv-player/releases/latest)
    and download the latest `.ipk` file.
 
 2. **Turn on Developer Mode on the TV.**
@@ -187,7 +192,7 @@ and detect updates from later GitHub releases.
 4. **Install the app.**
 
    ```bash
-   ares-install --device tv ./com.lennylxx.iptv_<version>_all.ipk
+   ares-install --device tv ./com.merope.pleione_<version>_all.ipk
    ```
 
 ## Development
@@ -221,7 +226,7 @@ On Windows, use WSL 2; native Windows is not supported.
 into commands.
 
 ```bash
-scripts/tv.sh logs --app com.lennylxx.iptv       # Stream the app's DevTools console
+scripts/tv.sh logs --app com.merope.pleione       # Stream the app's DevTools console
 scripts/tv.sh eval 'document.visibilityState'    # Evaluate JavaScript in the app page
 scripts/tv.sh perf --duration 30                 # Sample CPU, heap, DOM, and layout
 scripts/tv.sh diag                               # Capture a redacted diagnostics report

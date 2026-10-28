@@ -3,7 +3,7 @@
 Scoped to `bundled-service/`; the root `AGENTS.md` still applies.
 
 A sandbox-separate Node (CommonJS) webOS service,
-`com.lennylxx.iptv.service`. It hosts LAN phone setup and M3U uploads and,
+`com.merope.pleione.service`. It hosts LAN phone setup and M3U uploads and,
 in Developer Mode, interactive program-reminder alerts. `src/index.ts` wires
 `lan/`, `setup/`, and `reminder/`.
 

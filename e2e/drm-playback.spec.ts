@@ -537,7 +537,7 @@ test.describe('PlayReady native webOS contract (no browser decryption)', () => {
         const first = await playReadyProbe(page);
         expect(first.calls.map(call => call.method)).toEqual(['load', 'getRightsError', 'sendDrmMessage']);
         expect(first.calls.every(call => call.source === null)).toBe(true);
-        expect(first.calls[0].parameters).toEqual({ drmType: 'playready', appId: 'com.lennylxx.iptv' });
+        expect(first.calls[0].parameters).toEqual({ drmType: 'playready', appId: 'com.merope.pleione' });
         expect(first.calls[1].parameters).toEqual({ clientId: 'client-1', subscribe: true });
         expect(first.calls[2].parameters).toMatchObject({
           clientId: 'client-1', msgType: 'application/vnd.ms-playready.initiator+xml',

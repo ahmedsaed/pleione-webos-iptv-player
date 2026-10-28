@@ -15,7 +15,7 @@ on newer TVs and supplies focused fallbacks for Node 0.12.
 ```
 ┌──────────────────┐  Luna  ┌─────────────────────────────┐  HTTP  ┌──────────────────┐
 │ App (browser)    │◀──────▶│  Bundled service            │◀──────▶│  Phone / laptop  │
-│  src/app.ts      │        │  com.lennylxx.iptv.service  │  LAN   │  setup page      │
+│  src/app.ts      │        │  com.merope.pleione.service  │  LAN   │  setup page      │
 │  LAN clients     │        │  lan/ + setup/ + upload/    │        │  (/setup)        │
 └──────────────────┘        └─────────────────────────────┘        └──────────────────┘
             ▲                             │

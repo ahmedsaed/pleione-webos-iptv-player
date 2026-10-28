@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 const [inputPath = 'README.md', outputPath = '_site/index.html'] = process.argv.slice(2);
-const repository = process.env.GITHUB_REPOSITORY || 'lennylxx/webos-iptv-player';
+const repository = process.env.GITHUB_REPOSITORY || 'ahmedsaed/webos-iptv-player';
 const branch = process.env.GITHUB_REF_NAME || 'main';
 const pagesBaseUrl = (
   process.env.GITHUB_PAGES_BASE_URL
@@ -106,7 +106,7 @@ const pageDocument = `<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>webOS IPTV Player</title>
+  <title>Pleione</title>
   <style>
     * { box-sizing: border-box; }
     body {

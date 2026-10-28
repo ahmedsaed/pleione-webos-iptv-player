@@ -1,9 +1,9 @@
 {
-  "id": "com.lennylxx.iptv.service",
-  "description": "Bundled webOS JS service for the IPTV player",
+  "id": "com.merope.pleione.service",
+  "description": "Bundled webOS JS service for Pleione",
   "services": [
     {
-      "name": "com.lennylxx.iptv.service"
+      "name": "com.merope.pleione.service"
     }
   ]
 }

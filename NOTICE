@@ -1,0 +1,10 @@
+Pleione
+Copyright 2026 Merope
+
+This product is a modified version of webOS IPTV Player
+(https://github.com/lennylxx/webos-iptv-player), Copyright 2026 lennylxx,
+licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Merope has modified the original work, including renaming and rebranding
+it, changing its application and service identifiers, and making further
+changes recorded in this repository's git history.
