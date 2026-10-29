@@ -24,7 +24,6 @@ export const CONFIG = {
   PLAYLIST_CACHE_WRITE_DELAY_MS: 1200,
   DEFAULT_EPG_REFRESH_INTERVAL_MS: 6 * 60 * 60 * 1000,
   REMINDER_SCAN_INTERVAL: 30 * 1000,
-  CHANNEL_SCROLLBAR_HIDE_MS: 900,
   NAVIGATION: {
     // Treat fast successive focus changes as held-key navigation. The repeat
     // interval measured on LG remotes is around 80 ms; leave room for load.
