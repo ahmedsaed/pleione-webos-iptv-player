@@ -700,6 +700,39 @@ describe('Movies browse + grid', () => {
       .toBe('43');
   });
 
+  it('opens a title from a virtual group whose titles keep their own category', async () => {
+    catalogMock.loadVodInfo.mockResolvedValue({
+      plot: '', cast: '', director: '', genre: '', releaseDate: '', durationSecs: 0,
+      poster: '', imdbId: '', tmdbId: '', year: 0,
+    });
+    // Category 1 is a provider's "recently added" list; its title belongs to 7.
+    const { view } = await openWith([{ id: '1', name: 'Recently added' }], [vod('10', 'Movie One', '7')]);
+    const tile = container.querySelector('.catalog-tile[data-item-id="10"]') as HTMLElement;
+    expect(tile.dataset.categoryId).toBe('7');
+    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    await Promise.resolve(); await Promise.resolve();
+    expect(container.querySelector('.movies-detail')?.textContent).toContain('Movie One');
+  });
+
+  it('opens a title from the See all grid of a virtual group', async () => {
+    catalogMock.loadVodInfo.mockResolvedValue({
+      plot: '', cast: '', director: '', genre: '', releaseDate: '', durationSecs: 0,
+      poster: '', imdbId: '', tmdbId: '', year: 0,
+    });
+    const streams = Array.from({ length: 25 }, (_, i) => vod(String(100 + i), `Movie ${i}`, '7'));
+    const { view } = await openWith([{ id: '1', name: 'Recently added' }], streams);
+    const seeAll = container.querySelector('.catalog-see-all[data-category-id="1"]') as HTMLElement;
+    seeAll.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    await vi.waitFor(() => expect(container.querySelector('.catalog-layer-grid .catalog-tile[data-item-id="124"]')).not.toBeNull());
+    const tile = container.querySelector('.catalog-layer-grid .catalog-tile[data-item-id="124"]') as HTMLElement;
+    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    await Promise.resolve(); await Promise.resolve();
+    expect(container.querySelector('.movies-detail')?.textContent).toContain('Movie 24');
+  });
+
   it('shows browse again after Back from a Search deep link', async () => {
     catalogMock.loadVodInfo.mockResolvedValue({
       plot: '', cast: '', director: '', genre: '', releaseDate: '', durationSecs: 0,

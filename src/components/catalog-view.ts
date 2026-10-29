@@ -1266,7 +1266,15 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
 
   protected findItem(categoryId: string, id: string): I | null {
     const inCat = this.itemsByCategory[categoryId] ?? [];
-    return inCat.find((x) => this.itemId(x) === id) ?? this.fallbackItem(id);
+    const match = inCat.find((x) => this.itemId(x) === id);
+    if (match) return match;
+    // A provider's virtual group (such as "recently added") lists titles that
+    // keep their own category id, which may never be loaded on its own.
+    for (const loaded of Object.keys(this.itemsByCategory)) {
+      const found = this.itemsByCategory[loaded].find((x) => this.itemId(x) === id);
+      if (found) return found;
+    }
+    return this.fallbackItem(id);
   }
 
   private async openGrid(categoryId: string): Promise<void> {
