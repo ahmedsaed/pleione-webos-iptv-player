@@ -95,6 +95,7 @@
 - **Magic Remote edge scrolling** — rest the pointer near the edge of a catalog or search rail, tab row, or Guide date strip to scroll it, faster the longer it stays
 - **Color themes** — choose from light and dark app-wide themes with live previews, plus Dark or Frosted player overlays; selections persist across launches
 - **Adjustable text size** — scale text from 80%–150% without resizing controls
+- **Interface size** — scale the whole interface, text, images, and controls together, from 90%–130%
 - **Animation mode** — Essential turns off costly motion on older TVs, Reduced keeps visual effects but scrolls instantly, and Full smooth-scrolls single navigation steps
 - **Multilingual interface** — available in English, Deutsch, Español, Français, Italiano, Polski, Português (Brasil), Русский, Türkçe, Українська, and 简体中文; follows the TV language by default or can be selected explicitly in Settings
 
@@ -267,7 +268,7 @@ Open with the **Blue** key or the **Settings** tab in the top bar. Sections:
 - **EPG time zone** — show guide times in the TV's **Device** time zone or the guide **Feed** time zone.
 - **EPG time correction** — adjust each source independently in 15-minute steps.
 - **Program reminders** — open the date-grouped Reminder Manager to review or remove upcoming reminders.
-- **Appearance** — preview an app-wide color theme, choose Dark or Frosted player overlays, and adjust text from 80% to 150%.
+- **Appearance** — preview an app-wide color theme, choose Dark or Frosted player overlays, set the interface size from 90% to 130%, and adjust text from 80% to 150%.
 - **Playback** — toggle auto-play and Live preview, and choose whether Channel
   Up/Down cycles the global list or stays within the active group, Favorites,
   or playlist.

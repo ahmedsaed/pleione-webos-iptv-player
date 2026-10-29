@@ -97,6 +97,14 @@ Settings, player OSD) and match it.
   Settings text-size option works. Hand-write `var(--font-scale)` only for
   *boxes* that must grow with text (a row height or label width); check the
   layout at text size 150.
+- **Every px length scales with Interface size.** The build also wraps each
+  non-zero px length in `var(--ui-scale)` (90–130%), so the whole UI grows
+  as if the screen were smaller. Size anything that must fill the screen
+  from `var(--canvas-width)` / `var(--canvas-height)` (the fixed 1920x1080,
+  never scaled), e.g. `calc(var(--canvas-height) - 96px)`, never from a
+  hand-subtracted px total. A px constant in TS layout math (a virtual-list
+  stride, a pointer margin) goes through `uiPx()` from `src/utils/ui-scale.ts`;
+  `e2e/interface-size.spec.ts` checks every view at each size.
 - **Spacing:** use the 4px-based steps already in use — 8, 12, 16, 20, 24,
   then 40/60/80 for section and view spacing. Keep related columns tight
   (size a time column to its content) and give separate control groups

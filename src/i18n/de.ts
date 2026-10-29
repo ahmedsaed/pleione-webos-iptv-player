@@ -299,6 +299,8 @@ export const DE_MESSAGES = {
   'settings.overlayDark': 'Dunkel',
   'settings.overlayFrosted': 'Mattiert',
   'settings.overlayHint': 'Dunkel ist über Videos leichter lesbar. Mattiert eignet sich am besten für helle Designs.',
+  'settings.interfaceSize': 'Größe der Oberfläche',
+  'settings.interfaceSizeHint': 'Skaliert Text, Bilder und Bedienelemente gemeinsam.',
   'settings.textSize': 'Textgröße',
   'settings.textSizeDefault': '{percent} % (Standard)',
   'settings.display': 'Anzeige',

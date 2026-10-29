@@ -28,6 +28,20 @@
   <link rel="stylesheet" href="css/parental-controls.css">
   <link rel="stylesheet" href="css/live-category-picker.css">
   <link rel="stylesheet" href="css/legacy-webos-overrides.css">
+  <script>
+    // Interface size: swap to the build's pre-scaled stylesheets before the
+    // first paint. Keep the sizes in step with INTERFACE_SIZES.
+    try {
+      var z = JSON.parse(localStorage.getItem('iptv_interface_size'));
+      if (/^(90|110|120|130)$/.test(z)) {
+        document.documentElement.dataset.interfaceSize = z;
+        var sheets = document.querySelectorAll('link[rel="stylesheet"]');
+        for (var i = 0; i < sheets.length; i++) {
+          sheets[i].setAttribute('href', sheets[i].getAttribute('href').replace(/^css\//, 'css/ui-' + z + '/'));
+        }
+      }
+    } catch (e) {}
+  </script>
 </head>
 <body>
   <video id="video-player" autoplay></video>

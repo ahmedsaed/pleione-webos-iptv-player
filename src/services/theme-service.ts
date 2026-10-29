@@ -1,5 +1,6 @@
-import { DEFAULT_THEME, DEFAULT_OVERLAY, DEFAULT_TEXT_SIZE, isValidTheme, isValidOverlayStyle, isValidTextSize } from '../config/themes';
+import { DEFAULT_THEME, DEFAULT_OVERLAY, DEFAULT_TEXT_SIZE, DEFAULT_INTERFACE_SIZE, isValidTheme, isValidOverlayStyle, isValidTextSize, isValidInterfaceSize } from '../config/themes';
 import { StorageService } from './storage-service';
+import { swapInterfaceStylesheets } from '../utils/ui-scale';
 
 // Theme switching is a single attribute write on <html>; the CSS variable
 // overrides live in css/themes.css keyed by `[data-theme="<id>"]`. No runtime
@@ -33,10 +34,19 @@ export function applyTextSize(size: string): void {
   document.documentElement.dataset.textSize = isValidTextSize(size) ? size : DEFAULT_TEXT_SIZE;
 }
 
+/** App-wide interface size → `data-interface-size` plus the matching
+ *  stylesheet set; likewise a live preview. */
+export function applyInterfaceSize(size: string): void {
+  const valid = isValidInterfaceSize(size) ? size : DEFAULT_INTERFACE_SIZE;
+  document.documentElement.dataset.interfaceSize = valid;
+  swapInterfaceStylesheets(valid);
+}
+
 /** Re-assert the stored theme + overlay style on boot (belt-and-suspenders
  *  alongside the inline <head> script that beats the first paint). */
 export function initTheme(): void {
   applyTheme(StorageService.getTheme());
   applyOverlayStyle(StorageService.getOverlayStyle());
   applyTextSize(StorageService.getTextSize());
+  applyInterfaceSize(StorageService.getInterfaceSize());
 }

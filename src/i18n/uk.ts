@@ -312,6 +312,8 @@ export const UK_MESSAGES = {
   'settings.overlayDark': 'Темний',
   'settings.overlayFrosted': 'Матовий',
   'settings.overlayHint': 'Темний стиль легше читати поверх відео. Матовий найкраще підходить для світлих тем.',
+  'settings.interfaceSize': 'Розмір інтерфейсу',
+  'settings.interfaceSizeHint': 'Одночасно масштабує текст, зображення та елементи керування.',
   'settings.textSize': 'Розмір тексту',
   'settings.textSizeDefault': '{percent} % (за замовчуванням)',
   'settings.display': 'Відображення',

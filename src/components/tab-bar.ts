@@ -12,6 +12,7 @@ export type TabBarAccountMenuCloseReason = AccountMenuCloseReason | 'bar' | 'bla
 import { t } from '../i18n';
 import { createLogger } from '../utils/logger';
 import { Focus, Tier, type FocusScope } from '../navigation/focus-scope';
+import { uiPx } from '../utils/ui-scale';
 
 // Cap for the expanded inline search box.
 export const SEARCH_INPUT_MAX_WIDTH = 600;
@@ -227,7 +228,7 @@ export class TabBar {
     // The input may still be sliding open, so derive its settled edges from
     // the icon it ends beside and its target width.
     return {
-      right: iconRect.left - SEARCH_INPUT_GAP,
+      right: iconRect.left - uiPx(SEARCH_INPUT_GAP),
       bottom: input.getBoundingClientRect().bottom,
       width: inputWidth,
     };
@@ -484,7 +485,7 @@ export class TabBar {
     const iconLeft = icon.getBoundingClientRect().left;
     const settingsRight = settings ? settings.getBoundingClientRect().right : (this.el!.getBoundingClientRect().left + 96);
     const gap = Math.max(160, Math.round(iconLeft - settingsRight - 24));
-    input.style.width = `${Math.min(SEARCH_INPUT_MAX_WIDTH, gap)}px`;
+    input.style.width = `${Math.min(uiPx(SEARCH_INPUT_MAX_WIDTH), gap)}px`;
   }
 
   private searchPlaceholder(): string {

@@ -563,7 +563,6 @@ test('preview controls stay transparent until focused and reuse focus tokens', a
     return settled;
   })).toBe(true);
   const styles = async () => page.locator(PANEL).evaluate(panel => {
-    const root = getComputedStyle(document.documentElement);
     const focusProbe = document.createElement('span');
     focusProbe.style.border = '1px solid var(--focus-ring)';
     document.body.appendChild(focusProbe);
@@ -585,7 +584,15 @@ test('preview controls stay transparent until focused and reuse focus tokens', a
       idleButtonBackground: idleButton.backgroundColor,
       badgeRadius: badge.borderRadius,
       buttonRadius: button.borderRadius,
-      appRadius: root.getPropertyValue('--radius').trim(),
+      // --radius holds a calc() the build scales, so resolve it on a probe.
+      appRadius: (() => {
+        const probe = document.createElement('div');
+        probe.style.borderRadius = 'var(--radius)';
+        document.body.appendChild(probe);
+        const value = getComputedStyle(probe).borderTopLeftRadius;
+        probe.remove();
+        return value;
+      })(),
       iconFilter: icon.filter,
     };
   });

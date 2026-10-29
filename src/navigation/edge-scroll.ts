@@ -2,6 +2,7 @@ import { CONFIG } from '../config';
 import { withInstantScroll } from '../utils/dom';
 import { Focus, Tier, type FocusScope } from './focus-scope';
 import { InputMode } from './input-mode';
+import { uiPx } from '../utils/ui-scale';
 
 interface Edge {
   track: HTMLElement;
@@ -36,8 +37,8 @@ export function edgeScrollTrackAt(root: HTMLElement, x: number, y: number): HTML
 
 export function edgeScrollSpeed(scrollingMs: number): number {
   const t = Math.max(0, Math.min(1, scrollingMs / N.EDGE_SCROLL_RAMP_MS));
-  const min = N.EDGE_SCROLL_MIN_SPEED_PX_PER_SECOND;
-  return min + (N.EDGE_SCROLL_MAX_SPEED_PX_PER_SECOND - min) * t * t;
+  const min = uiPx(N.EDGE_SCROLL_MIN_SPEED_PX_PER_SECOND);
+  return min + (uiPx(N.EDGE_SCROLL_MAX_SPEED_PX_PER_SECOND) - min) * t * t;
 }
 
 export function installEdgeScroll(
@@ -89,7 +90,7 @@ export function installEdgeScroll(
     const top = Math.max(0, box.top + track.clientTop);
     const bottom = Math.min(window.innerHeight, box.top + track.clientTop + track.clientHeight);
     if (point.y < top || point.y >= bottom) return null;
-    const zone = Math.min(N.EDGE_SCROLL_ZONE_PX, (right - left) / 3);
+    const zone = Math.min(uiPx(N.EDGE_SCROLL_ZONE_PX), (right - left) / 3);
     const direction = point.x < left + zone ? -1 : point.x >= right - zone ? 1 : 0;
     if (!direction || (!atEnd && (direction < 0 ? track.scrollLeft <= 0 : track.scrollLeft >= max - 1))) return null;
     return { track, owner, direction };

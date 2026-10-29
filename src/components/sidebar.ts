@@ -29,6 +29,7 @@ import { createLogger } from '../utils/logger';
 import { ChannelHealthService } from '../services/channel-health';
 import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
 import { InputMode } from '../navigation/input-mode';
+import { uiPx } from '../utils/ui-scale';
 
 const log = createLogger('Sidebar');
 
@@ -86,12 +87,12 @@ export class Sidebar {
   private lastWheelAt = 0;
   private opening = false;
   private readonly channelVirtualizer = new VirtualList({
-    itemSize: CHANNEL_ROW_STRIDE,
+    itemSize: () => uiPx(CHANNEL_ROW_STRIDE),
     overscan: CHANNEL_OVERSCAN,
     fallbackViewportSize: FALLBACK_LIST_HEIGHT,
   });
   private readonly groupVirtualizer = new VirtualList({
-    itemSize: GROUP_ROW_STRIDE,
+    itemSize: () => uiPx(GROUP_ROW_STRIDE),
     overscan: CHANNEL_OVERSCAN,
     fallbackViewportSize: FALLBACK_LIST_HEIGHT,
   });
@@ -168,9 +169,9 @@ export class Sidebar {
 
   get pointerDismissX(): number {
     const groupWidth = this.el?.querySelector<HTMLElement>('.sidebar-group-panel')
-      ?.getBoundingClientRect().width || GROUP_PANEL_MIN_WIDTH;
-    return (this.groupsExpanded ? groupWidth + CHANNEL_PANEL_WIDTH : CHANNEL_PANEL_WIDTH)
-      + POINTER_MARGIN;
+      ?.getBoundingClientRect().width || uiPx(GROUP_PANEL_MIN_WIDTH);
+    return (this.groupsExpanded ? groupWidth + uiPx(CHANNEL_PANEL_WIDTH) : uiPx(CHANNEL_PANEL_WIDTH))
+      + uiPx(POINTER_MARGIN);
   }
 
   refresh(): void {
@@ -214,7 +215,7 @@ export class Sidebar {
     }
 
     if (this.pointerExitPending) {
-      if (clientX <= CHANNEL_PANEL_WIDTH) this.clearPointerExit();
+      if (clientX <= uiPx(CHANNEL_PANEL_WIDTH)) this.clearPointerExit();
       return true;
     }
 
@@ -627,8 +628,8 @@ export class Sidebar {
     const index = channels ? this.channelFocusIdx : this.groupFocusIdx;
     const count = channels ? this.getChannelCount() : this.getGroups().length;
     if (!list || !list.clientHeight || index < 0 || count === 0) return false;
-    const stride = channels ? CHANNEL_ROW_STRIDE : GROUP_ROW_STRIDE;
-    const rowHeight = channels ? CHANNEL_ROW_STRIDE - CHANNEL_ROW_GAP : GROUP_ROW_STRIDE;
+    const stride = uiPx(channels ? CHANNEL_ROW_STRIDE : GROUP_ROW_STRIDE);
+    const rowHeight = uiPx(channels ? CHANNEL_ROW_STRIDE - CHANNEL_ROW_GAP : GROUP_ROW_STRIDE);
     const padding = parseFloat(getComputedStyle(list).paddingTop) || 0;
     const top = list.scrollTop - padding;
     const bottom = top + list.clientHeight;
@@ -1077,7 +1078,7 @@ export class Sidebar {
       const position = item?.dataset.sidebarPos ? parseInt(item.dataset.sidebarPos, 10) : -1;
       if (position < 0) return;
       const rowStart = this.channelVirtualizer.getItemOffset(position);
-      if (rowStart + CHANNEL_ROW_STRIDE <= viewportStart || rowStart >= viewportEnd) return;
+      if (rowStart + uiPx(CHANNEL_ROW_STRIDE) <= viewportStart || rowStart >= viewportEnd) return;
       const src = spacer.dataset.logoSrc;
       if (src) sources.add(src);
     });

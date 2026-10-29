@@ -7,6 +7,7 @@ import { t } from '../i18n';
 import { TRASH_ICON } from './icons';
 import { createLogger } from '../utils/logger';
 import { Focus, Tier, type FocusScope } from '../navigation/focus-scope';
+import { uiPx } from '../utils/ui-scale';
 
 const log = createLogger('SearchHistory');
 
@@ -79,7 +80,7 @@ export class SearchHistoryDropdown {
     Focus.push(this.scope);
     this.root.classList.remove('hidden', 'search-history-dropdown--menu');
     const panel = this.root.querySelector<HTMLElement>('.search-history-panel')!;
-    panel.style.top = `${anchor.bottom + 12}px`;
+    panel.style.top = `${anchor.bottom + uiPx(12)}px`;
     panel.style.right = `${Math.max(0, window.innerWidth - anchor.right)}px`;
     panel.style.width = `${anchor.width}px`;
     // A long "clear" label at a large text size can outgrow the box's width;

@@ -43,7 +43,7 @@ import {
   vodParentalRequest,
 } from './services/parental-control';
 import { setDisplayTz } from './utils/time';
-import { initTheme, applyTheme, applyOverlayStyle, applyTextSize } from './services/theme-service';
+import { initTheme, applyTheme, applyOverlayStyle, applyTextSize, applyInterfaceSize } from './services/theme-service';
 import { applyAnimationMode } from './services/motion-service';
 import { channelKey } from './utils/channel';
 import { isSourceEnabled } from './utils/playlist';
@@ -1059,6 +1059,7 @@ class App {
     applyTheme(StorageService.getTheme());
     applyOverlayStyle(StorageService.getOverlayStyle());
     applyTextSize(StorageService.getTextSize());
+    applyInterfaceSize(StorageService.getInterfaceSize());
     applyAnimationMode(StorageService.getAnimationMode());
     this.player.closeSubtitleSearch(); // never let the subtitle overlay linger across a view change
     this.player.closeSubtitleOffset(); // never let the subtitle-sync overlay linger across a view change

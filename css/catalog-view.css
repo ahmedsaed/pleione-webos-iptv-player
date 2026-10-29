@@ -18,7 +18,7 @@
 .catalog-layer-hidden { visibility: hidden; }
 
 .catalog-view {
-  width: 1920px;
+  width: var(--canvas-width);
   height: 100%;
   box-sizing: border-box;
   padding: 40px 80px 60px;

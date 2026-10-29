@@ -2,7 +2,7 @@
    The poster rails reuse the shared catalog tile/poster visuals; these are the
    search-only bits (the query box and the M3U vertical channel list). */
 .search-view {
-  width: 1920px;
+  width: var(--canvas-width);
   height: 100%;
   box-sizing: border-box;
   padding: 40px 80px 60px;

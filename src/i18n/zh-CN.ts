@@ -293,6 +293,8 @@ export const ZH_CN_MESSAGES = {
   'settings.overlayDark': '深色',
   'settings.overlayFrosted': '毛玻璃',
   'settings.overlayHint': '深色样式在视频画面上更易阅读；毛玻璃样式更适合浅色主题。',
+  'settings.interfaceSize': '界面大小',
+  'settings.interfaceSizeHint': '同时缩放文字、图片和控件。',
   'settings.textSize': '文字大小',
   'settings.textSizeDefault': '{percent}%（默认）',
   'settings.display': '显示',

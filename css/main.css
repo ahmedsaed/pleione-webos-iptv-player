@@ -34,6 +34,9 @@
   --radius: 8px;
   --transition: 0.2s ease;
   --font-scale: 1;
+  /* The screen itself; Interface size scales every other px length. */
+  --canvas-width: 1920px;
+  --canvas-height: 1080px;
 }
 
 .channel-health-status {
@@ -149,8 +152,8 @@ html[data-animation="full"] .subs-list {
 }
 
 html, body {
-  width: 1920px;
-  height: 1080px;
+  width: var(--canvas-width);
+  height: var(--canvas-height);
   overflow: hidden;
   font-family: -apple-system, 'LG Smart UI', 'Helvetica Neue', Arial, sans-serif;
   font-size: 24px;
@@ -164,8 +167,8 @@ html, body {
   position: absolute;
   top: 0;
   left: 0;
-  width: 1920px;
-  height: 1080px;
+  width: var(--canvas-width);
+  height: var(--canvas-height);
 }
 
 .hidden {
@@ -397,8 +400,8 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
   position: fixed;
   top: 0;
   left: 0;
-  width: 1920px;
-  height: 1080px;
+  width: var(--canvas-width);
+  height: var(--canvas-height);
   z-index: 1;
   background: black;
   object-fit: contain;

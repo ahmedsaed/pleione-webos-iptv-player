@@ -301,6 +301,8 @@ export const EN_MESSAGES = {
   'settings.overlayDark': 'Dark',
   'settings.overlayFrosted': 'Frosted',
   'settings.overlayHint': 'Dark is easier to read over video. Frosted works best with light themes.',
+  'settings.interfaceSize': 'Interface size',
+  'settings.interfaceSizeHint': 'Scales text, images, and controls together.',
   'settings.textSize': 'Text size',
   'settings.textSizeDefault': '{percent}% (Default)',
   'settings.display': 'Display',

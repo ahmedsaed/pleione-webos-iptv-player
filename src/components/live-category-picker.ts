@@ -13,6 +13,7 @@ import { showToast } from './toast';
 import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard } from '../utils/virtual-scroll';
 import { AccountSwitcher } from './account-switcher';
+import { uiPx } from '../utils/ui-scale';
 
 const log = createLogger('LiveCategories');
 
@@ -262,7 +263,7 @@ export class LiveCategoryPicker {
     this.newIds = unseenLiveCategoryIds(ids, options.filter, options.snapshot);
     this.entries = this.buildEntries();
     this.virtualizer.setItemSizes(this.entries.map((entry, index) =>
-      entry.kind === 'row' ? ROW_STRIDE : HEAD_STRIDE + (index ? HEAD_GAP : 0)));
+      uiPx(entry.kind === 'row' ? ROW_STRIDE : HEAD_STRIDE + (index ? HEAD_GAP : 0))));
     this.virtualizer.setScrollOffset(0);
     this.state = 'ready';
     this.render();
@@ -402,7 +403,7 @@ export class LiveCategoryPicker {
                   data-live-categories-retry>${t('liveCategories.tryAgain')}</button>
         </div>`;
     }
-    this.virtualizer.setLeadingSize(LIST_PADDING);
+    this.virtualizer.setLeadingSize(uiPx(LIST_PADDING));
     const range = this.virtualizer.getRange(this.entries.length, this.listViewport());
     const items: Safe[] = [];
     for (let index = range.start; index < range.end; index++) {
@@ -412,7 +413,7 @@ export class LiveCategoryPicker {
         items.push(this.row(entry.category, entry.isNew, index, top));
       } else {
         items.push(html`
-          <div class="live-category-section" style="top:${top + (index ? HEAD_GAP : 0)}px"
+          <div class="live-category-section" style="top:${top + (index ? uiPx(HEAD_GAP) : 0)}px"
                data-key="head:${entry.section}">
             <h3>${entry.section === 'new' ? t('liveCategories.newSection') : t('catalog.allCategories')}</h3>
             <span class="live-category-section-count">${entry.count}</span>

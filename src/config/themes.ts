@@ -58,3 +58,14 @@ export const DEFAULT_TEXT_SIZE: TextSize = '100';
 export function isValidTextSize(v: string | null | undefined): v is TextSize {
   return TEXT_SIZES.indexOf(v as TextSize) !== -1;
 }
+
+// App-wide interface size, as a percentage id: `[data-interface-size="<id>"]`
+// blocks in `css/main.css` drive `--ui-scale`, which PostCSS multiplies into
+// every px length at build time; JS layout math reads it through uiPx().
+export const INTERFACE_SIZES = ['90', '100', '110', '120', '130'] as const;
+export type InterfaceSize = typeof INTERFACE_SIZES[number];
+export const DEFAULT_INTERFACE_SIZE: InterfaceSize = '100';
+
+export function isValidInterfaceSize(v: string | null | undefined): v is InterfaceSize {
+  return INTERFACE_SIZES.indexOf(v as InterfaceSize) !== -1;
+}

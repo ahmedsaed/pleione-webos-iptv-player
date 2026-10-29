@@ -59,6 +59,7 @@ import {
   sampleDocuments,
   selectCatalogItems,
 } from './search-cache-source';
+import { uiPx } from '../utils/ui-scale';
 
 const log = createLogger('Search');
 const SEARCH_LIST_VIEWPORT = 420;
@@ -1640,7 +1641,7 @@ export class Search {
     viewport: number,
   ): VirtualList {
     return new VirtualList({
-      itemSize,
+      itemSize: () => uiPx(itemSize),
       overscan,
       fallbackViewportSize: viewport,
     });

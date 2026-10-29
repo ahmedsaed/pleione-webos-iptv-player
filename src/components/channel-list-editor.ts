@@ -21,6 +21,7 @@ import { WorkerMappingSearch } from '../workers/mapping-search-client';
 import { isIndexRetryPending } from '../workers/index-retry';
 import { createLogger } from '../utils/logger';
 import { Focus } from '../navigation/focus-scope';
+import { uiPx } from '../utils/ui-scale';
 
 const log = createLogger('ChannelEditor');
 
@@ -75,7 +76,7 @@ export class ChannelListEditor {
   private epgFocusPosition = -1;
   private epgKeyboardVisible = false;
   private readonly epgVirtualizer = new VirtualList({
-    itemSize: EPG_OPTION_HEIGHT,
+    itemSize: () => uiPx(EPG_OPTION_HEIGHT),
     overscan: EPG_OVERSCAN,
     fallbackViewportSize: EPG_VIEWPORT_HEIGHT,
   });
@@ -200,13 +201,13 @@ export class ChannelListEditor {
         const viewportHeight = target.clientHeight || EPG_VIEWPORT_HEIGHT;
         const firstVisible = Math.min(
           itemCount - 1,
-          Math.ceil(target.scrollTop / EPG_OPTION_HEIGHT),
+          Math.ceil(target.scrollTop / uiPx(EPG_OPTION_HEIGHT)),
         );
         const lastVisible = Math.max(
           firstVisible,
           Math.min(
             itemCount - 1,
-            Math.floor((target.scrollTop + viewportHeight) / EPG_OPTION_HEIGHT) - 1,
+            Math.floor((target.scrollTop + viewportHeight) / uiPx(EPG_OPTION_HEIGHT)) - 1,
           ),
         );
         this.epgFocusPosition = Math.max(
