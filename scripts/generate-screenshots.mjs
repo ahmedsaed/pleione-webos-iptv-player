@@ -1033,15 +1033,14 @@ try {
     await context.close();
   }
 
-  // 3b) Theme picker — scroll Settings to Appearance and select a preview swatch.
+  // 3b) Theme picker — open the Appearance page and select a preview swatch.
   {
     const { context, page } = await newPage();
     await gotoChannels(page, base);
     await remote(page, KEY.BLUE);
     await page.locator('#view-settings').waitFor({ state: 'visible' });
-    const picker = page.locator('.theme-swatch-grid');
-    await picker.waitFor({ state: 'attached' });
-    await picker.evaluate((el) => el.parentElement?.scrollIntoView({ block: 'start' }));
+    await page.locator('[data-settings-target="appearance"]').click();
+    const picker = page.locator('.theme-swatch-rail');
     await page.locator('.theme-swatch[data-theme-id="midnight"]').click();
     await picker.waitFor({ state: 'visible' });
     await clearToasts(page);

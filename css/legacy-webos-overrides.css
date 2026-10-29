@@ -85,8 +85,8 @@ html.q-scroll-end-padding .catalog-category-rail::after { content: none; }
  *
  * Chromium 53 has no CSS Grid, so `display: grid` collapses to block and grid
  * children stack vertically. This makes the settings menu render above the
- * settings content (instead of beside it) and the theme swatches stack in a
- * single column. `@supports not (display: grid)` targets exactly those engines,
+ * settings content (instead of beside it). `@supports not (display: grid)`
+ * targets exactly those engines,
  * so webOS 5+ (which has Grid) is unaffected.
  */
 @supports not (display: grid) {
@@ -112,27 +112,6 @@ html.q-scroll-end-padding .catalog-category-rail::after { content: none; }
     -webkit-flex: 1 1 auto;
     flex: 1 1 auto;
     min-width: 0;
-  }
-
-  /* Theme picker: swatch tiles wrap into a grid instead of a vertical stack.
-     Grid puts the 18px gap only *between* tiles, so carry it on one side and
-     pull the trailing row's back off. */
-  .theme-swatch-grid {
-    display: -webkit-flex;
-    display: flex;
-    -webkit-flex-wrap: wrap;
-    flex-wrap: wrap;
-    margin-bottom: -18px;
-  }
-  .theme-swatch-grid > .theme-swatch {
-    -webkit-box-sizing: border-box;
-    box-sizing: border-box;
-    -webkit-flex: 0 0 calc((100% - 72px) / 5);
-    flex: 0 0 calc((100% - 72px) / 5);
-    margin: 0 18px 18px 0;
-  }
-  .theme-swatch-grid > .theme-swatch:nth-child(5n) {
-    margin-right: 0;
   }
 
   .reminder-day-heading,

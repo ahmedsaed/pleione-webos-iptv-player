@@ -909,6 +909,7 @@ test('disabling the playing source in Settings leaves no preview or stale contro
   await setup(page, { enabled: true });
   await selectFirst(page);
   await enterTab(page, 'settings');
+  await page.locator('[data-settings-target="sources"]').click();
   await page.locator('#playlist-entries .source-toggle').click();
   await page.locator('#save-settings').click();
   await expect(page.locator('#view-channels')).toBeVisible();
@@ -932,6 +933,7 @@ test.describe('display timezone', () => {
     await expectPreviewGeometry(page);
 
     await enterTab(page, 'settings');
+    await page.locator('[data-settings-target="guide"]').click();
     await page.locator('#tz-mode [data-value="feed"]').click();
     await page.locator('#save-settings').click();
     await selectFirst(page);

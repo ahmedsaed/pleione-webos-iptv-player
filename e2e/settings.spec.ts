@@ -28,7 +28,7 @@ test.describe('Settings navigation', () => {
 
     await trigger.click();
     await expect(dropdown).toHaveClass(/open/);
-    await page.locator('[data-settings-target="appearance"]').click();
+    await page.locator('[data-settings-target="general"]').click();
     await expect(dropdown).not.toHaveClass(/open/);
 
     await trigger.click();
@@ -131,31 +131,35 @@ test.describe('Settings navigation', () => {
 
   test('keeps dropdown spacing aligned with adjacent settings', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('#os-pref-lang')).toBeAttached();
-    await expect(page.locator('#overlay-style')).toBeAttached();
+    const titleGap = (selector: string) => page.evaluate((sel) => {
+      const control = document.querySelector<HTMLElement>(sel)!;
+      const title = control.closest('.settings-item')!
+        .querySelector<HTMLElement>('.settings-item-title')!;
+      return control.getBoundingClientRect().top - title.getBoundingClientRect().bottom;
+    }, selector);
 
+    // Each category is its own page, so each control is measured on its own.
+    await page.locator('[data-settings-target="appearance"]').click();
+    await expect(page.locator('#overlay-style')).toBeVisible();
+    const toggleTitle = await titleGap('#overlay-style');
+
+    await page.locator('[data-settings-target="subtitles"]').click();
+    await expect(page.locator('#os-pref-lang')).toBeVisible();
     const gaps = await page.evaluate(() => {
-      const titleGap = (selector: string): number => {
-        const control = document.querySelector<HTMLElement>(selector)!;
-        const title = control.closest('.settings-item')!
-          .querySelector<HTMLElement>('.settings-item-title')!;
-        return control.getBoundingClientRect().top - title.getBoundingClientRect().bottom;
-      };
       const rows = Array.from(document.querySelectorAll<HTMLElement>(
         '#settings-subtitles .settings-row',
       ));
       return {
-        dropdownTitle: titleGap('#os-pref-lang'),
-        toggleTitle: titleGap('#overlay-style'),
         dropdownToNextTitle: rows[0].querySelector('label')!.getBoundingClientRect().top
           - document.querySelector('#os-pref-lang')!.getBoundingClientRect().bottom,
         inputToNextTitle: rows[1].querySelector('label')!.getBoundingClientRect().top
           - document.querySelector('#subdl-key')!.getBoundingClientRect().bottom,
       };
     });
+    const dropdownTitle = await titleGap('#os-pref-lang');
 
-    expect(gaps.dropdownTitle).toBe(gaps.toggleTitle);
-    expect(gaps.dropdownTitle).toBe(10);
+    expect(dropdownTitle).toBe(toggleTitle);
+    expect(dropdownTitle).toBe(10);
     expect(gaps.dropdownToNextTitle).toBe(gaps.inputToNextTitle);
     expect(gaps.dropdownToNextTitle).toBe(12);
   });
@@ -459,31 +463,27 @@ test.describe('Settings navigation', () => {
     await expect(page.locator('#view-settings')).toBeHidden();
   });
 
-  test('keeps Magic Remote hover separate from the weak scroll-position indicator', async ({ page }) => {
+  test('Magic Remote hover on a category never switches the page', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#view-settings')).toBeVisible();
 
     const general = page.locator('[data-settings-target="general"]');
     const appearance = page.locator('[data-settings-target="appearance"]');
     const playback = page.locator('[data-settings-target="playback"]');
-    const data = page.locator('[data-settings-target="data"]');
 
     await playback.hover();
     await expect(playback).toHaveClass(/focused/);
     await expect(general).toHaveClass(/active/);
+    await expect(page.locator('#settings-general')).toBeVisible();
+    await expect(page.locator('#settings-playback')).toBeHidden();
 
     await appearance.click();
     await expect(appearance).toHaveClass(/active/);
-    await page.locator('.settings-scroll').evaluate((main) => {
-      (main as HTMLElement).style.scrollBehavior = 'auto';
-      main.scrollTop = main.scrollHeight;
-      main.dispatchEvent(new Event('scroll'));
-    });
-
-    await expect(data).toHaveClass(/active/);
     await playback.hover();
     await expect(playback).toHaveClass(/focused/);
-    await expect(data).toHaveClass(/active/);
+    await expect(appearance).toHaveClass(/active/);
+    await expect(page.locator('#settings-appearance')).toBeVisible();
+    await expect(page.locator('#settings-playback')).toBeHidden();
   });
 
   test('scales buttons consistently for pointer and D-pad focus', async ({ page }) => {
@@ -502,7 +502,8 @@ test.describe('Settings navigation', () => {
     await expect(focusedButton).toHaveCount(1);
     await expect(focusedButton).toHaveCSS('transform', 'matrix(1.03, 0, 0, 1.03, 0, 0)');
 
-    const toggle = page.locator('.toggle-option').first();
+    await page.locator('[data-settings-target="playback"]').click();
+    const toggle = page.locator('#auto-play .toggle-option').first();
     await toggle.hover();
     await expect(toggle).toHaveClass(/focused/);
     await expect(toggle).toHaveCSS('transform', 'none');
@@ -547,7 +548,7 @@ test.describe('Settings navigation', () => {
     expect(optionBounds.topInset).toBeGreaterThanOrEqual(0);
   });
 
-  test('keeps the clicked indicator and Data title visible after smooth scrolling', async ({ page }) => {
+  test('keeps the clicked indicator and shows the Data page title', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#view-settings')).toBeVisible();
     await page.evaluate(() => {
@@ -682,20 +683,17 @@ test.describe('Settings navigation', () => {
     }
   });
 
-  test('lays out the 15 theme swatches across three full rows', async ({ page }) => {
+  test('lays out the 15 theme swatches in one horizontal rail', async ({ page }) => {
     await page.goto('/');
     await page.locator('[data-settings-target="appearance"]').click();
 
-    const rowCounts = await page.locator('.theme-swatch').evaluateAll((swatches) => {
-      const rows = new Map<number, number>();
-      for (const swatch of swatches) {
-        const top = Math.round(swatch.getBoundingClientRect().top);
-        rows.set(top, (rows.get(top) ?? 0) + 1);
-      }
-      return Array.from(rows.values());
+    const layout = await page.locator('.theme-swatch-rail').evaluate((rail) => {
+      const tops = new Set(Array.from(rail.querySelectorAll('.theme-swatch'))
+        .map(swatch => Math.round(swatch.getBoundingClientRect().top)));
+      return { rows: tops.size, count: rail.children.length, overflows: rail.scrollWidth > rail.clientWidth };
     });
 
-    expect(rowCounts).toEqual([5, 5, 5]);
+    expect(layout).toEqual({ rows: 1, count: 15, overflows: true });
   });
 
   test('the text size picker scales only fonts and persists', async ({ page }) => {
@@ -879,21 +877,6 @@ test.describe('Settings re-entry', () => {
   const focusedCategory = (page: Page) => page.evaluate(() =>
     document.querySelector<HTMLElement>('#view-settings .settings-scroll [data-focusable].focused')
       ?.closest<HTMLElement>('.settings-category')?.dataset.settingsCategory ?? null);
-  // The category whose heading has reached the top of the pane.
-  const scrolledCategory = (page: Page) => page.evaluate(() => {
-    const pane = document.querySelector<HTMLElement>('#view-settings .settings-scroll')!;
-    const sections = Array.from(pane.querySelectorAll<HTMLElement>('.settings-category'));
-    if (pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 2) {
-      return sections[sections.length - 1].dataset.settingsCategory!;
-    }
-    const threshold = pane.getBoundingClientRect().top + 48;
-    let active = sections[0].dataset.settingsCategory!;
-    for (const section of sections) {
-      if (section.getBoundingClientRect().top > threshold) break;
-      active = section.dataset.settingsCategory!;
-    }
-    return active;
-  });
   // Leaves Settings on Add playlist for Live and comes back.
   const leaveFromAddPlaylist = async (page: Page) => {
     await routePlaylist(page);
@@ -984,34 +967,20 @@ test.describe('Settings re-entry', () => {
     await expect(add).toBeInViewport();
   });
 
-  test('Down into the next category while the pane settles marks that category', async ({ page }) => {
+  test('Down past the last control of a page goes to the action bar, not the next category', async ({ page }) => {
     await leaveFromAddPlaylist(page);
 
     // A held key: each press follows the last with no pause.
-    for (let step = 0; step < 30 && (await focusedCategory(page)) !== 'guide'; step++) {
+    for (let step = 0; step < 30 && !(await page.locator('.settings-actions .focused').count()); step++) {
       await page.keyboard.press('ArrowDown');
+      expect(await focusedCategory(page) ?? 'sources').toBe('sources');
     }
-    expect(await focusedCategory(page)).toBe('guide');
-    expect(await settledCategory(page)).toEqual(['guide']);
+    await expect(page.locator('.settings-actions .focused')).toHaveCount(1);
+    expect(await settledCategory(page)).toEqual(['sources']);
+    await expect(page.locator('#settings-guide')).toBeHidden();
   });
 
-  test('with full animation, a wheel while the pane settles lets the scroll pick the category', async ({ page }) => {
-    await page.addInitScript(() => localStorage.setItem('iptv_animation_mode', JSON.stringify('full')));
-    await leaveFromAddPlaylist(page);
-
-    const pane = await page.locator('#view-settings .settings-scroll').boundingBox();
-    if (!pane) throw new Error('the settings pane has no bounding box');
-    // In the pane's padding, so no control comes under the pointer as it scrolls.
-    await page.mouse.move(pane.x + 4, pane.y + pane.height / 2);
-    for (let step = 0; step < 12; step++) await page.mouse.wheel(0, 300);
-
-    const settled = await settledCategory(page);
-    const scrolled = await scrolledCategory(page);
-    expect(scrolled).not.toBe('sources');
-    expect(settled).toEqual([scrolled]);
-  });
-
-  test('with full animation, Right from a category keeps it once the pane settles', async ({ page }) => {
+  test('with full animation, Right from a highlighted category keeps it once the pane settles', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('iptv_animation_mode', JSON.stringify('full')));
     await routePlaylist(page);
     await seedPlaylist(page);
@@ -1023,7 +992,7 @@ test.describe('Settings re-entry', () => {
       await page.keyboard.press('ArrowDown');
     }
     await expect(guide).toHaveClass(/\bfocused\b/);
-    expect(await settledCategory(page)).toEqual(['general']);
+    expect(await settledCategory(page)).toEqual(['guide']);
 
     await page.keyboard.press('ArrowRight');
     await expect.poll(() => focusedCategory(page)).toBe('guide');
@@ -1094,6 +1063,7 @@ test.describe('Settings playlists', () => {
     await expect(page.locator('#view-settings')).toBeVisible();
 
     // Add a playlist row and fill in its URL.
+    await page.locator('[data-settings-target="sources"]').click();
     await page.locator('#add-playlist').click();
     await page.locator('.playlist-name').first().fill('Saved');
     await page.locator('.playlist-url').first().fill(PLAYLIST_URL);
@@ -1126,6 +1096,7 @@ test.describe('Settings playlists', () => {
     // Open settings, remove the only playlist, and save.
     await enterTab(page, 'settings');
     await expect(page.locator('#view-settings')).toBeVisible();
+    await page.locator('[data-settings-target="sources"]').click();
     await page.locator('.remove-playlist').first().click();
     await expect(page.locator('#playlist-entries .settings-row')).toHaveCount(0);
     // Save via the keyboard path so the deferred-select skip-list does not
@@ -1185,6 +1156,7 @@ test.describe('Settings playlists', () => {
       await page.goto('/');
       await page.waitForSelector('.tab-bar-item[data-section="settings"]', { timeout: 20000 });
       await enterTab(page, 'settings');
+      await page.locator('[data-settings-target="sources"]').click();
       await page.waitForSelector('.remove-playlist');
     }
 
@@ -1240,6 +1212,7 @@ test.describe('Settings Xtream: add -> cancel -> re-enter', () => {
   async function openSettings(page: Page): Promise<void> {
     await page.waitForSelector('.tab-bar-item[data-section="settings"]', { timeout: 20000 });
     await enterTab(page, 'settings');
+    await page.locator('[data-settings-target="sources"]').click();
     await page.waitForSelector('#add-xtream');
   }
 
@@ -1717,6 +1690,7 @@ test.describe('Settings upload', () => {
     // Open settings via the tab bar; the upload list starts empty.
     await enterTab(page, 'settings');
     await expect(page.locator('#view-settings')).toBeVisible();
+    await page.locator('[data-settings-target="sources"]').click();
     await expect(page.locator('#upload-entries .empty-hint')).toHaveText('No uploaded playlists');
 
     // Simulate a phone POSTing a playlist to the service: mutate the routed
@@ -1806,5 +1780,170 @@ test.describe('Settings phone setup card', () => {
 
     expect(layout.gap).toBe(24);
     expect(layout.centerOffset).toBe(0);
+  });
+});
+
+test.describe('Settings pages', () => {
+  const CATEGORIES = ['general', 'sources', 'guide', 'appearance', 'playback', 'subtitles', 'advanced', 'data'];
+  const shownPages = (page: Page) => page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>('#view-settings .settings-category'))
+      .filter(el => el.getBoundingClientRect().height > 0)
+      .map(el => el.dataset.settingsCategory));
+  const activeItems = (page: Page) => page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>('#view-settings .settings-nav-item.active'))
+      .map(el => el.dataset.settingsTarget));
+
+  test('each category shows only its own page, from its top', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    expect(await shownPages(page)).toEqual(['general']);
+
+    for (const category of CATEGORIES) {
+      await page.locator(`[data-settings-target="${category}"]`).click();
+      expect(await shownPages(page), category).toEqual([category]);
+      expect(await activeItems(page), category).toEqual([category]);
+      const placement = await page.evaluate((id) => {
+        const pane = document.querySelector<HTMLElement>('#view-settings .settings-scroll')!;
+        const top = document.querySelector<HTMLElement>(`#settings-${id}`)!.getBoundingClientRect().top;
+        return { scrollTop: pane.scrollTop, offset: Math.round(top - pane.getBoundingClientRect().top) };
+      }, category);
+      expect(placement, category).toEqual({ scrollTop: 0, offset: 0 });
+    }
+  });
+
+  test('highlighting a category with the D-pad shows its page; Right enters it and Left returns', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    const nav = page.locator('#view-settings .settings-nav-item');
+    await expect(nav.first()).toHaveClass(/focused/);
+    for (const category of CATEGORIES.slice(1)) {
+      await page.keyboard.press('ArrowDown');
+      await expect(page.locator(`[data-settings-target="${category}"]`)).toHaveClass(/focused/);
+      // Focus stays in the sidebar while the page beside it follows.
+      expect(await shownPages(page), category).toEqual([category]);
+      expect(await activeItems(page), category).toEqual([category]);
+      await expect(page.locator('#view-settings .settings-scroll .focused')).toHaveCount(0);
+    }
+    for (let step = 0; step < 3; step++) await page.keyboard.press('ArrowUp');
+    const playback = page.locator('[data-settings-target="playback"]');
+    await expect(playback).toHaveClass(/focused/);
+    expect(await shownPages(page)).toEqual(['playback']);
+
+    await page.keyboard.press('ArrowRight');
+    expect(await shownPages(page)).toEqual(['playback']);
+    await expect(page.locator('#settings-playback [data-focusable].focused')).toHaveCount(1);
+
+    await page.keyboard.press('ArrowLeft');
+    await expect(playback).toHaveClass(/focused/);
+    expect(await shownPages(page)).toEqual(['playback']);
+  });
+
+  test('Magic Remote hover lights a category without switching; its click does', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    const guide = page.locator('[data-settings-target="guide"]');
+    await guide.hover();
+    await expect(guide).toHaveClass(/focused/);
+    expect(await shownPages(page)).toEqual(['general']);
+    await guide.click();
+    expect(await shownPages(page)).toEqual(['guide']);
+    await expect(guide).toHaveClass(/focused/);
+  });
+
+  test('unsaved edits survive switching categories and Save applies them all', async ({ page }) => {
+    await routePlaylist(page);
+    await seedPlaylist(page);
+    await page.goto('/');
+    await enterTab(page, 'settings');
+
+    await page.locator('[data-settings-target="playback"]').click();
+    await page.locator('#auto-play [data-value="on"]').click();
+    await page.locator('[data-settings-target="appearance"]').click();
+    await page.locator('.theme-swatch[data-theme-id="arctic"]').click();
+    await page.locator('[data-settings-target="general"]').click();
+    await page.locator('[data-settings-target="playback"]').click();
+    await expect(page.locator('#auto-play .toggle-option.active')).toHaveAttribute('data-value', 'on');
+    await page.locator('[data-settings-target="appearance"]').click();
+    await expect(page.locator('.theme-swatch.active')).toHaveAttribute('data-theme-id', 'arctic');
+
+    await page.locator('#save-settings').click();
+    await expect.poll(() => page.evaluate(() => [
+      localStorage.getItem('iptv_auto_play'), localStorage.getItem('iptv_theme'),
+    ])).toEqual(['true', '"arctic"']);
+  });
+
+  for (const size of ['100', '130']) {
+    test(`the theme rail keeps the focused swatch in full view at Interface size ${size}`, async ({ page }) => {
+      await page.addInitScript((value) => {
+        localStorage.setItem('iptv_interface_size', JSON.stringify(value));
+      }, size);
+      await page.goto('/');
+      await page.locator('[data-settings-target="appearance"]').dispatchEvent('nav:hover');
+      await page.keyboard.press('ArrowRight');
+      const swatches = page.locator('.theme-swatch');
+      await expect(swatches.first()).toHaveClass(/focused/);
+
+      const inView = (index: number) => page.evaluate((i) => {
+        const rail = document.querySelector<HTMLElement>('.theme-swatch-rail')!;
+        const left = rail.getBoundingClientRect().left + rail.clientLeft;
+        const swatch = rail.querySelectorAll<HTMLElement>('.theme-swatch')[i].getBoundingClientRect();
+        // The ring's glow needs room too: the swatch sits clear of the edges.
+        return swatch.left >= left + 3 && swatch.right <= left + rail.clientWidth - 3;
+      }, index);
+
+      const count = await swatches.count();
+      for (let index = 1; index < count; index++) {
+        await page.keyboard.press('ArrowRight');
+        await expect(swatches.nth(index)).toHaveClass(/focused/);
+        const id = await swatches.nth(index).getAttribute('data-theme-id');
+        await expect(page.locator('html')).toHaveAttribute('data-theme', id!);
+        await expect.poll(() => inView(index), `swatch ${index}`).toBe(true);
+      }
+      expect(await page.locator('.theme-swatch-rail').evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
+
+      // Right stops at the rail's end, and Down leaves for the next setting,
+      // reverting the preview to the selected theme.
+      await page.keyboard.press('ArrowRight');
+      await expect(swatches.nth(count - 1)).toHaveClass(/focused/);
+      await page.keyboard.press('ArrowDown');
+      await expect(page.locator('#overlay-style .toggle-option').first()).toHaveClass(/focused/);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'midnight');
+
+      // Up returns to the swatch it left.
+      await page.keyboard.press('ArrowUp');
+      await expect(swatches.nth(count - 1)).toHaveClass(/focused/);
+      expect(await rings(page)).toHaveLength(1);
+    });
+  }
+
+  test('hovering a swatch previews its theme and leaving reverts to the selected one', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-settings-target="appearance"]').click();
+    await page.locator('.theme-swatch[data-theme-id="arctic"]').click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'arctic');
+
+    await page.locator('.theme-swatch[data-theme-id="ember"]').hover();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'ember');
+    await page.locator('#settings-appearance .settings-section-title').hover();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'arctic');
+  });
+
+  test('Back from the reminder manager shows the Guide page at its entry', async ({ page }) => {
+    await routePlaylist(page);
+    await seedPlaylist(page);
+    await page.goto('/');
+    await enterTab(page, 'settings');
+    await page.locator('[data-settings-target="guide"]').click();
+    await page.locator('#manage-reminders').click();
+    await expect(page.locator('#view-reminders')).toBeVisible();
+    // Another page is chosen while the manager covers Settings.
+    await page.evaluate(() => {
+      document.querySelector<HTMLElement>('[data-settings-target="appearance"]')!.click();
+    });
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    expect(await shownPages(page)).toEqual(['guide']);
+    await expect(page.locator('#manage-reminders')).toHaveClass(/focused/);
   });
 });

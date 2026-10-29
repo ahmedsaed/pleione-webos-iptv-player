@@ -635,6 +635,7 @@ test('Up to the tab bar and back keeps unsaved Settings and their position', asy
   await page.goto('/');
   await expect(page.locator('#view-channels .channel-item').first()).toBeVisible();
   await enterTab(page, 'settings');
+  await page.locator('[data-settings-target="playback"]').click();
 
   const active = page.locator('#auto-play .toggle-option.active');
   const changed = await active.getAttribute('data-value') === 'on' ? 'off' : 'on';

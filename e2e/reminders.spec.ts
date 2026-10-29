@@ -96,6 +96,7 @@ test('long reminder text stays on one line inside the card', async ({ page }) =>
 
   await page.goto('/');
   await page.locator('.tab-bar-item[data-section="settings"]').click();
+  await page.locator('[data-settings-target="guide"]').click();
   await page.locator('#manage-reminders').click();
 
   for (const selector of ['.reminder-manager-program', '.reminder-manager-channel']) {
@@ -143,6 +144,7 @@ test('reminder manager icons scale with the text size', async ({ page }) => {
 
   await page.goto('/');
   await page.locator('.tab-bar-item[data-section="settings"]').click();
+  await page.locator('[data-settings-target="guide"]').click();
   await page.locator('#manage-reminders').click();
   await expect(page.locator('.reminder-manager-row')).toBeVisible();
 
@@ -183,6 +185,7 @@ test('reminder card columns fit their text at text size 150', async ({ page }) =
 
   await page.goto('/');
   await page.locator('.tab-bar-item[data-section="settings"]').click();
+  await page.locator('[data-settings-target="guide"]').click();
   await page.locator('#manage-reminders').click();
   await expect(page.locator('.reminder-manager-row')).toBeVisible();
 
@@ -205,6 +208,7 @@ test('the empty-state hint wraps to a readable width at text size 150', async ({
 
   await page.goto('/');
   await page.locator('.tab-bar-item[data-section="settings"]').click();
+  await page.locator('[data-settings-target="guide"]').click();
   await page.locator('#manage-reminders').click();
   await page.evaluate(() => { document.documentElement.dataset.textSize = '150'; });
 
