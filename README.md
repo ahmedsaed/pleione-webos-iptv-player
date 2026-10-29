@@ -101,7 +101,7 @@ by lennylxx, licensed under Apache-2.0. See [NOTICE](NOTICE).
 - **Adjustable text size** — scale text from 80%–150% without resizing controls
 - **Interface size** — scale the whole interface, text, images, and controls together, from 90%–130%
 - **Animation mode** — Essential turns off costly motion on older TVs, Reduced keeps visual effects but scrolls instantly, and Full smooth-scrolls single navigation steps
-- **Multilingual interface** — available in English, Deutsch, Español, Français, Italiano, Polski, Português (Brasil), Русский, Türkçe, Українська, and 简体中文; follows the TV language by default or can be selected explicitly in Settings
+- **Multilingual interface** — available in English, العربية, Deutsch, Español, Français, Italiano, Polski, Português (Brasil), Русский, Türkçe, Українська, and 简体中文; follows the TV language by default or can be selected explicitly in Settings
 
 **Development**
 

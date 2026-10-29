@@ -100,7 +100,7 @@ Pleione 基于 lennylxx 的 [webOS IPTV Player](https://github.com/lennylxx/webo
 - **文字大小可调** — 在不改变控件尺寸的前提下，可将文字缩放至 80%–150%
 - **界面大小** — 在 90%–130% 范围内同时缩放文字、图片和控件，整体放大或缩小界面
 - **动画模式** — “基础”在较旧的电视上关闭高开销的动态效果，“均衡”保留视觉效果但立即滚动到焦点项，“完整”在单次导航时平滑滚动
-- **多语言界面** — 支持 English、Deutsch、Español、Français、Italiano、Polski、Português (Brasil)、Русский、Türkçe、Українська 和简体中文；默认跟随电视的系统语言，也可在设置中手动指定
+- **多语言界面** — 支持 English、العربية、Deutsch、Español、Français、Italiano、Polski、Português (Brasil)、Русский、Türkçe、Українська 和简体中文；默认跟随电视的系统语言，也可在设置中手动指定
 
 **开发**
 
