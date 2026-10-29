@@ -1288,7 +1288,11 @@ describe('Movies browse + grid', () => {
       Object.defineProperty(track, 'clientWidth', { configurable: true, value: 1000 });
       Object.defineProperty(tile, 'offsetWidth', { configurable: true, value: 220 });
       track.getBoundingClientRect = () => ({ left: 0 } as DOMRect);
-      tile.getBoundingClientRect = () => ({ left: tileStart - scrollLeft, width: drawnWidth } as DOMRect);
+      // A lifted tile draws scaled about its center.
+      tile.getBoundingClientRect = () => ({
+        left: tileStart - scrollLeft - (drawnWidth - 220) / 2,
+        width: drawnWidth,
+      } as DOMRect);
       track.style.scrollBehavior = 'smooth';
       return { track, tile, writes };
     };
@@ -1319,11 +1323,11 @@ describe('Movies browse + grid', () => {
       expect(writes).toEqual([{ value: 1632 - 1000, behavior: 'smooth' }]);
     });
 
-    it('keeps the gutter past a lifted tile\'s drawn width', async () => {
+    it('reveals a lifted tile where it would at rest', async () => {
       const view = await eightFullCategories();
       const { tile, writes } = stubRail(1280, 231); // scaled 1.05
       keyOnto(view, tile);
-      expect(writes).toEqual([{ value: 1523 - 1000, behavior: 'smooth' }]);
+      expect(writes).toEqual([{ value: 1512 - 1000, behavior: 'auto' }]);
     });
 
     it('leaves the rail alone when a pointer focuses an edge tile', async () => {

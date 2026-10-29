@@ -1188,10 +1188,13 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private revealRailGutter(el: HTMLElement, instant: boolean): boolean {
     const track = el.parentElement;
     if (!track || !track.classList.contains('catalog-rail-track')) return false;
+    // The tile's box at rest: the focus lift scales it about its center,
+    // mid-transition on a key press, and the track's padding leaves room
+    // for it.
     const rect = el.getBoundingClientRect();
-    const start = rect.left - track.getBoundingClientRect().left - track.clientLeft + track.scrollLeft;
-    // The drawn width, so a lifted (scaled) focused tile keeps its whole ring.
-    const end = start + rect.width;
+    const start = rect.left + (rect.width - el.offsetWidth) / 2
+      - track.getBoundingClientRect().left - track.clientLeft + track.scrollLeft;
+    const end = start + el.offsetWidth;
     const current = track.scrollLeft;
     // A tile leaving on the left lines up with the rail's keyline, not the
     // screen edge the track bleeds to.
