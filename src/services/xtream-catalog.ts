@@ -185,7 +185,6 @@ function refreshListInBackground<T>(
       await storeList(key, result);
       log.debug('refreshed', key, `(${data.length})`);
       if (generation !== catalogCacheGeneration()) return;
-      knownCounts.set(key, data.length);
       notifyListWritten(key);
       for (const listener of refreshListeners) listener(key);
     } catch (err) {
@@ -205,15 +204,6 @@ function refreshListInBackground<T>(
   pumpRefreshQueue();
 }
 
-// How many items each list held when last read, for screens that show a
-// count without loading anything themselves.
-const knownCounts = new Map<string, number>();
-
-/** The size of an account's whole movie or series list, if read this session. */
-export function knownCatalogCount(accountId: string, kind: 'vod' | 'series'): number | null {
-  return knownCounts.get(`${accountId}|${kind}_all`) ?? null;
-}
-
 // Serve any cached list at once, re-fetching an expired one in the background;
 // only a cold cache waits on the network.
 async function cachedList<T>(
@@ -229,7 +219,6 @@ async function cachedList<T>(
   if (cached) {
     if (Date.now() >= listExpiresAt(cached)) refreshListInBackground(key, cached, refetch, allowEmpty);
     log.debug('hit', key, `(${cached.data.length})`);
-    knownCounts.set(key, cached.data.length);
     return cached.data;
   }
   const result = listResult(await refetch(signal));
@@ -238,7 +227,6 @@ async function cachedList<T>(
   if (data.length || result.state || allowEmpty) {
     await storeList(key, result);
     log.debug('fetched', key, `(${data.length})`);
-    knownCounts.set(key, data.length);
     notifyListWritten(key);
     return data;
   }

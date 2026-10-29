@@ -4,9 +4,7 @@ import type { PlaylistEntry } from '../types';
 
 const state = vi.hoisted(() => ({
   channels: 0,
-  counts: {} as Record<string, number>,
   guide: false,
-  parental: false,
 }));
 
 vi.mock('../services/storage-service', async (importOriginal) => {
@@ -22,12 +20,6 @@ vi.mock('../services/playlist-service', () => ({
     get channels() { return new Array(state.channels); },
     getByGroup: () => { throw new Error('Home must not read channel lists'); },
   },
-}));
-vi.mock('../services/parental-control', () => ({
-  ParentalControlService: { get configured() { return state.parental; } },
-}));
-vi.mock('../services/xtream-catalog', () => ({
-  knownCatalogCount: (id: string, kind: string) => state.counts[`${id}|${kind}`] ?? null,
 }));
 
 import { Home, bentoRows } from './home';
@@ -46,9 +38,7 @@ beforeEach(() => {
   document.body.innerHTML = '<div id="home"></div>';
   container = document.getElementById('home')!;
   state.channels = 0;
-  state.counts = {};
   state.guide = false;
-  state.parental = false;
   handlers = {
     onOpenSection: vi.fn(), onPlayNumber: vi.fn(), onSelectAccount: vi.fn(),
     onLockNow: vi.fn(), onLeaveLeft: vi.fn(), onBack: vi.fn(),
@@ -117,25 +107,15 @@ describe('Home', () => {
       .toContain('flex-grow:2');
   });
 
-  it('subtitles only counts already loaded, and nothing while parental controls are set', () => {
+  it('counts nothing: Live, Movies, and Series carry no subtitle', () => {
+    state.channels = 150;
     home.setSources(true, [account], account);
     home.render();
     expect(sub('live')).toBeNull();
     expect(sub('movies')).toBeNull();
+    expect(sub('series')).toBeNull();
     expect(sub('search')).toBe('Channels, movies, and series');
     expect(sub('settings')).toBe('Sources and appearance');
-
-    state.channels = 150;
-    state.counts = { 'x1|vod': 240, 'x1|series': 120 };
-    home.render();
-    expect(sub('live')).toBe('150 channels');
-    expect(sub('movies')).toBe('240 movies');
-    expect(sub('series')).toBe('120 series');
-
-    state.parental = true;
-    home.render();
-    expect(sub('movies')).toBeNull();
-    expect(sub('live')).toBe('150 channels');
   });
 
   it('moves across the bento by its grid, and Live returns Right to the row it was left from', () => {

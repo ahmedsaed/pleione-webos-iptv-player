@@ -5,6 +5,8 @@ import {
   seedPlaylist,
   routePlaylist,
   routeLiveManifest,
+  showHome,
+  PLAYLIST_URL,
   type Page,
 } from './helpers';
 
@@ -40,6 +42,44 @@ test('a due reminder prompts on open and Watch now opens the player', async ({ p
 
   await page.locator('.reminder-btn[data-reminder-action="ok"]').click();
   await expect(page.locator('#view-player')).toBeVisible();
+});
+
+test('a due reminder on Home loads the channels for its prompt, and Watch now plays', async ({ page }) => {
+  await routePlaylist(page);
+  await routeLiveManifest(page);
+  await seedPlaylist(page);
+  await seedDueReminder(page);
+  await showHome(page);
+
+  await page.goto('/');
+  await expect(page.locator('#view-home')).toBeVisible();
+  await expect(page.locator('.reminder-prompt:not(.hidden)')).toBeVisible();
+  await page.locator('.reminder-btn[data-reminder-action="ok"]').click();
+  await expect(page.locator('#view-player')).toBeVisible();
+});
+
+test('Home keeps a later reminder without loading the channels', async ({ page }) => {
+  const playlistLoads: string[] = [];
+  page.on('request', (request) => {
+    if (request.url() === PLAYLIST_URL) playlistLoads.push(request.url());
+  });
+  await routePlaylist(page);
+  await seedPlaylist(page);
+  await page.addInitScript((k) => {
+    const now = Date.now();
+    localStorage.setItem('iptv_reminders', JSON.stringify([
+      { channelKey: k, channelName: 'Channel One', title: 'Alpha', startMs: now + 3600000, stopMs: now + 7200000 },
+    ]));
+  }, channelKey(CHAN_ONE));
+  await showHome(page);
+
+  await page.goto('/');
+  await expect(page.locator('#view-home')).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(playlistLoads).toEqual([]);
+  // Without the channels, pruning would take the reminder for an orphan.
+  await enterTab(page, 'settings');
+  await expect(page.locator('#manage-reminders')).toContainText('(1)');
 });
 
 test('Cancel dismisses the prompt and stays on the channel list', async ({ page }) => {

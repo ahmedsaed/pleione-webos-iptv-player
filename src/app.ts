@@ -36,6 +36,7 @@ import { SearchHistoryDropdown } from './components/search-history-dropdown';
 import { showToast } from './components/toast';
 import { showNumberEntry, hideNumberEntry } from './components/number-entry';
 import { ReminderService } from './services/reminder-service';
+import { checkConnections } from './services/connection-check';
 import { ReminderPrompt } from './components/reminder-prompt';
 import { ReminderManager } from './components/reminder-manager';
 import { ParentalControls } from './components/parental-controls';
@@ -111,6 +112,13 @@ class App {
   private epgRefreshIntervalMs: number | null | undefined;
   private epgChannelReloadTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly searchPrewarm = new SearchIndexPrewarmer(() => this.searchPrewarmSources());
+  // Home loads no channels: the first surface that needs them loads them.
+  private channelsLoaded = false;
+  private channelLoad: Promise<void> | null = null;
+  // A reload Home deferred still owes its forced guide refresh.
+  private forceEpgOnLoad = false;
+  // Only the latest action waiting on the channels runs.
+  private channelWaiter = 0;
 
   async init(): Promise<void> {
     const done = log.time('init');
@@ -350,10 +358,10 @@ class App {
     });
     this.home = new Home(this.views.home, {
       onOpenSection: (section, via) => this.selectSection(section, via),
-      onPlayNumber: (number) => {
+      onPlayNumber: (number) => this.withChannels(() => {
         const index = number - 1;
         if (index >= 0 && index < PlaylistService.channels.length) this.playChannel(index);
-      },
+      }),
       onSelectAccount: (id) => this.selectXtreamAccount(id),
       onLockNow: () => ParentalControlService.lock('lock-now'),
       onLeaveLeft: () => this.openNavMenu('key'),
@@ -766,7 +774,7 @@ class App {
 
   private scheduleEpgRefresh(force = false, delayOverride?: number): void {
     const intervalMs = StorageService.getEpgRefreshIntervalMs();
-    const shouldRun = intervalMs !== null && this.epgSources().length > 0;
+    const shouldRun = intervalMs !== null && this.channelsLoaded && this.epgSources().length > 0;
     if (!force
       && this.epgRefreshIntervalMs === intervalMs
       && ((shouldRun && this.epgRefreshTimer !== null)
@@ -806,7 +814,7 @@ class App {
 
   private schedulePlaylistRefresh(force = false, delayOverride?: number): void {
     const intervalMs = StorageService.getPlaylistRefreshIntervalMs();
-    const shouldRun = intervalMs !== null
+    const shouldRun = intervalMs !== null && this.channelsLoaded
       && StorageService.getPlaylists().some(isSourceEnabled);
     if (!force
       && this.playlistRefreshIntervalMs === intervalMs
@@ -892,12 +900,18 @@ class App {
     this.searchBox.setPlaceholder(!!account);
   }
 
-  // `launch`: the first load lands on Home (or Live, by a hidden preference);
-  // a reload stays on Live.
-  private async loadData(forceEpgRefresh = false, landing: 'launch' | 'channels' = 'channels'): Promise<void> {
+  // `launch`: the first load lands on Home, which only checks the connection
+  // (or on Live, by a hidden preference, or when auto-play resumes a channel);
+  // a reload stays on Live. `section` loads the channels for the section
+  // being opened, and `quiet` for a due reminder, without changing the view.
+  private async loadData(
+    forceEpgRefresh = false,
+    landing: 'launch' | 'channels' | 'section' | 'quiet' = 'channels',
+  ): Promise<void> {
     const done = log.time('loadData');
-    this.loadingData = true;
-    show(this.views.loading);
+    const quiet = landing === 'quiet';
+    this.loadingData = !quiet;
+    if (!quiet) show(this.views.loading);
     this.stopEpgRefresh();
     this.stopPlaylistRefresh();
     if (this.playlistRefreshPromise) await this.playlistRefreshPromise;
@@ -914,6 +928,7 @@ class App {
         // channels if the user navigates back from settings (e.g. with BACK).
         PlaylistService.reset();
         EpgService.reset();
+        this.channelsLoaded = true;
         // No account at all: drop Movies/Series (Xtream-only) and any stale
         // account avatars.
         this.syncSources();
@@ -926,6 +941,16 @@ class App {
           this.settings.render();
         }
         showToast(t('app.welcome'));
+        return;
+      }
+
+      if (landing === 'launch' && this.startsOnHome()) {
+        this.unloadChannels(forceEpgRefresh);
+        this.syncSources();
+        this.channelList.render();
+        this.goHome();
+        this.scanReminders();
+        void this.verifyConnection();
         return;
       }
 
@@ -958,9 +983,12 @@ class App {
         await EpgService.restoreCached(epgSources, epgChannels);
       }
 
+      this.channelsLoaded = true;
       this.syncSources();
 
-      if (landing === 'launch' && !StorageService.getStartOnLive()) {
+      if (landing === 'section' || quiet) {
+        this.channelList.render();
+      } else if (landing === 'launch' && !StorageService.getStartOnLive()) {
         this.channelList.render();
         this.goHome();
       } else {
@@ -968,14 +996,14 @@ class App {
         this.channelList.render();
       }
 
-      showToast(tp('app.channelsLoaded', PlaylistService.channels.length));
+      if (!quiet) showToast(tp('app.channelsLoaded', PlaylistService.channels.length));
       // Let the load confirmation finish before a new-category notice replaces it.
       setTimeout(() => this.showLiveCategoryNotices(), 3000);
 
       this.scanReminders();
       ReminderService.reschedulePending();
 
-      if (StorageService.getAutoPlay()) {
+      if (StorageService.getAutoPlay() && (landing === 'launch' || landing === 'channels')) {
         // The per-stream key survives customization and provider reshuffles.
         const lastCh = PlaylistService.resolveLastChannelIndex(
           StorageService.getLastChannelKey(),
@@ -1018,14 +1046,65 @@ class App {
       this.searchPrewarm.schedule('startup');
     } catch (err) {
       log.error('loadData failed:', err);
+      if (quiet) return;
       this.showView('settings');
       this.settings.render();
       showToast(t('app.loadFailed'));
     } finally {
-      this.loadingData = false;
-      hide(this.views.loading);
+      if (!quiet) {
+        this.loadingData = false;
+        hide(this.views.loading);
+      }
       done();
     }
+  }
+
+  // Auto-play resumes a channel at launch, so it needs the channels at once.
+  private startsOnHome(): boolean {
+    return !StorageService.getStartOnLive() && !StorageService.getAutoPlay();
+  }
+
+  // Home starts with no channels; a reload drops any already loaded.
+  private unloadChannels(forceEpgRefresh: boolean): void {
+    if (this.channelsLoaded) {
+      PlaylistService.reset();
+      EpgService.reset();
+      this.player.syncCurrentIndex();
+    }
+    this.channelsLoaded = false;
+    this.forceEpgOnLoad = this.forceEpgOnLoad || forceEpgRefresh;
+  }
+
+  private ensureChannels(quiet = false): Promise<void> {
+    if (this.channelsLoaded) return Promise.resolve();
+    if (!this.channelLoad) {
+      const force = this.forceEpgOnLoad;
+      this.forceEpgOnLoad = false;
+      this.channelLoad = this.loadData(force, quiet ? 'quiet' : 'section')
+        .then(() => { this.channelLoad = null; });
+    }
+    return this.channelLoad;
+  }
+
+  // Run `action` once the channels are loaded, loading them first if Home
+  // skipped them. A failed load, a newer request, or a view change drops it.
+  private withChannels(action: () => void): void {
+    if (this.channelsLoaded) {
+      action();
+      return;
+    }
+    const waiter = ++this.channelWaiter;
+    const view = this.viewStack[this.viewStack.length - 1];
+    void this.ensureChannels().then(() => {
+      if (this.channelsLoaded && waiter === this.channelWaiter && this.isCurrentView(view)) action();
+    });
+  }
+
+  // Home's only request: does each Xtream account still sign in?
+  private async verifyConnection(): Promise<void> {
+    const state = await checkConnections(StorageService.getPlaylists());
+    if (state === 'ok') return;
+    showToast(t(state === 'rejected' ? 'settings.loginFailed' : 'settings.verifyFailed'));
   }
 
   // New Live categories are announced only over the channel list, never over
@@ -1340,6 +1419,12 @@ class App {
   // A section picked on Home or in the side menu. The shown one keeps its place.
   private selectSection(section: Section, via: 'key' | 'pointer'): void {
     if (this.currentSection() === section) return;
+    // Settings lists the guide sources and saves offsets by channel.
+    if (!this.channelsLoaded
+      && (section === 'live' || section === 'epg' || section === 'search' || section === 'settings')) {
+      this.withChannels(() => this.selectSection(section, via));
+      return;
+    }
     this.switchSection(section);
     // A click leaves the pointer on the menu or Home, so the content's focus
     // waits for a key. Search keeps the keys in its own box.
@@ -1471,6 +1556,11 @@ class App {
   }
 
   private handleLaunchParams(raw: unknown): void {
+    if (!ReminderService.isReminderLaunch(raw)) return;
+    if (!this.channelsLoaded) {
+      this.withChannels(() => this.handleLaunchParams(raw));
+      return;
+    }
     const idx = ReminderService.resolveLaunchChannel(raw);
     if (idx >= 0) {
       log.info('Reminder launch — tuning channel index', idx);
@@ -1498,6 +1588,16 @@ class App {
   }
 
   private scanReminders(): void {
+    // Without the channels every reminder looks orphaned, so a due one loads
+    // them first rather than letting prune drop them all.
+    if (!this.channelsLoaded) {
+      if (ReminderService.anyDueNow()) {
+        void this.ensureChannels(true).then(() => {
+          if (this.channelsLoaded) this.scanReminders();
+        });
+      }
+      return;
+    }
     ReminderService.prune();
     // Dev mode: the interactive system alert is the single notification path,
     // so skip the in-app prompt (prune still runs to clean up ended reminders).
@@ -1600,17 +1700,21 @@ class App {
     // While the channel list is in edit mode the color keys belong to the editor.
     const editingChannels = currentView === 'channels' && this.channelList.isEditing;
     if (action === 'red' && currentView !== 'epg' && !editingChannels) {
-      this.sidebar.hide();
-      this.player.stop();
-      this.openEpg();
+      this.withChannels(() => {
+        this.sidebar.hide();
+        this.player.stop();
+        this.openEpg();
+      });
       return;
     }
     if (action === 'blue' && currentView !== 'settings' && !editingChannels) {
-      if (currentView === 'epg') this.epgGrid.deactivateFilters();
-      this.sidebar.hide();
-      this.player.stop();
-      this.settings.render();
-      this.showView('settings');
+      this.withChannels(() => {
+        if (currentView === 'epg') this.epgGrid.deactivateFilters();
+        this.sidebar.hide();
+        this.player.stop();
+        this.settings.render();
+        this.showView('settings');
+      });
       return;
     }
     if (action === 'green' && currentView === 'player'
