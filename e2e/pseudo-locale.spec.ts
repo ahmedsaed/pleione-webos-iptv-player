@@ -2,6 +2,7 @@ import {
   test,
   expect,
   enterTab,
+  openSideMenu,
   routePlaylist,
   seedPlaylist,
   SEARCH_M3U,
@@ -33,9 +34,10 @@ test('expands localized channel navigation without clipping', async ({ page }) =
   await page.goto('/?pseudo=1');
 
   await expect(page.locator('html')).toHaveAttribute('lang', 'en-XA');
-  await expect(page.locator('.tab-bar-item[data-section="live"]')).toContainText('[!!');
+  await openSideMenu(page);
+  await expect(page.locator('.nav-menu-item[data-section="live"]')).toContainText('[!!');
   expect(await textOverflow(page, [
-    '.tab-bar-item',
+    '.nav-menu-label',
     '.channel-count',
   ].join(','))).toEqual([]);
   await expect(page.locator('.group-name').first()).toHaveCSS('text-overflow', 'ellipsis');

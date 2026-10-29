@@ -18,7 +18,8 @@ async function offscreenTargets(page: Page): Promise<string[]> {
     const out: string[] = [];
     for (const el of Array.from(document.querySelectorAll<HTMLElement>('[data-focusable]'))) {
       const rect = el.getBoundingClientRect();
-      if (!rect.width || !rect.height || !el.offsetParent) continue;
+      if (!rect.width || !rect.height || !el.offsetParent
+        || getComputedStyle(el).visibility === 'hidden') continue;
       let left = rect.left;
       let top = rect.top;
       let right = rect.right;
@@ -50,11 +51,10 @@ for (const size of SIZES) {
     await page.goto('/');
     await expect(page.locator('#view-channels')).toBeVisible();
 
-    const barHeight = await page.locator('.tab-bar').evaluate((el) => el.getBoundingClientRect().height);
-    expect(barHeight).toBeCloseTo(96 * scale, 0);
     expect(await offscreenTargets(page), 'Live').toEqual([]);
 
     for (const [section, view] of [
+      ['home', '#view-home'],
       ['epg', '#view-epg'],
       ['movies', '#view-movies'],
       ['series', '#view-series'],
@@ -63,11 +63,17 @@ for (const size of SIZES) {
       await expect(page.locator(view)).toBeVisible();
       await page.waitForTimeout(300);
       expect(await offscreenTargets(page), section).toEqual([]);
+      if (section === 'home') {
+        // The Live card holds its height until the header would crowd it.
+        const height = await page.locator('.home-card-live')
+          .evaluate((el) => (el as HTMLElement).offsetHeight);
+        expect(height).toBeCloseTo(Math.min(592 * scale, 1080 - 340 * scale), 0);
+      }
     }
 
     await enterTab(page, 'search');
-    await expect(page.locator('.tab-bar-search.expanded')).toBeVisible();
-    await page.locator('.tab-bar-search-input').fill('movie');
+    await expect(page.locator('.search-box-input')).toBeFocused();
+    await page.locator('.search-box-input').fill('movie');
     await expect(page.locator('#view-search')).toBeVisible();
     await page.waitForTimeout(300);
     expect(await offscreenTargets(page), 'search').toEqual([]);

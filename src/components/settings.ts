@@ -544,7 +544,6 @@ export class Settings {
     this.focusScope = Focus.register({
       id: 'view.settings',
       root: container,
-      leaveFor: { up: 'tabbar' },
       defaultKey: () => this.defaultKey(),
       resolve: (key) => this.resolveKey(key),
       reveal: (key) => this.revealKey(key),
@@ -1359,7 +1358,7 @@ export class Settings {
   // untrapped move scores items behind it. The restriction is released straight
   // after: the pane is re-morphed on every render, so a held element goes stale.
   // Up walks the category column on its own, so Up from the first
-  // category leaves for the tab bar rather than the pane beside it.
+  // category stays put rather than reaching the pane beside it.
   // Up and Down on a page stay on it, so they never land on the sidebar beside
   // it (and switch pages); Down past its end goes to the action bar. The theme
   // rail is wider than anything above or below it, so Up and Down leave it for
@@ -1420,8 +1419,7 @@ export class Settings {
     if (option) this.nav.focus(option);
   }
 
-  // False when Up or Down found nothing to move to, so the host can hand Up
-  // to the tab bar.
+  // False when Up, Down, or Left found nothing to move to.
   handleAction(action: Action): boolean {
     if (this.confirmationPrompt.visible) {
       this.confirmationPrompt.handleAction(action);
@@ -1453,10 +1451,8 @@ export class Settings {
         break;
 
       case 'left':
-        if (this.nav.focused?.classList.contains('settings-nav-item')) {
-          this.nav.move(action);
-          break;
-        }
+        // Nothing left of the categories: the host opens the side menu.
+        if (this.nav.focused?.classList.contains('settings-nav-item')) return this.nav.move(action);
         {
           const openDropdown = this.container.querySelector<HTMLElement>('.dropdown.open');
           if (openDropdown) this.closeDropdown(openDropdown);
@@ -1934,7 +1930,7 @@ export class Settings {
     if (Focus.owner() === this.focusScope) Focus.flush();
   }
 
-  /** Back onto Settings from the tab bar: the last control, brought into view. */
+  /** Back onto Settings: the last control, brought into view. */
   resumeFocus(): void {
     this.land();
     Focus.flush();

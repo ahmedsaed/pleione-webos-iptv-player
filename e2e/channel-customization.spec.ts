@@ -263,7 +263,7 @@ test('a click in edit mode that wobbles onto the next row does not reorder', asy
   expect(await names(page)).toEqual(before);
 });
 
-test('leaving edit mode through the tab bar keeps hidden channels out of Search', async ({ page }) => {
+test('leaving edit mode through the side menu keeps hidden channels out of Search', async ({ page }) => {
   await boot(page);
   await key(page, YELLOW);
   await focusChannel(page, 1);
@@ -272,7 +272,7 @@ test('leaving edit mode through the tab bar keeps hidden channels out of Search'
   await expect(page.locator('.channel-main .channel-item').nth(1)).toHaveClass(/hidden-entry/);
 
   await enterTab(page, 'search');
-  await page.locator('.tab-bar-search-input').fill('Beta News');
+  await page.locator('.search-box-input').fill('Beta News');
 
   await expect(page.locator('.search-channel-row')).toHaveCount(0);
   await expect(page.locator('.edit-hints')).toHaveCount(0);

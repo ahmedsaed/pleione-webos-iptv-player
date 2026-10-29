@@ -24,7 +24,8 @@ export type LeaveDir = 'up' | 'down' | 'left' | 'right';
 export const Tier = {
   panel: 5,     // a player panel the menus open over: the subtitle search
   overlay: 10,  // dropdowns and player overlays
-  bar: 20,      // the tab bar
+  bar: 20,      // the search box
+  menu: 25,     // the side menu
   prompt: 30,   // modal prompts
   critical: 40, // the parental PIN, which must outrank a prompt that a timer raises
 } as const;

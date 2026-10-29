@@ -146,7 +146,6 @@ export class ChannelList {
     this.focusScope = Focus.register({
       id: 'live.channels',
       root: () => this.container.closest<HTMLElement>('.view') ?? this.container,
-      leaveFor: { up: 'tabbar' },
       defaultKey: () => this.defaultKey(),
       has: (key) => this.rowPosition(key) !== null,
       reveal: (key) => this.reveal(key),
@@ -206,7 +205,7 @@ export class ChannelList {
 
     // Activate the item under the pointer by coordinate hit-test, so a click plays
     // the channel (or switches group/playlist) regardless of what holds D-pad focus
-    // — the global click path would instead route select to the focused tab bar
+    // — the global click path would instead route select to whatever owns the keys
     // (swallowed while the search box is open). The container is marked
     // `data-self-activate` so that global handler skips this subtree.
     this.container.setAttribute('data-self-activate', '');
@@ -566,7 +565,7 @@ export class ChannelList {
 
   private dispatchAction(action: Action, event?: NumberEvent): boolean {
     // Before the editor too: it applies these to whichever row holds focus.
-    // Up also precedes the row-0 hand-off to the tab bar; Down would move a grabbed row.
+    // Up also precedes the row-0 edge; Down would move a grabbed row.
     const resumeFirst = action === 'select' || action === 'left' || action === 'right'
       || action === 'up' || (action === 'green' && !this.editor.isEditing)
       || (action === 'down' && this.editor.hasGrabbed);
@@ -591,7 +590,7 @@ export class ChannelList {
       case 'up':
       case 'down':
         if (this.moveVirtualFocus(action === 'up' ? -1 : 1)) return true;
-        // Above the sidebar's top sits the tab bar, never the channel list.
+        // Above the sidebar's top sits nothing, never the channel list.
         if (action === 'up' && this.nav.focused?.closest('.sidebar')) {
           const edit = this.container.querySelector<HTMLElement>('[data-edit-channels]');
           if (!edit || edit === this.nav.focused) return false;
@@ -687,7 +686,8 @@ export class ChannelList {
       if (action === 'left' || action === 'right') {
         const next = index + (action === 'left' ? -1 : 1);
         if (tabs[next]) this.nav.focus(tabs[next]);
-        return true;
+        // Left of the first tab: the host opens the side menu.
+        return !!tabs[next] || action === 'right';
       }
       if (action === 'up') {
         const edit = this.container.querySelector<HTMLElement>('[data-edit-channels]');

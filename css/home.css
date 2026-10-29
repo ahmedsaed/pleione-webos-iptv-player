@@ -1,0 +1,285 @@
+/* Home: the app's name, the clock, and the account over a bento of section
+   cards on a dark gradient whose glow leans toward the focused card. */
+.home-view {
+  position: relative;
+  width: var(--canvas-width);
+  height: 100%;
+  overflow: hidden;
+  color: #fff;
+  background:
+    radial-gradient(1200px 700px at 15% 10%, rgba(91, 79, 230, 0.35), transparent 60%),
+    linear-gradient(160deg, #0b0d2e 0%, #07081c 55%, #0d0718 100%);
+}
+
+/* One glow per card color; only the focused card's shows. */
+.home-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 400ms ease;
+  pointer-events: none;
+}
+
+.home-glow-live { background: radial-gradient(1000px 650px at 90% 95%, rgba(194, 24, 91, 0.28), transparent 60%); }
+.home-glow-epg { background: radial-gradient(1000px 650px at 90% 95%, rgba(242, 153, 74, 0.26), transparent 60%); }
+.home-glow-movies { background: radial-gradient(1000px 650px at 90% 95%, rgba(71, 118, 230, 0.3), transparent 60%); }
+.home-glow-series { background: radial-gradient(1000px 650px at 90% 95%, rgba(17, 153, 142, 0.3), transparent 60%); }
+.home-glow-search { background: radial-gradient(1000px 650px at 90% 95%, rgba(33, 147, 176, 0.3), transparent 60%); }
+.home-glow-settings { background: radial-gradient(1000px 650px at 90% 95%, rgba(92, 107, 128, 0.3), transparent 60%); }
+
+.home-view[data-tint="live"] .home-glow-live,
+.home-view[data-tint="epg"] .home-glow-epg,
+.home-view[data-tint="movies"] .home-glow-movies,
+.home-view[data-tint="series"] .home-glow-series,
+.home-view[data-tint="search"] .home-glow-search,
+.home-view[data-tint="settings"] .home-glow-settings {
+  opacity: 1;
+}
+
+.home-header {
+  /* The avatar's ring box is 5px wider than the avatar on each side; the
+     header sits that much higher and further right to keep it on the grid. */
+  position: absolute;
+  top: 51px;
+  right: 75px;
+  left: 80px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.home-brand {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.home-logo {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+}
+
+.home-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-clock {
+  flex-shrink: 0;
+  font-size: 30px;
+  opacity: 0.9;
+}
+
+/* The avatar draws the ring: a circle round it. */
+.home-account {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 66px;
+  height: 66px;
+  border: 3px solid transparent;
+  border-radius: 50%;
+}
+
+.home-account .account-avatar {
+  width: 56px;
+  height: 56px;
+  font-size: 28px;
+  line-height: 56px;
+}
+
+/* The bento sits in the middle of the screen. Its columns shrink together
+   where a large Interface size would push it past the gutters. */
+.home-bento {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  gap: 32px;
+  width: 1504px;
+  max-width: calc(var(--canvas-width) - 160px);
+  height: 592px;
+  /* Clear of the header above and the same margin below, at any size. */
+  max-height: calc(var(--canvas-height) - 340px);
+  transform: translate(-50%, -50%);
+}
+
+.home-bento > .home-card-live {
+  flex: 0 1 560px;
+}
+
+.home-bento-side {
+  display: flex;
+  flex: 0 1 912px;
+  flex-direction: column;
+  gap: 32px;
+  min-width: 0;
+}
+
+/* A wide Live card grows further when focused: more room beside it. */
+.home-bento-cols-1 { width: 1368px; gap: 48px; }
+.home-bento-cols-1 > .home-card-live { flex-basis: 760px; }
+.home-bento-cols-1 > .home-bento-side { flex-basis: 560px; }
+.home-bento-cols-3 { width: 1696px; }
+.home-bento-cols-3 > .home-card-live { flex-basis: 520px; }
+.home-bento-cols-3 > .home-bento-side { flex-basis: 1144px; }
+
+.home-bento-row {
+  display: flex;
+  flex: 1 1 0;
+  gap: 32px;
+  min-height: 0;
+}
+
+.home-bento-row > .home-card {
+  flex-shrink: 1;
+  flex-basis: 0;
+}
+
+.home-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+  padding: 30px;
+  box-sizing: border-box;
+  overflow: hidden;
+  color: #fff;
+  border: none;
+  border-radius: 22px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+
+/* The top sheen over every card's gradient. */
+.home-card::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 45%);
+  pointer-events: none;
+  content: '';
+}
+
+.home-card-live { background: linear-gradient(135deg, #ff5f6d, #c2185b); }
+.home-card-epg { background: linear-gradient(135deg, #f2994a, #c0392b); }
+.home-card-movies { background: linear-gradient(135deg, #8e54e9, #4776e6); }
+.home-card-series { background: linear-gradient(135deg, #11998e, #38ef7d); }
+.home-card-search { background: linear-gradient(135deg, #2193b0, #6dd5ed); }
+.home-card-settings { background: linear-gradient(135deg, #5c6b80, #2c3e50); }
+
+/* The pale ends of these gradients sit under the text: a shade below it
+   keeps white text readable. */
+.home-card-series::before,
+.home-card-search::before {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.42) 0%, rgba(0, 0, 0, 0.36) 35%, transparent 75%);
+  pointer-events: none;
+  content: '';
+}
+
+/* The icon gives way first when a large text size crowds the card. */
+.home-card-icon {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  min-height: 0;
+  margin-bottom: auto;
+}
+
+.home-card-icon.home-card-icon-hidden {
+  visibility: hidden;
+}
+
+.home-card-icon svg {
+  width: 84px;
+  height: 84px;
+  max-height: 100%;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.home-card-label,
+.home-card-sub {
+  position: relative;
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+/* A long label shrinks to fit (Home.fitLabels); a long subtitle wraps. */
+.home-card-label {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.home-card-sub {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.home-card-label {
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.home-card-live .home-card-label {
+  font-size: 56px;
+}
+
+.home-card-sub {
+  margin-top: 6px;
+  font-size: 22px;
+  opacity: 0.85;
+}
+
+[data-focusable].home-card.focused {
+  z-index: 2;
+  transform: scale(1.07);
+  box-shadow: 0 0 0 5px var(--home-ring, #fff), 0 0 50px rgba(255, 255, 255, 0.35), 0 24px 50px rgba(0, 0, 0, 0.5);
+}
+
+html[data-animation="essential"] .home-glow,
+html[data-animation="essential"] .home-card {
+  transition: none;
+}
+
+/* Light themes: a pale backdrop with dark header text; the cards keep their
+   colors, and the ring takes the theme's focus color. */
+html[data-theme="daylight"] .home-view,
+html[data-theme="pastel-latte"] .home-view,
+html[data-theme="paper-light"] .home-view {
+  --home-ring: var(--focus-ring);
+  color: var(--text-primary);
+  background:
+    radial-gradient(1200px 700px at 15% 10%, rgba(91, 79, 230, 0.16), transparent 60%),
+    linear-gradient(160deg, #f3f4fb 0%, #e8eaf5 55%, #f4ecf2 100%);
+}

@@ -39,7 +39,7 @@ test('remote arrow keys move focus and Enter starts playback', async ({ page }) 
 
   await expect(page.locator('#view-channels')).toBeVisible();
 
-  // Initial focus is the first channel (search + settings now live in the tab bar).
+  // Initial focus is the first channel (search and settings live in the side menu).
   const focused = page.locator('.channel-main .channel-item.focused');
   await expect(focused).toHaveCount(1);
   await expect(focused).toContainText('Channel One');
@@ -1232,7 +1232,7 @@ test('a press swallowed by the search box is still logged, without its code',
     await pressRemoteBack(page);
     await expect(page.locator('#view-channels')).toBeVisible();
     await enterTab(page, 'search');
-    await page.locator('.tab-bar-search-input').press('7');
+    await page.locator('.search-box-input').press('7');
 
     // The digit reaches the query, so its code must stay out of the report.
     await expect.poll(() => keyLogs().filter((line) => line.includes('target=text_input')))

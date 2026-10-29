@@ -76,7 +76,7 @@ export function installEdgeScroll(
     if (InputMode.current !== 'pointer' || document.hidden) return null;
     const point = Focus.pointerPosition();
     const keys = Focus.owner();
-    // The tab bar holds the keys only until the pointer works the content below it.
+    // The search box keeps the keys while the pointer works the results below it.
     const owner = keys && keys.tier === Tier.bar ? Focus.ownerWithout(keys) : keys;
     const root = owner?.root();
     if (!point || !owner || !root) return null;

@@ -199,11 +199,14 @@ for (const section of ['movies', 'series'] as const) {
     expect(up.focusedRailTop).toBeCloseTo(up.railsTop, 0);
     expect(up.visibleAbove).toBe(0);
 
-    // Up from the first rail reaches the tab bar, and the hero goes back to the first title.
+    // Up stops at the first rail; with the keys in the side menu, the hero
+    // goes back to the first title.
     for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowUp');
-    await expect(page.locator('.tab-bar-item.focused')).toHaveCount(1);
+    await expect(layer.locator('[data-rail-key="cat:1"] .focused')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.nav-menu .focused')).toHaveCount(1);
     await expect(layer.locator('.catalog-hero-title')).toHaveText('Title 1-0');
-    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowRight');
     await expect(layer.locator('[data-rail-key="cat:1"] .focused')).toHaveCount(1);
     await expect(layer.locator('.catalog-hero-title')).not.toHaveText('');
 

@@ -756,29 +756,6 @@ describe('EpgGrid group and channel filters', () => {
     expect(document.activeElement).not.toBe(input);
   });
 
-  it('leaves no reveal pending once Up hands the keys to the tab bar', () => {
-    Focus.uninstall();
-    const tabBar = document.createElement('div');
-    document.body.appendChild(tabBar);
-    const tabScope = Focus.register({ id: 'test.tabbar', root: tabBar });
-    grid = new EpgGrid(container, onSelect, () => Focus.push(tabScope), onManageReminders);
-    Focus.setBase(() => grid.focusScope);
-    grid.render();
-    Focus.flush();
-    const reveal = vi.spyOn(grid as unknown as { revealGridKey: (key: string) => boolean | null },
-      'revealGridKey');
-
-    grid.handleAction('up');
-    grid.handleAction('up');
-    expect(Focus.owner()?.id).toBe('test.tabbar');
-    reveal.mockClear();
-    Focus.pop(tabScope);
-    Focus.owner();
-    Focus.flush();
-
-    expect(reveal).not.toHaveBeenCalled();
-  });
-
   it('hands the keys back to the grid when the filters deactivate', () => {
     grid.handleAction('left');
     grid.deactivateFilters();

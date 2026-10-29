@@ -67,7 +67,7 @@ const EPG_VIEWPORT_FALLBACK = 900;
 export class EpgGrid {
   private container: HTMLElement;
   private onChannelSelect: (index: number, catchup?: CatchupInfo, scope?: ChannelScope) => void;
-  private onRevealTabBar?: () => void;
+  private onLeaveLeft?: () => void;
   private onManageReminders?: () => void;
   private selectedChannelIdx = 0;
   private selectedPlaylist = '';
@@ -135,17 +135,16 @@ export class EpgGrid {
   constructor(
     container: HTMLElement,
     onChannelSelect: (index: number, catchup?: CatchupInfo, scope?: ChannelScope) => void,
-    onRevealTabBar?: () => void,
+    onLeaveLeft?: () => void,
     onManageReminders?: () => void,
   ) {
     this.container = container;
     this.onChannelSelect = onChannelSelect;
-    this.onRevealTabBar = onRevealTabBar;
+    this.onLeaveLeft = onLeaveLeft;
     this.onManageReminders = onManageReminders;
     this.focusScope = Focus.register({
       id: 'guide.grid',
       root: container,
-      leaveFor: { up: 'tabbar' },
       defaultKey: () => this.gridKey(),
       resolve: (key) => this.resolveGridKey(key),
       has: (key) => this.hasRow(key),
@@ -1310,10 +1309,6 @@ export class EpgGrid {
           this.playlistFocusIdx = Math.max(0, tabIds.indexOf(this.selectedPlaylist));
           this.focusCol = 'playlists';
           this.render();
-        } else if (this.focusCol === 'filters' || this.focusCol === 'playlists') {
-          this.onRevealTabBar?.(); // topmost row: hand focus to the docked tab bar
-        } else if (this.focusCol === 'legend') {
-          this.onRevealTabBar?.();
         } else if (this.focusCol === 'programmes') {
           if (this.focusProg > 0) {
             this.lightProgramme(this.focusProg - 1);
@@ -1321,8 +1316,6 @@ export class EpgGrid {
             this.focusCol = 'dates';
             this.render();
           }
-        } else if (this.focusCol === 'dates') {
-          this.onRevealTabBar?.();
         }
         break;
 
@@ -1356,6 +1349,8 @@ export class EpgGrid {
           if (this.playlistFocusIdx > 0) {
             this.playlistFocusIdx--;
             this.render();
+          } else {
+            this.onLeaveLeft?.();
           }
         } else if (this.focusCol === 'filters') {
           if (this.filterFocus === 'search') {

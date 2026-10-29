@@ -201,25 +201,6 @@ describe('SearchHistoryDropdown', () => {
     expect(focused(root)).toBe(tiles(root)[0]);
   });
 
-  it('keeps only its scrim up while the account menu is open', () => {
-    const { dropdown, root } = mk();
-    dropdown.close('account-menu');
-    expect(root.classList.contains('hidden')).toBe(true);
-
-    dropdown.open(anchor);
-    dropdown.close('account-menu');
-    expect(dropdown.isOpen).toBe(false);
-    expect(root.classList.contains('hidden')).toBe(false);
-    expect(root.classList.contains('search-history-dropdown--menu')).toBe(true);
-
-    dropdown.open(anchor);
-    expect(root.classList.contains('search-history-dropdown--menu')).toBe(false);
-    dropdown.close('account-menu');
-    dropdown.close('view-change');
-    expect(root.classList.contains('hidden')).toBe(true);
-    expect(root.classList.contains('search-history-dropdown--menu')).toBe(false);
-  });
-
   it('swallows color keys while open', () => {
     const { dropdown, handlers } = mk();
     dropdown.open(anchor);

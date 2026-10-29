@@ -75,7 +75,8 @@ const HERO_TITLE_LINES = 2;
 const HERO_PLOT_LINES = 3;
 
 export interface CatalogHandlers {
-  onRevealTabBar: () => void;
+  // Left at the browse's left edge.
+  onLeaveLeft: () => void;
   onBack: () => void;
   onPlayVod: (req: Omit<VodPlayback, 'onBack'>) => void;
 }
@@ -148,7 +149,7 @@ function isScroller(overflow: string): boolean {
 // Series): a hero + poster rails browse view, a per-category poster grid, and a
 // detail screen. One focus scope holds the focused tile or button across all
 // modes, and a SpatialNav only picks the next one geometrically. Up at the top
-// row hands off to the tab bar; Back walks detail -> grid -> browse -> Live.
+// rail's left edge opens the side menu; Back walks detail -> grid -> browse -> menu.
 // Each mode renders into its own stacked layer. Browse stays resident (hidden,
 // not rebuilt) while a grid or detail is open, so Back finds its rails, scroll
 // positions, and focused tile exactly as they were.
@@ -224,13 +225,12 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     this.focusScope = Focus.register({
       id: `${this.scopeName()}.catalog`,
       root: container,
-      leaveFor: { up: 'tabbar' },
       defaultKey: () => this.defaultKey(),
       resolve: (key) => this.resolveKey(key),
       has: (key) => this.hasKey(key),
       reveal: (key) => this.revealKey(key),
       concealOnLeave: true,
-      // With the keys in the tab bar nothing in the rails is focused, so the
+      // With the keys in the side menu nothing in the rails is focused, so the
       // hero goes back to the first title; it follows the focus once back.
       onRelease: () => this.syncHero(),
       onAcquire: () => this.syncHero(),
@@ -604,7 +604,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     });
   }
 
-  // Back into the section from the tab bar: the focus Up left, in view.
+  // Back into the section: the focus it left, in view.
   resumeFocus(): void {
     this.focusScope.focus(this.focusScope.focusKey, 'resume');
   }
@@ -895,8 +895,10 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       ? current?.closest<HTMLElement>('.catalog-rail-track:not(.catalog-category-rail)') : null);
     if (horizontalRegion && (action === 'left' || action === 'right')) {
       this.nav.setRestrict(horizontalRegion);
-      this.nav.move(action);
+      const moved = this.nav.move(action);
       this.nav.setRestrict(this.layers[this.mode]);
+      // Nothing left of a browse rail: the host opens the side menu.
+      if (!moved && action === 'left' && this.mode === 'browse' && !sortRow) this.handlers.onLeaveLeft();
       return;
     }
     if (sortRow && action === 'down' && this.mode === 'grid') {
@@ -915,21 +917,22 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     if (this.mode === 'grid'
         && (action === 'up' || action === 'down' || action === 'left' || action === 'right')) {
       if (this.current()?.closest('.catalog-sort, .catalog-collection-actions')) {
-        if (!this.nav.move(action) && action === 'up') this.handlers.onRevealTabBar();
+        this.nav.move(action);
         return;
       }
       if (this.moveGridFocus(action)) return;
-      if (action === 'up' && !this.nav.move('up')) this.handlers.onRevealTabBar();
+      if (action === 'up') this.nav.move('up');
       return;
     }
     switch (action) {
       case 'up':
-        if (!this.nav.move('up')) this.handlers.onRevealTabBar();
-        return;
       case 'down':
-      case 'left':
       case 'right':
         this.nav.move(action);
+        return;
+      case 'left':
+        // Nothing left of a browse rail: the host opens the side menu.
+        if (!this.nav.move('left') && this.mode === 'browse') this.handlers.onLeaveLeft();
         return;
       case 'select':
         this.onSelect();

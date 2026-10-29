@@ -54,10 +54,9 @@ Procedural workflows live in `.agents/skills/` (open Agent Skills format;
   paints. ESLint keeps the class behind
   `setRing()`/`ringsIn()`; the only `focus/*` disable is the player OSD's
   activity listener. Every E2E test fails when a key press
-  leaves two rings on screen. Hover never moves the keys, except that
-  the tab bar releases them to hovered
-  content; after a pointer tab click, `FocusRing.defer()` keeps the
-  content's ring hidden and the first key only shows it.
+  leaves two rings on screen. Hover never moves the keys; after a
+  pointer click on a section (Home or the side menu), `FocusRing.defer()`
+  keeps the content's ring hidden and the first key only shows it.
 - `bundled-service/` runs on Node.js 0.12.2: ES5/CommonJS, newer Node APIs
   via `compat.ts`, and `npm run service:smoke` after any change. Read
   `bundled-service/AGENTS.md` before changing the service or its Luna/HTTP
@@ -116,13 +115,18 @@ build constant; `scripts/sync-version.mjs` runs on `npm version`.
   (`CONFIG.KEYS`) to a small `Action` union (`up`/`down`/`select`/`red`/… in
   `src/types.ts`); `App.handleKey` dispatches to the active view's
   `handleAction`.
-- **Views** are plain `<div>`s in `index.html` (`channels`, `player`, `epg`,
+- **Views** are plain `<div>`s in `index.html` (`home`, `channels`, `player`, `epg`,
   `settings`, `loading`, plus the Xtream `movies`/`series` catalogs and
   `search`) toggled with `show`/`hide` from `src/utils/dom.ts`.
-- **Sections & Xtream catalog** — a persistent `TabBar`
-  (`src/components/tab-bar.ts`) docks the **Live / Guide / Movies / Series /
-  Settings / Search** sections and hosts the multi-account avatar switcher
-  (`account-switcher.ts`); `App` owns section switching. Movies/Series
+- **Sections & Xtream catalog** — `Home` (`src/components/home.ts`) is the
+  first screen: destinations for the **Live / Guide / Movies / Series /
+  Search / Settings** sections (`sections.ts`), the Continue Watching and
+  Favorites rails, and the multi-account avatar switcher
+  (`account-switcher.ts`). Sections open full screen; the hidden side menu
+  (`nav-menu.ts`) opens with Back at a section's top level, Left at its
+  left edge, or the pointer at the screen's left edge. Search keeps its
+  query box (`search-box.ts`) at the top of its view. `App` owns section
+  switching. Movies/Series
   (`movies.ts`, `series.ts`) share the browse/grid/detail machinery in
   `CatalogView` (`catalog-view.ts`) over the per-account `xtream-catalog`
   cache, with a **Continue Watching** resume rail. `search.ts` ranks

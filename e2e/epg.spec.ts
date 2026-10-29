@@ -2,6 +2,7 @@ import {
   test,
   expect,
   enterTab,
+  openSideMenu,
   isChromium53,
   type Page,
   routeLiveManifest,
@@ -291,7 +292,7 @@ test.describe('EPG time zone', () => {
   });
 });
 
-test('Down from the tab bar resumes the Guide on the day and channel Up left', async ({ page }) => {
+test('Right out of the side menu resumes the Guide on the day and channel it left', async ({ page }) => {
   const day = (d: number, h: number) => `202403${String(d).padStart(2, '0')}${String(h).padStart(2, '0')}0000 +0000`;
   const programmes = ['ch1', 'ch2'].flatMap((ch) => [9, 10, 11].flatMap((d) => [
     `<programme channel="${ch}" start="${day(d, 0)}" stop="${day(d, 12)}"><title>Alpha</title></programme>`,
@@ -314,9 +315,10 @@ test('Down from the tab bar resumes the Guide on the day and channel Up left', a
   await page.goto('/');
   await expect(page.locator('#view-channels .channel-item').first()).toHaveClass(/\bfocused\b/);
 
-  await page.keyboard.press('ArrowUp');
-  await page.keyboard.press('ArrowRight');
+  // Back opens the side menu; the Guide sits below Live.
+  await page.keyboard.press('Escape');
   await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
   const channel = page.locator('#view-epg .epg-channel-item.selected');
   await expect(channel).toHaveClass(/\bfocused\b/);
   await page.keyboard.press('ArrowDown');
@@ -331,9 +333,9 @@ test('Down from the tab bar resumes the Guide on the day and channel Up left', a
   await expect(date).not.toHaveClass(/\btoday\b/);
   const label = await date.textContent();
 
-  await page.keyboard.press('ArrowUp');
-  await expect(page.locator('.tab-bar-item[data-section="epg"].focused')).toHaveCount(1);
-  await page.keyboard.press('ArrowDown');
+  await openSideMenu(page);
+  await expect(page.locator('.nav-menu-item[data-section="epg"].focused')).toHaveCount(1);
+  await page.keyboard.press('ArrowRight');
   await expect(date).toHaveText(label ?? '');
   await expect(channel).toHaveAttribute('data-channel-idx', '1');
 });
@@ -361,9 +363,10 @@ test('Right on a channel with no programmes keeps the ring on the channel', asyn
   await page.goto('/');
   await expect(page.locator('#view-channels .channel-item').first()).toHaveClass(/\bfocused\b/);
 
-  await page.keyboard.press('ArrowUp');
-  await page.keyboard.press('ArrowRight');
+  // Back opens the side menu; the Guide sits below Live.
+  await page.keyboard.press('Escape');
   await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
   const channel = page.locator('#view-epg .epg-channel-item.selected');
   await expect(channel).toHaveClass(/\bfocused\b/);
   await page.keyboard.press('ArrowDown');
@@ -407,9 +410,10 @@ test.describe('Guide pointer and keys', () => {
     });
     await page.goto('/');
     await expect(page.locator('#view-channels .channel-item').first()).toHaveClass(/\bfocused\b/);
-    await page.keyboard.press('ArrowUp');
-    await page.keyboard.press('ArrowRight');
+    // Back opens the side menu; the Guide sits below Live.
+    await page.keyboard.press('Escape');
     await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
     await expect(page.locator('#view-epg .epg-channel-item.selected')).toHaveClass(/\bfocused\b/);
   }
 
@@ -472,13 +476,8 @@ test.describe('Guide pointer and keys', () => {
     await expect(programme).toHaveClass(/\bfocused\b/);
   });
 
-  for (const [name, press] of [
-    ['Down', (page: Page) => page.keyboard.press('ArrowDown')],
-    ['OK', (page: Page) => page.keyboard.press('Enter')],
-    ['Back', (page: Page) => page.evaluate(() =>
-      document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })))],
-  ] as const) {
-    test(`${name} from the tab bar resumes a clipped programme, brought into view`, async ({ page }) => {
+  {
+    test('Right out of the side menu resumes a clipped programme, brought into view', async ({ page }) => {
       await openGuide(page);
       await expect(page.locator('#epg-programmes .epg-programme-item').first()).toBeVisible();
       await page.keyboard.press('ArrowRight');
@@ -500,17 +499,15 @@ test.describe('Guide pointer and keys', () => {
         return r.y < listBox.y - 1;
       }).toBe(true);
 
-      // The search box closed with Back leaves the keys on the bar over the Guide.
-      await page.locator('.tab-bar-item[data-section="search"]').click();
-      await expect(page.locator('.tab-bar-search-input')).toBeFocused();
-      await page.keyboard.press('Escape');
-      await expect(page.locator('.tab-bar-item[data-section="epg"].focused')).toHaveCount(1);
+      // The side menu over the Guide; Right gives the keys back.
+      await openSideMenu(page);
+      await expect(page.locator('.nav-menu-item[data-section="epg"].focused')).toHaveCount(1);
       await expect(page.locator('#view-epg')).toBeVisible();
 
-      await press(page);
+      await page.keyboard.press('ArrowRight');
       const focused = page.locator(`#epg-programmes .epg-programme-item[data-prog-idx="${String(progIdx)}"]`);
       await expect(focused).toHaveClass(/\bfocused\b/);
-      await expect(page.locator('.tab-bar-item.focused')).toHaveCount(0);
+      await expect(page.locator('.nav-menu .focused')).toHaveCount(0);
       await expect.poll(async () => {
         const r = (await focused.boundingBox())!;
         return r.y >= listBox.y - 1 && r.y + r.height <= listBox.y + listBox.height + 1;
@@ -578,9 +575,9 @@ test.describe('Guide pointer and keys', () => {
     await page.keyboard.press('ArrowLeft');
     await expect(page.locator('#view-epg .epg-group-option.focused')).toHaveCount(1);
 
-    await page.locator('.tab-bar-item[data-section="live"]').click();
+    await enterTab(page, 'live');
     await expect(page.locator('#view-channels')).toBeVisible();
-    await page.locator('.tab-bar-item[data-section="epg"]').click();
+    await enterTab(page, 'epg');
     await expect(page.locator('#view-epg')).toBeVisible();
     await page.keyboard.press('ArrowDown');
 

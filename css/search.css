@@ -15,19 +15,63 @@
   margin-right: -80px;
   padding-left: 80px;
 }
-.search-bar { margin-bottom: 32px; }
-.search-input {
-  width: 100%;
+/* The query box sits above the results, which fill the rest of the view. */
+.search-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.search-box-host {
+  flex: none;
+  padding: 40px 80px 0;
+}
+.search-results-host {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.search-results-host > .search-view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  padding-top: 24px;
+}
+.search-box {
+  display: flex;
+  align-items: center;
+  max-width: 1000px;
+  height: 72px;
+  padding: 0 24px;
   box-sizing: border-box;
-  padding: 20px 28px;
-  font-size: 34px;
-  color: var(--text-primary);
   background: var(--catalog-surface);
   border: 3px solid var(--catalog-control);
   border-radius: 12px;
+}
+/* The caret is in the box: its keys go there. */
+.search-box.active { border-color: var(--accent); }
+.search-box-icon {
+  display: flex;
+  flex: none;
+  margin-right: 16px;
+  color: var(--text-secondary);
+}
+.search-box-icon svg {
+  width: 36px;
+  height: 36px;
+}
+.search-box-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  font-family: inherit;
+  font-size: 30px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
   outline: none;
 }
-.search-input.focused { border-color: var(--accent, #3ea6ff); }
 .search-results { display: block; }
 .search-empty { margin-top: 40px; }
 
@@ -202,14 +246,14 @@
   background: var(--accent);
 }
 
-/* Recent searches: a translucent panel hung from the tab bar's empty search
-   box over a dimmed view. The scrim stops below the bar, which stays live.
+/* Recent searches: a translucent panel hung from the empty search box over
+   a dimmed view. The scrim stops below the box (set inline), which stays live.
    Margins instead of flex `gap` so wrapped rows keep their spacing on
    gap-less engines; legacy-webos-overrides.css makes the panel opaque where
    backdrop-filter is missing. */
 .search-history-scrim {
   position: fixed;
-  top: 96px;
+  top: 0;
   right: 0;
   bottom: 0;
   left: 0;
@@ -228,14 +272,6 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-}
-/* Fades in once the search box has slid open (a display toggle restarts it). */
-.search-history-dropdown--menu .search-history-panel {
-  display: none;
-}
-/* Under the tab bar, so the account menu hanging from it stays on top. */
-.search-history-dropdown--menu .search-history-scrim {
-  z-index: 59;
 }
 .search-history-scrim,
 .search-history-panel {

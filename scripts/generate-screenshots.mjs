@@ -583,6 +583,8 @@ async function setupPage(page, {
   // to the full channel set; the first account (My Xtream) is the active one.
   await page.addInitScript(({ favs, playlists }) => {
     localStorage.setItem('iptv_playlists', JSON.stringify(playlists));
+    // The views below are shot from Live, as before Home.
+    localStorage.setItem('iptv_start_on_live', 'true');
     localStorage.setItem('iptv_epg_url', JSON.stringify('https://demo.local/epg.xml'));
     localStorage.setItem('iptv_favorites', JSON.stringify(favs));
   }, {
@@ -838,19 +840,19 @@ async function seedChannelHealth(page) {
   }), { fixture: HEALTH_FIXTURE, channels: CHANNELS, now: NOW });
 }
 
-// Enter a docked tab-bar section (or expand Search) via a coordinate mouseup —
-// the bar activates on a mouseup hit-test (Magic Remote OK fires no click).
+// Enter a section the Magic Remote way: the pointer at the screen's left edge
+// reveals the side menu, and a click on the section opens it.
 async function enterTab(page, section) {
-  const tab = page.locator(`.tab-bar-item[data-section="${section}"]`);
-  await tab.waitFor({ state: 'visible' });
-  const box = await tab.boundingBox();
+  await page.mouse.move(200, 540);
+  await page.mouse.move(0, 540);
+  const item = page.locator(`.nav-menu.open .nav-menu-item[data-section="${section}"]`);
+  await item.waitFor({ state: 'visible' });
+  await page.waitForTimeout(300); // the panel slides in
+  const box = await item.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.up();
-  // The mouseup focuses the tab <button>; drop it so no UA focus ring shows in
-  // the shot (the app draws its own active/focus states; keys go through the
-  // global handler, not button focus).
-  await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+  await page.mouse.move(960, 540);
 }
 
 // Capture to screenshots/<name>. Disabling animations freezes the infinite
@@ -1481,12 +1483,12 @@ try {
     }, ['Golden Harbor', 'Skyline', 'Morning Brief']);
     await gotoChannels(page, base);
     await enterTab(page, 'search');
-    await page.locator('.tab-bar-search-input').waitFor({ state: 'visible' });
+    await page.locator('.search-box-input').waitFor({ state: 'visible' });
     await page.locator('.search-history-panel').waitFor({ state: 'visible', timeout: 10_000 });
     await page.keyboard.press('ArrowDown');
     await page.locator('.search-history-tile.focused').waitFor({ state: 'visible' });
     const historyHtml = await page.locator('.search-history-dropdown').innerHTML();
-    await page.locator('.tab-bar-search-input').fill('or'); // matches channels, movies, series
+    await page.locator('.search-box-input').fill('or'); // matches channels, movies, series
     await page.locator('#view-search .catalog-rail-title').first().waitFor({ state: 'visible', timeout: 10_000 });
     await page.locator('#view-search .catalog-tile[data-stream-id]').first().waitFor({ state: 'visible', timeout: 10_000 });
     await page.locator('#view-search .search-program-row', { hasText: 'Reminder set' })

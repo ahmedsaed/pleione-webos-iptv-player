@@ -42,7 +42,6 @@ export interface LivePreviewOptions {
     catchup?: CatchupInfo,
     scope?: ChannelScope | null,
   ) => void;
-  blurTabBar: () => void;
   expansionBlocked: () => boolean;
   isFavorite: (channel: Channel) => boolean;
   toggleFavorite: (channel: Channel) => void;
@@ -129,7 +128,6 @@ export class LivePreview {
     }
     const channel = PlaylistService.getByIndex(index);
     if (!channel) return;
-    this.options.blurTabBar();
     const current = this.options.player.getLivePlaybackSnapshot();
     if (mode === 'expand-current' && this.isShowing && current
         && channelKey(current.channel) === channelKey(channel)
@@ -265,7 +263,6 @@ export class LivePreview {
   private focus(control: PreviewControl = 'mute'): boolean {
     if (!this.state) return false;
     this.control = control;
-    this.options.blurTabBar();
     this.options.channelList.setPreviewFocused(true, `preview-${control}`);
     this.render();
     return true;
@@ -313,7 +310,6 @@ export class LivePreview {
   private expand(): void {
     if (!this.isShowing || this.options.channelList.isEditing
         || this.options.expansionBlocked()) return;
-    this.options.blurTabBar();
     this.leaveControls(false);
     this.options.showPlayer();
     this.options.player.showOSD();

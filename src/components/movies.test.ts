@@ -86,7 +86,7 @@ beforeEach(() => {
 async function openWith(cats = [{ id: '1', name: 'Cat A' }], streams = [vod('10', 'Movie One')]) {
   catalogMock.loadVodCategories.mockResolvedValue(cats);
   catalogMock.loadVodStreams.mockResolvedValue(streams);
-  const handlers = { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() };
+  const handlers = { onLeaveLeft: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() };
   const view = new Movies(container, handlers);
   Focus.setBase(() => view.focusScope);
   await view.open(account);
@@ -662,11 +662,13 @@ describe('Movies browse + grid', () => {
     });
   });
 
-  it('reveals the tab bar when Up cannot move within the view', async () => {
+  it('leaves Up at the top alone and hands Left at the left edge to the host', async () => {
     const { view, handlers } = await openWith();
     view.handleAction('up');
     expect(container.querySelector('.catalog-sort')).toBeNull();
-    expect(handlers.onRevealTabBar).toHaveBeenCalledTimes(1);
+    expect(handlers.onLeaveLeft).not.toHaveBeenCalled();
+    view.handleAction('left');
+    expect(handlers.onLeaveLeft).toHaveBeenCalledTimes(1);
   });
 
   // One failing rail category must not blank every other rail.
@@ -679,7 +681,7 @@ describe('Movies browse + grid', () => {
         : Promise.resolve([vod(`${categoryId}0`, `Movie ${categoryId}`, categoryId)]));
     const warns = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const view = new Movies(container, { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
+    const view = new Movies(container, { onLeaveLeft: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
     Focus.setBase(() => view.focusScope);
     await view.open(account);
 
@@ -820,7 +822,7 @@ describe('Movies browse + grid', () => {
     });
     catalogMock.loadVodCategories.mockReturnValueOnce(new Promise(() => {}));
     catalogMock.loadVodStreams.mockResolvedValue([vod('10', 'Movie One')]);
-    const view = new Movies(container, { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
+    const view = new Movies(container, { onLeaveLeft: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
     Focus.setBase(() => view.focusScope);
     void view.open(account);
     await view.openItem(account, vod('99', 'Found Movie'), vi.fn());
@@ -972,7 +974,7 @@ describe('Movies browse + grid', () => {
       poster: '', imdbId: '', tmdbId: '', year: 0,
     });
     catalogMock.loadVodCategories.mockReturnValueOnce(new Promise(() => {}));
-    const view = new Movies(container, { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
+    const view = new Movies(container, { onLeaveLeft: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
     Focus.setBase(() => view.focusScope);
     void view.open(account);
     await view.openItem(account, vod('98', 'First Find'), vi.fn());
@@ -1055,7 +1057,7 @@ describe('Movies browse + grid', () => {
     catalogMock.loadVodCategories.mockResolvedValue(cats);
     catalogMock.loadVodStreams.mockImplementation((_account: PlaylistEntry, categoryId: string) =>
       Promise.resolve(Array.from({ length: 50 }, (_, i) => vod(`${categoryId}-${String(i)}`, `Movie ${String(i)}`, categoryId))));
-    const view = new Movies(container, { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
+    const view = new Movies(container, { onLeaveLeft: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
     Focus.setBase(() => view.focusScope);
     await view.open(account);
     return view;
@@ -1173,7 +1175,7 @@ describe('Movies browse + grid', () => {
     const cats = Array.from({ length: 60 }, (_, i) => ({ id: String(i + 1), name: `Cat ${String(i + 1)}` }));
     catalogMock.loadVodCategories.mockResolvedValue(cats);
     catalogMock.loadVodStreams.mockResolvedValue([]);
-    const view = new Movies(container, { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
+    const view = new Movies(container, { onLeaveLeft: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() });
     Focus.setBase(() => view.focusScope);
     await view.open(account);
     container.querySelector<HTMLElement>('.catalog-cat[data-category-id="1"]')!
@@ -1631,7 +1633,7 @@ describe('Movies detail', () => {
 describe('Movies deep-link (openItem)', () => {
   it('opens a movie detail directly and Back returns to Search via the callback', async () => {
     catalogMock.loadVodInfo.mockResolvedValue({ plot: 'Deep plot.', cast: '', director: '', genre: '', releaseDate: '', durationSecs: 0, poster: '', imdbId: '', tmdbId: '', year: 0 });
-    const handlers = { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() };
+    const handlers = { onLeaveLeft: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() };
     const onDetailBack = vi.fn();
     const view = new Movies(container, handlers);
     Focus.setBase(() => view.focusScope);
@@ -1667,7 +1669,7 @@ describe('Movies account-switch race', () => {
     catalogMock.loadVodStreams
       .mockReturnValueOnce(new Promise((r) => { resolveA2Streams = r; }));
 
-    const handlers = { onRevealTabBar: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() };
+    const handlers = { onLeaveLeft: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() };
     const view = new Movies(container, handlers);
     Focus.setBase(() => view.focusScope);
 

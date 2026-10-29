@@ -356,8 +356,8 @@ test('mute preserves a cross-day date group and its following program', async ({
   const visibleRows = page.locator(`${PANEL} .live-preview-program:visible`);
   await expect(separator).toContainText('09/16');
   await expect(rows).toHaveCount(4);
-  await expect(visibleRows).toHaveCount(3);
-  await expect(visibleRows.last()).toContainText('Program 4');
+  await expect(visibleRows).toHaveCount(4);
+  await expect(visibleRows.last()).toContainText('Program 5');
   await expect(visibleRows.last()).toHaveClass(/last-visible/);
 
   await page.locator(MUTE).click();
@@ -366,8 +366,8 @@ test('mute preserves a cross-day date group and its following program', async ({
   await expect(separator).toBeVisible();
   await expect(separator).toContainText('09/16');
   await expect(rows).toHaveCount(4);
-  await expect(visibleRows).toHaveCount(3);
-  await expect(visibleRows.last()).toContainText('Program 4');
+  await expect(visibleRows).toHaveCount(4);
+  await expect(visibleRows.last()).toContainText('Program 5');
   await expect(visibleRows.last()).toHaveClass(/last-visible/);
 });
 
@@ -719,7 +719,7 @@ test('complete future rows fit every theme and text scale without touching the f
         });
         expect(layout.titleLines).toBeGreaterThanOrEqual(1.9);
         expect(layout.titleLines).toBeLessThanOrEqual(2.1);
-        expect(layout.count).toBeLessThanOrEqual(3);
+        expect(layout.count).toBeLessThanOrEqual(4);
         if (size === '100') expect(layout.count).toBeGreaterThan(0);
         for (const row of layout.rows) {
           expect(row.insideDetails).toBe(true);
