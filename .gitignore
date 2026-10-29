@@ -9,3 +9,6 @@ test-output/
 
 # Built JS service for the IPK
 build/
+
+# Generated demo Xtream server media (npm run xtream:demo)
+.cache/
