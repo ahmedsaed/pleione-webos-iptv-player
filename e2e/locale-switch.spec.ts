@@ -21,6 +21,7 @@ test('switching through every language refreshes cached Recently Watched labels'
     ['tr', 'Son İzlenenler'],
     ['uk', 'Нещодавно переглянуті'],
     ['zh-CN', '最近观看'],
+    ['ar', 'شوهدت مؤخرًا'],
     ['en', 'Recently Watched'],
   ];
   for (const [locale, label] of locales) {

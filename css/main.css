@@ -160,6 +160,17 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Arabic keeps the LTR layout; each text block takes its direction from its
+   first strong character so Arabic sentences read right to left. */
+html[lang="ar"] body * {
+  unicode-bidi: plaintext;
+}
+
+/* An Arabic placeholder that overflows must lose its end, not its start. */
+html[lang="ar"] input {
+  direction: rtl;
+}
+
 .view {
   position: absolute;
   top: 0;

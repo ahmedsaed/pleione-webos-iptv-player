@@ -7,6 +7,9 @@
 <title>Set up IPTV</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
+  /* Arabic keeps the LTR layout; each text block reads in its own direction. */
+  html[lang="ar"] body * { unicode-bidi: plaintext; }
+  html[lang="ar"] input { direction: rtl; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     background: linear-gradient(180deg, #f6f7fb 0%, #eef0f7 100%);
@@ -908,6 +911,78 @@
         networkError: "Failed: network error",
       },
     },
+    ar: {
+      systemExact: [],
+      systemPrefixes: ["ar"],
+      text: {
+        title: "إعداد IPTV",
+        subtitle: "أعدّ IPTV باستخدام عناوين URL لقوائم التشغيل أو حسابات Xtream أو ملفات M3U",
+        configuredSources: "المصادر المضبوطة",
+        noConfiguredSources: "لم يتم ضبط أي مصادر بعد",
+        remove: "إزالة",
+        removing: "جارٍ الإزالة...",
+        removeFailed: "حاول مرة أخرى",
+        enabled: "مفعّل",
+        disabled: "معطّل",
+        pairTitle: "الاتصال بالتلفزيون",
+        pairInstructions: "أدخل الرمز المكوّن من 4 أرقام الظاهر على التلفزيون.",
+        pairCode: "رمز الاقتران",
+        pairFailed: "رمز الاقتران غير صحيح.",
+        pairLocked: "محاولات كثيرة جدًا. حاول مرة أخرى بعد دقيقة.",
+        setupSources: "إعداد المصادر",
+        playlistUrl: "عنوان URL لقائمة التشغيل",
+        name: "الاسم",
+        playlistNamePlaceholder: "قائمة التشغيل الخاصة بي",
+        addPlaylist: "إضافة قائمة تشغيل",
+        xtreamAccount: "حساب Xtream",
+        serverUrl: "عنوان URL للخادم",
+        username: "اسم المستخدم",
+        password: "كلمة المرور",
+        addAccount: "إضافة حساب",
+        programGuideUrl: "عنوان URL لدليل البرامج",
+        programGuideSources: "مصادر XMLTV اليدوية",
+        xmltvUrl: "عنوان URL لـ XMLTV",
+        appliesTo: "ينطبق على",
+        allPlaylists: "كل قوائم التشغيل",
+        addProgramGuideSource: "إضافة مصدر EPG",
+        duplicateProgramGuideSource: "يجب أن يستخدم كل مصدر EPG عنوان URL مختلفًا.",
+        noProgramGuideSources: "لم تتم إضافة مصادر EPG بعد",
+        moveUp: "نقل لأعلى",
+        moveDown: "نقل لأسفل",
+        saveProgramGuide: "حفظ دليل البرامج",
+        onlineSubtitles: "الترجمة عبر الإنترنت",
+        preferredSubtitle: "لغة الترجمة المفضلة",
+        anyLanguage: "أي لغة",
+        apiKey: "مفتاح API",
+        assrtToken: "رمز API",
+        saveSubtitleSettings: "حفظ إعدادات الترجمة",
+        configured: "مضبوط",
+        notConfigured: "غير مضبوط",
+        builtInAccess: "وصول مدمج",
+        uploadM3uFiles: "رفع ملفات M3U",
+        saving: "جارٍ الحفظ...",
+        applyingOnTv: "جارٍ التطبيق على التلفزيون...",
+        savedToTv: "تم الحفظ على التلفزيون",
+        setupFailed: "تعذّر الحفظ",
+        setupTimedOut: "لم يؤكد التلفزيون التغيير",
+        drop: "اسحب ملفات \u200e.m3u وأفلتها هنا",
+        or: "أو",
+        browse: "استعراض الملفات",
+        playlists: "قوائم التشغيل",
+        empty: "لا توجد قوائم تشغيل بعد",
+        channelCount: {
+          zero: "{count} قناة",
+          one: "{count} قناة",
+          two: "{count} قناة",
+          few: "{count} قنوات",
+          many: "{count} قناة",
+          other: "{count} قناة",
+        },
+        success: "تم الرفع بنجاح",
+        failed: "فشل: ",
+        networkError: "فشل: خطأ في الشبكة",
+      },
+    },
     de: {
       systemExact: [],
       systemPrefixes: ["de"],
@@ -1597,6 +1672,7 @@
   var LOCALE_COOKIE = "iptv_setup_locale";
   var LOCALE_NAMES = {
     en: "English",
+    ar: "العربية",
     de: "Deutsch",
     es: "Español",
     fr: "Français",
@@ -1610,6 +1686,7 @@
   };
   var LOCALE_CODES = {
     en: "EN",
+    ar: "AR",
     de: "DE",
     es: "ES",
     fr: "FR",

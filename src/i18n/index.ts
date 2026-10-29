@@ -7,6 +7,7 @@ import {
   type PluralMessageKey,
   type TextMessageKey,
 } from './en';
+import { AR_MESSAGES } from './ar';
 import { DE_MESSAGES } from './de';
 import { ES_MESSAGES } from './es';
 import { FR_MESSAGES } from './fr';
@@ -27,6 +28,9 @@ type LocaleDefinition = {
   displayName: string;
   systemExact: readonly string[];
   systemPrefixes: readonly string[];
+  // Overrides the BCP 47 tag passed to Intl, e.g. to pin the numbering system.
+  intlLocale?: string;
+  rtl?: boolean;
 };
 
 const LOCALES = {
@@ -35,6 +39,15 @@ const LOCALES = {
     displayName: 'English',
     systemExact: [],
     systemPrefixes: [],
+  },
+  ar: {
+    messages: AR_MESSAGES,
+    displayName: 'العربية',
+    systemExact: [],
+    systemPrefixes: ['ar'],
+    // Older ICU (webOS 4) defaults Arabic to Arabic-Indic digits; the UI uses 0-9.
+    intlLocale: 'ar-u-nu-latn',
+    rtl: true,
   },
   de: {
     messages: DE_MESSAGES,
@@ -158,7 +171,8 @@ export function formatNumber(
   const locale = __ENABLE_PSEUDO_LOCALE__ && pseudoLocaleRequested()
     ? DEFAULT_LOCALE
     : currentLocale;
-  return new Intl.NumberFormat(locale, options).format(value);
+  const definition: LocaleDefinition = LOCALES[locale];
+  return new Intl.NumberFormat(definition.intlLocale ?? locale, options).format(value);
 }
 
 export function t(key: TextMessageKey, params?: Params): string {
@@ -179,9 +193,31 @@ export function tp(key: PluralMessageKey, count: number, params?: Params): strin
   return interpolate(pseudo ? pseudoLocalize(message) : message, { ...params, count });
 }
 
+const LRM = '\u200e';
+const RLM = '\u200f';
+const RTL_CHAR = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/;
+const LTR_CHAR = /[A-Za-z\u00c0-\u02af\u0370-\u03ff\u0400-\u052f\u3040-\u9fff\uac00-\ud7af]/;
+
+function firstStrongIsRtl(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    if (RTL_CHAR.test(text[i])) return true;
+    if (LTR_CHAR.test(text[i])) return false;
+  }
+  return false;
+}
+
+// In a right-to-left locale, keeps a left-to-right value ("+30", "22:00–22:30",
+// a Latin title starting with digits) in its own reading order inside a
+// sentence. Uses LRM marks: Chromium 53 predates the isolate characters.
+export function bidiIsolate(text: string): string {
+  if (!(LOCALES[currentLocale] as LocaleDefinition).rtl) return text;
+  if (/^\d*$/.test(text) || firstStrongIsRtl(text)) return text;
+  return `${RLM}${LRM}${text}${LRM}`;
+}
+
 function interpolate(message: string, params: Params): string {
   return message.replace(/\{([A-Za-z0-9_]+)\}/g, (token, name: string) =>
-    params[name] === undefined ? token : String(params[name]));
+    params[name] === undefined ? token : bidiIsolate(String(params[name])));
 }
 
 function placeholders(message: string): string[] {

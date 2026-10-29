@@ -204,6 +204,16 @@ export function selectPluralCategory(locale: string, value: number): Intl.LDMLPl
     return 'many';
   }
 
+  if (locale === 'ar') {
+    const mod100 = integer % 100;
+    if (integer === 0) return 'zero';
+    if (integer === 1) return 'one';
+    if (integer === 2) return 'two';
+    if (mod100 >= 3 && mod100 <= 10) return 'few';
+    if (mod100 >= 11) return 'many';
+    return 'other';
+  }
+
   if (locale === 'pl') {
     const mod10 = integer % 10;
     const mod100 = integer % 100;

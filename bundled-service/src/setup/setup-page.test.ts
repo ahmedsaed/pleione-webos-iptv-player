@@ -48,6 +48,22 @@ describe('setup page forms', () => {
     dom.window.close();
   });
 
+  it('follows an Arabic browser language without leaving the LTR layout', () => {
+    const dom = new JSDOM(PAGE_HTML, {
+      runScripts: 'dangerously',
+      url: 'http://host:1234/',
+      beforeParse(window) {
+        Object.defineProperty(window.navigator, 'languages', { value: ['ar-SA', 'en'] });
+      },
+    });
+
+    expect(dom.window.document.documentElement.lang).toBe('ar');
+    expect(dom.window.document.documentElement.getAttribute('dir')).toBeNull();
+    expect(dom.window.document.querySelector('.pair-title')!.textContent).toBe('الاتصال بالتلفزيون');
+    expect(dom.window.document.querySelector('#language-current')!.textContent).toBe('AR');
+    dom.window.close();
+  });
+
   it('defines every English message in every locale', () => {
     const script = PAGE_HTML.match(/var MESSAGES = (\{[\s\S]*?\n {2}\});/)![1];
     const messages = new Function(`return ${script};`)() as Record<

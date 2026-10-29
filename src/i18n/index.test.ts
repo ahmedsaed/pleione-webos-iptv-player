@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  bidiIsolate,
   DEFAULT_LOCALE,
   formatNumber,
   isLocalePreference,
@@ -45,12 +46,16 @@ describe('i18n', () => {
     expect(resolveLocale('system', 'tr-TR')).toBe('tr');
     expect(resolveLocale('system', 'tr-CY')).toBe('tr');
     expect(resolveLocale('system', 'uk-UA')).toBe('uk');
+    expect(resolveLocale('system', 'ar')).toBe('ar');
+    expect(resolveLocale('system', 'ar-SA')).toBe('ar');
+    expect(resolveLocale('system', 'ar-EG')).toBe('ar');
     expect(resolveLocale('zh-CN', 'en-US')).toBe('zh-CN');
   });
 
   it('recognizes locale preferences from the registered message catalogs', () => {
     expect(isLocalePreference('system')).toBe(true);
     expect(isLocalePreference('en')).toBe(true);
+    expect(isLocalePreference('ar')).toBe(true);
     expect(isLocalePreference('de')).toBe(true);
     expect(isLocalePreference('es')).toBe(true);
     expect(isLocalePreference('fr')).toBe(true);
@@ -68,6 +73,7 @@ describe('i18n', () => {
     expect(DEFAULT_LOCALE).toBe('en');
     expect(localeOptions()).toEqual([
       { value: 'en', label: 'English' },
+      { value: 'ar', label: 'العربية' },
       { value: 'de', label: 'Deutsch' },
       { value: 'es', label: 'Español' },
       { value: 'fr', label: 'Français' },
@@ -256,6 +262,54 @@ describe('i18n', () => {
     expect(tp('channel.count', 5)).toBe('5 каналів');
     expect(tp('channel.count', 21)).toBe('21 канал');
     expect(document.documentElement.lang).toBe('uk');
+  });
+
+  it('translates and pluralizes Arabic messages', () => {
+    try {
+      setLocale('ar');
+      expect(t('channel.recentlyWatched')).toBe('شوهدت مؤخرًا');
+      expect([0, 1, 2, 3, 10, 11, 100].map(count => tp('channel.count', count))).toEqual([
+        '0 قناة', '1 قناة', '2 قناة', '3 قنوات', '10 قنوات', '11 قناة', '100 قناة',
+      ]);
+      expect(tp('epg.programCount', 12)).toBe('12 برنامجًا');
+      expect(document.documentElement.lang).toBe('ar');
+      expect(document.documentElement.dir).toBe('');
+    } finally {
+      setLocale(DEFAULT_LOCALE);
+    }
+  });
+
+  it('keeps left-to-right values in reading order inside Arabic sentences', () => {
+    const LRM = '\u200e';
+    const RLM = '\u200f';
+    try {
+      setLocale('ar');
+      expect(bidiIsolate('22:00–22:30')).toBe(`${RLM}${LRM}22:00–22:30${LRM}`);
+      expect(bidiIsolate('+30')).toBe(`${RLM}${LRM}+30${LRM}`);
+      expect(bidiIsolate('24 Alpha')).toBe(`${RLM}${LRM}24 Alpha${LRM}`);
+      expect(bidiIsolate('12')).toBe('12');
+      expect(bidiIsolate('قناة')).toBe('قناة');
+      expect(t('channel.favoriteAdded', { name: 'Alpha' }))
+        .toBe(`تمت إضافة «${RLM}${LRM}Alpha${LRM}» إلى المفضلة`);
+      expect(tp('channel.count', 12)).toBe('12 قناة');
+      setLocale('en');
+      expect(bidiIsolate('+30')).toBe('+30');
+      expect(t('channel.favoriteAdded', { name: 'Alpha' })).toBe('Added "Alpha" to favorites');
+    } finally {
+      setLocale(DEFAULT_LOCALE);
+    }
+  });
+
+  it('formats Arabic numbers with Western digits', () => {
+    const spy = vi.spyOn(Intl, 'NumberFormat');
+    try {
+      setLocale('ar');
+      expect(formatNumber(1234.5)).toBe('1,234.5');
+      expect(spy).toHaveBeenLastCalledWith('ar-u-nu-latn', undefined);
+    } finally {
+      spy.mockRestore();
+      setLocale(DEFAULT_LOCALE);
+    }
   });
 
   it('enables pseudo-localization without exposing another locale option', () => {
