@@ -264,6 +264,15 @@ class ReminderServiceImpl {
     return key && channel ? { key, channel } : null;
   }
 
+  isReminderLaunch(rawLaunchParams: unknown): boolean {
+    return parseReminderChannelKey(rawLaunchParams) !== null;
+  }
+
+  // By time alone, for when the channels are not loaded yet.
+  anyDueNow(now = Date.now()): boolean {
+    return this.list().some(r => !r.answered && r.startMs <= now && now < r.stopMs);
+  }
+
   // Includes reminders for channels hide mode conceals; they prompt without names.
   dueNow(now = Date.now()): Reminder[] {
     return this.list().filter(r =>

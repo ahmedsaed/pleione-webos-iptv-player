@@ -3,12 +3,9 @@ import { SpatialNav } from '../navigation/spatial-nav';
 import { Focus, type FocusScope } from '../navigation/focus-scope';
 import { html, raw, type Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
-import { t, tp } from '../i18n';
+import { t } from '../i18n';
 import { CONFIG } from '../config';
 import { formatTime } from '../utils/time';
-import { PlaylistService } from '../services/playlist-service';
-import { ParentalControlService } from '../services/parental-control';
-import { knownCatalogCount } from '../services/xtream-catalog';
 import { AccountSwitcher } from './account-switcher';
 import { SECTION_ICONS } from './nav-menu';
 import { navSections, type Section } from './sections';
@@ -41,7 +38,7 @@ export function bentoRows(cards: readonly Card[]): Card[][] {
 }
 
 // The first screen: the app's name, the clock, and the account over a bento
-// of section cards, Live the big one. It reads only counts already loaded.
+// of section cards, Live the big one. It loads and counts nothing.
 export class Home {
   readonly focusScope: FocusScope;
   private readonly nav: SpatialNav;
@@ -299,19 +296,7 @@ export class Home {
     `;
   }
 
-  // Only counts something already loaded; Home itself loads nothing.
   private subtitle(card: Card): string {
-    if (card === 'live') {
-      const count = PlaylistService.channels.length;
-      return count ? tp('channel.count', count) : '';
-    }
-    if (card === 'movies' || card === 'series') {
-      // A count would tell how much parental controls hide.
-      if (!this.account || ParentalControlService.configured) return '';
-      const count = knownCatalogCount(this.account.id, card === 'movies' ? 'vod' : 'series');
-      if (!count) return '';
-      return tp(card === 'movies' ? 'catalog.movieCount' : 'catalog.seriesCount', count);
-    }
     if (card === 'search') return t(this.hasXtream ? 'home.searchHint' : 'home.searchHintChannels');
     if (card === 'settings') return t('home.settingsHint');
     return '';

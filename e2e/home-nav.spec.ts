@@ -41,9 +41,10 @@ async function box(page: Page, section: string) {
 }
 
 test('Home is the first screen: the name, the clock, the account, and the bento of sections', async ({ page }) => {
-  const catalogLoads: string[] = [];
+  const requests: string[] = [];
   page.on('request', (request) => {
-    if (/get_(vod|series)/.test(request.url())) catalogLoads.push(request.url());
+    const url = request.url();
+    if (/get\.php|xmltv\.php|player_api\.php/.test(url)) requests.push(url);
   });
   await seedHome(page);
   await page.goto('/');
@@ -56,12 +57,17 @@ test('Home is the first screen: the name, the clock, the account, and the bento 
   await expect(page.locator('.home-card .home-card-label')).toHaveText(['Live', 'Movies', 'Series', 'Search', 'Settings']);
   await expect(homeFocus(page)).toHaveAttribute('data-section', 'live');
   await expectFullScreen(page, 'home');
-  // No rails, and Home loads no catalog: Movies and Series stay uncounted.
+  // No rails and no counts: Home loads no channels, guide, or catalog, and
+  // only asks the account whether it still signs in.
   await expect(page.locator('#view-home .catalog-rail, #view-home .catalog-tile')).toHaveCount(0);
-  await expect(card(page, 'live').locator('.home-card-sub')).toHaveText('2 channels');
-  await expect(card(page, 'movies').locator('.home-card-sub')).toHaveCount(0);
+  for (const section of ['live', 'movies', 'series']) {
+    await expect(card(page, section).locator('.home-card-sub')).toHaveCount(0);
+  }
+  await expect.poll(() => requests.length).toBe(1);
   await page.waitForTimeout(500);
-  expect(catalogLoads).toEqual([]);
+  expect(requests.map((url) => new URL(url).pathname + (new URL(url).searchParams.get('action') ?? '')))
+    .toEqual(['/player_api.php']);
+  await expect(page.getByText('Unable to connect')).toHaveCount(0);
   await expect(page.locator('.tab-bar')).toHaveCount(0);
 
   // Live spans both rows on the left; the others pair up beside it.
@@ -77,15 +83,53 @@ test('Home is the first screen: the name, the clock, the account, and the bento 
   expect(live.x + (series.x + series.w - live.x) / 2).toBeCloseTo(960, 0);
 });
 
-test('Movies and Series count titles once something read their catalogs', async ({ page }) => {
+test('each section loads its own data when opened from Home', async ({ page }) => {
+  const requests: string[] = [];
+  page.on('request', (request) => {
+    const url = request.url();
+    if (/get\.php|xmltv\.php|player_api\.php\?.*action=/.test(url)) requests.push(url);
+  });
+  await seedHome(page);
+  await goHome(page);
+  await enterTab(page, 'movies');
+  await expect(page.locator('#view-movies .catalog-tile[data-item-id="10"]')).toBeVisible();
+  expect(requests.some((url) => url.includes('get_vod'))).toBe(true);
+  expect(requests.some((url) => /get\.php|xmltv\.php/.test(url))).toBe(false);
+  await enterTab(page, 'home');
+  await enterTab(page, 'live');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await expect.poll(() => requests.some((url) => /get\.php|get_live_streams/.test(url))).toBe(true);
+  // Home still counts nothing once the channels and the catalog are loaded.
+  await enterTab(page, 'home');
+  for (const section of ['live', 'movies', 'series']) {
+    await expect(card(page, section).locator('.home-card-sub')).toHaveCount(0);
+  }
+});
+
+test('Search opened from Home loads the channels it matches', async ({ page }) => {
   await seedHome(page);
   await goHome(page);
   await enterTab(page, 'search');
   await page.locator('.search-box-input').fill('one');
+  await expect(page.locator('#view-search .catalog-tile[data-channel-index="0"]')).toContainText('Channel One');
   await expect(page.locator('#view-search .catalog-tile[data-stream-id="10"]')).toBeVisible();
-  await enterTab(page, 'home');
-  await expect(card(page, 'movies').locator('.home-card-sub')).toHaveText('1 movie');
-  await expect(card(page, 'series').locator('.home-card-sub')).toHaveText('1 series');
+});
+
+test('a channel number typed on Home loads the channels and tunes', async ({ page }) => {
+  await seedHome(page);
+  await goHome(page);
+  await press(page, '2');
+  await expect(page.locator('#view-player')).toBeVisible();
+});
+
+test('a failed sign-in on Home shows the connection error', async ({ page }) => {
+  await seedHome(page);
+  await page.route(/player_api\.php\?username=[^&]+&password=[^&]+$/, (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ user_info: { auth: 0 } }),
+  }));
+  await goHome(page);
+  await expect(page.locator('.toast')).toHaveText('Login failed — check credentials.');
+  await expect(page.locator('#view-home')).toBeVisible();
 });
 
 test('the D-pad moves across the bento, Up reaches the account, and the glow follows focus', async ({ page }) => {

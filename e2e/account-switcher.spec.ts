@@ -21,6 +21,8 @@ async function seedTwoAccounts(page: Page): Promise<void> {
       return json([{ stream_id: bravo ? 20 : 10, name: bravo ? 'Bravo Movie' : 'Alpha Movie',
         stream_icon: '', container_extension: 'mp4', category_id: '1' }]);
     }
+    // The sign-in check Home makes: player_api.php with no action.
+    if (!new URL(url).searchParams.has('action')) return json({ user_info: { auth: 1, status: 'Active' } });
     return json({});
   });
   await page.route('**/movie/**', (route) =>

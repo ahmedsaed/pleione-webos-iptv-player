@@ -55,6 +55,8 @@ export async function seedXtream(page: Page, opts: { catalog?: 'large' } = {}): 
     if (url.includes('get_series')) {
       return json([{ series_id: 20, name: 'Series One', cover: '', category_id: '2' }]);
     }
+    // The sign-in check Home makes: player_api.php with no action.
+    if (!new URL(url).searchParams.has('action')) return json({ user_info: { auth: 1, status: 'Active' } });
     return json({});
   });
   await neuterVideo(page);

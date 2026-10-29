@@ -55,7 +55,6 @@ vi.mock('./idb-cache', () => ({
 
 import {
   getSearchCatalogExpiresAt,
-  knownCatalogCount,
   loadAllSeries,
   loadAllVodStreams,
   loadSeries,
@@ -207,14 +206,6 @@ describe('xtream-catalog', () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener).toHaveBeenCalledWith('x1|vod_categories');
-  });
-
-  it('knows a whole list\'s size only once something read it', async () => {
-    expect(knownCatalogCount('x1', 'series')).toBeNull();
-    cacheStore.set('x1|series_all', { key: 'x1|series_all', timestamp: Date.now(), data: [{ id: 'a' }, { id: 'b' }] });
-    await loadAllSeries(account);
-    expect(knownCatalogCount('x1', 'series')).toBe(2);
-    expect(knownCatalogCount('x2', 'series')).toBeNull();
   });
 
   it('notifies write listeners for a cold fetch and a background refresh, not a cache hit', async () => {

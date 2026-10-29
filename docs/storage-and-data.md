@@ -224,7 +224,7 @@ invalidates a structurally valid but now unrelated parsed playlist.
 | Stream MIME probe | 7 days | Expired reads become misses; records participate in catalog LRU and accounting |
 | Downloaded subtitle | 30 days | An expired read becomes a miss and deletes the record |
 | Channel health result | 30 days | Expired results are discarded; a new health check replaces results for checked channels |
-| Search index | 7 days | Used only while its source record's key, timestamp, and the index format still match; otherwise rebuilt from the source record. Built ahead of Search while the UI is idle after startup and after each playlist, guide, catalog, or account change |
+| Search index | 7 days | Used only while its source record's key, timestamp, and the index format still match; otherwise rebuilt from the source record. Built ahead of Search while the UI is idle after the channels load and after each playlist, guide, catalog, or account change |
 
 Reads update `lastAccessedAt` in a best-effort follow-up transaction. Failure to
 write this bookkeeping does not turn a valid cache hit into a miss.
@@ -234,9 +234,13 @@ write this bookkeeping does not turn a valid cache hit into a miss.
 The three settings are under **Settings → Advanced**. `CONFIG` provides their
 defaults; runtime freshness uses the saved preferences and the age of the
 loaded data. Off stops periodic channel-list or program-guide refresh, while
-still allowing a missing guide cache to populate. Only a cold cache blocks
-startup on a channel-list download; an overdue one is shown first and refreshed
-in the background. Xtream catalogs refresh when Movies, Series, or Search
+still allowing a missing guide cache to populate. Started on Home, the app
+loads no channel list, guide, or catalog: it only asks each enabled Xtream
+account to sign in (`player_api.php` with no action). The channels and guide
+load the first time Live, the Guide, Search, Settings, a channel number, a
+reminder launch, or a due reminder needs them, and their refresh timers start
+then. Only a cold cache blocks that load on a channel-list download; an
+overdue one is shown first and refreshed in the background. Xtream catalogs refresh when Movies, Series, or Search
 accesses expired data and do not have an Off option. Background catalog
 refreshes are shared per cache key, run at most two at a time with the rest
 queued, survive leaving the view, keep the stale copy on a failed or empty
@@ -454,7 +458,7 @@ activities duplicate only the scheduling information needed to wake at the
 correct time; the authoritative reminder record remains in IndexedDB.
 
 Removing or pruning a reminder sends Activity Manager a best-effort cancel by
-activity name. Startup reschedules every still-pending reminder with
+activity name. Loading the channels reschedules every still-pending reminder with
 `replace: true`, repairing missing OS activities without creating duplicates.
 Changing an EPG source's time correction migrates reminder and catch-up keys to
 the corrected program time. The old reminder activity is canceled and replaced.

@@ -100,6 +100,15 @@ describe('ReminderService store', () => {
     expect(ReminderService.dueNow(2000)).toHaveLength(0);  // answered
   });
 
+  it('anyDueNow sees an on-air reminder by time alone, before the channels load', () => {
+    ReminderService.add(rem({ startMs: 1000, stopMs: 3000 }));
+    state.channels = [];
+    expect(ReminderService.dueNow(2000)).toHaveLength(0);
+    expect(ReminderService.anyDueNow(2000)).toBe(true);
+    expect(ReminderService.anyDueNow(500)).toBe(false);
+    expect(ReminderService.anyDueNow(4000)).toBe(false);
+  });
+
   it('prune drops ended reminders and vanished channels', () => {
     ReminderService.add(rem({ startMs: 1000, stopMs: 2000 }));
     ReminderService.add({ channelKey: 'gone', channelName: 'X', title: 'T', startMs: 1000, stopMs: 9000 });
@@ -531,5 +540,12 @@ describe('ReminderService launch params', () => {
     expect(ReminderService.resolveLaunchChannel({})).toBe(-1);
     expect(ReminderService.resolveLaunchChannel({ reminderChannelKey: 'gone' })).toBe(-1);
     expect(ReminderService.resolveLaunchChannel({ reminderChannelKey: 42 })).toBe(-1);
+  });
+
+  it('tells a reminder launch from any other without the channels', () => {
+    state.channels = [];
+    expect(ReminderService.isReminderLaunch(JSON.stringify({ reminderChannelKey: keyA }))).toBe(true);
+    expect(ReminderService.isReminderLaunch('{}')).toBe(false);
+    expect(ReminderService.isReminderLaunch(undefined)).toBe(false);
   });
 });
