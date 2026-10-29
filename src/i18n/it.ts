@@ -298,6 +298,8 @@ export const IT_MESSAGES = {
   'settings.overlayDark': 'Scuro',
   'settings.overlayFrosted': 'Satinato',
   'settings.overlayHint': 'Lo stile scuro è più leggibile sul video. Quello satinato è ideale per i temi chiari.',
+  'settings.interfaceSize': 'Dimensione dell\'interfaccia',
+  'settings.interfaceSizeHint': 'Ridimensiona insieme testo, immagini e controlli.',
   'settings.textSize': 'Dimensione del testo',
   'settings.textSizeDefault': '{percent}% (Predefinito)',
   'settings.display': 'Visualizzazione',

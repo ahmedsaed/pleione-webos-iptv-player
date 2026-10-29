@@ -312,6 +312,8 @@ export const RU_MESSAGES = {
   'settings.overlayDark': 'Тёмный',
   'settings.overlayFrosted': 'Матовый',
   'settings.overlayHint': 'Тёмный стиль лучше читается поверх видео. Матовый лучше подходит для светлых тем.',
+  'settings.interfaceSize': 'Размер интерфейса',
+  'settings.interfaceSizeHint': 'Одновременно масштабирует текст, изображения и элементы управления.',
   'settings.textSize': 'Размер текста',
   'settings.textSizeDefault': '{percent} % (по умолчанию)',
   'settings.display': 'Отображение',

@@ -293,6 +293,8 @@ export const TR_MESSAGES = {
   'settings.overlayDark': 'Koyu',
   'settings.overlayFrosted': 'Buzlu',
   'settings.overlayHint': 'Koyu stil video üzerinde daha kolay okunur. Buzlu stil açık temalarda daha iyi görünür.',
+  'settings.interfaceSize': 'Arayüz boyutu',
+  'settings.interfaceSizeHint': 'Metni, görselleri ve kontrolleri birlikte ölçeklendirir.',
   'settings.textSize': 'Metin boyutu',
   'settings.textSizeDefault': '%{percent} (Varsayılan)',
   'settings.display': 'Ekran',

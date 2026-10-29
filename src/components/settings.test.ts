@@ -37,6 +37,7 @@ const {
     theme: 'midnight' as string,
     overlayStyle: 'dark' as string,
     textSize: '100' as string,
+    interfaceSize: '100' as string,
     tzMode: 'device' as TzMode,
     channelCycleMode: 'global' as ChannelCycleMode,
     liveReconnectAttempts: 3,
@@ -75,7 +76,7 @@ const {
         quotaBytes: null,
       })),
     },
-    themeMock: { previewTheme: vi.fn(), applyTheme: vi.fn(), initTheme: vi.fn(), applyTextSize: vi.fn()     },
+    themeMock: { previewTheme: vi.fn(), applyTheme: vi.fn(), initTheme: vi.fn(), applyTextSize: vi.fn(), applyInterfaceSize: vi.fn() },
     motionMock: {
       applyAnimationMode: vi.fn(),
     },
@@ -91,6 +92,7 @@ const {
       getTheme: vi.fn(() => state.theme),
       getOverlayStyle: vi.fn(() => state.overlayStyle),
       getTextSize: vi.fn(() => state.textSize),
+      getInterfaceSize: vi.fn(() => state.interfaceSize),
       getTzMode: vi.fn(() => state.tzMode),
       getChannelCycleMode: vi.fn(() => state.channelCycleMode),
       getLiveReconnectAttempts: vi.fn(() => state.liveReconnectAttempts),
@@ -127,6 +129,7 @@ const {
       setTheme: vi.fn((id: string) => { state.theme = id; }),
       setOverlayStyle: vi.fn((s: string) => { state.overlayStyle = s; }),
       setTextSize: vi.fn((s: string) => { state.textSize = s; }),
+      setInterfaceSize: vi.fn((s: string) => { state.interfaceSize = s; }),
       setTzMode: vi.fn(),
       setChannelCycleMode: vi.fn((m: ChannelCycleMode) => { state.channelCycleMode = m; }),
       setLiveReconnectAttempts: vi.fn((attempts: number) => {
@@ -259,6 +262,7 @@ beforeEach(() => {
   state.theme = 'midnight';
   state.overlayStyle = 'dark';
   state.textSize = '100';
+  state.interfaceSize = '100';
   state.liveReconnectAttempts = 3;
   state.numberEntryOsdTimeoutMs = 1200;
   state.playerOsdTimeoutMs = 5000;
@@ -1054,6 +1058,26 @@ describe('Settings theme picker', () => {
     expect(storageMock.setTextSize).not.toHaveBeenCalled();
     click('#save-settings');
     expect(storageMock.setTextSize).toHaveBeenCalledWith('130');
+  });
+
+  it('offers interface sizes from 90% to 130% with 100% as the default', () => {
+    state.interfaceSize = '110';
+    settings.render();
+    const dd = container.querySelector('#interface-size')!;
+    expect(dd.getAttribute('data-value')).toBe('110');
+    const values = Array.from(dd.querySelectorAll('.dropdown-option'))
+      .map(o => o.getAttribute('data-dropdown-value'));
+    expect(values).toEqual(['90', '100', '110', '120', '130']);
+    expect(dd.querySelector('.dropdown-option[data-dropdown-value="100"]')!.textContent)
+      .toBe('100% (Default)');
+  });
+
+  it('previews the interface size immediately and persists it on Save & Apply', () => {
+    click('#interface-size .dropdown-option[data-dropdown-value="120"]');
+    expect(themeMock.applyInterfaceSize).toHaveBeenCalledWith('120');
+    expect(storageMock.setInterfaceSize).not.toHaveBeenCalled();
+    click('#save-settings');
+    expect(storageMock.setInterfaceSize).toHaveBeenCalledWith('120');
   });
 });
 

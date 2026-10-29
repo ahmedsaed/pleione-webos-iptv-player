@@ -296,11 +296,64 @@ ${spacers.modern.map((rule) => `${rule}\n`).join('')}${rules.map((rule) => `${ru
 export function scaleFontSizes(css) {
   const root = postcss.parse(css);
   root.walkDecls('font-size', (decl) => {
-    if (decl.parent.type === 'rule' && decl.parent.selector.includes('::cue')) return;
+    if (isCueRule(decl)) return;
     decl.value = decl.value.replace(
       /(-?\d*\.?\d+)px\b/g,
       (px) => `calc(${px} * var(--font-scale))`,
     );
+  });
+  return root.toString();
+}
+
+const isCueRule = (decl) => decl.parent.type === 'rule' && decl.parent.selector.includes('::cue');
+const PX_TOKEN_RE = /^-?(\d+\.?\d*|\.\d+)px$/;
+
+const scaledPx = (text, factor) => `${String(Math.round(parseFloat(text) * factor * 1000) / 1000)}px`;
+
+// Multiplies each px length by `factor`, leaving url() and string contents
+// untouched. Literal lengths keep every Interface size free of runtime var()
+// resolution, which doubles style recalc time on a TV.
+function scaleValueLengths(value, factor) {
+  let out = '';
+  let i = 0;
+  while (i < value.length) {
+    const ch = value[i];
+    if (ch === '"' || ch === "'") {
+      const end = value.indexOf(ch, i + 1);
+      const stop = end === -1 ? value.length : end + 1;
+      out += value.slice(i, stop);
+      i = stop;
+      continue;
+    }
+    if (/^url\(/i.test(value.slice(i))) {
+      const end = value.indexOf(')', i);
+      const stop = end === -1 ? value.length : end + 1;
+      out += value.slice(i, stop);
+      i = stop;
+      continue;
+    }
+    const token = /^-?(\d+\.?\d*|\.\d+)[a-zA-Z%]*/.exec(value.slice(i));
+    const prev = value[i - 1];
+    if (token && !(prev && /[\w.#-]/.test(prev))) {
+      const text = token[0];
+      out += PX_TOKEN_RE.test(text) ? scaledPx(text, factor) : text;
+      i += text.length;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+// One Interface size's copy of a stylesheet. `--canvas-*` tokens hold the
+// fixed 1920x1080 screen, which never scales.
+export function scaleLengths(css, factor) {
+  const root = postcss.parse(css);
+  root.walkDecls((decl) => {
+    if (decl.prop.startsWith('--canvas-') || isCueRule(decl)) return;
+    if (!decl.value.includes('px')) return;
+    decl.value = scaleValueLengths(decl.value, factor);
   });
   return root.toString();
 }

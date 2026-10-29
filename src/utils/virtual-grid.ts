@@ -2,8 +2,10 @@ import type { NavDirection } from '../types';
 import { VirtualList, type VirtualRange } from './virtual-list';
 
 export interface VirtualGridOptions {
-  columnStride: number;
-  rowStride: number;
+  // Functions are re-read on every layout, for strides that follow the
+  // Interface size.
+  columnStride: number | (() => number);
+  rowStride: number | (() => number);
   overscanRows: number;
   fallbackViewportWidth: number;
   fallbackViewportHeight: number;
@@ -22,16 +24,18 @@ export interface VirtualGridPosition {
 
 export class VirtualGrid {
   private readonly rows: VirtualList;
-  private readonly columnStride: number;
+  private readonly columnStrideOption: number | (() => number);
   readonly fallbackViewportWidth: number;
   readonly fallbackViewportHeight: number;
 
   constructor(options: VirtualGridOptions) {
-    if (options.columnStride <= 0) throw new RangeError('columnStride must be greater than zero');
+    if (typeof options.columnStride === 'number' && options.columnStride <= 0) {
+      throw new RangeError('columnStride must be greater than zero');
+    }
     if (options.fallbackViewportWidth <= 0) {
       throw new RangeError('fallbackViewportWidth must be greater than zero');
     }
-    this.columnStride = options.columnStride;
+    this.columnStrideOption = options.columnStride;
     this.fallbackViewportWidth = options.fallbackViewportWidth;
     this.fallbackViewportHeight = options.fallbackViewportHeight;
     this.rows = new VirtualList({
@@ -39,6 +43,11 @@ export class VirtualGrid {
       overscan: options.overscanRows,
       fallbackViewportSize: options.fallbackViewportHeight,
     });
+  }
+
+  private get columnStride(): number {
+    const stride = this.columnStrideOption;
+    return typeof stride === 'function' ? stride() : stride;
   }
 
   get scrollOffset(): number {

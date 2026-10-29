@@ -1,5 +1,7 @@
 export interface VirtualListOptions {
-  itemSize?: number;
+  // A function is re-read on every layout, for sizes that follow the
+  // Interface size.
+  itemSize?: number | (() => number);
   overscan: number;
   fallbackViewportSize: number;
 }
@@ -12,23 +14,28 @@ export interface VirtualRange {
 export class VirtualList {
   private offset = 0;
   private leading = 0;
-  private readonly itemSize: number | null;
+  private readonly fixedSize: number | (() => number) | null;
   private sizes = new Float64Array(0);
   private offsets = new Float64Array(1);
   private readonly overscan: number;
   readonly fallbackViewportSize: number;
 
   constructor(options: VirtualListOptions) {
-    if (options.itemSize !== undefined && options.itemSize <= 0) {
+    if (typeof options.itemSize === 'number' && options.itemSize <= 0) {
       throw new RangeError('itemSize must be greater than zero');
     }
     if (options.overscan < 0) throw new RangeError('overscan must not be negative');
     if (options.fallbackViewportSize <= 0) {
       throw new RangeError('fallbackViewportSize must be greater than zero');
     }
-    this.itemSize = options.itemSize ?? null;
+    this.fixedSize = options.itemSize ?? null;
     this.overscan = options.overscan;
     this.fallbackViewportSize = options.fallbackViewportSize;
+  }
+
+  private get itemSize(): number | null {
+    const size = this.fixedSize;
+    return typeof size === 'function' ? size() : size;
   }
 
   get scrollOffset(): number {

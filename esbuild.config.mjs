@@ -12,6 +12,7 @@ import {
   generateFlexGapFallback,
   linkedStylesheets,
   scaleFontSizes,
+  scaleLengths,
 } from './scripts/css-transforms.mjs';
 
 const isPreview = process.argv.includes('--preview');
@@ -27,12 +28,27 @@ if (appinfo.version !== version) {
   writeFileSync('appinfo.json', JSON.stringify(appinfo, null, 2) + '\n');
 }
 
+// The Interface sizes, from their single source in src/config/themes.ts.
+function interfaceSizes() {
+  const source = readFileSync('src/config/themes.ts', 'utf8');
+  const list = /INTERFACE_SIZES = \[([^\]]+)\]/.exec(source);
+  if (!list) throw new Error('INTERFACE_SIZES not found in src/config/themes.ts');
+  return list[1].split(',').map((id) => id.trim().replace(/'/g, '')).filter((id) => id && id !== '100');
+}
+
+// Every non-default Interface size gets its own copy of each stylesheet in
+// css/ui-<size>/, with the px lengths already multiplied out.
 function transformStylesheets(outDir) {
+  const sizes = interfaceSizes();
+  for (const size of sizes) mkdirSync(`${outDir}/ui-${size}`, { recursive: true });
   for (const file of readdirSync(outDir)) {
     if (!file.endsWith('.css')) continue;
     const path = `${outDir}/${file}`;
-    const css = convertLegacyColorSyntax(readFileSync(path, 'utf8'));
-    writeFileSync(path, scaleFontSizes(css));
+    const css = scaleFontSizes(convertLegacyColorSyntax(readFileSync(path, 'utf8')));
+    writeFileSync(path, css);
+    for (const size of sizes) {
+      writeFileSync(`${outDir}/ui-${size}/${file}`, scaleLengths(css, Number(size) / 100));
+    }
   }
 }
 

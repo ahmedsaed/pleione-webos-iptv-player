@@ -8,6 +8,7 @@ import {
   generateScrollEndSpacers,
   linkedStylesheets,
   scaleFontSizes,
+  scaleLengths,
 } from './css-transforms.mjs';
 
 describe('generateFlexGapFallback', () => {
@@ -247,6 +248,43 @@ describe('scaleFontSizes', () => {
   it('does not scale video cue text', () => {
     const css = 'video::cue { font-size: 30px; }';
     expect(scaleFontSizes(css)).toBe(css);
+  });
+});
+
+describe('scaleLengths', () => {
+  it('multiplies px lengths in every property, leaving other units alone', () => {
+    const out = scaleLengths('.a { width: 380px; padding: 12px 1.5em; margin: -4px 0 50%; }', 1.2);
+    expect(out).toContain('width: 456px');
+    expect(out).toContain('padding: 14.4px 1.5em');
+    expect(out).toContain('margin: -4.8px 0 50%');
+  });
+
+  it('emits literal lengths, never a runtime var()', () => {
+    const out = scaleLengths(':root { --radius: 8px; } .a { height: calc(52px + 16px * var(--font-scale)); }', 1.1);
+    expect(out).toContain('--radius: 8.8px');
+    expect(out).toContain('height: calc(57.2px + 17.6px * var(--font-scale))');
+    expect(out).not.toContain('--ui-scale');
+  });
+
+  it('composes with scaled font sizes', () => {
+    const out = scaleLengths(scaleFontSizes('.a { font-size: 24px; }'), 1.3);
+    expect(out).toContain('font-size: calc(31.2px * var(--font-scale))');
+  });
+
+  it('scales lengths inside functions', () => {
+    const out = scaleLengths('.a { box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); transform: translateY(-2px); }', 0.9);
+    expect(out).toContain('box-shadow: 0 0 9px rgba(0, 0, 0, 0.5)');
+    expect(out).toContain('transform: translateY(-1.8px)');
+  });
+
+  it('keeps urls, strings, and identifiers untouched', () => {
+    const css = '.a { background: url("data:image/svg+xml,<svg width=\'10px\'/>"); content: "8px"; grid-area: a2px; }';
+    expect(scaleLengths(css, 1.3)).toBe(css);
+  });
+
+  it('leaves the fixed canvas tokens, cue text, and at-rule conditions alone', () => {
+    const css = ':root { --canvas-width: 1920px; } video::cue { font-size: 30px; } @media (min-width: 800px) { .a { color: red; } }';
+    expect(scaleLengths(css, 1.3)).toBe(css);
   });
 });
 

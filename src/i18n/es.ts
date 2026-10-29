@@ -300,6 +300,8 @@ export const ES_MESSAGES = {
   'settings.overlayDark': 'Oscuro',
   'settings.overlayFrosted': 'Esmerilado',
   'settings.overlayHint': 'El modo oscuro facilita la lectura sobre el video. El esmerilado funciona mejor con temas claros.',
+  'settings.interfaceSize': 'Tamaño de la interfaz',
+  'settings.interfaceSizeHint': 'Ajusta el tamaño del texto, las imágenes y los controles a la vez.',
   'settings.textSize': 'Tamaño del texto',
   'settings.textSizeDefault': '{percent} % (Predeterminado)',
   'settings.display': 'Pantalla',

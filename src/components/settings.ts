@@ -34,8 +34,8 @@ import { genPlaylistId, isSourceEnabled } from '../utils/playlist';
 import { channelKey, legacyChannelKey } from '../utils/channel';
 import { formatEpgOffset } from '../utils/epg-offset';
 import { CONFIG } from '../config';
-import { THEMES, OVERLAY_STYLES, TEXT_SIZES, DEFAULT_TEXT_SIZE, type ThemeMeta, type OverlayStyle, type TextSize } from '../config/themes';
-import { previewTheme, applyTextSize } from '../services/theme-service';
+import { THEMES, OVERLAY_STYLES, TEXT_SIZES, DEFAULT_TEXT_SIZE, INTERFACE_SIZES, DEFAULT_INTERFACE_SIZE, type ThemeMeta, type OverlayStyle, type TextSize, type InterfaceSize } from '../config/themes';
+import { previewTheme, applyTextSize, applyInterfaceSize } from '../services/theme-service';
 import { showToast } from './toast';
 import { ConfirmationPrompt } from './confirmation-prompt';
 import { sourceToggle, toggleGroup } from './toggle-controls';
@@ -743,6 +743,7 @@ export class Settings {
     this.selectedTheme = theme;
     const overlayStyle = StorageService.getOverlayStyle();
     const textSize = StorageService.getTextSize();
+    const interfaceSize = StorageService.getInterfaceSize();
     const localePreference = StorageService.getLocalePreference();
     const liveReconnectAttempts = StorageService.getLiveReconnectAttempts();
     const numberEntryOsdTimeoutMs = StorageService.getNumberEntryOsdTimeoutMs();
@@ -758,6 +759,10 @@ export class Settings {
     const textSizes = TEXT_SIZES.map(size => ({
       value: size,
       label: size === DEFAULT_TEXT_SIZE ? t('settings.textSizeDefault', { percent: size }) : `${size}%`,
+    }));
+    const interfaceSizes = INTERFACE_SIZES.map(size => ({
+      value: size,
+      label: size === DEFAULT_INTERFACE_SIZE ? t('settings.textSizeDefault', { percent: size }) : `${size}%`,
     }));
     const parentalSupported = parentalPinSupported();
     const parentalStatus = t(ParentalControlService.enabled
@@ -963,6 +968,11 @@ export class Settings {
                   <div class="settings-item-title">${t('settings.overlayGlass')}</div>
                   ${toggleGroup('overlay-style', overlayStyles, overlayStyle)}
                   <div class="settings-item-hint">${t('settings.overlayHint')}</div>
+                </div>
+                <div class="settings-item">
+                  <div class="settings-item-title">${t('settings.interfaceSize')}</div>
+                  ${dropdown('interface-size', interfaceSizes, interfaceSize)}
+                  <div class="settings-item-hint">${t('settings.interfaceSizeHint')}</div>
                 </div>
                 <div class="settings-item">
                   <div class="settings-item-title">${t('settings.textSize')}</div>
@@ -2246,9 +2256,10 @@ export class Settings {
   private selectDropdownOption(el: HTMLElement): void {
     const dd = commitDropdownOption(el);
     if (!dd) return;
-    // Text size previews live so the choice can be judged at its own scale;
-    // showView() reverts it if Settings closes without saving.
+    // Text and interface sizes preview live so the choice can be judged at
+    // its own scale; showView() reverts them if Settings closes unsaved.
     if (dd.id === 'text-size') applyTextSize(dd.dataset.value ?? '');
+    if (dd.id === 'interface-size') applyInterfaceSize(dd.dataset.value ?? '');
     if (dd.id === 'epg-offset-source') this.updateEpgOffsetControl();
     const trigger = dd.querySelector<HTMLElement>('.dropdown-trigger');
     if (trigger) this.nav.focus(trigger);
@@ -2899,6 +2910,9 @@ export class Settings {
 
     const textSize = ($('#text-size', this.container) as HTMLElement | null)?.dataset.value;
     if (textSize) StorageService.setTextSize(textSize as TextSize);
+
+    const interfaceSize = ($('#interface-size', this.container) as HTMLElement | null)?.dataset.value;
+    if (interfaceSize) StorageService.setInterfaceSize(interfaceSize as InterfaceSize);
 
     const locale = ($('#app-language', this.container) as HTMLElement | null)?.dataset.value as LocalePreference | undefined;
     if (locale) StorageService.setLocalePreference(locale);

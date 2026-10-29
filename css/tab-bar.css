@@ -27,12 +27,12 @@ body.tabbar-docked #view-series,
 body.tabbar-docked #view-search,
 body.tabbar-docked #view-settings {
   top: 96px;
-  height: 984px;
+  height: calc(var(--canvas-height) - 96px);
 }
 
 /* The guide's own root is fixed-height; shrink it to the docked viewport. */
 body.tabbar-docked #view-epg .epg-view {
-  height: 984px;
+  height: calc(var(--canvas-height) - 96px);
 }
 
 .tab-bar-inner {

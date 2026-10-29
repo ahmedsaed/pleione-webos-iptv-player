@@ -1,5 +1,5 @@
 import { CONFIG } from '../config';
-import { DEFAULT_THEME, DEFAULT_OVERLAY, DEFAULT_TEXT_SIZE, isValidTextSize, type OverlayStyle, type TextSize } from '../config/themes';
+import { DEFAULT_THEME, DEFAULT_OVERLAY, DEFAULT_TEXT_SIZE, DEFAULT_INTERFACE_SIZE, isValidTextSize, isValidInterfaceSize, type OverlayStyle, type TextSize, type InterfaceSize } from '../config/themes';
 import type { AudioPref, CatchupProgressEntry, Channel, ChannelCustomization, ChannelCycleMode, ManualEpgSource, ParentalControlConfig, ParentalPinThrottle, PlaylistEntry, RecentlyWatchedLiveEntry, Reminder, ResumeEntry, ResumeKind, SubtitlePref, TzMode, WatchlistEntry, WatchlistKind, XtreamLiveCategorySnapshot } from '../types';
 import type { OnlineSubtitleConfig, PickedOnlineSub } from './subtitle-search/types';
 import { channelKey, legacyChannelKey } from '../utils/channel';
@@ -1099,6 +1099,14 @@ export const StorageService = {
   },
   setTextSize(size: TextSize): void {
     set('text_size', size);
+  },
+
+  getInterfaceSize(): InterfaceSize {
+    const size = get<unknown>('interface_size', DEFAULT_INTERFACE_SIZE);
+    return isValidInterfaceSize(size as string) ? (size as InterfaceSize) : DEFAULT_INTERFACE_SIZE;
+  },
+  setInterfaceSize(size: InterfaceSize): void {
+    set('interface_size', size);
   },
 
   // Player overlay glass style (see src/config/themes.ts). Default = dark-glass.

@@ -36,6 +36,7 @@ import {
   defaultSortDirection, isCatalogSort, sortCatalogItems,
   type CatalogSort, type CatalogSortDirection, type CatalogSortItem, type CatalogSortPreference,
 } from '../utils/catalog-sort';
+import { uiPx } from '../utils/ui-scale';
 
 const log = createLogger('Catalog');
 
@@ -152,15 +153,15 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private gridReturnKey: string | null = null;
   // The browse tile that opened a grid or detail, refocused on Back.
   private readonly gridVirtualizer = new VirtualGrid({
-    columnStride: CATALOG_GRID_COLUMN_STRIDE,
-    rowStride: CATALOG_GRID_ROW_STRIDE,
+    columnStride: () => uiPx(CATALOG_GRID_COLUMN_STRIDE),
+    rowStride: () => uiPx(CATALOG_GRID_ROW_STRIDE),
     overscanRows: CATALOG_GRID_OVERSCAN_ROWS,
     fallbackViewportWidth: CATALOG_GRID_VIEWPORT_WIDTH,
     fallbackViewportHeight: CATALOG_GRID_VIEWPORT_HEIGHT,
   });
   private gridScrollFrame: number | null = null;
   private readonly categoryVirtualizer = new VirtualList({
-    itemSize: CATEGORY_RAIL_STRIDE,
+    itemSize: () => uiPx(CATEGORY_RAIL_STRIDE),
     overscan: 4,
     fallbackViewportSize: CATEGORY_RAIL_VIEWPORT,
   });
@@ -1585,7 +1586,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     }
     const range = this.gridVirtualizer.getRange(count, viewportWidth, viewportHeight);
     const actionWidth = this.gridVirtualizer.getItemPosition(range.columns - 1, range.columns).left
-      + CATALOG_GRID_POSTER_WIDTH;
+      + uiPx(CATALOG_GRID_POSTER_WIDTH);
     const cells: Safe[] = [];
     for (let index = range.start; index < range.end; index++) {
       const position = this.gridVirtualizer.getItemPosition(index, range.columns);

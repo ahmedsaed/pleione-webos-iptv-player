@@ -10,6 +10,17 @@ function createList(): VirtualList {
 }
 
 describe('VirtualList', () => {
+  it('re-reads a function item size on every layout', () => {
+    let size = 100;
+    const list = new VirtualList({ itemSize: () => size, overscan: 0, fallbackViewportSize: 300 });
+    expect(list.getTotalSize(10)).toBe(1000);
+    expect(list.getItemOffset(3)).toBe(300);
+    size = 120;
+    expect(list.getTotalSize(10)).toBe(1200);
+    expect(list.getItemOffset(3)).toBe(360);
+    expect(list.getRange(10, 360)).toEqual({ start: 0, end: 3 });
+  });
+
   it('calculates total size and an overscanned visible range', () => {
     const list = createList();
 

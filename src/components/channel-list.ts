@@ -31,6 +31,7 @@ import { ChannelListEditor } from './channel-list-editor';
 import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard } from '../utils/virtual-scroll';
 import { CONFIG } from '../config';
+import { uiPx } from '../utils/ui-scale';
 
 // Row strides mirror the fixed row geometry in css/channel-list.css:
 // .channel-item is 88px, .group-item is 60px plus its 8px vertical margin.
@@ -86,12 +87,12 @@ export class ChannelList {
   private recentItems: RecentlyWatchedItem[] = [];
   private failedLogos = new Set<string>();
   private readonly channelVirtualizer = new VirtualList({
-    itemSize: CHANNEL_ROW_STRIDE,
+    itemSize: () => uiPx(CHANNEL_ROW_STRIDE),
     overscan: CHANNEL_OVERSCAN,
     fallbackViewportSize: CHANNEL_VIEWPORT_FALLBACK,
   });
   private readonly groupVirtualizer = new VirtualList({
-    itemSize: GROUP_ROW_STRIDE,
+    itemSize: () => uiPx(GROUP_ROW_STRIDE),
     overscan: CHANNEL_OVERSCAN,
     fallbackViewportSize: CHANNEL_VIEWPORT_FALLBACK,
   });

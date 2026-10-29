@@ -9,6 +9,7 @@ import { PLAY_ICON, watchlistIcon } from './icons';
 import { showToast } from './toast';
 import { t, tp } from '../i18n';
 import { VirtualList } from '../utils/virtual-list';
+import { uiPx } from '../utils/ui-scale';
 
 const EPISODE_GAP = 16;
 const EPISODE_NO_PLOT_ESTIMATE = 138;
@@ -397,9 +398,9 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
         const row = item.cell.querySelector<HTMLElement>('.episode-row');
         return {
           index: item.index,
-          size: row ? row.getBoundingClientRect().height + EPISODE_GAP : 0,
+          size: row ? row.getBoundingClientRect().height + uiPx(EPISODE_GAP) : 0,
         };
-      }).filter(item => item.index >= 0 && item.size > EPISODE_GAP);
+      }).filter(item => item.index >= 0 && item.size > uiPx(EPISODE_GAP));
     if (this.episodeVirtualizer.updateItemSizes(measuredSizes)) {
       this.renderDetail(restoreFocus);
       return;

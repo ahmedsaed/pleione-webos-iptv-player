@@ -32,6 +32,7 @@ import { createLogger } from '../utils/logger';
 import { liveBadge } from './live-badge';
 import { Focus, Tier, type FocusScope, type Via } from '../navigation/focus-scope';
 import { InputMode } from '../navigation/input-mode';
+import { uiPx } from '../utils/ui-scale';
 
 const log = createLogger('EpgGrid');
 
@@ -83,7 +84,7 @@ export class EpgGrid {
   private resumePrompt = new CatchupResumePrompt('prompt.epg');
   private archiveLoadingKey = '';
   private readonly channelVirtualizer = new VirtualList({
-    itemSize: CHANNEL_ROW_SIZE,
+    itemSize: () => uiPx(CHANNEL_ROW_SIZE),
     overscan: VIRTUAL_OVERSCAN,
     fallbackViewportSize: EPG_VIEWPORT_FALLBACK,
   });
@@ -92,7 +93,7 @@ export class EpgGrid {
     fallbackViewportSize: EPG_VIEWPORT_FALLBACK,
   });
   private readonly groupVirtualizer = new VirtualList({
-    itemSize: GROUP_ROW_SIZE,
+    itemSize: () => uiPx(GROUP_ROW_SIZE),
     overscan: VIRTUAL_OVERSCAN,
     fallbackViewportSize: 400,
   });

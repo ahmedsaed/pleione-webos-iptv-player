@@ -311,6 +311,8 @@ export const PL_MESSAGES = {
   'settings.overlayDark': 'Ciemny',
   'settings.overlayFrosted': 'Matowy',
   'settings.overlayHint': 'Ciemny jest czytelniejszy na obrazie. Matowy najlepiej pasuje do jasnych motywów.',
+  'settings.interfaceSize': 'Rozmiar interfejsu',
+  'settings.interfaceSizeHint': 'Skaluje jednocześnie tekst, obrazy i elementy sterujące.',
   'settings.textSize': 'Rozmiar tekstu',
   'settings.textSizeDefault': '{percent}% (Domyślny)',
   'settings.display': 'Ekran',

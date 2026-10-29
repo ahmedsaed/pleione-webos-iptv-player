@@ -46,6 +46,7 @@ import { sourceToggle, toggleGroup } from './toggle-controls';
 import { ConfirmationPrompt } from './confirmation-prompt';
 import { showToast } from './toast';
 import { isAdultGroupName } from './group-icon';
+import { uiPx } from '../utils/ui-scale';
 
 const log = createLogger('ParentalControls');
 
@@ -162,12 +163,12 @@ export class ParentalControls {
   private tab: 'rules' | 'options' = 'rules';
   private readonly confirmationPrompt = new ConfirmationPrompt('prompt.parental');
   private readonly groupVirtualizer = new VirtualList({
-    itemSize: ROW_STRIDE,
+    itemSize: () => uiPx(ROW_STRIDE),
     overscan: LIST_OVERSCAN,
     fallbackViewportSize: FALLBACK_LIST_HEIGHT,
   });
   private readonly itemVirtualizer = new VirtualList({
-    itemSize: ROW_STRIDE,
+    itemSize: () => uiPx(ROW_STRIDE),
     overscan: LIST_OVERSCAN,
     fallbackViewportSize: FALLBACK_LIST_HEIGHT,
   });
@@ -1322,7 +1323,7 @@ export class ParentalControls {
   ): Safe {
     const virtualizer = this.virtualizer(kind);
     const suggestion = kind === 'group' && this.pendingSuggestions().length > 0;
-    virtualizer.setLeadingSize(LIST_PADDING + (suggestion ? ROW_STRIDE : 0));
+    virtualizer.setLeadingSize(uiPx(LIST_PADDING + (suggestion ? ROW_STRIDE : 0)));
     const range = virtualizer.getRange(entries.length, this.listViewport(kind));
     const rows: Safe[] = [];
     for (let index = range.start; index < range.end; index++) {

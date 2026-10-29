@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { THEMES, DEFAULT_THEME, TEXT_SIZES, DEFAULT_TEXT_SIZE, isValidTheme, isValidTextSize } from './themes';
+import { THEMES, DEFAULT_THEME, TEXT_SIZES, DEFAULT_TEXT_SIZE, INTERFACE_SIZES, DEFAULT_INTERFACE_SIZE, isValidTheme, isValidTextSize, isValidInterfaceSize } from './themes';
 
 // Parse the shipped stylesheet directly so a theme that's registered but missing
 // a `[data-theme]` block (or a variable) fails the build instead of the TV.
@@ -72,5 +72,25 @@ describe('text size registry', () => {
   it('leaves the default size on the :root --font-scale of 1', () => {
     expect(/:root\s*\{[^}]*--font-scale:\s*1;/.test(mainCss)).toBe(true);
     expect(new RegExp(`\\[data-text-size="${DEFAULT_TEXT_SIZE}"\\]`).test(mainCss)).toBe(false);
+  });
+});
+
+describe('interface sizes', () => {
+  it('has a valid default and rejects unknown ids', () => {
+    expect(isValidInterfaceSize(DEFAULT_INTERFACE_SIZE)).toBe(true);
+    expect(isValidInterfaceSize('140')).toBe(false);
+    expect(isValidInterfaceSize(null)).toBe(false);
+  });
+
+  it('lists the same non-default sizes in the index.html boot script', () => {
+    const indexHtml = readFileSync(join(process.cwd(), 'index.html'), 'utf8');
+    const boot = /\/\^\(([\d|]+)\)\$\/\.test\(z\)/.exec(indexHtml);
+    expect(boot, 'interface size boot script in index.html').not.toBeNull();
+    expect(boot![1].split('|')).toEqual(INTERFACE_SIZES.filter(size => size !== DEFAULT_INTERFACE_SIZE));
+  });
+
+  it('defines the fixed canvas tokens as literal screen sizes', () => {
+    expect(/:root\s*\{[^}]*--canvas-width:\s*1920px;/.test(mainCss)).toBe(true);
+    expect(/:root\s*\{[^}]*--canvas-height:\s*1080px;/.test(mainCss)).toBe(true);
   });
 });
