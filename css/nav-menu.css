@@ -156,3 +156,68 @@ html[data-animation="essential"] .nav-menu-panel {
 .nav-menu-lock {
   margin-top: auto;
 }
+
+/* The Magic Remote's way Home: a small glass button over a free corner of
+   each section, shown only while the pointer is in charge. */
+.home-button {
+  position: fixed;
+  top: 24px;
+  left: 24px;
+  z-index: 60;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  color: var(--text-primary);
+  /* Opaque enough to read over any content without a blur, which old
+     engines lack. */
+  background: rgb(var(--catalog-hero-scrim-rgb) / 0.85);
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  outline: none;
+}
+
+html:not(.keyboard-nav) .home-button[data-view] {
+  display: flex;
+}
+
+/* Each section's free corner: Live's and the Guide's past the rows' text, Settings' over its panel's empty corner, Search's left
+   of its box. Movies and Series keep the top-left over the hero's empty
+   corner. */
+.home-button[data-view="channels"],
+.home-button[data-view="epg"] {
+  top: auto;
+  right: 24px;
+  bottom: 24px;
+  left: auto;
+}
+
+.home-button[data-view="settings"] {
+  top: 8px;
+  left: 8px;
+}
+
+.home-button[data-view="search"] {
+  top: 44px;
+  left: 8px;
+}
+
+html:not(.keyboard-nav) .home-button:hover {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.home-button svg {
+  width: 32px;
+  height: 32px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

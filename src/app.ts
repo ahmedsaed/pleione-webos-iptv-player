@@ -29,6 +29,7 @@ import { type Section, sectionForView } from './components/sections';
 import { NavMenu } from './components/nav-menu';
 import { Home } from './components/home';
 import { SearchBox } from './components/search-box';
+import { HomeButton } from './components/home-button';
 import { Movies } from './components/movies';
 import { Series } from './components/series';
 import { Search } from './components/search';
@@ -92,6 +93,7 @@ class App {
   private home!: Home;
   private navMenu!: NavMenu;
   private searchBox!: SearchBox;
+  private homeButton!: HomeButton;
   private search!: Search;
   private historyDropdown!: SearchHistoryDropdown;
   private movies!: Movies;
@@ -381,6 +383,7 @@ class App {
       current: () => this.currentSection(),
     });
     this.navMenu.init();
+    this.homeButton = new HomeButton(() => this.selectSection('home', 'pointer'));
 
     KeyHandler.init();
     KeyHandler.setHandler((action, event) => {
@@ -1101,6 +1104,7 @@ class App {
     }
 
     if (name !== 'home') this.home?.hidden();
+    this.homeButton?.showOn(name !== 'home' && sectionForView(name) ? name : null);
     if (name === 'home') this.playerReturn = 'home';
     else if (name !== 'player') this.playerReturn = 'channels';
     if (name !== 'search') this.searchBox?.release();
@@ -1868,6 +1872,7 @@ class App {
       if (locale !== getLocale()) {
         setLocale(locale);
         this.syncSources();
+        this.homeButton.refreshLabel();
         ReminderService.reschedulePending();
       }
       // Republish on 'apply' too: subtitle credentials and other display-only

@@ -874,6 +874,38 @@ describe('Movies browse + grid', () => {
     return { close: () => { open = false; Focus.flush(); } };
   }
 
+  // Regression: a re-render under a surface that owns the keys put the first
+  // title back in the hero while the pointer's lit tile stayed lit.
+  it('keeps the hero on the tile the pointer lights through a re-render under another owner', async () => {
+    const { view } = await openWith([{ id: '1', name: 'Cat A' }],
+      [vod('10', 'Movie One'), vod('11', 'Movie Two'), vod('12', 'Movie Three')]);
+    FocusRing.install(() => ({ root: Focus.owner()?.root() ?? null }));
+    Focus.install();
+    const title = () => container.querySelector('.catalog-hero-title')?.textContent;
+    try {
+      const bar = openBar();
+      const tile = container.querySelector<HTMLElement>('.catalog-tile[data-item-id="11"]')!;
+      tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      Focus.flush();
+      expect(tile.classList.contains('focused')).toBe(true);
+      expect(title()).toBe('Movie Two');
+
+      // Rails re-render (a lock change, new rail data, a scroll frame).
+      view.refreshLocks();
+      Focus.flush();
+      expect(title()).toBe('Movie Two');
+
+      // The pointer gone from the rails, nothing there is lit: the first title.
+      tile.dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+      Focus.flush();
+      view.refreshLocks();
+      expect(title()).toBe('Movie One');
+      bar.close();
+    } finally {
+      FocusRing.uninstall();
+    }
+  });
+
   it('keeps a tile dark once the pointer left it under an open bar', async () => {
     await openWith([{ id: '1', name: 'Cat A' }], [vod('10', 'Movie One'), vod('11', 'Movie Two')]);
     FocusRing.install(() => ({ root: Focus.owner()?.root() ?? null }));
