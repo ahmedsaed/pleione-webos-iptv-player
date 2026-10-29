@@ -191,9 +191,9 @@ test('a partial program opened from Search shows its resume prompt with the ring
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
   await enterTab(page, 'search');
-  await page.locator('.tab-bar-search-input').fill('earlier');
+  await page.locator('.search-box-input').fill('earlier');
   const result = page.locator('#view-search .search-program-row').filter({ hasText: 'Earlier Show' });
-  await page.locator('.tab-bar-search-input').press('ArrowDown');
+  await page.locator('.search-box-input').press('ArrowDown');
   await expect(result).toHaveClass(/\bfocused\b/);
   await page.keyboard.press('Enter');
   const prompt = page.locator('.catchup-resume-prompt');

@@ -25,7 +25,10 @@ import { EpgGrid } from './components/epg-grid';
 import { Settings, type SaveAction } from './components/settings';
 import { Sidebar } from './components/sidebar';
 import { PlayerMenu } from './components/player-menu';
-import { TabBar, type Section, sectionForView } from './components/tab-bar';
+import { type Section, sectionForView } from './components/sections';
+import { NavMenu } from './components/nav-menu';
+import { Home } from './components/home';
+import { SearchBox } from './components/search-box';
 import { Movies } from './components/movies';
 import { Series } from './components/series';
 import { Search } from './components/search';
@@ -51,7 +54,7 @@ import { truncate } from './utils/text';
 import { $, show, hide } from './utils/dom';
 import { createLogger, installGlobalErrorHandlers, logEnvironment } from './utils/logger';
 import { FocusRing } from './navigation/focus-ring';
-import { Focus, type FocusScope } from './navigation/focus-scope';
+import { Focus, Tier, type FocusScope } from './navigation/focus-scope';
 import type {
   Action,
   NumberEvent,
@@ -65,17 +68,15 @@ import { getLocale, initLocale, resolveLocale, setLocale, t, tp } from './i18n';
 
 const log = createLogger('App');
 
-type ViewName = 'channels' | 'player' | 'epg' | 'settings' | 'parental-controls' | 'reminders'
+type ViewName = 'home' | 'channels' | 'player' | 'epg' | 'settings' | 'parental-controls' | 'reminders'
   | 'loading' | 'movies' | 'series' | 'search';
 
 class App {
   private views!: Record<ViewName, HTMLElement>;
   private viewStack: ViewName[] = ['channels'];
   private backPressTime = 0;
-  private viewBeforeSearch: ViewName | null = null;
-  // Catalog views a search result deep-linked into a detail; restored on the
-  // way back to the view Search opened over.
-  private readonly searchDetailViews = new Set<'movies' | 'series'>();
+  // Where Back from live playback returns: Home when it started there.
+  private playerReturn: 'channels' | 'home' = 'channels';
   private channelList!: ChannelList;
   private player!: Player;
   private livePreview!: LivePreview;
@@ -88,7 +89,9 @@ class App {
   private reminderPrompt = new ReminderPrompt();
   private reminderManager!: ReminderManager;
   private reminderManagerOrigin: 'settings' | 'epg' = 'settings';
-  private tabBar!: TabBar;
+  private home!: Home;
+  private navMenu!: NavMenu;
+  private searchBox!: SearchBox;
   private search!: Search;
   private historyDropdown!: SearchHistoryDropdown;
   private movies!: Movies;
@@ -126,6 +129,7 @@ class App {
     if (initialLoadingText) initialLoadingText.textContent = t('common.loading');
     initTheme();
     this.views = {
+      home: $('#view-home')!,
       channels: $('#view-channels')!,
       player: $('#view-player')!,
       epg: $('#view-epg')!,
@@ -160,6 +164,10 @@ class App {
       },
     );
     this.player = new Player(this.views.player, () => {
+      if (this.playerReturn === 'home') {
+        this.goHome();
+        return;
+      }
       this.channelList.render();
       this.showView('channels');
     }, (idx, catchupStart) => {
@@ -192,7 +200,7 @@ class App {
     this.epgGrid = new EpgGrid(
       this.views.epg,
       (idx, catchup, scope) => this.playChannel(idx, catchup, scope),
-      () => this.leaveUp(),
+      () => this.leaveLeft(),
       () => this.openReminderManager('epg'),
     );
     this.reminderManager = new ReminderManager(this.views.reminders, () => {
@@ -229,7 +237,6 @@ class App {
       showChannels: preserveFocus => this.showView('channels', preserveFocus),
       showPlayer: () => this.showView('player'),
       playFullscreen: (index, catchup, scope) => this.playChannel(index, catchup, scope),
-      blurTabBar: () => this.tabBar.blur(),
       expansionBlocked: () => this.reminderPrompt.visible,
       isFavorite: channel => StorageService.getFavorites().includes(channelKey(channel)),
       toggleFavorite: channel => this.toggleChannelFavorite(channel),
@@ -273,8 +280,8 @@ class App {
     );
 
     this.movies = new Movies(this.views.movies, {
-      onRevealTabBar: () => this.leaveUp(),
-      onBack: () => this.goLive(),
+      onLeaveLeft: () => this.leaveLeft(),
+      onBack: () => this.openNavMenu('key'),
       onPlayVod: (req) => {
         this.player.playVod({
           ...req,
@@ -286,8 +293,8 @@ class App {
       },
     });
     this.series = new Series(this.views.series, {
-      onRevealTabBar: () => this.leaveUp(),
-      onBack: () => this.goLive(),
+      onLeaveLeft: () => this.leaveLeft(),
+      onBack: () => this.openNavMenu('key'),
       onPlayVod: (req) => {
         this.player.playVod({
           ...req,
@@ -298,18 +305,15 @@ class App {
         });
       },
     });
-    this.search = new Search(this.views.search, {
-      onRevealTabBar: () => this.leaveUp(),
-      onReleaseTabBar: () => this.tabBar.blur(),
-      // Step back out to the search box, which a second Back closes.
-      onBack: () => {
-        if (this.tabBar.searchOpen) this.tabBar.focus();
-        else this.goLive();
-      },
-      onPlayChannel: (idx, catchup) => { this.tabBar.blur(); this.playChannel(idx, catchup); },
+    this.search = new Search($('.search-results-host', this.views.search)!, {
+      onFocusBox: () => this.searchBox.focus(),
+      onReleaseBox: () => this.searchBox.release(),
+      onLeaveLeft: () => this.leaveLeft(),
+      // Step back out to the search box, where a second Back opens the menu.
+      onBack: () => this.searchBox.focus(),
+      onPlayChannel: (idx, catchup) => { this.searchBox.release(); this.playChannel(idx, catchup); },
       onOpenMovie: (account, vod) => {
-        this.tabBar.blur();
-        this.searchDetailViews.add('movies');
+        this.searchBox.release();
         this.showView('movies');
         this.movies.openItem(account, vod, () => this.showView('search'))
           .catch((err) => log.error(
@@ -320,8 +324,7 @@ class App {
           ));
       },
       onOpenSeries: (account, series) => {
-        this.tabBar.blur();
-        this.searchDetailViews.add('series');
+        this.searchBox.release();
         this.showView('series');
         this.series.openItem(account, series, () => this.showView('search'))
           .catch((err) => log.error(
@@ -334,47 +337,50 @@ class App {
     });
     this.historyDropdown = new SearchHistoryDropdown({
       onPick: (query) => {
-        this.tabBar.setSearchQuery(query);
-        this.tabBar.blur();
+        this.searchBox.setQuery(query);
+        this.searchBox.release();
         this.handleSearchQuery(query);
         this.search.focusFirstResult();
       },
-      onCleared: () => this.tabBar.focus(),
-      onReturnToInput: () => this.tabBar.focus(),
-      onDismiss: () => this.tabBar.closeSearch(),
+      onCleared: () => this.searchBox.focus(),
+      onReturnToInput: () => this.searchBox.focus(),
+      onDismiss: () => this.searchBox.focus(),
     });
-    this.tabBar = new TabBar({
-      onSwitch: (section) => this.switchSection(section),
-      onEnter: (section, via) => this.enterSection(section, via),
-      onSearchQuery: (query) => this.handleSearchQuery(query),
-      onSearchLeave: () => {
+    this.searchBox = new SearchBox($('.search-box-host', this.views.search)!, {
+      onQuery: (query) => this.handleSearchQuery(query),
+      onLeave: () => {
         if (this.lastSearchQuery.trim()) {
           this.search.focusFirstResult();
           return true;
         }
         return this.openHistoryDropdown() && this.historyDropdown.focusFirst();
       },
-      onSearchClose: () => this.handleSearchClose(),
-      onSelectAccount: (id) => this.selectXtreamAccount(id),
-      onAccountMenuOpen: () => this.historyDropdown.close('account-menu'),
-      onAccountMenuClose: (reason, hit) => {
-        // A click into the content dismissed the menu; that click's select
-        // must reach the content, so don't pull focus back into the box.
-        if (reason === 'outside' || !this.tabBar.searchOpen || !this.tabBar.shown) {
-          this.historyDropdown.close('view-change');
-          return;
-        }
-        this.tabBar.focus();
-        // The scrim's own click handler dismisses search next.
-        if (hit && this.historyDropdown.dismissedBy(hit)) return;
-        // So does a tab's or the magnifier's: the switcher's capture-phase
-        // listener closes the menu before the bar's handler acts on it.
-        if (hit?.closest('.tab-bar-item')) return;
-        if (!this.lastSearchQuery.trim()) this.openHistoryDropdown();
+      onBack: () => {
+        this.historyDropdown.close('back');
+        this.openNavMenu('key');
       },
-      onLockNow: () => ParentalControlService.lock('lock-now'),
     });
-    this.tabBar.init();
+    this.home = new Home(this.views.home, {
+      onOpenSection: (section, via) => this.selectSection(section, via),
+      onPlayNumber: (number) => {
+        const index = number - 1;
+        if (index >= 0 && index < PlaylistService.channels.length) this.playChannel(index);
+      },
+      onSelectAccount: (id) => this.selectXtreamAccount(id),
+      onLockNow: () => ParentalControlService.lock('lock-now'),
+      onLeaveLeft: () => this.openNavMenu('key'),
+      onBack: () => this.confirmExit(),
+    });
+    this.navMenu = new NavMenu({
+      onSelect: (section, via) => this.selectSection(section, via),
+      onBack: () => this.navMenuBack(),
+      onDismiss: () => this.resumeSectionFocus(),
+      onLockNow: () => ParentalControlService.lock('lock-now'),
+      onSelectAccount: (id) => this.selectXtreamAccount(id),
+      canReveal: () => this.sectionTopLevel(),
+      current: () => this.currentSection(),
+    });
+    this.navMenu.init();
 
     KeyHandler.init();
     KeyHandler.setHandler((action, event) => {
@@ -400,7 +406,7 @@ class App {
     // Register a retail-safe callback immediately. If Developer Mode is
     // detected below, the same named activities are replaced with alerts.
     ReminderService.reschedulePending();
-    await this.loadData();
+    await this.loadData(false, 'launch');
     // Cold launch from a "Watch now" alert: channels are loaded now, so tune.
     this.handleLaunchParams(this.coldLaunchParams());
     // Spawning the service process can synchronously stall Luna on a cold TV.
@@ -609,7 +615,7 @@ class App {
     if (this.enterChannelsAfterUploadSync &&
         StorageService.getPlaylists().length > 0) {
       this.enterChannelsAfterUploadSync = false;
-      await this.loadData();
+      await this.loadData(false, this.isCurrentView('home') ? 'launch' : 'channels');
     }
   }
 
@@ -873,12 +879,8 @@ class App {
       }
       this.scheduleEpgRefresh(true);
 
-      const playlists = StorageService.getPlaylists();
-      const xtreamAccounts = playlists
-        .filter((playlist) =>
-          playlist.source === 'xtream' && playlist.xtream && isSourceEnabled(playlist));
-      this.tabBar.setSections(xtreamAccounts.length > 0);
-      this.tabBar.setAccounts(xtreamAccounts, this.activeXtreamAccount()?.id ?? '');
+      this.syncSources();
+      if (this.isCurrentView('home')) this.home.render();
       this.channelList.render();
       this.sidebar.refresh();
       this.livePreview?.refresh();
@@ -888,7 +890,22 @@ class App {
     }
   }
 
-  private async loadData(forceEpgRefresh = false): Promise<void> {
+  // The sections, accounts, and search scope follow the enabled sources.
+  private syncSources(): void {
+    const playlists = StorageService.getPlaylists();
+    const hasXtream = playlists.some((p) => p.source === 'xtream' && isSourceEnabled(p));
+    const accounts = playlists
+      .filter((p) => p.source === 'xtream' && p.xtream && isSourceEnabled(p));
+    const account = this.activeXtreamAccount();
+    this.navMenu.setSections(hasXtream);
+    this.navMenu.setAccounts(accounts, account?.id ?? '');
+    this.home.setSources(hasXtream, accounts, account);
+    this.searchBox.setPlaceholder(!!account);
+  }
+
+  // `launch`: the first load lands on Home (or Live, by a hidden preference);
+  // a reload stays on Live.
+  private async loadData(forceEpgRefresh = false, landing: 'launch' | 'channels' = 'channels'): Promise<void> {
     const done = log.time('loadData');
     this.loadingData = true;
     show(this.views.loading);
@@ -909,12 +926,16 @@ class App {
         PlaylistService.reset();
         EpgService.reset();
         // No account at all: drop Movies/Series (Xtream-only) and any stale
-        // account avatars so the docked tab bar shows Live/Settings/Search only.
-        this.tabBar.setSections(false);
-        this.tabBar.setAccounts([], '');
+        // account avatars.
+        this.syncSources();
         this.channelList.render();
-        this.showView('settings');
-        this.settings.render();
+        // Home guides a first run to Settings; started on Live, it opens there.
+        if (landing === 'launch' && !StorageService.getStartOnLive()) {
+          this.goHome('settings');
+        } else {
+          this.showView('settings');
+          this.settings.render();
+        }
         showToast(t('app.welcome'));
         return;
       }
@@ -948,15 +969,15 @@ class App {
         await EpgService.restoreCached(epgSources, epgChannels);
       }
 
-      const hasXtream = StorageService.getPlaylists()
-        .some((p) => p.source === 'xtream' && isSourceEnabled(p));
-      this.tabBar.setSections(hasXtream);
-      const xtreamAccounts = StorageService.getPlaylists()
-        .filter((p) => p.source === 'xtream' && p.xtream && isSourceEnabled(p));
-      this.tabBar.setAccounts(xtreamAccounts, this.activeXtreamAccount()?.id ?? '');
+      this.syncSources();
 
-      this.showView('channels');
-      this.channelList.render();
+      if (landing === 'launch' && !StorageService.getStartOnLive()) {
+        this.channelList.render();
+        this.goHome();
+      } else {
+        this.showView('channels');
+        this.channelList.render();
+      }
 
       showToast(tp('app.channelsLoaded', PlaylistService.channels.length));
       // Let the load confirmation finish before a new-category notice replaces it.
@@ -1042,7 +1063,7 @@ class App {
   }
 
   private showView(name: ViewName, preserveChannelFocus = false, resumeChannelFocus = false): void {
-    // Every way out of the manager (Back, color keys, tab bar, a reminder)
+    // Every way out of the manager (Back, color keys, the side menu, a reminder)
     // ends management so concealment returns; the manager never stays stacked.
     if (name !== 'parental-controls' && this.isCurrentView('parental-controls')) {
       this.parentalControls.close();
@@ -1079,39 +1100,37 @@ class App {
       this.viewStack = [name];
     }
 
-    // The docked tab bar shows on the section views and hides on the full-screen
-    // player / EPG (and the loading splash), which render edge-to-edge.
-    const section = sectionForView(name);
-    this.tabBar.setShown(section !== null);
+    if (name !== 'home') this.home?.hidden();
+    if (name === 'home') this.playerReturn = 'home';
+    else if (name !== 'player') this.playerReturn = 'channels';
+    if (name !== 'search') this.searchBox?.release();
+    // Whatever changed the view under the open menu (a reminder's Watch now)
+    // leaves it behind.
+    this.navMenu?.close('host');
 
-    // Focus the channel entry point on entry — but not while the tab bar holds
-    // focus (a live Left/Right preview updates the view beneath it without
-    // stealing the focus ring). No-op on first load (render runs after).
-    if (name === 'channels' && !this.tabBar.focused && !preserveChannelFocus) {
+    // Focus the channel entry point on entry. No-op on first load (render runs after).
+    if (name === 'channels' && !preserveChannelFocus) {
       this.channelList.highlightEntryPoint(resumeChannelFocus);
     }
-
-    // Keep the active tab bound to the shown section view (so returning from
-    // Settings, EPG, the player, etc. updates the underline). Skipped while the
-    // search box is open — it overlays other views but stays "Search".
-    if (section && !this.tabBar.searchOpen) this.tabBar.setActive(section);
     this.livePreview?.refresh();
     if (name === 'channels') this.showLiveCategoryNotices();
   }
 
-  // Map a tab-bar section to its view and show it (Live = the channels view).
+  // Show a section's view (Live = the channels view).
   private switchSection(section: Section): void {
+    if (section === 'home') {
+      this.goHome();
+      return;
+    }
     if (section !== 'live' && this.channelList.isEditing) this.channelList.exitEditMode();
-    if (section !== 'movies' && section !== 'search') this.movies.deactivate();
-    if (section !== 'series' && section !== 'search') this.series.deactivate();
+    if (section !== 'movies') this.movies.deactivate();
+    if (section !== 'series') this.series.deactivate();
     if (section !== 'search') this.search.deactivate();
     if (section === 'live') {
       if (!this.livePreview.returnFromFullscreen(false)) {
         this.player.stop();
         this.showView('channels');
         this.channelList.render();
-        // A switch from the bar lands on the entry point the bar's Down resumes.
-        if (this.tabBar.focused) this.channelList.highlightEntryPoint();
       }
       return;
     }
@@ -1150,15 +1169,14 @@ class App {
       this.showView('settings');
       return;
     }
-    // Search: keep the current view, under the recent-searches dropdown; the
-    // results view covers it once a query is typed (handleSearchQuery).
-    // Remember where to return to.
-    if (this.viewStack[this.viewStack.length - 1] !== 'search') {
-      this.viewBeforeSearch = this.viewStack[this.viewStack.length - 1];
-      // Left over from a search that ended by switching section.
-      this.searchDetailViews.clear();
-    }
-    // Prep the results (loads the catalog once) into the still-hidden search view.
+    this.openSearch();
+  }
+
+  // An empty query box with the caret, and the recent searches under it.
+  private openSearch(): void {
+    this.showView('search');
+    this.lastSearchQuery = '';
+    this.searchBox.setQuery('');
     this.search.open(this.activeXtreamAccount())
       .catch((err) => log.error(
         'Search open failed',
@@ -1166,65 +1184,24 @@ class App {
         'operation=search',
         err,
       ));
-    this.lastSearchQuery = '';
-    this.tabBar.afterSearchExpanded(() => {
-      const skip = this.lastSearchQuery.trim() ? 'typed'
-        : this.historyDropdown.isOpen ? 'open'
-          : this.tabBar.accountMenuOpen ? 'account-menu' : '';
-      if (skip) {
-        log.debug('Recent searches deferred open skipped', 'event=search.history.open.skipped', `reason=${skip}`);
-        return;
-      }
-      this.openHistoryDropdown();
-    });
-  }
-
-  // The tab bar's search box query changed: show the results view over the
-  // current one while non-empty; when cleared, restore the underlying view
-  // and drop the recent searches back down over it.
-  private handleSearchQuery(query: string): void {
-    this.lastSearchQuery = query;
-    this.search.scheduleQuery(query);
-    const hasQuery = query.trim().length > 0;
-    const current = this.viewStack[this.viewStack.length - 1];
-    const onSearch = current === 'search';
-    if (hasQuery) {
-      this.historyDropdown.close('typed');
-      if (!onSearch) this.showView('search');
-      return;
-    }
-    const onResultDetail = (current === 'movies' || current === 'series')
-      && this.searchDetailViews.has(current);
-    if (onSearch || onResultDetail) this.restoreViewBeforeSearch();
+    this.searchBox.focus();
     this.openHistoryDropdown();
   }
 
-  // Show the view Search opened over. A result's detail left in a catalog view
-  // is dropped; the returned-to catalog keeps its browse unless a deep link
-  // interrupted its load or the account changed under Search.
-  private restoreViewBeforeSearch(): void {
-    const rv = this.viewBeforeSearch ?? 'channels';
-    const catalog = rv === 'movies' || rv === 'series' ? rv : null;
-    const reopen = catalog && this.searchDetailViews.has(catalog) ? catalog : null;
-    this.searchDetailViews.forEach((view) => { if (view !== reopen) this[view].deactivate(); });
-    const details = this.searchDetailViews.size;
-    this.searchDetailViews.clear();
-    this.showView(rv);
-    if (reopen) this[reopen].leaveDeepLink();
-    const account = this.activeXtreamAccount();
-    log.debug(
-      'Search left; view restored',
-      'event=search.view.restored',
-      `source=${rv}`,
-      `count=${String(details)}`,
-      `reason=${reopen ? (account ? 'browse-restored' : 'no-account') : 'shown'}`,
-      `filter=${this.tabBar.activeSection}`,
-    );
-    if (catalog) this[catalog].ensureLoaded(account);
+  // The search box's query changed; an empty box drops the recent searches
+  // back down.
+  private handleSearchQuery(query: string): void {
+    this.lastSearchQuery = query;
+    this.search.scheduleQuery(query);
+    if (query.trim().length > 0) {
+      this.historyDropdown.close('typed');
+      return;
+    }
+    this.openHistoryDropdown();
   }
 
   private openHistoryDropdown(): boolean {
-    const anchor = this.tabBar.searchOpen ? this.tabBar.searchAnchor() : null;
+    const anchor = this.isCurrentView('search') ? this.searchBox.anchor() : null;
     if (anchor && this.historyDropdown.open(anchor)) return true;
     log.debug(
       'Recent searches not opened',
@@ -1232,15 +1209,6 @@ class App {
       `reason=${anchor ? 'empty' : 'no-anchor'}`,
     );
     return false;
-  }
-
-  // The search box was closed: clear it and return to the view it opened from
-  // (showView re-syncs the active tab, since the box is already collapsed).
-  private handleSearchClose(): void {
-    this.search.deactivate();
-    this.search.setQuery('');
-    this.restoreViewBeforeSearch();
-    this.viewBeforeSearch = null;
   }
 
   // Show the guide and refresh its data in the background (shared by the EPG
@@ -1310,50 +1278,90 @@ class App {
     this.parentalPinPrompt.showVerify(t('settings.parentalControls'), open);
   }
 
-  // Down/Select/Back from the bar, or a click on a tab: switch to the section
-  // and drop focus into content.
-  private enterSection(section: Section, via: 'key' | 'pointer'): void {
-    this.tabBar.setActive(section);
-    // Back into the shown section: re-opening it would drop unsaved edits and
-    // the position the ring comes back to.
-    if (via === 'key' && sectionForView(this.viewStack[this.viewStack.length - 1]) === section) {
-      if (section === 'settings') {
-        this.settings.resumeFocus();
-        return;
-      }
-      // The catalog resumes its tile even when a wheel-scrolled rail no
-      // longer renders it; enter('resume') would fall back to the first.
-      if (section === 'movies' || section === 'series') {
-        (section === 'movies' ? this.movies : this.series).resumeFocus();
-        return;
-      }
-      // A view scope without keys of its own (a plain `view.*`) has nothing to resume.
+  // The section shown now, or null on the player and the Settings sub-pages.
+  private currentSection(): Section | null {
+    return sectionForView(this.viewStack[this.viewStack.length - 1]);
+  }
+
+  // Whether the pointer at the left edge may open the side menu: on a
+  // section, with no prompt over it (a view's own dropdown gives way).
+  private sectionTopLevel(): boolean {
+    const owner = Focus.owner();
+    return this.currentSection() !== null && !this.loadingData
+      && !(owner?.modal && owner.tier >= Tier.prompt) && !this.home.accountMenuOpen;
+  }
+
+  private openNavMenu(via: 'key' | 'pointer'): void {
+    const section = this.currentSection();
+    if (section === null) return;
+    this.historyDropdown.close('view-change');
+    this.navMenu.open(via);
+  }
+
+  // Left at a section's left edge.
+  private leaveLeft(): void {
+    this.openNavMenu('key');
+  }
+
+  // Back into the shown section: the focus it left, in view. A plain view
+  // scope without keys of its own has nothing to resume.
+  private resumeSectionFocus(): void {
+    const section = this.currentSection();
+    if (section === 'settings') this.settings.resumeFocus();
+    else if (section === 'movies') this.movies.resumeFocus();
+    else if (section === 'series') this.series.resumeFocus();
+    else {
       const owner = Focus.owner();
       if (owner?.logical) owner.enter('resume');
-      return;
     }
+  }
+
+  // Back with the menu open goes Home; on Home it only closes.
+  private navMenuBack(): void {
+    this.navMenu.close('key');
+    if (!this.isCurrentView('home')) this.goHome();
+  }
+
+  // Show Home; `focus` picks a destination to land on.
+  private goHome(focus: Section | null = null): void {
+    if (this.channelList.isEditing) this.channelList.exitEditMode();
+    this.movies.deactivate();
+    this.series.deactivate();
+    this.search.deactivate();
+    this.player.stop();
+    const fresh = this.home.focusScope.focusKey === null;
+    this.showView('home');
+    this.home.render();
+    if (focus || fresh) this.home.focusEntry(focus);
+    else this.home.resumeFocus();
+  }
+
+  // Back on Home: a second Back within a few seconds exits.
+  private confirmExit(): void {
+    const now = Date.now();
+    if (now - this.backPressTime < 3000) {
+      void this.exitApp();
+    } else {
+      this.backPressTime = now;
+      showToast(t('app.exitHint'));
+    }
+  }
+
+  // A section picked on Home or in the side menu. The shown one keeps its place.
+  private selectSection(section: Section, via: 'key' | 'pointer'): void {
+    if (this.currentSection() === section) return;
     this.switchSection(section);
-    // The pointer still rests on the tab, so the content's focus waits for a
-    // key. Search keeps the keys in its own box.
+    // A click leaves the pointer on the menu or Home, so the content's focus
+    // waits for a key. Search keeps the keys in its own box.
     if (via === 'pointer' && section !== 'search') {
       FocusRing.defer(this.viewStack[this.viewStack.length - 1]);
     }
   }
 
-  private goLive(): void {
-    this.movies.deactivate();
-    this.series.deactivate();
-    this.search.deactivate();
-    this.player.stop();
-    this.tabBar.setActive('live');
-    this.showView('channels');
-    this.channelList.render();
-  }
-
   // Sources the next Search open will read; an open Search stores its own.
   private searchPrewarmSources(): SearchPrewarmSource[] {
     const current = this.viewStack[this.viewStack.length - 1];
-    if (current === 'search' || this.tabBar.searchOpen) return [];
+    if (current === 'search') return [];
     const sources: SearchPrewarmSource[] = [];
     const playlist = PlaylistService.getChannelCacheSource()?.record;
     if (playlist) sources.push({ ...playlist });
@@ -1386,11 +1394,8 @@ class App {
     if (!account) return;
     log.info('Xtream account switched to', account.name);
     this.searchPrewarm.schedule('account');
-    this.tabBar.setAccounts(
-      StorageService.getPlaylists()
-        .filter((p) => p.source === 'xtream' && p.xtream && isSourceEnabled(p)),
-      account.id,
-    );
+    this.syncSources();
+    if (this.isCurrentView('home')) this.home.render();
     this.reopenAccountSection(account);
   }
 
@@ -1413,9 +1418,7 @@ class App {
           err,
         ));
     }
-    // Recent searches keep the box open over Live/Guide, so the stack may not
-    // say 'search' even though the box will search the new account next.
-    if (current === 'search' || this.tabBar.searchOpen) {
+    if (current === 'search') {
       this.search.open(account)
         .then(() => this.search.setQuery(this.lastSearchQuery))
         .catch((err) => log.error(
@@ -1439,8 +1442,7 @@ class App {
     if (current === 'channels') this.channelList.render();
     else if (current === 'epg') this.epgGrid.render();
     else if (current === 'settings' && concealmentChanged) this.settings.refreshCollectionCounts();
-    // The search box can be open over another view, with Search still live behind it.
-    if (current === 'search' || this.tabBar.searchOpen) {
+    if (current === 'search') {
       if (concealmentChanged) void this.search.refreshConcealment();
       else this.search.refreshLocks();
     }
@@ -1451,9 +1453,10 @@ class App {
     }
     this.sidebar.refresh();
     ReminderService.refreshParentalCopy();
-    this.tabBar?.setParentalSession(ParentalControlService.sessionActive);
-    // The Lock button came or went, shifting the search box under the panel.
-    if (this.historyDropdown?.isOpen) this.openHistoryDropdown();
+    const session = ParentalControlService.sessionActive;
+    this.navMenu?.setParentalSession(session);
+    this.home?.setParentalSession(session);
+    if (current === 'home') this.home.render();
     if (concealmentChanged) this.livePreview?.refresh();
   }
 
@@ -1542,13 +1545,14 @@ class App {
   // The one answer to "who gets the next key": handleKey routes by the owner,
   // the key diagnostic timeline names it, and FocusRing lets only its root
   // show a ring. A "button does nothing" report is usually an unexpected
-  // owner. Prompts, the tab bar, the sidebar, and the player's overlays push
+  // owner. Prompts, the side menu, the search box, the sidebar, and the player's overlays push
   // themselves while shown (the player view still routes the menu's and the
   // subtitle search's keys); below them the shown view owns the keys.
   private initFocusScopes(): void {
     const current = () => this.viewStack[this.viewStack.length - 1];
     const views = new Map<ViewName, FocusScope>();
     const own: Partial<Record<ViewName, FocusScope>> = {
+      home: this.home.focusScope,
       epg: this.epgGrid.focusScope,
       channels: this.channelList.focusScope,
       settings: this.settings.focusScope,
@@ -1560,15 +1564,10 @@ class App {
     };
     for (const name of Object.keys(this.views) as ViewName[]) {
       views.set(name, own[name]
-        ?? Focus.register({ id: `view.${name}`, root: this.views[name], leaveFor: { up: 'tabbar' } }));
+        ?? Focus.register({ id: `view.${name}`, root: this.views[name] }));
     }
     Focus.setBase(() => views.get(current()) ?? null);
     Focus.install();
-  }
-
-  // Up off a view's top edge: the keys go wherever the owner hands them.
-  private leaveUp(): void {
-    Focus.owner()?.leave('up');
   }
 
   private handleKey(action: Action, event?: NumberEvent): void {
@@ -1594,7 +1593,7 @@ class App {
     // Direct channel entry: echo the digits while KeyHandler buffers them, in
     // the two views that act on them (the guide and prompts ignore numbers).
     if (action === 'number_input') {
-      if (currentView === 'channels' || currentView === 'player') {
+      if (currentView === 'channels' || currentView === 'player' || currentView === 'home') {
         showNumberEntry(event?.digits ?? '');
       }
       return;
@@ -1650,22 +1649,24 @@ class App {
       if (currentView === 'movies') { this.movies.handleAction('back'); return; }
       if (currentView === 'series') { this.series.handleAction('back'); return; }
       if (currentView === 'search') { this.search.handleAction('back'); return; }
+      if (currentView === 'home') {
+        this.home.handleAction('back');
+        return;
+      }
       if (currentView === 'epg') {
         if (this.epgGrid.isFilterOpen) {
           this.epgGrid.handleAction('back');
           return;
         }
+        // Red peeks at the Guide from anywhere; Back returns to Live, as before.
         this.epgGrid.deactivateFilters();
-        this.tabBar.setActive('live');
         this.channelList.render();
         this.showView('channels', false, true);
         return;
       }
       if (currentView === 'settings') {
         if (this.settings.dismissDropdown()) return;
-        this.tabBar.setActive('live');
-        this.channelList.render();
-        this.showView('channels');
+        this.openNavMenu('key');
         return;
       }
       if (currentView === 'reminders') {
@@ -1675,13 +1676,7 @@ class App {
       if (currentView === 'channels') {
         if (this.livePreview.handleBack()) return;
         if (this.channelList.handleBack()) return;
-        const now = Date.now();
-        if (now - this.backPressTime < 3000) {
-          void this.exitApp();
-        } else {
-          this.backPressTime = now;
-          showToast(t('app.exitHint'));
-        }
+        this.openNavMenu('key');
         return;
       }
     }
@@ -1692,10 +1687,13 @@ class App {
 
     // Delegate to active view
     switch (currentView) {
+      case 'home':
+        this.home.handleAction(action, event);
+        break;
       case 'channels': {
         if (this.livePreview.handleAction(action)) break;
         const moved = this.channelList.handleAction(action, event);
-        if (action === 'up' && !moved) this.leaveUp();
+        if (action === 'left' && !moved && !this.channelList.isEditing) this.leaveLeft();
         break;
       }
       case 'movies':
@@ -1755,12 +1753,7 @@ class App {
         this.epgGrid.handleAction(action, event);
         break;
       case 'settings':
-        if (action === 'back') {
-          this.channelList.render();
-          this.showView('channels');
-        } else if (!this.settings.handleAction(action) && action === 'up') {
-          this.leaveUp();
-        }
+        if (!this.settings.handleAction(action) && action === 'left') this.leaveLeft();
         break;
       case 'reminders':
         this.reminderManager.handleAction(action);
@@ -1853,7 +1846,6 @@ class App {
 
   private async onSettingsSaved(action: SaveAction): Promise<void> {
     if (action === 'edit-channels') {
-      this.tabBar.setActive('live');
       this.showView('channels');
       this.channelList.render();
       this.channelList.enterEditMode('builtin:all');
@@ -1875,7 +1867,7 @@ class App {
       const locale = resolveLocale(StorageService.getLocalePreference());
       if (locale !== getLocale()) {
         setLocale(locale);
-        this.tabBar.refresh();
+        this.syncSources();
         ReminderService.reschedulePending();
       }
       // Republish on 'apply' too: subtitle credentials and other display-only

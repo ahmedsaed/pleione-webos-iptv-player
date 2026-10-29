@@ -156,8 +156,9 @@ beforeEach(() => {
 
 function mkHandlers() {
   return {
-    onRevealTabBar: vi.fn(),
-    onReleaseTabBar: vi.fn(),
+    onFocusBox: vi.fn(),
+    onLeaveLeft: vi.fn(),
+    onReleaseBox: vi.fn(),
     onBack: vi.fn(),
     onPlayChannel: vi.fn(),
     onOpenMovie: vi.fn(),
@@ -1567,11 +1568,11 @@ describe('Search', () => {
     catalogMock.loadAllVodStreams.mockReturnValue(new Promise((resolve) => { finishVod = resolve; }));
     catalogMock.loadAllSeries.mockResolvedValue([]);
     const box = document.createElement('input');
-    box.className = 'tab-bar-search-input';
+    box.className = 'search-box-input';
     document.body.appendChild(box);
     const handlers = mkHandlers();
-    handlers.onRevealTabBar.mockImplementation(() => box.focus());
-    handlers.onReleaseTabBar.mockImplementation(() => box.blur());
+    handlers.onFocusBox.mockImplementation(() => box.focus());
+    handlers.onReleaseBox.mockImplementation(() => box.blur());
     const view = new Search(container, handlers);
     Focus.setBase(() => view.focusScope);
     await view.open(account, 'alpha');
@@ -1582,7 +1583,7 @@ describe('Search', () => {
     expect(container.querySelector('.focused')).toBeNull();
 
     finishVod([vod('10', 'Movie Two')]);
-    await vi.waitFor(() => expect(handlers.onReleaseTabBar).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(handlers.onReleaseBox).toHaveBeenCalledTimes(1));
     expect(container.querySelector('.catalog-tile[data-channel-index="0"]')?.classList.contains('focused'))
       .toBe(true);
     box.remove();
@@ -1797,11 +1798,11 @@ describe('Search', () => {
     catalogMock.loadAllVodStreams.mockReturnValue(new Promise((resolve) => { finishVod = resolve; }));
     catalogMock.loadAllSeries.mockResolvedValue([]);
     const box = document.createElement('input');
-    box.className = 'tab-bar-search-input';
+    box.className = 'search-box-input';
     document.body.appendChild(box);
     const handlers = mkHandlers();
-    handlers.onRevealTabBar.mockImplementation(() => box.focus());
-    handlers.onReleaseTabBar.mockImplementation(() => box.blur());
+    handlers.onFocusBox.mockImplementation(() => box.focus());
+    handlers.onReleaseBox.mockImplementation(() => box.blur());
     const view = new Search(container, handlers);
     Focus.setBase(() => view.focusScope);
     const opening = view.open(account);
@@ -1815,7 +1816,7 @@ describe('Search', () => {
     finishVod([vod('10', 'Movie One')]);
     await opening;
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(handlers.onReleaseTabBar).toHaveBeenCalledTimes(1);
+    expect(handlers.onReleaseBox).toHaveBeenCalledTimes(1);
     expect(container.querySelector('.catalog-tile[data-stream-id="10"]')?.classList.contains('focused')).toBe(true);
     box.remove();
   });
@@ -1825,10 +1826,10 @@ describe('Search', () => {
     catalogMock.loadAllVodStreams.mockReturnValue(new Promise((resolve) => { finishVod = resolve; }));
     catalogMock.loadAllSeries.mockResolvedValue([]);
     const box = document.createElement('input');
-    box.className = 'tab-bar-search-input';
+    box.className = 'search-box-input';
     document.body.appendChild(box);
     const handlers = mkHandlers();
-    handlers.onRevealTabBar.mockImplementation(() => box.focus());
+    handlers.onFocusBox.mockImplementation(() => box.focus());
     const view = new Search(container, handlers);
     Focus.setBase(() => view.focusScope);
     const opening = view.open(account);
@@ -1840,8 +1841,8 @@ describe('Search', () => {
     finishVod([vod('10', 'Movie One')]);
     await opening;
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(handlers.onRevealTabBar).toHaveBeenCalledTimes(1);
-    expect(handlers.onReleaseTabBar).not.toHaveBeenCalled();
+    expect(handlers.onFocusBox).toHaveBeenCalledTimes(1);
+    expect(handlers.onReleaseBox).not.toHaveBeenCalled();
     expect(container.querySelector('.catalog-tile.focused')).toBeNull();
     box.remove();
   });
@@ -1850,7 +1851,7 @@ describe('Search', () => {
     const { view, handlers } = await openWith({ vod: [vod('10', 'Movie One')] });
     await view.setQuery('zzz');
     view.focusFirstResult();
-    expect(handlers.onRevealTabBar).toHaveBeenCalledTimes(1);
+    expect(handlers.onFocusBox).toHaveBeenCalledTimes(1);
   });
 
   it('records the query when a result is opened', async () => {
@@ -2305,13 +2306,13 @@ describe('Search', () => {
     expect(container.querySelector('.catalog-tile.focused')).not.toBeNull();
   });
 
-  it('reveals the tab bar when Up cannot move within the view', async () => {
+  it('returns to the search box when Up cannot move within the view', async () => {
     const { view, handlers } = await openWith();
     view.handleAction('up');
-    expect(handlers.onRevealTabBar).toHaveBeenCalled();
+    expect(handlers.onFocusBox).toHaveBeenCalled();
   });
 
-  it('goes back to Live from Search', async () => {
+  it('hands Back from the results to the host', async () => {
     const { view, handlers } = await openWith();
     view.handleAction('back');
     expect(handlers.onBack).toHaveBeenCalled();

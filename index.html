@@ -21,7 +21,8 @@
   <link rel="stylesheet" href="css/epg.css">
   <link rel="stylesheet" href="css/settings.css">
   <link rel="stylesheet" href="css/reminder-manager.css">
-  <link rel="stylesheet" href="css/tab-bar.css">
+  <link rel="stylesheet" href="css/home.css">
+  <link rel="stylesheet" href="css/nav-menu.css">
   <link rel="stylesheet" href="css/search.css">
   <link rel="stylesheet" href="css/catalog-view.css">
   <link rel="stylesheet" href="css/account-switcher.css">
@@ -53,6 +54,8 @@
     </div>
   </div>
 
+  <div id="view-home" class="view hidden"></div>
+
   <div id="view-channels" class="view hidden">
     <div id="channel-browser"></div>
     <aside id="live-preview" class="hidden"></aside>
@@ -74,7 +77,12 @@
 
   <div id="view-movies" class="view hidden"></div>
   <div id="view-series" class="view hidden"></div>
-  <div id="view-search" class="view hidden"></div>
+  <div id="view-search" class="view hidden">
+    <div class="search-layout">
+      <div class="search-box-host"></div>
+      <div class="search-results-host"></div>
+    </div>
+  </div>
 
   <!-- preview-libs -->
   <script src="js/app.js"></script>

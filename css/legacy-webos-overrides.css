@@ -32,7 +32,6 @@
  * rule is both more specific and linked later — so on a gap-less engine it
  * replaces the gap instead of adding to it. Restate the sums.
  */
-html.q-no-flex-gap .tab-bar-inner > .tab-bar-account { margin-left: 52px; }
 html.q-no-flex-gap .epg-prog-title > .epg-bell-glyph { margin-left: 18px; }
 html.q-no-flex-gap .settings-field > .settings-item-hint { margin-top: 14px; }
 html.q-no-flex-gap .live-preview-favorite { margin-right: 20px; }
@@ -50,8 +49,7 @@ html.q-no-flex-gap .live-preview-clock,
 html.q-no-flex-gap .parental-header .parental-account,
 html.q-no-flex-gap .parental-row strong,
 html.q-no-flex-gap .player-sidebar .sidebar-picker-arrow,
-html.q-no-flex-gap .player-menu .menu-item-value,
-html.q-no-flex-gap .tab-bar-search { margin-left: auto; }
+html.q-no-flex-gap .player-menu .menu-item-value { margin-left: auto; }
 
 /*
  * The All categories rail shares .catalog-rail-track but is a block, not a
@@ -77,7 +75,8 @@ html.q-scroll-end-padding .catalog-category-rail::after { content: none; }
   .player-osd,
   .number-entry,
   .live-preview-message { background: rgb(10, 10, 15); }
-  .search-history-panel { background: var(--bg-secondary); }
+  .search-history-panel,
+  .nav-menu-panel { background: var(--bg-secondary); }
 }
 
 /*

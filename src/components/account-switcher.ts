@@ -21,8 +21,8 @@ interface AccountSwitcherHandlers {
   onMenuHover?: () => void;
 }
 
-// The circular account avatar + dropdown, mounted in a tab-bar slot. Owns its
-// own DOM (preserved across the tab bar's morph via data-morph-preserve) and its
+// The circular account avatar + dropdown, mounted in a host's slot. Owns its
+// own DOM (preserved across the host's morph via data-morph-preserve) and its
 // pointer hit-testing. The host's scope rings the avatar; selection flows back
 // out through onSelect. Given a scope id, the open menu is a focus scope above
 // the bar that takes the keys and paints its own ring, while the pointer still
@@ -116,7 +116,7 @@ export class AccountSwitcher {
       if (!this.shown) return;
       const hit = document.elementFromPoint(e.clientX, e.clientY);
       if (!hit) return;
-      // Several switchers can be mounted (tab bar, parental manager); each
+      // Several switchers can be mounted (Home, side menu, parental manager); each
       // only answers to its own slot.
       if (!this.slot.contains(hit)) {
         if (this.open) this.closeMenu('outside', hit);

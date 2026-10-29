@@ -110,9 +110,9 @@ test('disabling the only Xtream account hides its sections until re-enabled', as
     }]));
   });
   await page.goto('/');
-  await expect(page.locator('[data-section="movies"]')).toBeVisible();
-  await expect(page.locator('[data-section="series"]')).toBeVisible();
-  await expect(page.locator('.account-avatar')).toBeVisible();
+  await expect(page.locator('.nav-menu-item[data-section="movies"]')).toHaveCount(1);
+  await expect(page.locator('.nav-menu-item[data-section="series"]')).toHaveCount(1);
+  await expect(page.locator('.nav-menu .account-avatar')).toHaveCount(1);
 
   await enterTab(page, 'settings');
   await page.locator('[data-settings-target="sources"]').click();
@@ -129,7 +129,7 @@ test('disabling the only Xtream account hides its sections until re-enabled', as
   await page.locator('#save-settings').click();
 
   await expect(page.locator('#view-channels')).toBeVisible();
-  await expect(page.locator('[data-section="movies"]')).toBeVisible();
-  await expect(page.locator('[data-section="series"]')).toBeVisible();
-  await expect(page.locator('.account-avatar')).toBeVisible();
+  await expect(page.locator('.nav-menu-item[data-section="movies"]')).toHaveCount(1);
+  await expect(page.locator('.nav-menu-item[data-section="series"]')).toHaveCount(1);
+  await expect(page.locator('.nav-menu .account-avatar')).toHaveCount(1);
 });

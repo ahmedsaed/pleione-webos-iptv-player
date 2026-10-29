@@ -12,7 +12,7 @@ import { uiPx } from '../utils/ui-scale';
 const log = createLogger('SearchHistory');
 
 export type SearchHistoryCloseReason =
-  'pick' | 'clear' | 'back' | 'dismiss' | 'typed' | 'account-menu' | 'view-change' | 'empty';
+  'pick' | 'clear' | 'back' | 'dismiss' | 'typed' | 'view-change' | 'empty';
 
 export interface SearchHistoryAnchor {
   right: number;
@@ -29,8 +29,8 @@ export interface SearchHistoryHandlers {
   onDismiss: () => void;
 }
 
-// Recent searches, dropped down from the tab bar's empty search box over a
-// dimmed copy of the current view. The scrim catches the pointer, so a click
+// Recent searches, dropped down from the empty search box over the dimmed
+// Search view. The scrim catches the pointer, so a click
 // outside the panel never reaches the view behind it.
 export class SearchHistoryDropdown {
   private readonly root: HTMLElement;
@@ -62,11 +62,6 @@ export class SearchHistoryDropdown {
 
   get isOpen(): boolean { return this._open; }
 
-  /** True when a click on `hit` dismisses search (it lands on the scrim). */
-  dismissedBy(hit: Element): boolean {
-    return this.root.contains(hit) && !!hit.closest('.search-history-scrim');
-  }
-
   /** Opens under the search box when there is history; false when there is none. */
   open(anchor: SearchHistoryAnchor): boolean {
     const items = StorageService.getSearchHistory().length;
@@ -78,7 +73,9 @@ export class SearchHistoryDropdown {
     this._open = true;
     this.render();
     Focus.push(this.scope);
-    this.root.classList.remove('hidden', 'search-history-dropdown--menu');
+    this.root.classList.remove('hidden');
+    const scrim = this.root.querySelector<HTMLElement>('.search-history-scrim');
+    if (scrim) scrim.style.top = `${anchor.bottom}px`;
     const panel = this.root.querySelector<HTMLElement>('.search-history-panel')!;
     panel.style.top = `${anchor.bottom + uiPx(12)}px`;
     panel.style.right = `${Math.max(0, window.innerWidth - anchor.right)}px`;
@@ -96,15 +93,7 @@ export class SearchHistoryDropdown {
     this._open = false;
     Focus.pop(this.scope);
     this.nav.focus(null);
-    // The account menu hides only the panel: the scrim stays, so a click
-    // outside the menu dismisses search instead of reaching the view behind.
-    const scrimOnly = reason === 'account-menu' && (wasOpen || this.scrimOnly);
-    this.root.classList.toggle('search-history-dropdown--menu', scrimOnly);
-    this.root.classList.toggle('hidden', !scrimOnly);
-  }
-
-  private get scrimOnly(): boolean {
-    return this.root.classList.contains('search-history-dropdown--menu');
+    this.root.classList.add('hidden');
   }
 
   // The box handed off with Down / Enter: land on the first query, not on the

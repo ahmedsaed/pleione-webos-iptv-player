@@ -467,8 +467,8 @@ test('after a long edge scroll, the remote continues from the pointed result of 
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
   await enterTab(page, 'search');
-  const input = page.locator('.tab-bar-search-input');
-  await expect(page.locator('.tab-bar-search.expanded')).toBeVisible();
+  const input = page.locator('.search-box-input');
+  await expect(page.locator('.search-box-input')).toBeFocused();
   await input.fill('alpha');
   const movies = page.locator('#view-search [data-search-virtual="movies"]');
   const series = page.locator('#view-search [data-search-virtual="series"]');
@@ -488,8 +488,8 @@ test('Search: a virtual results rail scrolls far and keeps a usable ring; a hidd
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
   await enterTab(page, 'search');
-  const input = page.locator('.tab-bar-search-input');
-  await expect(page.locator('.tab-bar-search.expanded')).toBeVisible();
+  const input = page.locator('.search-box-input');
+  await expect(page.locator('.search-box-input')).toBeFocused();
   await input.fill('alpha');
   const movies = page.locator('#view-search [data-search-virtual="movies"]');
   const channels = page.locator('#view-search [data-search-virtual="channels-rail"]');

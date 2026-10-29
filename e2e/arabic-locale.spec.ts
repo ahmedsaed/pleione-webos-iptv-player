@@ -79,12 +79,15 @@ test('Arabic keeps the LTR layout with Arabic labels and Western digits', async 
     direction: getComputedStyle(document.body).direction,
   }))).toEqual({ dir: null, direction: 'ltr' });
 
-  await expect(page.locator('.tab-bar-item[data-section="live"]')).toHaveText('مباشر');
-  await expect(page.locator('.tab-bar-item[data-section="epg"]')).toHaveText('دليل البرامج');
-  await expect(page.locator('.tab-bar-item[data-section="settings"]')).toHaveText('إعدادات');
-  const tabs = await page.locator('.tab-bar-item').evaluateAll(items =>
-    items.map(item => item.getBoundingClientRect().left));
-  expect(tabs).toEqual([...tabs].sort((a, b) => a - b));
+  const item = (section: string) => page.locator(`.nav-menu-item[data-section="${section}"] .nav-menu-label`);
+  await expect(item('live')).toHaveText('مباشر');
+  await expect(item('epg')).toHaveText('دليل البرامج');
+  await expect(item('settings')).toHaveText('إعدادات');
+  // The menu keeps its LTR order: icon on the left of each label.
+  const order = await page.locator('.nav-menu-item[data-section]').evaluateAll(items =>
+    items.map(el => [el.querySelector('.nav-menu-icon')!.getBoundingClientRect().left,
+      el.querySelector('.nav-menu-label')!.getBoundingClientRect().left]));
+  for (const [icon, label] of order) expect(icon).toBeLessThan(label);
   await expect(page.locator('.channel-count')).toHaveText('2 قناة');
 
   await page.locator('#channel-browser .channel-main .channel-item').first().click();

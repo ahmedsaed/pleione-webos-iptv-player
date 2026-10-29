@@ -108,8 +108,7 @@ function swap(el: Element, from: string, to: string): void {
 function allowed(el: Element, owner: Element, modal: boolean): boolean {
   if (owner.contains(el)) return owner !== deferredRoot;
   // The pointer may point anywhere; what it hovers stays lit until a key.
-  // Hover never moves the keys, except that the tab bar releases them to the
-  // scope below it.
+  // Hover never moves the keys.
   return !modal && !!hoverTarget && hoverTarget.contains(el)
     && InputMode.current !== 'keys';
 }

@@ -105,7 +105,6 @@
   box-sizing: border-box;
 }
 
-html[data-animation="essential"] .tab-bar-search-input,
 html[data-animation="essential"] .epg-mapping-list,
 html[data-animation="essential"] .channel-health-progress-fill,
 html[data-animation="essential"] .osd-progress-bar {

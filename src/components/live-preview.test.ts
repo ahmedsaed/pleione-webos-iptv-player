@@ -122,7 +122,6 @@ describe('LivePreview', () => {
       showChannels: vi.fn(),
       showPlayer: actions.onExpand,
       playFullscreen: actions.onPlayFullscreen,
-      blurTabBar: actions.onFocus,
       expansionBlocked: () => false,
       isFavorite: actions.isFavorite,
       toggleFavorite: actions.onFavorite,

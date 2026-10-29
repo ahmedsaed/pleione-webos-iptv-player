@@ -3,6 +3,7 @@ import {
   expect,
   enterTab,
   isChromium53,
+  lockNow,
   neuterVideo,
   readUserDataStore,
   routeLiveManifest,
@@ -110,8 +111,7 @@ async function leaveLocked(page: Page): Promise<void> {
   await page.locator('[data-parental-tab="options"]').click();
   if (await page.locator('#parental-duration [data-value="once"]').isDisabled()) {
     await page.locator('[data-parental-back]').click();
-    await page.locator('.tab-bar [data-lock-now]').click();
-    await expect(page.locator('.tab-bar [data-lock-now]')).toHaveCount(0);
+    await lockNow(page);
     return;
   }
   await chooseOption(page, 'parental-duration', 'once');
@@ -436,8 +436,8 @@ test('lists live playlists in a column and switches the Xtream account from the 
 
   // Picking an account in Live selects its playlist.
   await view.locator('.account-avatar').click();
-  // Only the manager's own switcher answers, not the tab bar's.
-  await expect(page.locator('.tab-bar-account .account-menu')).toHaveCount(0);
+  // Only the manager's own switcher answers, not Home's or the side menu's.
+  await expect(page.locator('.home-account .account-menu, .nav-menu .account-menu')).toHaveCount(0);
   await view.locator('.account-menu-item[data-account-id="x2"]').click();
   await expect(view.locator('.account-menu')).toHaveCount(0);
   await expect(view.locator('.parental-account-name')).toHaveText('Y Account');
@@ -748,10 +748,7 @@ test('marks locked content with a lock that opens during an unlock session', asy
     .locator('.lock-badge.is-unlocked')).toBeVisible();
   await expect(groups.filter({ hasText: 'News' }).locator('.lock-badge.is-unlocked')).toBeVisible();
 
-  const lockNow = page.locator('.tab-bar [data-lock-now]');
-  await expect(lockNow).toHaveText('Lock now');
-  await lockNow.click();
-  await expect(lockNow).toHaveCount(0);
+  await lockNow(page);
   await expect(groups.filter({ hasText: 'News' }).locator('.lock-badge.is-locked')).toBeVisible();
 });
 
@@ -1101,12 +1098,12 @@ test('relocking drops hidden channels from open search results', async ({ page }
   await page.locator('[data-parental-back]').click();
 
   await enterTab(page, 'search');
-  await page.locator('.tab-bar-search-input').fill('channel');
+  await page.locator('.search-box-input').fill('channel');
   const rows = page.locator('#view-search .search-channel-row');
   await expect(rows.filter({ hasText: 'Channel One' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'Channel Two' })).toHaveCount(1);
 
-  await page.locator('[data-lock-now]').click();
+  await lockNow(page);
   await expect(rows.filter({ hasText: 'Channel One' })).toHaveCount(0);
   await expect(rows.filter({ hasText: 'Channel Two' })).toHaveCount(1);
 });
@@ -1122,31 +1119,15 @@ test('relocking while recent searches are open keeps movies in the next search',
   await chooseOption(page, 'parental-duration', '5-minutes');
   await page.locator('[data-parental-back]').click();
 
-  await enterTab(page, 'live');
   await enterTab(page, 'search');
-  await expect(page.locator('#view-channels')).toBeVisible();
   const tile = page.locator('.search-history-dropdown .search-history-tile');
   await expect(tile).toHaveText(['Movie']);
-  await page.locator('.tab-bar [data-lock-now]').click();
-  await expect(page.locator('.tab-bar [data-lock-now]')).toHaveCount(0);
+  await lockNow(page);
 
-  // The Lock button left, shifting the box; the panel still hangs under it.
-  const panel = page.locator('.search-history-panel');
-  await expect(panel).toBeVisible();
-  await expect.poll(async () => {
-    const [box, hung] = await Promise.all([
-      page.locator('.tab-bar-search-input').boundingBox(), panel.boundingBox(),
-    ]);
-    return Math.abs(box!.x + box!.width - (hung!.x + hung!.width));
-  }).toBeLessThanOrEqual(1);
-  // The click took focus from the box; the remote gets it back, and its
-  // first press never lands on the clear button.
-  await expect(page.locator('.tab-bar-search-input')).toBeFocused();
-  await page.keyboard.press('ArrowDown');
-  await expect(tile.first()).toHaveClass(/focused/);
-  await expect(page.locator('[data-history-clear]')).not.toHaveClass(/focused/);
+  // The remote gets the box back once the menu closes.
+  await expect(page.locator('.search-box-input')).toBeFocused();
 
-  await page.locator('.tab-bar-search-input').fill('Movie');
+  await page.locator('.search-box-input').fill('Movie');
   await expect(page.locator('#view-search .catalog-tile[data-stream-id="20"]')).toContainText('Movie Two');
 });
 
@@ -1166,7 +1147,7 @@ test('a search that opened locked content stays out of recent searches', async (
   // The unlock session shows the locked movie; opening it records nothing.
   await enterTab(page, 'live');
   await enterTab(page, 'search');
-  const input = page.locator('.tab-bar-search-input');
+  const input = page.locator('.search-box-input');
   await input.fill('Two');
   const locked = page.locator('#view-search .catalog-tile[data-stream-id="20"]');
   await expect(locked).toContainText('Movie Two');
@@ -1363,7 +1344,7 @@ test('the remove-all prompt owns the remote ring, not the manager behind it', as
   await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
 
-test('Lock now from the bar resumes Live on a row still shown', async ({ page }) => {
+test('Lock now from the side menu resumes Live on a row still shown', async ({ page }) => {
   await openManagerWithNewPin(page);
   const view = page.locator('#view-parental-controls');
   const news = view.locator('[data-parental-group]').filter({ hasText: 'News' });
@@ -1381,17 +1362,17 @@ test('Lock now from the bar resumes Live on a row still shown', async ({ page })
   await expect(rows.first()).toHaveClass(/\bfocused\b/);
   await expect(rows.first()).toHaveText(/Channel One/);
 
-  // Up onto the bar, Left onto Lock now, and lock with OK.
-  await page.keyboard.press('ArrowUp');
-  await page.keyboard.press('ArrowLeft');
-  const lockNow = page.locator('.tab-bar [data-lock-now]');
-  await expect(lockNow).toHaveClass(/\bfocused\b/);
+  // Back opens the side menu; Lock now is its last item.
+  await page.keyboard.press('Escape');
+  const lock = page.locator('.nav-menu [data-lock-now]');
+  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowDown');
+  await expect(lock).toHaveClass(/\bfocused\b/);
   await page.keyboard.press('Enter');
-  await expect(lockNow).toHaveCount(0);
+  await expect(lock).toHaveCount(0);
   await expect(one).toHaveCount(0);
 
-  await page.keyboard.press('ArrowDown');
-  await expect(page.locator('.tab-bar .focused')).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.nav-menu .focused')).toHaveCount(0);
   await expect(page.locator('#view-channels .focused')).toHaveCount(1);
   await expect(page.locator('#view-channels .focused')).toBeInViewport();
 });

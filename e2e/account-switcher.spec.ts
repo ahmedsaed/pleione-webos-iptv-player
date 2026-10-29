@@ -1,4 +1,4 @@
-import { test, expect, routeLiveManifest, SAMPLE_M3U, enterTab, type Page } from './helpers';
+import { test, expect, routeLiveManifest, SAMPLE_M3U, enterTab, openSideMenu, showHome, type Page } from './helpers';
 
 // Two Xtream accounts on distinct hosts so player_api.php can serve a different
 // catalog per account: Alpha (a1) -> "Alpha Movie" under "Cat Alpha"; Bravo (a2)
@@ -35,10 +35,10 @@ async function seedTwoAccounts(page: Page): Promise<void> {
   });
 }
 
-// Open the avatar dropdown with a coordinate mouse press (the switcher activates
-// on a click hit-test), then wait for the menu.
+// Open Home's avatar dropdown with a coordinate mouse press (the switcher
+// activates on a click hit-test), then wait for the menu.
 async function openAccountMenu(page: Page): Promise<void> {
-  const avatar = page.locator('.account-avatar');
+  const avatar = page.locator('.home-account .account-avatar');
   await expect(avatar).toBeVisible();
   const box = await avatar.boundingBox();
   if (!box) throw new Error('account avatar has no bounding box');
@@ -59,24 +59,33 @@ async function pickAccount(page: Page, id: string): Promise<void> {
   await page.mouse.up();
 }
 
-test('the account avatar shows the active account initial, to the right of Search', async ({ page }) => {
+const homeAvatar = (page: Page) => page.locator('.home-account .account-avatar');
+const homeSlot = (page: Page) => page.locator('.home-account');
+
+async function goHome(page: Page): Promise<void> {
+  await showHome(page);
+  await page.goto('/');
+  await expect(page.locator('.home-card.focused')).toHaveAttribute('data-section', 'live');
+}
+
+test('Home shows the active account initial at the top right, by the name', async ({ page }) => {
   await seedTwoAccounts(page);
   await routeLiveManifest(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
+  await goHome(page);
 
   // Default active account is the first (Alpha) -> initial "A".
-  const avatar = page.locator('.account-avatar');
-  await expect(avatar).toBeVisible();
+  const avatar = homeAvatar(page);
   await expect(avatar).toHaveText('A');
   await avatar.hover();
   await expect(avatar).toHaveCSS('transform', 'matrix(1.06, 0, 0, 1.06, 0, 0)');
 
-  // It sits to the right of the Search magnifier.
   const avatarBox = await avatar.boundingBox();
-  const searchBox = await page.locator('.tab-bar-search .search-icon').boundingBox();
-  if (!avatarBox || !searchBox) throw new Error('missing bounding box');
-  expect(avatarBox.x).toBeGreaterThan(searchBox.x);
+  const titleBox = await page.locator('.home-title').boundingBox();
+  if (!avatarBox || !titleBox) throw new Error('missing bounding box');
+  expect(avatarBox.x).toBeGreaterThan(titleBox.x + titleBox.width);
+  expect(avatarBox.y).toBeLessThan(titleBox.y + titleBox.height);
+  // The side menu names the account too.
+  await expect(page.locator('.nav-menu-account .nav-menu-label')).toHaveText('Alpha');
 });
 
 test('no account avatar for an M3U-only setup', async ({ page }) => {
@@ -88,17 +97,16 @@ test('no account avatar for an M3U-only setup', async ({ page }) => {
       { name: 'Test', url: 'http://host.example.com/playlist.m3u' },
     ]));
   });
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await expect(page.locator('.tab-bar')).toBeVisible();
+  await goHome(page);
+  await expect(homeSlot(page)).toBeHidden();
   await expect(page.locator('.account-avatar')).toHaveCount(0);
+  await expect(page.locator('.nav-menu-account')).toHaveClass(/\bhidden\b/);
 });
 
 test('the dropdown lists every account with the active one marked', async ({ page }) => {
   await seedTwoAccounts(page);
   await routeLiveManifest(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
+  await goHome(page);
 
   await openAccountMenu(page);
   await expect(page.locator('.account-menu-item .account-menu-name')).toHaveText(['Alpha', 'Bravo']);
@@ -109,48 +117,39 @@ test('the dropdown lists every account with the active one marked', async ({ pag
 test('an open account menu holds the only ring, which returns to the avatar on close', async ({ page }) => {
   await seedTwoAccounts(page);
   await routeLiveManifest(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
+  await goHome(page);
 
   await openAccountMenu(page);
   await expect(page.locator('.account-menu-item.focused')).toHaveCount(1);
-  await expect(page.locator('.account-avatar')).not.toHaveClass(/\bfocused\b/);
   await page.keyboard.press('ArrowDown');
   await expect(page.locator('.account-menu-item.focused .account-menu-name')).toHaveText('Bravo');
   await expect(page.locator('.focused:visible')).toHaveCount(1);
 
   await page.keyboard.press('Escape');
   await expect(page.locator('.account-menu')).toHaveCount(0);
-  await expect(page.locator('.account-avatar')).toHaveClass(/\bfocused\b/);
+  await expect(homeSlot(page)).toHaveClass(/\bfocused\b/);
   await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
 
 test('a menu opened with the remote holds the only ring, which returns to the avatar on Back', async ({ page }) => {
   await seedTwoAccounts(page);
   await routeLiveManifest(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
+  await goHome(page);
 
-  const avatar = page.locator('.account-avatar');
-  for (let i = 0; i < 4 && !(await page.locator('.tab-bar-item.focused').count()); i++) {
-    await page.keyboard.press('ArrowUp');
-  }
-  for (let i = 0; i < 10 && !(await avatar.evaluate((el) => el.classList.contains('focused'))); i++) {
-    await page.keyboard.press('ArrowRight');
-  }
-  await expect(avatar).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('ArrowUp');
+  await expect(homeSlot(page)).toHaveClass(/\bfocused\b/);
   await page.keyboard.press('Enter');
   await expect(page.locator('.account-menu')).toBeVisible();
   await expect(page.locator('.account-menu-item.focused')).toHaveCount(1);
-  await expect(avatar).not.toHaveClass(/\bfocused\b/);
+  await expect(homeSlot(page)).not.toHaveClass(/(^|\s)focused(\s|$)/);
 
   await page.keyboard.press('Escape');
   await expect(page.locator('.account-menu')).toHaveCount(0);
-  await expect(avatar).toHaveClass(/\bfocused\b/);
+  await expect(homeSlot(page)).toHaveClass(/\bfocused\b/);
   await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
 
-test('switching account in the dropdown reloads Movies and updates the avatar', async ({ page }) => {
+test('switching account from the side menu reloads Movies and updates the avatar', async ({ page }) => {
   await seedTwoAccounts(page);
   await routeLiveManifest(page);
   await page.goto('/');
@@ -161,168 +160,68 @@ test('switching account in the dropdown reloads Movies and updates the avatar', 
   await expect(page.locator('#view-movies .catalog-rail-title')).toContainText('Cat Alpha');
   await expect(page.locator('.catalog-tile[data-item-id="10"]')).toContainText('Alpha Movie');
 
-  // Switch to Bravo from the avatar dropdown; Movies reloads for Bravo.
-  await openAccountMenu(page);
+  // Switch to Bravo from the side menu's account; Movies reloads for Bravo.
+  await openSideMenu(page);
+  await page.locator('.nav-menu .account-avatar').click();
+  await expect(page.locator('.nav-menu .account-menu')).toBeVisible();
   await pickAccount(page, 'a2');
+  // The pick lands on the row, not on the section under it.
+  await expect(page.locator('#view-movies')).toBeVisible();
   await expect(page.locator('#view-movies .catalog-rail-title')).toContainText('Cat Bravo');
   await expect(page.locator('.catalog-tile[data-item-id="20"]')).toContainText('Bravo Movie');
   await expect(page.locator('.catalog-tile[data-item-id="10"]')).toHaveCount(0);
 
-  // The avatar now shows Bravo's initial, and the menu is closed.
-  await expect(page.locator('.account-avatar')).toHaveText('B');
+  // The avatar now shows Bravo's initial, and the dropdown is closed.
+  await expect(page.locator('.nav-menu .account-avatar')).toHaveText('B');
+  await expect(page.locator('.nav-menu-account .nav-menu-label')).toHaveText('Bravo');
   await expect(page.locator('.account-menu')).toHaveCount(0);
 });
 
-test('the selected account persists across a reload', async ({ page }) => {
+test('an account picked on Home persists across a reload, and Movies uses it', async ({ page }) => {
   await seedTwoAccounts(page);
   await routeLiveManifest(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
+  await goHome(page);
 
-  // Switch to Bravo, then reload the app.
   await openAccountMenu(page);
   await pickAccount(page, 'a2');
-  await expect(page.locator('.account-avatar')).toHaveText('B');
+  await expect(homeAvatar(page)).toHaveText('B');
+  // The pick lands on the row, not on the destination under it.
+  await page.waitForTimeout(100);
+  await expect(page.locator('#view-home')).toBeVisible();
 
   await page.reload();
-  await expect(page.locator('#view-channels')).toBeVisible();
-  // The stored choice is restored: avatar is still Bravo and Movies serves Bravo.
-  await expect(page.locator('.account-avatar')).toHaveText('B');
-  await enterTab(page, 'movies');
-  await expect(page.locator('#view-movies .catalog-rail-title')).toContainText('Cat Bravo');
-});
-
-test('switching on Live only persists, then applies when Movies is next opened', async ({ page }) => {
-  await seedTwoAccounts(page);
-  await routeLiveManifest(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-
-  // Switch to Bravo while on the Live view (no Movies loaded yet).
-  await openAccountMenu(page);
-  await pickAccount(page, 'a2');
-  await expect(page.locator('.account-avatar')).toHaveText('B');
-  await expect(page.locator('#view-channels')).toBeVisible();
-
-  // Entering Movies now uses the selected (Bravo) account.
+  await expect(homeAvatar(page)).toHaveText('B');
   await enterTab(page, 'movies');
   await expect(page.locator('#view-movies .catalog-rail-title')).toContainText('Cat Bravo');
   await expect(page.locator('.catalog-tile[data-item-id="20"]')).toContainText('Bravo Movie');
 });
 
-// Regression: with an empty query, recent searches drop down over Live, so the
-// view stack never reaches 'search' and a switch left Search on the old account.
-// Regression: recent searches waited out the box's slide, then opened over
-// an account menu opened meanwhile.
-test('an account menu opened while the search box slides out keeps recent searches closed', async ({ page }) => {
+test('switching account from the side menu over Search moves Search to the new account', async ({ page }) => {
   await seedTwoAccounts(page);
   await routeLiveManifest(page);
-  await page.addInitScript(() => {
-    localStorage.setItem('iptv_search_history', JSON.stringify(['movie']));
-  });
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
   await enterTab(page, 'search');
-  await openAccountMenu(page);
-  await expect(page.locator('.search-history-panel')).toBeHidden();
-
-  // Past the slide and its fallback timer.
-  await page.waitForTimeout(600);
-  await expect(page.locator('.account-menu')).toBeVisible();
-  await expect(page.locator('.search-history-panel')).toBeHidden();
-});
-
-test('closing an account menu over the search box hands the remote back to it', async ({ page }) => {
-  await seedTwoAccounts(page);
-  await routeLiveManifest(page);
-  await page.addInitScript(() => {
-    localStorage.setItem('iptv_search_history', JSON.stringify(['movie']));
-  });
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await enterTab(page, 'search');
-  await expect(page.locator('.search-history-panel')).toBeVisible();
-
-  await openAccountMenu(page);
-  const avatar = await page.locator('.account-avatar').boundingBox();
-  await page.mouse.click(avatar!.x + avatar!.width / 2, avatar!.y + avatar!.height / 2);
-  await expect(page.locator('.account-menu')).toHaveCount(0);
-
-  await expect(page.locator('.tab-bar-search-input')).toBeFocused();
-  await expect(page.locator('.search-history-panel')).toBeVisible();
-  await page.keyboard.press('ArrowDown');
-  await expect(page.locator('.search-history-tile').first()).toHaveClass(/focused/);
-});
-
-test('a click past an account menu over recent searches leaves search, not into the view', async ({ page }) => {
-  await seedTwoAccounts(page);
-  await routeLiveManifest(page);
-  await page.addInitScript(() => {
-    localStorage.setItem('iptv_search_history', JSON.stringify(['movie']));
-  });
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await enterTab(page, 'search');
-  await expect(page.locator('.search-history-panel')).toBeVisible();
-
-  await openAccountMenu(page);
-  await expect(page.locator('.search-history-panel')).toBeHidden();
-  await expect(page.locator('.search-history-scrim')).toBeVisible();
-  await page.mouse.click(400, 600);
-  await expect(page.locator('.account-menu')).toHaveCount(0);
-  await expect(page.locator('.tab-bar-search.expanded')).toHaveCount(0);
-  await expect(page.locator('.search-history-dropdown')).toBeHidden();
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await expect(page.locator('#view-player')).toBeHidden();
-});
-
-test('switching account while recent searches are open moves Search to the new account', async ({ page }) => {
-  await seedTwoAccounts(page);
-  await routeLiveManifest(page);
-  await page.addInitScript(() => {
-    localStorage.setItem('iptv_search_history', JSON.stringify(['movie']));
-  });
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await enterTab(page, 'search');
-  await expect(page.locator('.search-history-panel')).toBeVisible();
-
-  await openAccountMenu(page);
-  await pickAccount(page, 'a2');
-  await expect(page.locator('.account-avatar')).toHaveText('B');
-
-  // The pointer took focus to the avatar; the box gets the remote back.
-  const input = page.locator('.tab-bar-search-input');
+  const input = page.locator('.search-box-input');
   await expect(input).toBeFocused();
-  await expect(page.locator('.search-history-panel')).toBeVisible();
+
+  await openSideMenu(page);
+  await page.locator('.nav-menu .account-avatar').click();
+  await pickAccount(page, 'a2');
+  await expect(page.locator('.nav-menu .account-avatar')).toHaveText('B');
+  await page.keyboard.press('ArrowRight');
+
+  // The box gets the remote back.
+  await expect(input).toBeFocused();
   await page.keyboard.type('Movie');
   await expect(page.locator('#view-search')).toContainText('Bravo Movie');
   await expect(page.locator('#view-search')).not.toContainText('Alpha Movie');
 });
 
-test('a channel-list click that dismisses a pointer-opened menu hands the remote to the list', async ({ page }) => {
+test('the pointer moves the account menu ring, and Back from it returns to the avatar', async ({ page }) => {
   await seedTwoAccounts(page);
   await routeLiveManifest(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-
-  await openAccountMenu(page);
-  await expect(page.locator('.account-menu-item.focused')).toHaveCount(1);
-  await page.locator('#view-channels .group-item').first().click();
-  await expect(page.locator('.account-menu')).toHaveCount(0);
-  await expect(page.locator('.account-avatar')).not.toHaveClass(/focused/);
-
-  // D-pad now moves in the list instead of reopening the menu from the avatar.
-  await page.keyboard.press('ArrowDown');
-  await expect(page.locator('.account-menu')).toHaveCount(0);
-  await expect(page.locator('#view-channels .focused')).not.toHaveCount(0);
-});
-
-test('the pointer moves the account menu ring, and Back from a remote-opened menu returns to the avatar', async ({ page }) => {
-  await seedTwoAccounts(page);
-  await routeLiveManifest(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
+  await goHome(page);
 
   await openAccountMenu(page);
   const bravo = page.locator('.account-menu-item[data-account-id="a2"]');
@@ -331,29 +230,15 @@ test('the pointer moves the account menu ring, and Back from a remote-opened men
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await expect(bravo).toHaveClass(/\bfocused\b/);
   await expect(page.locator('.focused:visible')).toHaveCount(1);
-
-  // The content under the open menu lights where the pointer rests, but the
-  // keys stay in the menu.
-  const row = page.locator('#view-channels .channel-main [data-channel-index]').nth(1);
-  const r = (await row.boundingBox())!;
-  await page.mouse.move(r.x + r.width / 2 + 2, r.y + r.height / 2);
-  await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2);
-  await expect(row).toHaveClass(/\bfocused\b/);
-  await expect(page.locator('#view-channels .focused')).toHaveCount(1);
-  await expect(page.locator('[data-ring-owner]')).toHaveAttribute('data-focus-scope', 'tabbar.accounts');
+  await expect(page.locator('[data-ring-owner]')).toHaveAttribute('data-focus-scope', 'home.accounts');
   await page.keyboard.press('ArrowUp');
   await expect(page.locator('.account-menu-item[data-account-id="a1"]')).toHaveClass(/\bfocused\b/);
   await expect(page.locator('.focused:visible')).toHaveCount(1);
 
   await page.keyboard.press('Escape');
   await expect(page.locator('.account-menu')).toHaveCount(0);
-  await expect(page.locator('.account-avatar')).toHaveClass(/\bfocused\b/);
-  await page.keyboard.press('Escape');
-  await expect(page.locator('.tab-bar .focused')).toHaveCount(0);
-  // Back resumes the list on the row the pointer rested on.
-  await expect(row).toHaveClass(/\bfocused\b/);
-  await expect(page.locator('#view-channels .focused')).toHaveCount(1);
-  await page.keyboard.press('ArrowUp');
-  await expect(page.locator('#view-channels .channel-main [data-channel-index]').first()).toHaveClass(/\bfocused\b/);
+  await expect(homeSlot(page)).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.home-card.focused')).toHaveCount(1);
   await expect(page.locator('.focused:visible')).toHaveCount(1);
 });

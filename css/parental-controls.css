@@ -295,9 +295,13 @@
 }
 
 /* An unlock session is a state the parent must notice and can end early. */
-.tab-bar-item.tab-bar-lock {
+.home-lock {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
+  font-family: inherit;
+  line-height: 1.4;
+  background: transparent;
   padding: 6px 18px;
   border: 2px solid var(--warning);
   border-radius: 999px;
@@ -305,19 +309,27 @@
   font-size: 22px;
 }
 
-.tab-bar-lock svg {
-  width: 26px;
-  height: 26px;
-  margin-right: 10px;
+.home-lock svg,
+.nav-menu-lock svg {
   fill: none;
   stroke: currentColor;
   stroke-width: 2.2;
   stroke-linecap: round;
 }
 
-.tab-bar-item.tab-bar-lock.focused {
+.home-lock svg {
+  width: 26px;
+  height: 26px;
+  margin-right: 10px;
+}
+
+.home-lock.focused {
   background: var(--warning);
   color: var(--bg-primary);
+}
+
+.nav-menu-item.nav-menu-lock {
+  color: var(--warning);
 }
 
 .parental-row .lock-badge {

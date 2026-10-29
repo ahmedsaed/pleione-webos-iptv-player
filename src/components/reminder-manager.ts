@@ -35,7 +35,6 @@ export class ReminderManager {
     this.focusScope = Focus.register({
       id: 'view.reminders',
       root: container,
-      leaveFor: { up: 'tabbar' },
       defaultKey: () => {
         const el = this.nav.focused;
         return el && this.container.contains(el) ? el.dataset.key ?? null : null;

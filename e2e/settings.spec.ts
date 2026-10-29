@@ -260,7 +260,7 @@ test.describe('Settings navigation', () => {
       const result = {
         button: seconds(getComputedStyle(document.querySelector('#save-settings')!)
           .transitionDuration),
-        search: seconds(getComputedStyle(document.querySelector('.tab-bar-search-input')!)
+        search: seconds(getComputedStyle(document.querySelector('.search-box-input')!)
           .transitionDuration),
         channelRow: seconds(getComputedStyle(motionFixtures.querySelector('.channel-item')!)
           .transitionDuration),
@@ -442,13 +442,13 @@ test.describe('Settings navigation', () => {
     expect(scrolled!.y).toBeCloseTo(actionBox!.y, 0);
   });
 
-  test('clicking Cancel in settings (opened via the tab bar) returns to the channel list, not the player', async ({ page }) => {
+  test('clicking Cancel in settings (opened from the side menu) returns to the channel list, not the player', async ({ page }) => {
     await routePlaylist(page);
     await seedPlaylist(page);
     await page.goto('/');
     await expect(page.locator('#view-channels')).toBeVisible();
 
-    // Open settings via the tab bar, then dismiss with Cancel.
+    // Open settings from the side menu, then dismiss with Cancel.
     await enterTab(page, 'settings');
     await expect(page.locator('#view-settings')).toBeVisible();
     await page.locator('#cancel-settings').click();
@@ -757,49 +757,22 @@ const rings = (page: Page) => page.evaluate(() => {
   return lit.map(el => el.id || el.className);
 });
 
-test.describe('Settings hover under the tab bar', () => {
-  const lit = (locator: Locator) => locator.evaluate(el => el.classList.contains('focused'));
-
-  test('a control hovered under the open account menu lights where the pointer rests', async ({ page }) => {
+test.describe('Settings under the side menu', () => {
+  test('the menu takes the ring, and Right gives it back where it was', async ({ page }) => {
     await seedXtream(page);
     await page.goto('/');
     await enterTab(page, 'settings');
     await expect(page.locator('#view-settings')).toBeVisible();
-
-    await page.locator('.tab-bar .account-avatar').click();
-    await expect(page.locator('.tab-bar .account-menu')).toBeVisible();
-    await expect(page.locator('.tab-bar .account-menu-item.focused')).toHaveCount(1);
-
-    const category = page.locator('#view-settings .settings-nav-item').nth(1);
-    await category.hover();
-    await expect.poll(() => lit(category)).toBe(true);
-    await expect.poll(() => rings(page)).toHaveLength(1);
-
-    const save = page.locator('#save-settings');
-    await save.hover();
-    await expect.poll(() => rings(page)).toEqual(['save-settings']);
-    expect(await lit(category)).toBe(false);
-    await expect(page.locator('.tab-bar .account-menu')).toBeVisible();
-  });
-
-  test('a control hovered after the pointer left the focused one, while the tab bar has the keys, lights', async ({ page }) => {
-    await seedXtream(page);
-    await page.goto('/');
-    await enterTab(page, 'settings');
-    await expect(page.locator('#view-settings')).toBeVisible();
-
-    const first = page.locator('#view-settings .settings-nav-item').first();
-    await first.hover();
-    await expect.poll(() => lit(first)).toBe(true);
-    // Up from the first category leaves for the tab bar.
-    await page.keyboard.press('ArrowUp');
-    await expect(page.locator('.tab-bar .focused')).toHaveCount(1);
-
-    const save = page.locator('#save-settings');
-    await save.hover();
-    await expect.poll(() => rings(page)).toEqual(['save-settings']);
-    await expect(page.locator('#view-settings')).toHaveAttribute('data-ring-owner', '');
-    await expect(page.locator('.tab-bar .focused')).toHaveCount(0);
+    await page.keyboard.press('ArrowDown');
+    const ring = page.locator('#view-settings .focused');
+    await expect(ring).toHaveCount(1);
+    const key = await ring.getAttribute('data-settings-target');
+    // Left of the categories is the menu.
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.locator('.nav-menu')).toHaveClass(/\bopen\b/);
+    await expect(page.locator('#view-settings .focused')).toHaveCount(0);
+    await page.keyboard.press('ArrowRight');
+    await expect(ring).toHaveAttribute('data-settings-target', key!);
   });
 });
 
@@ -1115,16 +1088,13 @@ test.describe('Settings playlists', () => {
     await expect(page.locator('.toast.visible'))
       .toContainText('Welcome! Add a playlist URL to get started.');
 
-    // Press Back to return to the channel list — it must NOT show the previous
+    // Back opens the side menu; Live from it must NOT show the previous
     // playlist's channels (the bug: PlaylistService kept stale in-memory state).
-    // Use dispatchEvent(KeyboardEvent) rather than page.keyboard.press('Escape')
-    // — in this Playwright/Chromium combo press('Escape') gets consumed by
-    // native key handling before any JS keydown listener fires (verified by
-    // tracing: keyCode=13 Enter pressed via press() reaches KeyHandler, but
-    // keyCode=27 Escape pressed via press() never does).
     await page.evaluate(() => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
     });
+    await expect(page.locator('.nav-menu')).toHaveClass(/\bopen\b/);
+    await enterTab(page, 'live');
     await expect(page.locator('#view-channels')).toBeVisible();
     await expect(page.locator('.channel-main .channel-item')).toHaveCount(0);
     await expect(page.locator('.empty-state')).toContainText('No channels found');
@@ -1154,7 +1124,7 @@ test.describe('Settings playlists', () => {
 
     async function openSettings(page: Page): Promise<void> {
       await page.goto('/');
-      await page.waitForSelector('.tab-bar-item[data-section="settings"]', { timeout: 20000 });
+      await expect(page.locator('#view-loading')).toBeHidden({ timeout: 20000 });
       await enterTab(page, 'settings');
       await page.locator('[data-settings-target="sources"]').click();
       await page.waitForSelector('.remove-playlist');
@@ -1210,7 +1180,7 @@ test.describe('Settings Xtream: add -> cancel -> re-enter', () => {
   }
 
   async function openSettings(page: Page): Promise<void> {
-    await page.waitForSelector('.tab-bar-item[data-section="settings"]', { timeout: 20000 });
+    await expect(page.locator('#view-loading')).toBeHidden({ timeout: 20000 });
     await enterTab(page, 'settings');
     await page.locator('[data-settings-target="sources"]').click();
     await page.waitForSelector('#add-xtream');
@@ -1687,7 +1657,7 @@ test.describe('Settings upload', () => {
     // Boots into channels from the seeded URL playlist.
     await expect(page.locator('#view-channels')).toBeVisible();
 
-    // Open settings via the tab bar; the upload list starts empty.
+    // Open settings from the side menu; the upload list starts empty.
     await enterTab(page, 'settings');
     await expect(page.locator('#view-settings')).toBeVisible();
     await page.locator('[data-settings-target="sources"]').click();

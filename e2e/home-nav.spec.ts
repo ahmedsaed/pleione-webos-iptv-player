@@ -1,0 +1,375 @@
+import { test, expect, showHome, hideGuideTab, enterTab, openSideMenu, type Page } from './helpers';
+import { seedXtream } from './fixtures/xtream';
+
+// Pleione's TV navigation: Home first, sections full screen, and a hidden
+// side menu that Back at a section's top level, Left at its left edge, or the
+// pointer at the screen's left edge reveals.
+
+const press = (page: Page, key: string) => page.keyboard.press(key);
+const back = (page: Page) => press(page, 'Escape');
+const menu = (page: Page) => page.locator('.nav-menu');
+const menuFocus = (page: Page) => page.locator('.nav-menu .nav-menu-item.focused');
+const homeFocus = (page: Page) => page.locator('#view-home .focused');
+const card = (page: Page, section: string) => page.locator(`.home-card[data-section="${section}"]`);
+
+// One Xtream account, on Pleione's Home, with the Guide card unless asked.
+async function seedHome(page: Page, opts: { guide?: boolean } = {}): Promise<void> {
+  await seedXtream(page);
+  await showHome(page);
+  if (!opts.guide) await hideGuideTab(page);
+}
+
+// Home is up and Live has the keys.
+async function goHome(page: Page): Promise<void> {
+  await page.goto('/');
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'live');
+}
+
+async function expectFullScreen(page: Page, view: string): Promise<void> {
+  const box = await page.locator(`#view-${view}`).boundingBox();
+  expect(box).toEqual({ x: 0, y: 0, width: 1920, height: 1080 });
+}
+
+async function box(page: Page, section: string) {
+  return card(page, section).evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    // Unscaled, so a focused card measures like the rest.
+    const e = el as HTMLElement;
+    return { x: r.left + (r.width - e.offsetWidth) / 2, y: r.top + (r.height - e.offsetHeight) / 2,
+      w: e.offsetWidth, h: e.offsetHeight };
+  });
+}
+
+test('Home is the first screen: the name, the clock, the account, and the bento of sections', async ({ page }) => {
+  const catalogLoads: string[] = [];
+  page.on('request', (request) => {
+    if (/get_(vod|series)/.test(request.url())) catalogLoads.push(request.url());
+  });
+  await seedHome(page);
+  await page.goto('/');
+  await expect(page.locator('#view-home')).toBeVisible();
+  await expect(page.locator('#view-channels')).toBeHidden();
+  await expect(page.locator('.home-title')).toHaveText('Pleione');
+  await expect(page.locator('.home-logo')).toBeVisible();
+  await expect(page.locator('.home-clock')).toHaveText(/^\d\d:\d\d$/);
+  await expect(page.locator('.home-account .account-avatar')).toHaveText('X');
+  await expect(page.locator('.home-card .home-card-label')).toHaveText(['Live', 'Movies', 'Series', 'Search', 'Settings']);
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'live');
+  await expectFullScreen(page, 'home');
+  // No rails, and Home loads no catalog: Movies and Series stay uncounted.
+  await expect(page.locator('#view-home .catalog-rail, #view-home .catalog-tile')).toHaveCount(0);
+  await expect(card(page, 'live').locator('.home-card-sub')).toHaveText('2 channels');
+  await expect(card(page, 'movies').locator('.home-card-sub')).toHaveCount(0);
+  await page.waitForTimeout(500);
+  expect(catalogLoads).toEqual([]);
+  await expect(page.locator('.tab-bar')).toHaveCount(0);
+
+  // Live spans both rows on the left; the others pair up beside it.
+  const [live, movies, series, search, settings] = await Promise.all(
+    ['live', 'movies', 'series', 'search', 'settings'].map((s) => box(page, s)));
+  expect(live.h).toBeCloseTo(movies.h * 2 + 32, 0);
+  expect(movies.y).toBeCloseTo(live.y, 0);
+  expect(search.y + search.h).toBeCloseTo(live.y + live.h, 0);
+  expect(movies.x).toBeGreaterThan(live.x + live.w);
+  expect(series.x).toBeGreaterThan(movies.x + movies.w);
+  expect(settings.x).toBeCloseTo(series.x, 0);
+  // Centered on the screen.
+  expect(live.x + (series.x + series.w - live.x) / 2).toBeCloseTo(960, 0);
+});
+
+test('Movies and Series count titles once something read their catalogs', async ({ page }) => {
+  await seedHome(page);
+  await goHome(page);
+  await enterTab(page, 'search');
+  await page.locator('.search-box-input').fill('one');
+  await expect(page.locator('#view-search .catalog-tile[data-stream-id="10"]')).toBeVisible();
+  await enterTab(page, 'home');
+  await expect(card(page, 'movies').locator('.home-card-sub')).toHaveText('1 movie');
+  await expect(card(page, 'series').locator('.home-card-sub')).toHaveText('1 series');
+});
+
+test('the D-pad moves across the bento, Up reaches the account, and the glow follows focus', async ({ page }) => {
+  await seedHome(page);
+  await goHome(page);
+  const view = page.locator('.home-view');
+  await expect(view).toHaveAttribute('data-tint', 'live');
+  await press(page, 'ArrowRight');
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'movies');
+  await expect(view).toHaveAttribute('data-tint', 'movies');
+  await press(page, 'ArrowRight');
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'series');
+  await press(page, 'ArrowDown');
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'settings');
+  await press(page, 'ArrowLeft');
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'search');
+  await press(page, 'ArrowLeft');
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'live');
+  // Right goes back to the row Left came from.
+  await press(page, 'ArrowRight');
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'search');
+  await press(page, 'ArrowUp');
+  await press(page, 'ArrowUp');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'account');
+  await press(page, 'ArrowDown');
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'movies');
+  // The focused card grows; one ring at a time (the fixture checks every key).
+  const focused = await card(page, 'movies').evaluate((el) => getComputedStyle(el).transform);
+  expect(focused).not.toBe('none');
+});
+
+test('the Guide opens full screen, and Back returns to Live as after Red', async ({ page }) => {
+  await seedHome(page, { guide: true });
+  await goHome(page);
+  await press(page, 'ArrowRight');
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'epg');
+  await press(page, 'Enter');
+  await expect(page.locator('#view-epg')).toBeVisible();
+  await expectFullScreen(page, 'epg');
+  await back(page);
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
+});
+
+for (const [section, view] of [
+  ['live', 'channels'], ['movies', 'movies'], ['series', 'series'],
+  ['search', 'search'], ['settings', 'settings'],
+] as const) {
+  test(`the ${section} destination opens full screen; Back opens the menu marking it, Back again goes Home`, async ({ page }) => {
+    await seedHome(page);
+    await goHome(page);
+    const path: Record<string, string[]> = {
+      live: [], movies: ['ArrowRight'], series: ['ArrowRight', 'ArrowRight'],
+      search: ['ArrowRight', 'ArrowDown'], settings: ['ArrowRight', 'ArrowRight', 'ArrowDown'],
+    };
+    for (const key of path[section]) await press(page, key);
+    await expect(homeFocus(page)).toHaveAttribute('data-section', section);
+    await press(page, 'Enter');
+    await expect(page.locator(`#view-${view}`)).toBeVisible();
+    await expectFullScreen(page, view);
+    // Search keeps the caret in its box, where Back is the top level too.
+    await back(page);
+    await expect(menu(page)).toHaveClass(/\bopen\b/);
+    await expect(page.locator('.nav-menu-item.current')).toHaveAttribute('data-section', section);
+    await expect(menuFocus(page)).toHaveAttribute('data-section', section);
+    await back(page);
+    await expect(menu(page)).not.toHaveClass(/\bopen\b/);
+    await expect(page.locator('#view-home')).toBeVisible();
+    await expect(homeFocus(page)).toHaveAttribute('data-section', section);
+  });
+}
+
+test('the menu switches section with Up/Down/OK and Right closes it where focus was', async ({ page }) => {
+  await seedHome(page);
+  await goHome(page);
+  await press(page, 'Enter');
+  await page.locator('.channel-item').first().waitFor();
+  await press(page, 'ArrowDown');
+  const row = page.locator('#view-channels .focused');
+  const before = await row.getAttribute('data-key');
+  await back(page);
+  await expect(menuFocus(page)).toHaveAttribute('data-section', 'live');
+  await press(page, 'ArrowRight');
+  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
+  await expect(row).toHaveAttribute('data-key', before!);
+
+  await back(page);
+  await press(page, 'ArrowDown');
+  await press(page, 'ArrowDown');
+  await expect(menuFocus(page)).toHaveAttribute('data-section', 'series');
+  await press(page, 'ArrowUp');
+  await expect(menuFocus(page)).toHaveAttribute('data-section', 'movies');
+  await press(page, 'Enter');
+  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
+  await expect(page.locator('#view-movies')).toBeVisible();
+});
+
+test('Left at the left edge of a section opens the menu', async ({ page }) => {
+  await seedHome(page);
+  await goHome(page);
+  await press(page, 'ArrowRight');
+  await press(page, 'Enter');
+  await expect(page.locator('#view-movies .catalog-tile[data-focusable]').first()).toBeVisible();
+  await press(page, 'ArrowDown');
+  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveCount(1);
+  await press(page, 'ArrowLeft');
+  await expect(menu(page)).toHaveClass(/\bopen\b/);
+  await expect(menuFocus(page)).toHaveAttribute('data-section', 'movies');
+  await press(page, 'ArrowRight');
+  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveCount(1);
+
+  // Live: Left from a channel row reaches the groups first.
+  await enterTab(page, 'live');
+  await page.locator('.channel-item').first().waitFor();
+  await press(page, 'ArrowDown');
+  await press(page, 'ArrowLeft');
+  await expect(page.locator('#view-channels .group-item.focused')).toHaveCount(1);
+  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
+  await press(page, 'ArrowLeft');
+  await expect(menu(page)).toHaveClass(/\bopen\b/);
+});
+
+test('Left on Home\'s Live card opens the menu, where Back only closes it', async ({ page }) => {
+  await seedHome(page);
+  await goHome(page);
+  await press(page, 'ArrowLeft');
+  await expect(menu(page)).toHaveClass(/\bopen\b/);
+  await expect(page.locator('.nav-menu-item.current')).toHaveAttribute('data-section', 'home');
+  await back(page);
+  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'live');
+});
+
+test('Back on Home asks for a second Back to exit', async ({ page }) => {
+  await seedHome(page);
+  await goHome(page);
+  await expect(page.locator('#view-home')).toBeVisible();
+  await back(page);
+  await expect(page.locator('.toast')).toHaveText('Press back again to exit');
+});
+
+test('first run shows Home with Settings focused and the welcome', async ({ page }) => {
+  await showHome(page);
+  await hideGuideTab(page);
+  await page.goto('/');
+  await expect(page.locator('#view-home')).toBeVisible();
+  await expect(page.locator('.home-card .home-card-label')).toHaveText(['Live', 'Search', 'Settings']);
+  // Search and Settings stack beside Live; Live has no count yet.
+  await expect(page.locator('.home-bento-cols-1')).toHaveCount(1);
+  await expect(card(page, 'live').locator('.home-card-sub')).toHaveCount(0);
+  await expect(card(page, 'search').locator('.home-card-sub')).toHaveText('Channels and programs');
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'settings');
+  await expect(page.locator('.toast')).toContainText('Welcome');
+  await press(page, 'Enter');
+  await expect(page.locator('#view-settings')).toBeVisible();
+});
+
+test('the Magic Remote reveals the menu at the left edge, and a click switches', async ({ page }) => {
+  await seedHome(page);
+  await goHome(page);
+  await press(page, 'Enter');
+  await page.locator('.channel-item').first().waitFor();
+  await page.mouse.move(400, 500);
+  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
+  await openSideMenu(page);
+  const series = page.locator('.nav-menu-item[data-section="series"]');
+  await series.hover();
+  await expect(series).toHaveClass(/\bfocused\b/);
+  await enterTab(page, 'series');
+  await expect(page.locator('#view-series')).toBeVisible();
+  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
+
+  // Away from the panel the pointer closes it again.
+  await openSideMenu(page);
+  await page.mouse.move(1200, 500);
+  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
+  await expect(page.locator('#view-series')).toBeVisible();
+});
+
+test('the account switcher is reachable from the menu and from Home', async ({ page }) => {
+  await seedXtream(page);
+  await showHome(page);
+  await page.addInitScript(() => {
+    const list = JSON.parse(localStorage.getItem('iptv_playlists')!) as unknown[];
+    list.push({ id: 'x2', name: 'Y Account', url: 'http://host.example.com:8081',
+      source: 'xtream', xtream: { username: 'u', password: 'p' } });
+    localStorage.setItem('iptv_playlists', JSON.stringify(list));
+  });
+  await goHome(page);
+  await press(page, 'ArrowUp');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'account');
+  await press(page, 'Enter');
+  await expect(page.locator('#view-home .account-menu-item')).toHaveCount(2);
+  await back(page);
+  await expect(page.locator('#view-home .account-menu')).toHaveCount(0);
+
+  await press(page, 'ArrowDown');
+  await press(page, 'ArrowLeft');
+  await expect(menu(page)).toHaveClass(/\bopen\b/);
+  for (let i = 0; i < 3; i++) await press(page, 'ArrowUp');
+  await expect(menuFocus(page)).toHaveAttribute('data-key', 'account');
+  await press(page, 'Enter');
+  await expect(page.locator('.nav-menu .account-menu-item')).toHaveCount(2);
+  await press(page, 'ArrowDown');
+  await press(page, 'Enter');
+  await expect(page.locator('.nav-menu-account .nav-menu-label')).toHaveText('Y Account');
+});
+
+test('Lock now stays reachable on Home and in the menu during a PIN session', async ({ page }) => {
+  await seedHome(page);
+  await goHome(page);
+  await expect(page.locator('#view-home')).toBeVisible();
+  await expect(page.locator('[data-lock-now]')).toHaveCount(0);
+  // Leaving the manager keeps an unlock session open.
+  await enterTab(page, 'settings');
+  await page.locator('#manage-parental-controls').click();
+  const prompt = page.locator('.parental-pin-prompt');
+  await prompt.locator('.parental-pin-input').fill('1234');
+  await expect(prompt.locator('h2')).toContainText('Confirm');
+  await prompt.locator('.parental-pin-input').fill('1234');
+  await page.locator('[data-parental-tab="options"]').click();
+  await page.locator('#parental-duration [data-value="until-backgrounded"]').click();
+  await page.locator('[data-parental-back]').click();
+  await expect(page.locator('#view-settings')).toBeVisible();
+
+  await enterTab(page, 'home');
+  await expect(page.locator('#view-home .home-lock')).toHaveText('Lock now');
+  await openSideMenu(page);
+  const menuLock = page.locator('.nav-menu [data-lock-now]');
+  await expect(menuLock).toHaveText('Lock now');
+  await menuLock.click();
+  await expect(page.locator('[data-lock-now]')).toHaveCount(0);
+});
+
+test('Interface size 130 at text size 150 keeps the bento centered, on the canvas, and under the header', async ({ page }) => {
+  await seedHome(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('iptv_interface_size', JSON.stringify('130'));
+    localStorage.setItem('iptv_text_size', JSON.stringify('150'));
+    localStorage.setItem('iptv_locale', JSON.stringify('de'));
+  });
+  await goHome(page);
+  await expectFullScreen(page, 'home');
+  const header = await page.locator('.home-header').boundingBox();
+  const boxes = await Promise.all(['live', 'movies', 'series', 'search', 'settings'].map((s) => box(page, s)));
+  for (const b of boxes) {
+    expect(b.x).toBeGreaterThanOrEqual(80);
+    expect(b.x + b.w).toBeLessThanOrEqual(1920 - 80);
+    expect(b.y).toBeGreaterThan(header!.y + header!.height);
+    expect(b.y + b.h).toBeLessThanOrEqual(1080);
+  }
+  expect(boxes[0].x + (boxes[2].x + boxes[2].w - boxes[0].x) / 2).toBeCloseTo(960, 0);
+  // The longest label fits its card.
+  const label = card(page, 'settings').locator('.home-card-label');
+  await expect(label).toHaveText('Einstellungen');
+  expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await press(page, 'ArrowLeft');
+  await expect.poll(async () => (await page.locator('.nav-menu-panel').boundingBox())!.x).toBe(0);
+  const panel = await page.locator('.nav-menu-panel').boundingBox();
+  expect(panel!.height).toBe(1080);
+  const items = await page.locator('.nav-menu-item:not(.hidden)').evaluateAll((els) =>
+    els.map((el) => el.getBoundingClientRect().bottom));
+  expect(Math.max(...items)).toBeLessThanOrEqual(1080);
+});
+
+test('Arabic labels Home and the menu, and the menu still opens from the left', async ({ page }) => {
+  await seedHome(page);
+  await page.addInitScript(() => localStorage.setItem('iptv_locale', JSON.stringify('ar')));
+  await goHome(page);
+  await expect(card(page, 'live').locator('.home-card-label')).toHaveText('مباشر');
+  await press(page, 'ArrowLeft');
+  await expect(menu(page)).toHaveClass(/\bopen\b/);
+  await expect(page.locator('.nav-menu-item[data-section="home"]')).toHaveText('الرئيسية');
+  await expect.poll(async () => (await page.locator('.nav-menu-panel').boundingBox())!.x).toBe(0);
+});
+
+test('a light theme keeps the cards and darkens the header text', async ({ page }) => {
+  await seedHome(page);
+  await page.addInitScript(() => localStorage.setItem('iptv_theme', JSON.stringify('daylight')));
+  await goHome(page);
+  const colors = await page.evaluate(() => ({
+    title: getComputedStyle(document.querySelector('.home-title')!).color,
+    label: getComputedStyle(document.querySelector('.home-card-label')!).color,
+  }));
+  expect(colors.label).toBe('rgb(255, 255, 255)');
+  expect(colors.title).not.toBe('rgb(255, 255, 255)');
+});

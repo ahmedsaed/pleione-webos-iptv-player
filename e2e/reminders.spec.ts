@@ -54,7 +54,7 @@ test('Cancel dismisses the prompt and stays on the channel list', async ({ page 
   await expect(page.locator('.reminder-prompt.hidden')).toHaveCount(1);
   await expect(page.locator('#view-channels')).toBeVisible();
 
-  await page.locator('.tab-bar-item[data-section="settings"]').click();
+  await enterTab(page, 'settings');
   await expect(page.locator('#manage-reminders')).toContainText('(0)');
 });
 
@@ -95,7 +95,7 @@ test('long reminder text stays on one line inside the card', async ({ page }) =>
   }, channelKey(CHAN_ONE));
 
   await page.goto('/');
-  await page.locator('.tab-bar-item[data-section="settings"]').click();
+  await enterTab(page, 'settings');
   await page.locator('[data-settings-target="guide"]').click();
   await page.locator('#manage-reminders').click();
 
@@ -143,7 +143,7 @@ test('reminder manager icons scale with the text size', async ({ page }) => {
   }, channelKey(CHAN_ONE));
 
   await page.goto('/');
-  await page.locator('.tab-bar-item[data-section="settings"]').click();
+  await enterTab(page, 'settings');
   await page.locator('[data-settings-target="guide"]').click();
   await page.locator('#manage-reminders').click();
   await expect(page.locator('.reminder-manager-row')).toBeVisible();
@@ -184,7 +184,7 @@ test('reminder card columns fit their text at text size 150', async ({ page }) =
   }, channelKey(CHAN_ONE));
 
   await page.goto('/');
-  await page.locator('.tab-bar-item[data-section="settings"]').click();
+  await enterTab(page, 'settings');
   await page.locator('[data-settings-target="guide"]').click();
   await page.locator('#manage-reminders').click();
   await expect(page.locator('.reminder-manager-row')).toBeVisible();
@@ -207,7 +207,7 @@ test('the empty-state hint wraps to a readable width at text size 150', async ({
   await page.addInitScript(() => { localStorage.setItem('iptv_locale', JSON.stringify('de')); });
 
   await page.goto('/');
-  await page.locator('.tab-bar-item[data-section="settings"]').click();
+  await enterTab(page, 'settings');
   await page.locator('[data-settings-target="guide"]').click();
   await page.locator('#manage-reminders').click();
   await page.evaluate(() => { document.documentElement.dataset.textSize = '150'; });

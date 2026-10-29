@@ -1,14 +1,3 @@
-.tab-bar-account {
-  position: relative;
-  display: flex;
-  align-items: center;
-  margin-left: 20px;
-}
-
-.tab-bar-account:empty {
-  display: none;
-}
-
 .account-avatar {
   width: 52px;
   height: 52px;

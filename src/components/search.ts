@@ -68,9 +68,12 @@ const SEARCH_ROW_OVERSCAN = 6;
 const SEARCH_RAIL_OVERSCAN = 4;
 
 export interface SearchHandlers {
-  onRevealTabBar: () => void;
+  // Up off the top result, or nothing to land on yet: the query box.
+  onFocusBox: () => void;
   // A result arrived after the remote waited in the box: let it go.
-  onReleaseTabBar: () => void;
+  onReleaseBox: () => void;
+  // Left at the results' left edge.
+  onLeaveLeft: () => void;
   onBack: () => void;
   onPlayChannel: (index: number, catchup?: CatchupInfo) => void;
   onOpenMovie: (account: PlaylistEntry, vod: VodItem) => void;
@@ -141,9 +144,8 @@ function sameCatalogSource(left: SearchCachedNames | null, right: SearchCachedNa
 // The Search section: one query box over Channels / Programs / Movies / Series.
 // Results are relevance-ranked and capped; movies and series match the account's
 // full catalogs, loaded once on open and cached.
-// Up from the box reveals the tab bar; Back returns to Live. The global key
-// handler ignores INPUT keydowns, so the box owns its own text input + focus-out
-// keys.
+// The query box (SearchBox) sits above the results; Up from the top result
+// and Back return to it.
 export class Search {
   private nav: SpatialNav;
   readonly focusScope: FocusScope;
@@ -231,7 +233,6 @@ export class Search {
     this.focusScope = Focus.register({
       id: 'view.search',
       root: container,
-      leaveFor: { up: 'tabbar' },
       defaultKey: () => this.navKey(),
       resolve: (key) => this.resolveKey(key),
     });
@@ -372,7 +373,7 @@ export class Search {
     this.programIndexDone(sessionId, await this.buildProgramIndex(false, sessionId));
   }
 
-  /** The tab bar's search box drives the query; re-render the results for it. */
+  /** The search box drives the query; re-render the results for it. */
   async setQuery(query: string): Promise<void> {
     this.focusPending = false;
     this.cancelScheduledQuery();
@@ -476,10 +477,12 @@ export class Search {
     if (this.moveVirtualFocus(action)) return;
     switch (action) {
       case 'up':
-        if (!this.nav.move('up')) this.handlers.onRevealTabBar();
+        if (!this.nav.move('up')) this.handlers.onFocusBox();
+        return;
+      case 'left':
+        if (!this.nav.move('left')) this.handlers.onLeaveLeft();
         return;
       case 'down':
-      case 'left':
       case 'right':
         this.nav.move(action);
         return;
@@ -720,8 +723,8 @@ export class Search {
     }
   }
 
-  /** Move focus into the first result (called when the tab bar's search box
-   *  hands off with Enter / Down). */
+  /** Move focus into the first result (called when the search box hands off
+   *  with Enter / Down). */
   focusFirstResult(): void {
     this.focusPending = true;
     this.focusWaitingInBox = false;
@@ -742,7 +745,7 @@ export class Search {
       // Wait in the search box, not on a blank screen, for the catalog.
       if (!this.focusWaitingInBox) {
         this.focusWaitingInBox = true;
-        this.handlers.onRevealTabBar();
+        this.handlers.onFocusBox();
       }
       return;
     }
@@ -751,13 +754,13 @@ export class Search {
     this.focusPending = false;
     // Nothing matched: keep the remote in the search box, not on a blank screen.
     if (!first) {
-      if (!waited) this.handlers.onRevealTabBar();
+      if (!waited) this.handlers.onFocusBox();
       return;
     }
     if (waited) {
       // The remote moved on from the box meanwhile: don't pull it back.
-      if (!document.activeElement?.classList.contains('tab-bar-search-input')) return;
-      this.handlers.onReleaseTabBar();
+      if (!document.activeElement?.classList.contains('search-box-input')) return;
+      this.handlers.onReleaseBox();
     }
     this.nav.focus(first);
   }
@@ -1623,7 +1626,7 @@ export class Search {
               ${programSection}
             `;
 
-    // The query box lives in the tab bar; this view renders results only.
+    // The query box sits above, outside this container; this renders results only.
     morph(this.container, html`
       <div class="search-view ${isXtream ? '' : 'search-lists'} ${
         hasMixedLists ? 'search-lists-mixed' : ''

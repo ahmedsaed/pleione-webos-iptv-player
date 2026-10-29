@@ -137,20 +137,56 @@ export async function seedPlaylist(page: Page, url = PLAYLIST_URL): Promise<void
   }, url);
 }
 
-/** Enter a section via the docked tab bar (always visible for an Xtream account).
- *  Uses a coordinate mouse press so the click carries clientX/clientY for the tab
- *  bar's coordinate hit-test. */
+/** Enter a section the Magic Remote way: the pointer at the screen's left
+ *  edge reveals the side menu, and a click on the section opens it. */
 export async function enterTab(
   page: Page,
-  section: 'live' | 'epg' | 'movies' | 'series' | 'settings' | 'search',
+  section: 'home' | 'live' | 'epg' | 'movies' | 'series' | 'settings' | 'search',
 ): Promise<void> {
-  const tab = page.locator(`.tab-bar-item[data-section="${section}"]`);
-  await expect(tab).toBeVisible();
-  const box = await tab.boundingBox();
-  if (!box) throw new Error(`tab ${section} has no bounding box`);
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.up();
+  await openSideMenu(page);
+  const item = page.locator(`.nav-menu.open .nav-menu-item[data-section="${section}"]`);
+  await expect(item).toBeVisible();
+  // The panel slides in; click where it settles.
+  await expect.poll(() => item.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
+  const box = await item.boundingBox();
+  if (!box) throw new Error(`menu item ${section} has no bounding box`);
+  // The pointer rests on the panel's empty top edge, as it rested on the old
+  // tab bar, so it lights nothing in the section the menu closes over; the
+  // click carries the item's coordinates for the menu's hit-test.
+  await page.mouse.move(box.x + box.width / 2, 2);
+  await item.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(new MouseEvent('click', {
+      bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+    }));
+  });
+  // The panel slides back out before the section is looked at.
+  await expect(page.locator('.nav-menu')).not.toHaveClass(/\bopen\b/);
+  await expect.poll(async () => {
+    const panel = await page.locator('.nav-menu-panel').boundingBox();
+    return !panel || panel.x + panel.width <= 0;
+  }).toBe(true);
+}
+
+/** End a PIN session from the side menu's Lock now, then point away to close it. */
+export async function lockNow(page: Page): Promise<void> {
+  await openSideMenu(page);
+  const lock = page.locator('.nav-menu.open [data-lock-now]');
+  await expect(lock).toHaveText('Lock now');
+  await lock.click();
+  await expect(page.locator('[data-lock-now]')).toHaveCount(0);
+  await page.mouse.move(1200, 540);
+  await expect(page.locator('.nav-menu')).not.toHaveClass(/\bopen\b/);
+}
+
+/** Reveal the side menu with the pointer at the screen's left edge. */
+export async function openSideMenu(page: Page): Promise<void> {
+  const menu = page.locator('.nav-menu');
+  if (await menu.evaluate((el) => el.classList.contains('open'))) return;
+  // Along the top edge, so the pointer hovers no content on its way.
+  await page.mouse.move(40, 2);
+  await page.mouse.move(0, 2);
+  await expect(menu).toHaveClass(/\bopen\b/);
 }
 
 // Both channel rows have a fixed height because their lists are virtualized, so
@@ -203,6 +239,8 @@ export const test = base.extend({
     // Pleione hides the Guide tab; the suite keeps the upstream Guide flows by
     // showing it. hideGuideTab() opts a test back into Pleione's default.
     await page.addInitScript(() => localStorage.setItem('iptv_show_guide_tab', 'true'));
+    // Upstream flows start on Live; showHome() opts a test into Pleione's Home.
+    await page.addInitScript(() => localStorage.setItem('iptv_start_on_live', 'true'));
     const ringFailures = await auditRings(page, process.env.RING_AUDIT,
       `${testInfo.project.name} › ${testInfo.titlePath.slice(1).join(' › ')}`);
     await use(page);
@@ -326,6 +364,11 @@ function installRingAudit(recordNone: boolean): void {
 // merely *introspect* through a newer API (rather than exercise app behavior)
 // cannot run there; the behavior they observe is covered by the `chromium`
 // project.
+/** Pleione's default: launch on Home. Call before `page.goto`. */
+export async function showHome(page: Page): Promise<void> {
+  await page.addInitScript(() => localStorage.removeItem('iptv_start_on_live'));
+}
+
 /** Pleione's default: no Guide tab. Call before `page.goto`. */
 export async function hideGuideTab(page: Page): Promise<void> {
   await page.addInitScript(() => localStorage.removeItem('iptv_show_guide_tab'));

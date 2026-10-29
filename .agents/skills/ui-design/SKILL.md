@@ -83,7 +83,7 @@ Settings, player OSD) and match it.
 
 - The canvas is a fixed **1920×1080 CSS px** (`index.html` viewport,
   `appinfo.json`). Lay out in px against it; there is no responsive layout.
-- **Gutters:** views use an **80px** side gutter (`tab-bar.css`,
+- **Gutters:** views use an **80px** side gutter (`home.css`,
   `catalog-view.css`). Keep text and focus targets well inside the edge;
   only full-bleed video and artwork may reach it.
 - **Type:** body is 24px/1.4 in the system/`LG Smart UI` stack — don't add

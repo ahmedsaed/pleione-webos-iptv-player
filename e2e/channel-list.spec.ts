@@ -5,14 +5,14 @@ import {
   seedPlaylist,
   SEARCH_M3U,
   enterTab,
+  openSideMenu,
   routeLiveManifest,
   measureRowTextFit,
   type Page,
 } from './helpers';
-import { seedXtream } from './fixtures/xtream';
 
 // The channel list: rendering safety (XSS), group filtering, and the fact that
-// search + settings now live in the docked tab bar (not the sidebar).
+// search and settings live in Home and the side menu (not the sidebar).
 
 test('a malicious channel name from the playlist is escaped, not executed', async ({ page }) => {
   const EVIL = '<img src=x onerror="window.__xssfired=true">';
@@ -36,7 +36,7 @@ test('a malicious channel name from the playlist is escaped, not executed', asyn
   expect(await page.evaluate(() => (window as unknown as { __xssfired?: boolean }).__xssfired)).toBeUndefined();
 });
 
-test('the sidebar has no inline search magnifier or settings gear (moved to the tab bar)', async ({ page }) => {
+test('the sidebar has no inline search magnifier or settings gear (they live in the side menu)', async ({ page }) => {
   await routePlaylist(page, SEARCH_M3U);
   await seedPlaylist(page);
   await page.goto('/');
@@ -62,15 +62,15 @@ test('selecting a group filters the channel list', async ({ page }) => {
   await expect(page.locator('.channel-main')).not.toContainText('Delta Sports');
 });
 
-test('M3U-only Search (via the tab bar) filters channels into a vertical list', async ({ page }) => {
+test('M3U-only Search (from the side menu) filters channels into a vertical list', async ({ page }) => {
   await routePlaylist(page, SEARCH_M3U);
   await seedPlaylist(page);
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
 
   await enterTab(page, 'search');
-  await expect(page.locator('.tab-bar-search.expanded')).toBeVisible();
-  await page.locator('.tab-bar-search-input').fill('alpha');
+  await expect(page.locator('.search-box-input')).toBeFocused();
+  await page.locator('.search-box-input').fill('alpha');
   // Channels-only, rendered as a vertical list (no poster rails).
   await expect(page.locator('.search-channel-row')).toHaveCount(2);
   await expect(page.locator('#view-search')).toBeVisible();
@@ -86,8 +86,8 @@ test('M3U-only Search: a pointer click plays the channel', async ({ page }) => {
   await expect(page.locator('#view-channels')).toBeVisible();
 
   await enterTab(page, 'search');
-  await expect(page.locator('.tab-bar-search.expanded')).toBeVisible();
-  await page.locator('.tab-bar-search-input').fill('alpha');
+  await expect(page.locator('.search-box-input')).toBeFocused();
+  await page.locator('.search-box-input').fill('alpha');
   await expect(page.locator('.search-channel-row')).toHaveCount(2);
 
   // Dispatch a click at the row's center, which the view activates by coordinate
@@ -131,7 +131,7 @@ test('M3U-only Search fills the view when Channels is the only section', async (
   await expect(page.locator('#view-channels')).toBeVisible();
 
   await enterTab(page, 'search');
-  await page.locator('.tab-bar-search-input').fill('alpha');
+  await page.locator('.search-box-input').fill('alpha');
   await expect(page.locator('#view-search')).toBeVisible();
 
   const fill = await page.locator('.search-virtual-scroll').evaluate((el) => {
@@ -494,7 +494,7 @@ test('rapid D-pad under full animation moves one row per key press', async ({ pa
   expect(events.filter((text) => text.includes('event=nav.focus.repaired'))).toEqual([]);
 });
 
-test('Up at the top of the sidebar goes to the tab bar, not the scrolled list', async ({ page }) => {
+test('Up at the top of the sidebar stays there, and Left opens the side menu, not the scrolled list', async ({ page }) => {
   await routePlaylist(page, longPlaylist(300));
   await seedPlaylist(page);
   await page.goto('/');
@@ -511,10 +511,16 @@ test('Up at the top of the sidebar goes to the tab bar, not the scrolled list', 
   }
   await expect(page.locator('[data-edit-channels]')).toHaveClass(/\bfocused\b/);
   await page.keyboard.press('ArrowUp');
-  await expect(page.locator('.tab-bar-item[data-section="live"].focused')).toHaveCount(1);
+  await expect(page.locator('[data-edit-channels]')).toHaveClass(/\bfocused\b/);
+  // Left from there reaches a group, then the side menu.
+  const menuItem = page.locator('.nav-menu-item[data-section="live"].focused');
+  for (let i = 0; i < 3 && !(await menuItem.count()); i++) await page.keyboard.press('ArrowLeft');
+  await expect(menuItem).toHaveCount(1);
   await expect(page.locator('#view-channels .focused')).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#view-channels .sidebar .focused')).toHaveCount(1);
 
-  // Edit mode has no edit button: the top group hands off the same way.
+  // Edit mode has no edit button: Up stays on the top group.
   await page.keyboard.press('ArrowDown');
   await enterEditMode(page);
   const sidebarRing = page.locator('#view-channels .sidebar .focused');
@@ -524,8 +530,8 @@ test('Up at the top of the sidebar goes to the tab bar, not the scrolled list', 
   }
   await expect(sidebarRing).toHaveAttribute('data-group-position', '0');
   await page.keyboard.press('ArrowUp');
-  await expect(page.locator('.tab-bar-item[data-section="live"].focused')).toHaveCount(1);
-  await expect(page.locator('#view-channels .focused')).toHaveCount(0);
+  await expect(sidebarRing).toHaveAttribute('data-group-position', '0');
+  await expect(page.locator('#view-channels .channel-main .focused')).toHaveCount(0);
 });
 
 // The list moved focus scrolled out of view to a row of `list`.
@@ -772,7 +778,7 @@ test('Up on a focused first row just out of view resumes instead of leaving the 
   await main.evaluate((el) => { el.scrollTop = 500; });
   await expect(row0).toHaveCount(1);
 
-  // Up on row 0 would otherwise hand focus to the tab bar.
+  // Up on row 0 resumes the scrolled-away row instead.
   await page.keyboard.press('ArrowUp');
   const focused = page.locator('#view-channels .channel-main .focused');
   await expect(focused).toHaveCount(1);
@@ -966,7 +972,7 @@ test('a wheel step below a short list moves the pointer-left row at once', async
   await expect(main.locator('[data-list-position="1"]')).toHaveClass(/\bfocused\b/);
 });
 
-test('Down from the tab bar resumes in view after the list scrolled meanwhile', async ({ page }) => {
+test('Right out of the side menu resumes in view after the list scrolled meanwhile', async ({ page }) => {
   await routePlaylist(page, longPlaylist(60));
   await seedPlaylist(page);
   await page.goto('/');
@@ -975,13 +981,13 @@ test('Down from the tab bar resumes in view after the list scrolled meanwhile', 
   const list = await main.boundingBox();
   if (!list) throw new Error('no layout');
 
-  await page.keyboard.press('ArrowUp');
-  await expect(page.locator('.tab-bar-item[data-section="live"].focused')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.nav-menu-item[data-section="live"].focused')).toHaveCount(1);
   await main.evaluate((el) => { el.scrollTop = 1500; });
   await settleVirtualScroll(page);
 
-  await page.keyboard.press('ArrowDown');
-  await expect(page.locator('.tab-bar .focused')).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.nav-menu .focused')).toHaveCount(0);
   const focused = main.locator('.focused');
   await expect(focused).toHaveCount(1);
   const box = await focused.boundingBox();
@@ -1097,7 +1103,7 @@ test('Back from the Guide resumes a group scrolled out of view, brought into vie
   }).toBe(true);
 });
 
-test('Down from the tab bar resumes the row you left after a preview was stopped and retuned', async ({ page }) => {
+test('Right out of the side menu resumes the row you left after a preview was stopped and retuned', async ({ page }) => {
   await routePlaylist(page, longPlaylist(300));
   await routeLiveManifest(page);
   await seedPlaylist(page);
@@ -1122,9 +1128,9 @@ test('Down from the tab bar resumes the row you left after a preview was stopped
   // The list tuned Ch 5 itself, so the row you leave it from is the one to resume.
   for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowUp');
   await expect(main.locator('[data-list-position="0"]')).toHaveClass(/\bfocused\b/);
-  await page.keyboard.press('ArrowUp');
-  await expect(page.locator('.tab-bar .focused')).toHaveCount(1);
-  await page.keyboard.press('ArrowDown');
+  await openSideMenu(page);
+  await expect(page.locator('.nav-menu .focused')).toHaveCount(1);
+  await page.keyboard.press('ArrowRight');
 
   const focused = main.locator('.focused');
   await expect(focused).toHaveCount(1);
@@ -1167,25 +1173,3 @@ test('Back from the Guide lands on a channel tuned elsewhere, not the row you le
   }).toBe(true);
 });
 
-async function hoverCenter(page: Page, selector: string): Promise<void> {
-  const box = await page.locator(selector).boundingBox();
-  if (!box) throw new Error(`no box for ${selector}`);
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 2 });
-}
-
-test('a control hovered while the account menu held the keys lights once it hands them back', async ({ page }) => {
-  await seedXtream(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels .group-item').first()).toBeVisible();
-
-  await page.locator('.account-avatar').click();
-  await hoverCenter(page, '#view-channels .group-item[data-group-position="0"]');
-  // Enter goes to the open menu, which closes and leaves the keys with the bar.
-  await page.keyboard.press('Enter');
-  await hoverCenter(page, '#view-channels .channel-edit-btn');
-  await expect(page.locator('#view-channels .channel-edit-btn')).toHaveClass(/\bfocused\b/);
-
-  await page.keyboard.press('ArrowDown');
-  await expect(page.locator('#view-channels .channel-edit-btn')).not.toHaveClass(/\bfocused\b/);
-  await expect(page.locator('#view-channels .focused')).toHaveCount(1);
-});

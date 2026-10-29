@@ -907,7 +907,7 @@ class PlaylistServiceImpl {
     // One tab per configured playlist, in config order, keyed by its stable id —
     // including a playlist that loaded zero channels (empty/unreachable feed), so
     // it stays visible. Derived from the registry, not the cached channels, so a
-    // stale/desynced channel cache can never blank out the tab bar.
+    // stale/desynced channel cache can never blank out the playlist tabs.
     const configured = StorageService.getPlaylists().filter(isSourceEnabled);
     this.playlistTabs = configured.map(pl => ({ id: pl.id, name: pl.name || pl.url }));
   }

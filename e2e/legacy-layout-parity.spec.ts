@@ -1,4 +1,4 @@
-import { enterTab, test, expect, isChromium53, neuterVideo, routeLiveManifest, routePlaylist, type Page } from './helpers';
+import { enterTab, openSideMenu, test, expect, isChromium53, neuterVideo, routeLiveManifest, routePlaylist, type Page } from './helpers';
 import { type Browser } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { findGappedLooseText, measureLooseText, newLegacyPage, pixelDiff } from './pixel-parity';
@@ -167,6 +167,15 @@ interface Screen {
   go: (page: Page) => Promise<void>;
 }
 
+// Back out of the player and its panels to Live, where the side menu opens.
+async function backToLive(p: Page): Promise<void> {
+  for (let i = 0; i < 4 && !(await p.locator('#view-channels').isVisible()); i++) {
+    await p.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
+    await p.waitForTimeout(100);
+  }
+  await expect(p.locator('#view-channels')).toBeVisible();
+}
+
 async function openSettingsPane(p: Page, pane: string): Promise<void> {
   await enterTab(p, 'settings');
   // The stubbed service makes the setup panel render for real and refreshes
@@ -260,7 +269,7 @@ const M3U_SCREENS: Screen[] = [
     go: async (p) => {
       await enterTab(p, 'search');
       // The results view only covers the current one once a query is typed.
-      await p.locator('.tab-bar-search-input').fill('channel');
+      await p.locator('.search-box-input').fill('channel');
       await expect(p.locator('#view-search')).toBeVisible();
     },
   },
@@ -352,9 +361,7 @@ const M3U_SCREENS: Screen[] = [
     name: 'number-entry',
     budget: 0.001,
     go: async (p) => {
-      await p.keyboard.press('Escape');
-      await p.keyboard.press('Escape');
-      await enterTab(p, 'live');
+      await backToLive(p);
       await p.keyboard.press('2');
       await p.keyboard.press('4');
       await expect(p.locator('.number-entry.visible')).toBeVisible();
@@ -364,8 +371,12 @@ const M3U_SCREENS: Screen[] = [
     name: 'search-empty',
     budget: 0,
     go: async (p) => {
+      // A key abandons the typed digits, unless they already tuned a channel
+      // full screen, where the side menu stays shut.
+      await p.keyboard.press('ArrowUp');
+      await backToLive(p);
       await enterTab(p, 'search');
-      await p.locator('.tab-bar-search-input').fill('zzqqxx');
+      await p.locator('.search-box-input').fill('zzqqxx');
       await expect(p.locator('#view-search')).toBeVisible();
       await expect(p.locator('#view-search .catalog-tile')).toHaveCount(0);
     },
@@ -523,13 +534,31 @@ const M3U_SCREENS: Screen[] = [
 
 const XTREAM_SCREENS: Screen[] = [
   {
+    name: 'home',
+    budget: 0,
+    go: async (p) => {
+      await enterTab(p, 'home');
+      await expect(p.locator('.home-card').first()).toBeVisible();
+      await p.mouse.move(960, 1000);
+    },
+  },
+  {
     name: 'account-switcher',
     budget: 0,
     go: async (p) => {
-      await p.locator('.account-avatar').click();
-      await expect(p.locator('.account-menu-item').first()).toBeVisible();
-      await p.locator('.account-avatar').click();
+      const avatar = p.locator('.home-account .account-avatar');
+      await avatar.click();
+      await expect(p.locator('.home-account .account-menu-item').first()).toBeVisible();
+      await avatar.click();
       await expect(p.locator('.account-menu-item')).toHaveCount(0);
+    },
+  },
+  {
+    name: 'side-menu',
+    budget: 0.001, // the backdrop-filter fallback's opaque panel, as on the player menu
+    go: async (p) => {
+      await openSideMenu(p);
+      await expect.poll(async () => (await p.locator('.nav-menu-panel').boundingBox())!.x).toBe(0);
     },
   },
   {
@@ -678,7 +707,6 @@ const XTREAM_SCREENS: Screen[] = [
         },
         updatedAt: Date.now(),
       }]);
-      await expect(p.locator('.tab-bar-item[data-section="movies"]')).toBeVisible();
       await enterTab(p, 'movies');
       await expect(p.locator('#view-movies .catalog-tile').first()).toBeVisible();
       await expect(p.locator('#view-movies .catalog-rail-title').first())
@@ -910,14 +938,16 @@ async function walk(
 
 test('the webOS 4 fallbacks lay out where the modern engine does, with an M3U playlist only', async ({ page, browser }) => {
   test.skip(isChromium53(), 'this test drives both engines itself, so it runs once');
-  test.slow();
+  // Each section is opened from the side menu, which waits out its reveal.
+  test.setTimeout(180_000);
   await walk(page, browser, prepareM3U, M3U_SCREENS);
 });
 
-// An Xtream account adds the Movies/Series sections and docks the avatar in the
-// tab bar — a second tab-bar layout, and the one that exposed its missing gap.
+// An Xtream account adds the Movies/Series sections and the account avatar on
+// Home and in the side menu.
 test('the webOS 4 fallbacks lay out where the modern engine does, with an Xtream account', async ({ page, browser }) => {
   test.skip(isChromium53(), 'this test drives both engines itself, so it runs once');
-  test.slow();
+  // Each section is opened from the side menu, which waits out its reveal.
+  test.setTimeout(180_000);
   await walk(page, browser, prepareXtream, XTREAM_SCREENS);
 });
