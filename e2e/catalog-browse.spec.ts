@@ -407,3 +407,50 @@ for (const section of ['movies', 'series'] as const) {
   });
 }
 
+test('Right at the end of a See all row moves to the next row, Left moves back', async ({ page }) => {
+  await seedCatalog(page, []);
+  await page.goto('/');
+  await enterTab(page, 'movies');
+  const layer = browse(page, 'movies');
+  await expect(layer.locator('[data-rail-key="cat:1"] .catalog-tile').first()).toBeVisible();
+  await layer.locator('[data-collection-see-all], .catalog-see-all-card').first().click();
+  const grid = page.locator('#view-movies .catalog-layer-grid');
+  await expect(grid).toBeVisible();
+  const focused = grid.locator('.catalog-grid-cell:has(.catalog-tile.focused)');
+  await expect(focused).toHaveCount(1);
+  // Count the first row's columns by their shared top edge.
+  const columns = await grid.locator('.catalog-grid-cell').evaluateAll((cells) => {
+    const top = cells.find((c) => c.getAttribute('data-grid-index') === '0')!.getBoundingClientRect().top;
+    return cells.filter((c) => Math.abs(c.getBoundingClientRect().top - top) < 1).length;
+  });
+  const start = Number(await focused.getAttribute('data-grid-index'));
+  const rowEnd = start - (start % columns) + columns - 1;
+  for (let i = start; i < rowEnd; i++) await page.keyboard.press('ArrowRight');
+  await expect(focused).toHaveAttribute('data-grid-index', String(rowEnd));
+  await page.keyboard.press('ArrowRight');
+  await expect(focused).toHaveAttribute('data-grid-index', String(rowEnd + 1));
+  await page.keyboard.press('ArrowLeft');
+  await expect(focused).toHaveAttribute('data-grid-index', String(rowEnd));
+});
+
+test('the See all grid is centered: equal space left and right of its columns', async ({ page }) => {
+  await seedCatalog(page, []);
+  await page.goto('/');
+  await enterTab(page, 'movies');
+  const layer = browse(page, 'movies');
+  await expect(layer.locator('[data-rail-key="cat:1"] .catalog-tile').first()).toBeVisible();
+  await layer.locator('[data-collection-see-all], .catalog-see-all-card').first().click();
+  const grid = page.locator('#view-movies .catalog-layer-grid');
+  await expect(grid.locator('.catalog-grid-cell').first()).toBeVisible();
+  const gaps = await grid.evaluate((layerEl) => {
+    const track = layerEl.querySelector('.catalog-grid-track')!.getBoundingClientRect();
+    // Cells, not posters: the focused poster is scaled up.
+    const posters = Array.from(layerEl.querySelectorAll('.catalog-grid-cell'))
+      .map((p) => p.getBoundingClientRect());
+    const left = Math.min(...posters.map((r) => r.left)) - track.left;
+    const right = track.right - Math.max(...posters.map((r) => r.right));
+    return { left, right };
+  });
+  expect(Math.abs(gaps.left - gaps.right)).toBeLessThanOrEqual(2);
+});
+

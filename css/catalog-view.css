@@ -123,6 +123,11 @@
 
 .catalog-rail { margin-bottom: 28px; }
 .catalog-rail-title { margin: 0 0 12px; font-size: 30px; font-weight: 600; color: var(--text-primary); }
+/* The rails bleed off the right edge, so a right-aligned (Arabic) title
+   keeps the 80px gutter itself, with the body's 12px. */
+.catalog-rail-title,
+.catalog-rail-head { padding-right: 68px; }
+.catalog-rail-head .catalog-rail-title { padding-right: 0; }
 .catalog-rail-track { display: flex; gap: 20px; overflow-x: auto; padding: 24px 12px 32px; margin: -12px -12px; }
 .catalog-rails-body .catalog-rail-track { margin-left: -80px; padding-left: 80px; }
 .catalog-category-rail { height: 152px; display: block; overflow-anchor: none; }

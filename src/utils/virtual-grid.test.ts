@@ -41,13 +41,16 @@ describe('VirtualGrid', () => {
     expect(grid.getItemPosition(38, 4)).toEqual({ left: 500, top: 3600 });
   });
 
-  it('keeps grid navigation within rows and item bounds', () => {
+  it('reads Left and Right on across rows and keeps every move in bounds', () => {
     const grid = createGrid();
 
-    expect(grid.getAdjacentIndex(4, 'left', 10)).toBe(4);
+    // Four columns: 3 ends the first row and 4 starts the second.
+    expect(grid.getAdjacentIndex(3, 'right', 10)).toBe(4);
+    expect(grid.getAdjacentIndex(4, 'left', 10)).toBe(3);
     expect(grid.getAdjacentIndex(4, 'right', 10)).toBe(5);
-    expect(grid.getAdjacentIndex(8, 'down', 10)).toBe(8);
+    expect(grid.getAdjacentIndex(0, 'left', 10)).toBe(0);
     expect(grid.getAdjacentIndex(9, 'right', 10)).toBe(9);
+    expect(grid.getAdjacentIndex(8, 'down', 10)).toBe(8);
     expect(grid.getAdjacentIndex(1, 'up', 10)).toBe(1);
   });
 
