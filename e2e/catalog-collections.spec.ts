@@ -49,7 +49,7 @@ for (const section of ['movies', 'series'] as const) {
       await page.goto('/');
       await enterTab(page, section);
       const rail = page.locator(`#view-${section} [data-rail-key="${collection}"]`);
-      await expect(rail.locator('.catalog-tile:not(.catalog-see-all)')).toHaveCount(20);
+      await expect(rail.locator('.catalog-tile:not(.catalog-see-all)')).toHaveCount(10);
       await expect(rail.locator('.catalog-see-all-count')).toContainText('30');
       await rail.locator('[data-collection-see-all]').click();
       const grid = layer(page, section);
@@ -118,7 +118,8 @@ test('clears only the visible account and kind, preserves the other collection, 
   expect(rows.filter(row => row.value.accountId === 'x1' && row.value.kind === 'series')).toHaveLength(30);
   expect(rows.filter(row => row.value.accountId === 'x2')).toHaveLength(2);
   expect(await readUserDataStore(page, 'playback-progress')).toHaveLength(62);
-  await expect(page.locator('#view-movies [data-rail-key="continue"] .catalog-tile')).toHaveCount(21);
+  // RAIL_ITEMS titles and the See all tile.
+  await expect(page.locator('#view-movies [data-rail-key="continue"] .catalog-tile')).toHaveCount(11);
 });
 
 for (const section of ['movies', 'series'] as const) {

@@ -556,6 +556,7 @@ const XTREAM_SCREENS: Screen[] = [
     go: async (p) => {
       await enterTab(p, 'movies');
       await expect(p.locator('#view-movies .catalog-tile[data-item-id="10"]').first()).toBeVisible();
+      await heroAtRest(p);
     },
   },
   {
@@ -568,9 +569,10 @@ const XTREAM_SCREENS: Screen[] = [
       const first = p.locator('#view-movies [data-rail-key="cat:1"] .catalog-tile').first();
       await expect(first).toBeVisible();
       await first.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
-      for (let i = 0; i < 20; i++) await p.keyboard.press('ArrowRight');
+      for (let i = 0; i < 10; i++) await p.keyboard.press('ArrowRight');
       await expect(p.locator('#view-movies .catalog-see-all[data-category-id="1"]')).toHaveClass(/focused/);
       await railAtRest(p, '#view-movies [data-rail-key="cat:1"] .catalog-rail-track');
+      await heroAtRest(p);
     },
   },
   {
@@ -583,6 +585,7 @@ const XTREAM_SCREENS: Screen[] = [
       await expect(p.locator('#view-movies .catalog-cat[data-category-id="2"]')).toHaveClass(/focused/);
       await railAtRest(p, '#view-movies .catalog-rails');
       await railAtRest(p, '#view-movies .catalog-category-rail');
+      await heroAtRest(p);
     },
   },
   {
@@ -698,6 +701,7 @@ const XTREAM_SCREENS: Screen[] = [
       await expect(p.locator('#view-movies .catalog-tile').first()).toBeVisible();
       await expect(p.locator('#view-movies .catalog-rail-title').first())
         .toHaveText('Continue Watching');
+      await heroAtRest(p);
     },
   },
   {
@@ -737,13 +741,16 @@ const XTREAM_SCREENS: Screen[] = [
       await leaveParentalLocked(p);
       await enterTab(p, 'movies');
       await expect(p.locator('#view-movies .catalog-tile .lock-badge.is-locked').first()).toBeVisible();
+      await heroAtRest(p);
     },
   },
   {
     name: 'movies-sort-directions',
     budget: 0,
     go: async (p) => {
-      const row = p.locator('#view-movies .catalog-layer-browse .catalog-sort');
+      // Sorting lives on the category page.
+      await p.locator('#view-movies .catalog-layer-browse .catalog-see-all[data-category-id="1"]').click();
+      const row = p.locator('#view-movies .catalog-layer-grid .catalog-sort');
       await row.locator('.dropdown-trigger').click();
       await row.locator('[data-dropdown-value="name"]').click();
       await row.locator('[data-sort-direction="desc"]').hover();
@@ -754,12 +761,18 @@ const XTREAM_SCREENS: Screen[] = [
     name: 'movies-sort-menu',
     budget: 0,
     go: async (p) => {
-      await p.locator('#view-movies .catalog-layer-browse .dropdown-trigger').click();
+      await p.locator('#view-movies .catalog-layer-grid .dropdown-trigger').click();
       await p.mouse.move(1850, 1040);
       await expect(p.locator('#view-movies .dropdown.open')).toBeVisible();
     },
   },
 ];
+
+/** The Movies hero asks for details once focus rests, so both engines wait
+ *  for them before the shot. */
+async function heroAtRest(page: Page): Promise<void> {
+  await expect(page.locator('#view-movies .catalog-hero-plot')).toHaveText('A plot.');
+}
 
 /** Write user-data records straight into the already-created IndexedDB, then
  *  reload — the preview's media pipeline never advances, so nothing the player

@@ -41,6 +41,8 @@ export const CONFIG = {
     // such as search results loading more: watch it this long to resume.
     EDGE_SCROLL_PARK_MS: 3000,
     EDGE_SCROLL_PARK_POLL_MS: 150,
+    // One wheel gesture fires a burst of events; within this, it moves one rail.
+    RAIL_WHEEL_STEP_MS: 250,
   },
   PLAYER: {
     LIVE_PREVIEW_UPCOMING_COUNT: 4,
@@ -110,12 +112,17 @@ export const CONFIG = {
     DETAIL_MAX_BYTES: 8 * 1024 * 1024,   // VOD/series detail and episode response budget
     BACKGROUND_REFRESH_CONCURRENCY: 2,   // stale catalog lists re-fetched at once; the rest queue
     RAIL_CATEGORIES: 6,                  // categories preloaded as rails in the browse view
-    RAIL_ITEMS: 20,                      // posters shown per rail before the "all categories" drill-in
+    RAIL_ITEMS: 10,                      // titles a rail shows before its trailing See all tile
     RESUME_MIN_SECS: 15,                 // below this, treat as "start over" (don't store a resume point)
     RESUME_FINISH_PAD: 30,               // within this of the end = finished (clear the resume point)
     RESUME_MAX_ITEMS: 50,                // Continue Watching entries per account and kind
     ARCHIVE_TTL_MS: 10 * 60 * 1000,      // per-channel get_simple_data_table freshness
     WATCHLIST_MAX_ITEMS: 200,            // per account and content type
+    LIST_PLOT_MAX_CHARS: 400,            // series-list synopsis kept for the browse hero
+    // The browse hero asks for a movie's details only once focus rests on it
+    // this long, so scrolling the rails sends the provider no request burst.
+    HERO_DETAILS_DELAY_MS: 1000,
+    HERO_DETAILS_CACHE_ITEMS: 200,       // movie details the browse hero keeps in memory
   },
 
   // Catch-up (time-shift) resume and history store tuning.

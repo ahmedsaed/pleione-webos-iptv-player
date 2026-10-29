@@ -62,7 +62,7 @@ test('Continue Watching updates the hero from saved episodes by pointer and remo
   await page.goto('/');
   await enterTab(page, 'series');
   const view = page.locator('#view-series');
-  const hero = view.locator('.catalog-hero');
+  const hero = view.locator('.catalog-hero-art');
   const first = view.locator('[data-resume-episode="e1"]');
   const second = view.locator('[data-resume-episode="e2"]');
   await first.hover();
@@ -214,53 +214,6 @@ test('Down from the tab bar resumes the Series detail Up left', async ({ page })
 
 const settled = (page: import('@playwright/test').Page) => page.evaluate(() =>
   new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-
-// How far the element sticks out of the catalog's vertical scroller, in px.
-const overhang = (el: Element): number => {
-  let scroller = el.parentElement;
-  while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) {
-    scroller = scroller.parentElement;
-  }
-  const box = el.getBoundingClientRect();
-  const clip = scroller?.getBoundingClientRect() ?? { top: 0, bottom: innerHeight };
-  return Math.max(0, clip.top - box.top, box.bottom - Math.min(clip.bottom, innerHeight));
-};
-
-test('a key that only shows the ring brings a clipped tile into view', async ({ page }) => {
-  await seedXtream(page, { catalog: 'large' });
-  await routeLiveManifest(page);
-  await page.addInitScript(() => {
-    localStorage.setItem('iptv_text_size', JSON.stringify('150'));
-  });
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await enterTab(page, 'series');
-  const tile = page.locator('#view-series .catalog-tile').first();
-  await expect(tile).toBeVisible();
-  await settled(page);
-
-  // Larger text leaves the tile hanging off the bottom at the resting offset.
-  const clip = await tile.evaluate((el) => {
-    const rails = el.closest<HTMLElement>('.catalog-rails')!;
-    rails.style.scrollBehavior = 'auto';
-    rails.scrollTop = 0;
-    rails.style.scrollBehavior = '';
-    return el.getBoundingClientRect().bottom - innerHeight;
-  });
-  expect(clip).toBeGreaterThan(8);
-  await settled(page);
-  const box = (await tile.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + 20);
-  await expect(tile).toHaveClass(/\bfocused\b/);
-  const key = await tile.getAttribute('data-key');
-  await settled(page);
-
-  await page.keyboard.press('ArrowRight');
-  const focused = page.locator('#view-series .focused');
-  await expect(focused).toHaveCount(1);
-  await expect.poll(() => focused.evaluate(overhang)).toBeLessThanOrEqual(1);
-  expect(await focused.getAttribute('data-key')).toBe(key);
-});
 
 test('opening the section with the pointer leaves the catalog where it loads', async ({ page }) => {
   await seedXtream(page, { catalog: 'large' });

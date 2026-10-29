@@ -129,24 +129,36 @@ describe('Series browse + grid', () => {
       ?.getAttribute('data-grid-index')).toBe('0');
   });
 
+  // Past RAIL_CATEGORIES, so All categories opens a category page, where sorting lives.
+  const sevenCats = Array.from({ length: 7 }, (_, i) => ({ id: String(i + 1), name: `Cat ${i + 1}` }));
+  const grid = () => container.querySelector<HTMLElement>('.catalog-layer-grid')!;
+  function openCategory(view: Series): void {
+    container.querySelector<HTMLElement>('.catalog-cat[data-category-id="1"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+  }
+
   it('restores its own saved sort field and direction', async () => {
     storageMock.getCatalogSort.mockReturnValue({ by: 'name', direction: 'desc' });
-    await openWith(undefined, [series('s1', 'Title 1'), series('s2', 'Title 2'), series('s10', 'Title 10')]);
+    const { view } = await openWith(sevenCats, [series('s1', 'Title 1'), series('s2', 'Title 2'), series('s10', 'Title 10')]);
     expect(storageMock.getCatalogSort).toHaveBeenCalledWith('series');
     expect(Array.from(container.querySelectorAll<HTMLElement>(
       '[data-rail-key="cat:1"] .catalog-tile',
     )).map(el => el.dataset.itemId)).toEqual(['s10', 's2', 's1']);
-    expect(container.querySelector('[data-sort-direction="desc"]')?.getAttribute('aria-checked')).toBe('true');
+    expect(container.querySelector('.catalog-layer-browse .catalog-sort')).toBeNull();
+    openCategory(view);
+    expect(grid().querySelector('[data-sort-direction="desc"]')?.getAttribute('aria-checked')).toBe('true');
   });
 
   it('writes series direction changes without changing movie preferences', async () => {
-    const { view } = await openWith(undefined, [series('s2', 'Title 2'), series('s1', 'Title 1')]);
-    container.querySelector<HTMLElement>('.dropdown-trigger')!.click();
-    container.querySelector<HTMLElement>('[data-dropdown-value="name"]')!.click();
-    container.querySelector<HTMLElement>('[data-sort-direction="desc"]')!.click();
+    const { view } = await openWith(sevenCats, [series('s2', 'Title 2'), series('s1', 'Title 1')]);
+    openCategory(view);
+    grid().querySelector<HTMLElement>('.dropdown-trigger')!.click();
+    grid().querySelector<HTMLElement>('[data-dropdown-value="name"]')!.click();
+    grid().querySelector<HTMLElement>('[data-sort-direction="desc"]')!.click();
     expect(storageMock.setCatalogSort).toHaveBeenLastCalledWith('series', { by: 'name', direction: 'desc' });
     expect(storageMock.setCatalogSort.mock.calls.every(([kind]) => kind === 'series')).toBe(true);
-    expect(view.focusScope.focusKey).toBe(JSON.stringify(['browse', '', 'sort-direction:desc']));
+    expect(view.focusScope.focusKey).toBe(JSON.stringify(['grid', '', 'sort-direction:desc']));
   });
 
   it('labels See all with the series count', async () => {
@@ -160,22 +172,50 @@ describe('Series browse + grid', () => {
     expect(container.querySelector('.catalog-tile[data-item-id="s1"]')?.textContent).toContain('Series One');
   });
 
-  it('updates the hero title and backdrop to the focused series', async () => {
-    const s1 = { accountId: 'x1', seriesId: 's1', name: 'Series One', poster: 'http://host/a1.jpg', rating: '', categoryId: '1' };
+  it('updates the hero to the focused series with its list details', async () => {
+    const s1 = {
+      accountId: 'x1', seriesId: 's1', name: 'Series One', poster: 'http://host/a1.jpg', rating: '', categoryId: '1',
+      genre: 'Genre 1', year: 2001, plot: 'Plot 1', backdrop: 'http://host/b1.jpg',
+    };
     const s2 = { accountId: 'x1', seriesId: 's2', name: 'Series Two', poster: 'http://host/a2.jpg', rating: '', categoryId: '1' };
     await openWith([{ id: '1', name: 'Cat A' }], [s1, s2]);
-    const hero = container.querySelector<HTMLElement>('.catalog-hero')!;
+    const art = () => container.querySelector<HTMLElement>('.catalog-hero-art')!;
     const title = () => container.querySelector('.catalog-hero-title')?.textContent;
+    expect(container.querySelector('.catalog-hero-kicker')).toBeNull();
+    expect(title()).toBe('Series One');
 
     container.querySelector('.catalog-tile[data-item-id="s2"]')!
       .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     expect(title()).toBe('Series Two');
-    expect(hero.style.backgroundImage).toContain('a2.jpg');
+    expect(art().style.backgroundImage).toContain('a2.jpg');
+    expect(art().classList.contains('catalog-hero-art-soft')).toBe(true);
+    expect(container.querySelector('.catalog-hero-meta')?.textContent).toBe('');
+    expect(container.querySelector('.catalog-hero-plot')).toBeNull();
 
     container.querySelector('.catalog-tile[data-item-id="s1"]')!
       .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     expect(title()).toBe('Series One');
-    expect(hero.style.backgroundImage).toContain('a1.jpg');
+    expect(art().style.backgroundImage).toContain('b1.jpg');
+    expect(art().classList.contains('catalog-hero-art-soft')).toBe(false);
+    expect(container.querySelector('.catalog-hero-meta')?.textContent).toBe('Genre 1  ·  2001');
+    expect(container.querySelector('.catalog-hero-plot')?.textContent).toBe('Plot 1');
+    expect(catalogMock.loadSeriesInfo).not.toHaveBeenCalled();
+  });
+
+  it('keeps an untrusted title and artwork URL inert in the hero', async () => {
+    const hostile = {
+      ...series('s1', '<img src=x onerror=alert(1)>'),
+      poster: "http://host/a.jpg') ; background: url('http://host/evil",
+      plot: '<b>bold</b>',
+    };
+    await openWith([{ id: '1', name: 'Cat A' }], [hostile]);
+    const hero = container.querySelector<HTMLElement>('.catalog-hero')!;
+    expect(hero.querySelector('img, b')).toBeNull();
+    expect(hero.querySelector('.catalog-hero-title')?.textContent).toBe('<img src=x onerror=alert(1)>');
+    expect(hero.querySelector('.catalog-hero-plot')?.textContent).toBe('<b>bold</b>');
+    const bg = hero.querySelector<HTMLElement>('.catalog-hero-art')!.style.backgroundImage;
+    expect(bg).not.toContain("')");
+    expect(bg).not.toContain('evil\'');
   });
 
   it('shows a Continue rail from the episode resume list and resumes an episode directly', async () => {
@@ -207,13 +247,13 @@ describe('Series browse + grid', () => {
       container.querySelector<HTMLElement>(`[data-resume-episode="e${n}"]`)!
         .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
       expect(container.querySelector('.catalog-hero-title')?.textContent).toBe(`Episode ${n}`);
-      expect(hero.style.backgroundImage).toContain(`episode${n}.jpg`);
+      expect(hero.querySelector<HTMLElement>('.catalog-hero-art')!.style.backgroundImage).toContain(`episode${n}.jpg`);
     }
     if (withCategory) {
       container.querySelector<HTMLElement>('[data-item-id="s1"]')!
         .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
       expect(container.querySelector('.catalog-hero-title')?.textContent).toBe('Series One');
-      expect(hero.style.backgroundImage).toContain('catalog.jpg');
+      expect(hero.querySelector<HTMLElement>('.catalog-hero-art')!.style.backgroundImage).toContain('catalog.jpg');
     }
     expect(catalogMock.loadSeriesInfo).not.toHaveBeenCalled();
   });
@@ -237,10 +277,8 @@ describe('Series browse + grid', () => {
   it('reveals the tab bar when Up cannot move within the view', async () => {
     const { view, handlers } = await openWith();
     view.handleAction('up');
-    expect(container.querySelector('.catalog-sort .focused')).not.toBeNull();
-    expect(handlers.onRevealTabBar).not.toHaveBeenCalled();
-    view.handleAction('up');
-    expect(handlers.onRevealTabBar).toHaveBeenCalled();
+    expect(container.querySelector('.catalog-sort')).toBeNull();
+    expect(handlers.onRevealTabBar).toHaveBeenCalledTimes(1);
   });
 
   it('drills into a non-rail category grid and back to browse', async () => {
