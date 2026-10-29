@@ -1916,6 +1916,8 @@ test.describe('Settings pages', () => {
     await expect(page.locator('#view-settings')).toBeVisible();
     expect(await shownPages(page)).toEqual(['guide']);
     await expect(page.locator('#manage-reminders')).toHaveClass(/focused/);
+  });
+});
 
 test.describe('Settings cache budget', () => {
   // webOS 4 has no navigator.storage; the budget comes from the prefixed
