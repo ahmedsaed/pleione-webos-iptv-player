@@ -1188,17 +1188,20 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private revealRailGutter(el: HTMLElement, instant: boolean): boolean {
     const track = el.parentElement;
     if (!track || !track.classList.contains('catalog-rail-track')) return false;
-    const start = el.getBoundingClientRect().left - track.getBoundingClientRect().left
-      - track.clientLeft + track.scrollLeft;
-    const end = start + el.offsetWidth;
+    const rect = el.getBoundingClientRect();
+    const start = rect.left - track.getBoundingClientRect().left - track.clientLeft + track.scrollLeft;
+    // The drawn width, so a lifted (scaled) focused tile keeps its whole ring.
+    const end = start + rect.width;
     const current = track.scrollLeft;
     // A tile leaving on the left lines up with the rail's keyline, not the
     // screen edge the track bleeds to.
-    const lead = Math.max(RAIL_EDGE_GUTTER, parseFloat(getComputedStyle(track).paddingLeft) || 0);
+    const style = getComputedStyle(track);
+    const lead = Math.max(RAIL_EDGE_GUTTER, parseFloat(style.paddingLeft) || 0);
+    const trail = Math.max(RAIL_EDGE_GUTTER, parseFloat(style.paddingRight) || 0);
     let target: number;
     if (start - lead < current) target = Math.max(0, start - lead);
-    else if (end + RAIL_EDGE_GUTTER > current + track.clientWidth) {
-      target = end + RAIL_EDGE_GUTTER - track.clientWidth;
+    else if (end + trail > current + track.clientWidth) {
+      target = end + trail - track.clientWidth;
     } else return false;
     if (Math.abs(target - current) < 1) return false;
     // A tile already in view only needs an instant nudge; otherwise retarget
