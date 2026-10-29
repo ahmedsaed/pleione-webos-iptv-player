@@ -130,6 +130,14 @@ function catalogSortMetadata(item: Record<string, unknown>, series = false): {
   };
 }
 
+// A score out of 10 for display and sorting: `rating`, else `rating_5based`
+// doubled. Panels send "0" (or 0) for an unrated title, which reads as no score.
+function ratingOf(item: Record<string, unknown>): string {
+  const outOf10 = toNumber(item.rating);
+  const score = outOf10 > 0 ? outOf10 : toNumber(item.rating_5based) * 2;
+  return score > 0 ? String(Math.round(score * 10) / 10) : '';
+}
+
 function firstNonEmptyString(...values: unknown[]): string {
   for (const value of values) {
     const text = toStr(value);
@@ -451,7 +459,7 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
           streamId: toStr(s.stream_id),
           name: toStr(s.name),
           poster: toStr(s.stream_icon),
-          rating: toStr(s.rating),
+          rating: ratingOf(s),
           categoryId: toStr(s.category_id),
           containerExtension: toStr(s.container_extension),
           ...catalogSortMetadata(s),
@@ -481,6 +489,7 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
         subtitles: parseSubtitles(i.subtitles),
         imdbId: toStr(i.imdb_id ?? i.imdb).replace(/^tt/i, ''),
         tmdbId: toStr(i.tmdb_id ?? i.tmdb),
+        rating: ratingOf(i),
         year: Number(toStr(i.releasedate ?? i.release_date).slice(0, 4)) || 0,
       };
     },
@@ -511,7 +520,7 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
           seriesId: toStr(s.series_id),
           name: toStr(s.name),
           poster: toStr(s.cover),
-          rating: toStr(s.rating),
+          rating: ratingOf(s),
           categoryId: toStr(s.category_id),
           ...catalogSortMetadata(s, true),
         }))
@@ -574,7 +583,7 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
           toNumber(Array.isArray(runTime) ? runTime[0] : runTime),
         ),
         poster: firstNonEmptyString(info.cover, info.movie_image, info.cover_big),
-        rating: firstNonEmptyString(info.rating, info.rating_5based),
+        rating: ratingOf(info),
         imdbId: firstNonEmptyString(info.imdb_id, info.imdb).replace(/^tt/i, ''),
         tmdbId: firstNonEmptyString(info.tmdb_id, info.tmdb),
         year: yearMatch ? Number(yearMatch[0]) : 0,

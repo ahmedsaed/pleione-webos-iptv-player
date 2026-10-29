@@ -504,6 +504,23 @@ describe('Movies browse + grid', () => {
     expect(container.querySelector('.movies-detail')?.textContent).toContain('Saved Movie');
   });
 
+  it('shows the score from movie details when the list carries none', async () => {
+    watchlistState.entries = [{
+      accountId: 'x1', kind: 'vod', itemId: '42', name: 'Saved Movie', poster: '',
+      rating: '', categoryId: '9', containerExtension: 'mkv', addedAt: 2,
+    }];
+    catalogMock.loadVodInfo.mockResolvedValue({
+      plot: '', cast: '', director: '', genre: 'Drama', releaseDate: '', durationSecs: 0,
+      poster: '', imdbId: '', tmdbId: '', rating: '7.5', year: 0,
+    });
+    const { view } = await openWith();
+    const tile = container.querySelector('.catalog-tile[data-item-id="42"]') as HTMLElement;
+    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    await Promise.resolve(); await Promise.resolve();
+    expect(container.querySelector('.movies-detail')?.textContent).toContain('Drama  ·  7.5');
+  });
+
   it('queues only the movies after one launched from the Watchlist rail', async () => {
     watchlistState.entries = [
       {

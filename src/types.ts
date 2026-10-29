@@ -532,6 +532,7 @@ export interface VodInfo {
   subtitles: SidecarSubtitle[];
   imdbId: string;
   tmdbId: string;
+  rating: string;
   year: number;
 }
 

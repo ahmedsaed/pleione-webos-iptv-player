@@ -246,7 +246,7 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
     const mins = info && info.durationSecs > 0
       ? t('catalog.minutes', { count: Math.floor(info.durationSecs / 60) })
       : '';
-    const meta = [year, mins, info?.genre, vod.rating].filter((s) => !!s);
+    const meta = [year, mins, info?.genre, info?.rating || vod.rating].filter((s) => !!s);
     const watchlisted = StorageService.isWatchlisted(a.id, 'vod', vod.streamId);
 
     morph(this.layer('detail'), html`
