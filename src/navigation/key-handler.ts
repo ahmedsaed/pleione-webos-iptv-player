@@ -8,6 +8,15 @@ import type { Action, NumberEvent } from '../types';
 
 type ActionHandler = (action: Action, event?: NumberEvent) => void;
 
+// A surface that steps its own scroll on the wheel cancels nav:wheel and calls
+// preventScroll, so the wheel neither steps channels nor scrolls natively.
+export interface NavWheelDetail {
+  step: boolean;
+  deltaX: number;
+  deltaY: number;
+  preventScroll: () => void;
+}
+
 const log = createLogger('Key');
 const K = CONFIG.KEYS;
 const WHEEL_SCROLL_WINDOW_MS = 1000;
@@ -427,8 +436,14 @@ export const KeyHandler = {
       const scrolls = hasScrollableAncestor(e.target as Element);
       // A surface that handles the wheel itself cancels nav:wheel.
       const at = e.target instanceof Element ? e.target : document;
+      const detail: NavWheelDetail = {
+        step: !scrolls,
+        deltaX: e.deltaX,
+        deltaY: e.deltaY,
+        preventScroll: () => e.preventDefault(),
+      };
       const claimed = !at.dispatchEvent(new CustomEvent('nav:wheel', {
-        bubbles: true, cancelable: true, detail: { step: !scrolls },
+        bubbles: true, cancelable: true, detail,
       }));
       if (claimed || scrolls) return;
       e.preventDefault();

@@ -409,6 +409,14 @@ describe('XtreamClient VOD', () => {
     });
   });
 
+  it('reads the first backdrop from get_vod_info', async () => {
+    fetchTextMock.mockResolvedValue(JSON.stringify({
+      info: { plot: 'A plot', backdrop_path: ['http://host/b1.jpg'] },
+    }));
+    expect(await createXtreamClient(creds).getVodInfo('10'))
+      .toMatchObject({ backdrop: 'http://host/b1.jpg' });
+  });
+
   it('classifies malformed catalog JSON instead of returning an empty catalog', async () => {
     fetchTextMock.mockResolvedValue('<html>not json</html>');
     await expect(createXtreamClient(creds).getVodCategories())
@@ -565,6 +573,23 @@ describe('XtreamClient Series', () => {
       accountId: 'acc1', seriesId: '7', name: 'Series One', poster: 'http://host/c.png',
       rating: '8', categoryId: '2',
     }]);
+  });
+
+  it('reads the series hero details from the list: genre, a bounded plot, and the first backdrop', async () => {
+    const long = 'word '.repeat(200);
+    fetchTextMock.mockResolvedValue(JSON.stringify([
+      { series_id: 1, name: 'S1', category_id: '2', genre: ' Drama ', plot: 'A plot',
+        backdrop_path: ['', 'http://host/b1.jpg', 'http://host/b2.jpg'] },
+      { series_id: 2, name: 'S2', category_id: '2', plot: long, backdrop_path: 'http://host/b3.jpg' },
+      { series_id: 3, name: 'S3', category_id: '2', genre: '', plot: null, backdrop_path: [] },
+    ]));
+    const items = await createXtreamClient(creds).getSeries('2');
+    expect(items[0]).toMatchObject({ genre: 'Drama', plot: 'A plot', backdrop: 'http://host/b1.jpg' });
+    expect(items[1].plot).toHaveLength(CONFIG.XTREAM.LIST_PLOT_MAX_CHARS);
+    expect(items[1].backdrop).toBe('http://host/b3.jpg');
+    expect(items[2]).not.toHaveProperty('genre');
+    expect(items[2]).not.toHaveProperty('plot');
+    expect(items[2]).not.toHaveProperty('backdrop');
   });
 
   it('maps series added time from added, falling back to last_modified', async () => {

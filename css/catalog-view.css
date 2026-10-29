@@ -28,49 +28,98 @@
 .catalog-loading,
 .catalog-empty { display: flex; align-items: center; justify-content: center; height: 100%; }
 
-.catalog-browse { position: relative; padding: 0; overflow: hidden; }
+/* Browse splits the view: the focused title's hero on top, and below it the
+   rails, the only part that scrolls. The rail area is half the view, or one
+   rail's height where that is more (--catalog-rail-fit, measured). */
+.catalog-browse {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
 
 .catalog-hero {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--bg-primary);
+}
+.catalog-hero-art {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   background-size: cover;
-  background-position: center 28%;
-  background-color: var(--bg-primary);
+  background-position: center 25%;
+}
+/* A poster stands in for a missing backdrop: blurred into a wash of its
+   colors, and scaled so the blur's soft edges stay off screen. */
+.catalog-hero-art-soft {
+  filter: blur(40px);
+  transform: scale(1.2);
+  opacity: 0.7;
 }
 .catalog-hero-scrim {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   background:
     linear-gradient(90deg, rgb(var(--catalog-hero-scrim-rgb) / 0.95) 2%, rgb(var(--catalog-hero-scrim-rgb) / 0.5) 40%, transparent 72%),
-    linear-gradient(0deg, var(--bg-primary) 6%, transparent 52%);
+    linear-gradient(0deg, var(--bg-primary) 2%, transparent 48%);
 }
+/* The title sits at a fixed height, so a plot that arrives or changes never
+   moves it; the plot grows down and drops lines where room runs out. JS
+   raises the top at sizes too large for it (fitHeroText). */
 .catalog-hero-body {
   position: absolute;
-  left: 80px; top: 120px;
-  max-width: 960px;
-  z-index: 1;
-}
-.catalog-hero-kicker {
-  font-size: 22px; letter-spacing: 4px; font-weight: 700;
-  color: var(--accent); text-transform: uppercase;
+  top: 32%; bottom: 24px; left: 80px;
+  max-width: 1000px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .catalog-hero-title {
-  margin: 12px 0 0; font-size: 64px; font-weight: 800;
-  color: var(--text-primary); line-height: 1.05;
+  flex: none;
+  margin: 0;
+  font-size: 56px; font-weight: 700; line-height: 1.15;
+  color: var(--text-primary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.catalog-hero-meta {
+  flex: none;
+  margin-top: 8px;
+  font-size: 26px;
+  /* Holds its line when empty, so the plot starts at the same place. */
+  line-height: 1.4;
+  min-height: 1.4em;
+  color: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.catalog-hero-plot {
+  flex: none;
+  margin: 12px 0 0;
+  font-size: 26px; line-height: 1.4;
+  color: var(--text-primary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .catalog-rails {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
+  position: relative;
+  flex: none;
+  height: 50%;
+  min-height: var(--catalog-rail-fit, 0);
+  overflow-x: hidden;
   overflow-y: auto;
-  z-index: 2;
+  background: var(--bg-primary);
 }
-.catalog-rails-spacer { height: 45%; }
-.catalog-rails-body {
-  min-height: 55%;
-  padding: 8px 12px 60px 80px;
-  background: linear-gradient(180deg, transparent 0, rgb(var(--catalog-hero-scrim-rgb) / 0.85) 90px, var(--bg-primary) 240px);
-}
+.catalog-rails-body { padding: 0 12px 0 80px; }
+/* Room for the last rail to reach the top of the rail area. */
+.catalog-rails-end { height: calc((var(--canvas-height) - 96px) / 2); }
 
 .catalog-rail { margin-bottom: 28px; }
 .catalog-rail-title { margin: 0 0 12px; font-size: 30px; font-weight: 600; color: var(--text-primary); }

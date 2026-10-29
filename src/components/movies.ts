@@ -4,10 +4,11 @@ import { morph } from '../utils/morph';
 import { StorageService } from '../services/storage-service';
 import { loadVodCategories, loadVodStreams, loadVodInfo } from '../services/xtream-catalog';
 import { xtreamVodUrl } from '../utils/xtream-url';
-import { CatalogView, type CollectionKind, type CollectionEntry } from './catalog-view';
+import { CatalogView, type CollectionKind, type CollectionEntry, type HeroDetails } from './catalog-view';
 import { PLAY_ICON, REMOVE_ICON, watchlistIcon } from './icons';
 import { showToast } from './toast';
 import { t, tp } from '../i18n';
+import { CONFIG } from '../config';
 
 // The Movies section: browse (Continue rail + per-category rails + an "all
 // categories" drill-in) → per-category poster grid → a detail screen with
@@ -25,6 +26,9 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
   private currentInfo: VodInfo | null = null;
   private openedFromWatchlist = false;
   private detailController: AbortController | null = null;
+  // get_vod_info results the browse hero has shown, newest last; null when
+  // the provider had none, so a title is asked for once.
+  private readonly heroInfo = new Map<string, VodInfo | null>();
 
   protected loadCategories(
     account: PlaylistEntry,
@@ -59,6 +63,41 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
   protected fallbackItem(streamId: string): VodItem | null {
     return this.resumeToVod(streamId) ?? this.watchlistToVod(streamId);
   }
+  private heroInfoKey(v: VodItem): string {
+    return `${this.account?.id ?? ''}|${v.streamId}`;
+  }
+
+  private rememberHeroInfo(v: VodItem, info: VodInfo | null): void {
+    const key = this.heroInfoKey(v);
+    this.heroInfo.delete(key);
+    this.heroInfo.set(key, info);
+    if (this.heroInfo.size > CONFIG.XTREAM.HERO_DETAILS_CACHE_ITEMS) {
+      this.heroInfo.delete(this.heroInfo.keys().next().value!);
+    }
+  }
+
+  // The stream list carries no genre or plot; get_vod_info does.
+  protected heroDetails(v: VodItem): HeroDetails {
+    const info = this.heroInfo.get(this.heroInfoKey(v));
+    return {
+      genre: info?.genre || undefined,
+      year: info?.year || v.year,
+      plot: info?.plot || undefined,
+      backdrop: info?.backdrop || undefined,
+    };
+  }
+
+  protected heroDetailsPending(v: VodItem): boolean {
+    return !!this.account && !this.heroInfo.has(this.heroInfoKey(v));
+  }
+
+  protected async loadHeroDetails(v: VodItem, signal: AbortSignal): Promise<void> {
+    const account = this.account;
+    if (!account) return;
+    const info = await loadVodInfo(account, v.streamId, signal);
+    if (!signal.aborted && this.account?.id === account.id) this.rememberHeroInfo(v, info);
+  }
+
   protected heroFallback(): VodItem | null {
     return this.resumeToVod(this.resume[0]?.itemId ?? '')
       ?? this.watchlistToVod(this.visibleWatchlist('vod')[0]?.itemId ?? '');
@@ -172,13 +211,16 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
     this.openedFromWatchlist = fromWatchlist;
     this.currentVod = vod;
     this.enterDetail();
-    this.currentInfo = null;
+    // What the browse hero already fetched shows at once.
+    const shown = this.heroInfo.get(this.heroInfoKey(vod)) ?? null;
+    this.currentInfo = shown;
     this.renderDetail();
     try {
       this.currentInfo = await loadVodInfo(account, vod.streamId, signal);
+      if (!signal.aborted) this.rememberHeroInfo(vod, this.currentInfo);
     } catch (err) {
       if (!this.requestFailed('Movie detail load', err, signal)) return;
-      this.currentInfo = null;
+      this.currentInfo = shown;
     }
     if (this.mode === 'detail' && this.currentVod === vod) this.renderDetail();
   }

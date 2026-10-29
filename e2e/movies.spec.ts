@@ -90,7 +90,7 @@ test('keeps the focus ring clear of the rail edge at See all', async ({ page }) 
   await enterTab(page, 'movies');
   await page.locator('.catalog-tile[data-item-id="100"]')
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
-  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
   const seeAll = page.locator('#view-movies .catalog-see-all');
   await expect(seeAll).toHaveClass(/focused/);
   await expect(seeAll).toContainText('30 movies');
@@ -124,7 +124,7 @@ test('Back to See all jumps straight to it under full animation', async ({ page 
   await page.locator('#view-movies [data-rail-key="cat:4"] .catalog-tile').first()
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
   const seeAll = page.locator('#view-movies .catalog-see-all[data-category-id="4"]');
-  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
   await expect(seeAll).toHaveClass(/focused/);
   await expect.poll(() => seeAll.evaluate((el) => {
     const track = el.parentElement!.getBoundingClientRect();
@@ -273,15 +273,15 @@ test('Back walks Movies detail -> browse -> Live instead of ejecting', async ({ 
 
 test('Back from a detail finds browse scrolled and focused as it was left', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('iptv_animation_mode', JSON.stringify('full')));
-  await seedMovies(page, { streams: 20 });
+  await seedMovies(page, { streams: 10 });
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
   await enterTab(page, 'movies');
   await expect(page.locator('html')).toHaveAttribute('data-animation', 'full');
   await page.locator('.catalog-tile[data-item-id="100"]')
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
-  for (let i = 0; i < 15; i++) await page.keyboard.press('ArrowRight');
-  const tile = page.locator('#view-movies .catalog-tile[data-item-id="115"]');
+  for (let i = 0; i < 9; i++) await page.keyboard.press('ArrowRight');
+  const tile = page.locator('#view-movies .catalog-tile[data-item-id="109"]');
   await expect(tile).toHaveClass(/focused/);
   const track = page.locator('#view-movies .catalog-browse .catalog-rail-track').first();
   // Let the smooth scroll settle before recording where browse was left.
@@ -298,7 +298,7 @@ test('Back from a detail finds browse scrolled and focused as it was left', asyn
   // and only glide back to the tile afterward.
   const back = await page.evaluate(() => {
     document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true }));
-    const el = document.querySelector<HTMLElement>('#view-movies .catalog-tile[data-item-id="115"]')!;
+    const el = document.querySelector<HTMLElement>('#view-movies .catalog-tile[data-item-id="109"]')!;
     return {
       focused: el.classList.contains('focused'),
       scrollLeft: el.parentElement!.scrollLeft,
@@ -590,7 +590,7 @@ test('after the pointer leaves a grid tile, the first key shows it and the next 
   await enterTab(page, 'movies');
   await page.locator('.catalog-tile[data-item-id="100"]')
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
-  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
 
@@ -611,7 +611,7 @@ test('CH+/CH- leave a pointer-hidden tile hidden in the catalog', async ({ page 
   await enterTab(page, 'movies');
   await page.locator('.catalog-tile[data-item-id="100"]')
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
-  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
 
@@ -634,7 +634,7 @@ test('a revealed grid tile keeps its ring after the reveal scrolls the grid', as
   await enterTab(page, 'movies');
   await page.locator('.catalog-tile[data-item-id="100"]')
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
-  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
 
@@ -675,7 +675,7 @@ test('Up into the tab bar takes the ring off the catalog tile', async ({ page })
   await expect(page.locator('#view-movies .focused')).toHaveCount(0);
 });
 
-test('Down from the tab bar rings the remembered control, and one Down reaches a tile', async ({ page }) => {
+test('Down from the tab bar rings the remembered tile', async ({ page }) => {
   await seedMovies(page, { streams: 30 });
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
@@ -688,14 +688,14 @@ test('Down from the tab bar rings the remembered control, and one Down reaches a
   await expect(page.locator('.tab-bar-item.focused')).toHaveCount(1);
   await expect(page.locator('#view-movies .focused')).toHaveCount(0);
 
+  // No sort row sits between the tab bar and the rails any more.
   await page.keyboard.press('ArrowDown');
   const focused = page.locator('#view-movies .focused');
   await expect(focused).toHaveCount(1);
-  const first = await focused.getAttribute('data-key');
+  await expect(focused).toHaveAttribute('data-item-id', '100');
+  // The only rail has nothing below it, so Down stays on the tile.
   await page.keyboard.press('ArrowDown');
-  await expect(focused).toHaveCount(1);
-  await expect(focused).not.toHaveAttribute('data-key', first ?? '');
-  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveCount(1);
+  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveAttribute('data-item-id', '100');
 });
 
 async function upToTabBar(page: Page): Promise<void> {

@@ -281,7 +281,8 @@ for (const section of ['movies', 'series'] as const) {
     const view = page.locator(`#view-${section}`);
     const resume = view.locator('[data-rail-key="continue"] .catalog-rail-track');
     const watchlist = view.locator('[data-rail-key="watchlist"] .catalog-rail-track');
-    await expect(resume.locator('.catalog-tile')).toHaveCount(21);
+    // RAIL_ITEMS titles and the See all tile.
+    await expect(resume.locator('.catalog-tile')).toHaveCount(11);
     await expectEdgeTrack(resume);
     await expectEdgeTrack(watchlist);
     await expectLeftBleed(resume);
@@ -355,9 +356,11 @@ test('a category rail cancels before the dwell, stops on a key or a window blur,
   const afterKey = await expectStopped(page, track);
   expect(afterKey).toBeLessThan(await maxLeft(track));
 
-  // Real movement inside the edge starts it again.
+  // Real movement inside the edge starts it again. A rail of RAIL_ITEMS
+  // titles is short, so give it room to run before the blur stops it.
+  await track.evaluate((el) => { el.style.scrollBehavior = 'auto'; el.scrollLeft = 0; el.style.scrollBehavior = ''; });
   await nudge(page, at);
-  await expectScrolling(track, 'right', afterKey);
+  await expectScrolling(track, 'right', 0);
   await page.evaluate(() => window.dispatchEvent(new Event('blur')));
   const afterBlur = await expectStopped(page, track);
   expect(afterBlur).toBeLessThan(await maxLeft(track));
@@ -420,7 +423,10 @@ async function scrollFarThenKey(
 ): Promise<void> {
   await pointAt(page, track, 'center');
   await expectScrolling(track, 'right', (await enterEdgeAndDwell(page, track, outer ? 'outer-right' : 'right')).from);
-  await expect.poll(() => left(track), { timeout: 20_000 }).toBeGreaterThan(2400);
+  // A rail of RAIL_ITEMS titles plus See all scrolls well short of a Search
+  // rail, so far means the end of whichever track this is.
+  const end = Math.min(2400, await maxLeft(track) - 1);
+  await expect.poll(() => left(track), { timeout: 20_000 }).toBeGreaterThanOrEqual(end);
   if (how === 'cursor-hidden') {
     await page.evaluate(() => document.dispatchEvent(
       new CustomEvent('cursorStateChange', { bubbles: true, detail: { visibility: false } })));

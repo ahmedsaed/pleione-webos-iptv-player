@@ -11,6 +11,7 @@ import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
 import { FocusRing, ringShown } from '../navigation/focus-ring';
 import { InputMode } from '../navigation/input-mode';
+import type { NavWheelDetail } from '../navigation/key-handler';
 import { html, raw, Safe, withInstantScroll } from '../utils/dom';
 import { categoryLockBadge, lockBadge } from './parental-badge';
 import { SORT_ASCENDING_ICON, SORT_DESCENDING_ICON, SEE_ALL_ICON, REMOVE_ICON, CHECK_ICON, TRASH_ICON, PENCIL_ICON } from './icons';
@@ -67,6 +68,11 @@ const CATEGORY_RAIL_VIEWPORT = 1760;
 
 // Matches the rail track's padding and its end spacer in catalog-view.css.
 const RAIL_EDGE_GUTTER = 12;
+// Match .catalog-hero-body's top and the title and plot line clamps in
+// catalog-view.css.
+const HERO_TITLE_ANCHOR = 0.32;
+const HERO_TITLE_LINES = 2;
+const HERO_PLOT_LINES = 3;
 
 export interface CatalogHandlers {
   onRevealTabBar: () => void;
@@ -88,6 +94,22 @@ interface GridSource {
   count: number;
   keyAt: (index: number) => string;
   render: (index: number) => Safe;
+}
+
+// What the browse hero shows: a catalog title, or a resumed episode, which
+// carries only its own name and artwork.
+interface HeroSubject<I> {
+  key: string;
+  name: string;
+  poster: string;
+  item: I | null;
+}
+
+export interface HeroDetails {
+  genre?: string;
+  year?: number;
+  plot?: string;
+  backdrop?: string;
 }
 
 interface BrowseReturn {
@@ -143,7 +165,11 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private serverItemsByCategory: Record<string, I[]> = {};
   private sort: CatalogSortPreference = { by: 'default', direction: 'asc' };
   private resetBrowseRailOffsets = false;
-  private browseSortReturn: string | null = null;
+  private hero: HeroSubject<I> | null = null;
+  private heroTimer: ReturnType<typeof setTimeout> | null = null;
+  private heroController: AbortController | null = null;
+  private lastWheelStepAt = 0;
+  private wheelTarget = 0;
   protected gridCategory: C | null = null;
   private collection: CollectionKind | null = null;
   private managing = false;
@@ -160,6 +186,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     fallbackViewportHeight: CATALOG_GRID_VIEWPORT_HEIGHT,
   });
   private gridScrollFrame: number | null = null;
+  private gridWindowStale = false;
   private readonly categoryVirtualizer = new VirtualList({
     itemSize: () => uiPx(CATEGORY_RAIL_STRIDE),
     overscan: 4,
@@ -203,7 +230,12 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       has: (key) => this.hasKey(key),
       reveal: (key) => this.revealKey(key),
       concealOnLeave: true,
+      // With the keys in the tab bar nothing in the rails is focused, so the
+      // hero goes back to the first title; it follows the focus once back.
+      onRelease: () => this.syncHero(),
+      onAcquire: () => this.syncHero(),
     });
+    this.container.addEventListener('nav:wheel', (e: Event) => this.onWheel(e as CustomEvent<NavWheelDetail>));
     // The pointer lights a tile or button where it rests, without scrolling.
     this.container.addEventListener('nav:hover', (e: Event) => {
       const target = e.target as HTMLElement;
@@ -259,7 +291,11 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       if (this.gridScrollFrame !== null) return;
       this.gridScrollFrame = requestAnimationFrame(() => {
         this.gridScrollFrame = null;
-        if (this.mode === 'grid') this.renderGrid(false, true);
+        if (this.mode !== 'grid') return;
+        // A render would close the open sort menu (revealing its trigger
+        // scrolls the grid); the window catches up once the menu closes.
+        if (this.openSortMenu()) this.gridWindowStale = true;
+        else this.renderGrid(false, true);
       });
     }, true);
   }
@@ -305,6 +341,11 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   protected fallbackItem(_id: string): I | null { return null; }
   // Hero when no rail item exists (Movies falls back to a resumed item); default none.
   protected heroFallback(): I | null { return null; }
+  // What the hero can show for a title right away.
+  protected heroDetails(_item: I): HeroDetails { return {}; }
+  // Details the hero still has to ask the provider for, once focus rests.
+  protected heroDetailsPending(_item: I): boolean { return false; }
+  protected loadHeroDetails(_item: I, _signal: AbortSignal): Promise<void> { return Promise.resolve(); }
 
   // The active mode's layer; hidden layers keep their DOM but never take focus.
   protected layer(mode: Mode = this.mode): HTMLElement {
@@ -313,7 +354,10 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
 
   protected showLayer(mode: Mode): void {
     if (mode !== this.mode) this.dismissSort(null);
-    if (this.mode === 'browse' && mode !== 'browse') this.leaveBrowse();
+    if (this.mode === 'browse' && mode !== 'browse') {
+      this.leaveBrowse();
+      this.cancelHeroDetails();
+    }
     this.mode = mode;
     (Object.keys(this.layers) as Mode[]).forEach((key) => {
       this.layers[key].classList.toggle('catalog-layer-hidden', key !== mode);
@@ -437,9 +481,17 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     if (parsed.mode === 'grid' && this.gridIndexOf(parsed.key) >= 0) {
       return this.revealGridIndex(this.gridIndexOf(parsed.key)) ? true : null;
     }
-    if (parsed.mode === 'browse' && parsed.rail === 'all-categories') {
-      scrolled = this.revealCategoryIndex(this.categoryIndexOf(parsed.key));
-    } else if (parsed.mode === 'detail') {
+    if (parsed.mode === 'browse') {
+      if (parsed.rail === 'all-categories') {
+        scrolled = this.revealCategoryIndex(this.categoryIndexOf(parsed.key));
+      }
+      const el = this.resolveKey(key);
+      if (!el) return scrolled ? true : null;
+      if (this.revealRailGutter(el, instant)) scrolled = true;
+      if (this.snapRail(el, instant)) scrolled = true;
+      return scrolled ? true : null;
+    }
+    if (parsed.mode === 'detail') {
       const extra = this.revealExtraKey(parsed.key, instant);
       if (extra !== undefined) return extra;
     }
@@ -614,6 +666,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     if (this.account?.id !== account.id) {
       this.clearPrompt.hide();
       this.dismissSort(null);
+      this.cancelHeroDetails();
       this.requestController?.abort();
       this.onRequestSessionReset();
       this.nav.resetRecovery();
@@ -637,6 +690,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   }
 
   private beginRequests(): AbortSignal {
+    this.cancelHeroDetails();
     this.requestController?.abort();
     this.onRequestSessionReset();
     this.requestController = new AbortController();
@@ -653,6 +707,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   }
 
   deactivate(): void {
+    this.cancelHeroDetails();
     this.clearPrompt.hide();
     this.dismissSort(null);
     this.requestController?.abort();
@@ -677,8 +732,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     this.itemsByCategory = {};
     this.serverItemsByCategory = {};
     this.sort = StorageService.getCatalogSort(this.parentalKind);
-    this.browseSortReturn = null;
     this.resetBrowseRailOffsets = false;
+    this.hero = null;
     this.gridCategory = null;
     this.categoryVirtualizer.setScrollOffset(0);
     this.gridVirtualizer.setScrollOffset(0);
@@ -844,16 +899,11 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       this.nav.setRestrict(this.layers[this.mode]);
       return;
     }
-    if (sortRow && action === 'down') {
-      if (this.mode === 'grid') this.revealGridIndex(this.gridFocusIndex);
-      const target = this.mode === 'grid'
-        ? this.layers.grid.querySelector<HTMLElement>(
-          `[data-grid-index="${this.gridFocusIndex}"] [data-focusable]`,
-        )
-        : (this.browseSortReturn ? this.resolveKey(this.browseSortReturn) : null)
-          ?? this.layers.browse.querySelector<HTMLElement>(
-            '[data-rail-key^="cat:"] .catalog-tile[data-focusable], .catalog-category-rail .catalog-cat[data-focusable]',
-          );
+    if (sortRow && action === 'down' && this.mode === 'grid') {
+      this.revealGridIndex(this.gridFocusIndex);
+      const target = this.layers.grid.querySelector<HTMLElement>(
+        `[data-grid-index="${this.gridFocusIndex}"] [data-focusable]`,
+      );
       if (target) {
         this.place(target, 'key');
         return;
@@ -873,25 +923,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       return;
     }
     switch (action) {
-      case 'up': {
-        const origin = this.focusScope.focusKey;
-        const firstCategory = this.mode === 'browse' ? this.layers.browse.querySelector(
-          '[data-rail-key^="cat:"], [data-rail-key="all-categories"]',
-        ) : null;
-        if (firstCategory && current?.closest('.catalog-rail') === firstCategory) {
-          const trigger = this.layers.browse.querySelector<HTMLElement>('.catalog-sort .dropdown-trigger');
-          if (trigger) {
-            this.place(trigger, 'key');
-            this.browseSortReturn = origin;
-            return;
-          }
-        }
+      case 'up':
         if (!this.nav.move('up')) this.handlers.onRevealTabBar();
-        else if (this.mode === 'browse' && !sortRow && this.current()?.closest('.catalog-sort')) {
-          this.browseSortReturn = origin;
-        }
         return;
-      }
       case 'down':
       case 'left':
       case 'right':
@@ -1133,7 +1167,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   // (title + backdrop) in sync with the focused item tile. Category tiles and
   // non-browse modes leave the hero unchanged.
   private onFocusChanged(el: HTMLElement | null): void {
-    if (this.mode === 'browse' && !el?.closest('.catalog-sort')) this.browseSortReturn = null;
     this.request(el ? this.keyFor(el) : null, this.pickVia);
     const gridCell = el?.closest<HTMLElement>('[data-grid-index]');
     if (this.mode === 'grid' && gridCell?.dataset.gridIndex !== undefined) {
@@ -1143,15 +1176,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     const categoryCell = el?.closest<HTMLElement>('[data-category-virtual-index]');
     if (this.mode === 'browse' && categoryCell) return;
     if (this.mode !== 'browse' || !el) return;
-    if (el.dataset.resumeEpisode !== undefined) {
-      const entry = this.resume.find(entry => entry.itemId === el.dataset.resumeEpisode);
-      if (entry) this.updateHero(entry.name, entry.poster);
-      return;
-    }
-    const id = el.dataset.itemId;
-    if (id === undefined) return;
-    const item = this.findItem(el.dataset.categoryId ?? '', id);
-    if (item) this.updateHero(this.itemName(item), this.itemPoster(item));
+    const subject = this.heroSubjectFor(el);
+    if (subject) this.showHero(subject);
   }
 
   // A tile flush with the rail's scrollport would clip its focus ring; keep a
@@ -1182,15 +1208,220 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     return true;
   }
 
-  private updateHero(name: string, poster: string): void {
+  // --- browse hero ---
+
+  private heroSubjectFor(el: HTMLElement): HeroSubject<I> | null {
+    if (el.dataset.resumeEpisode !== undefined) {
+      const entry = this.resume.find(entry => entry.itemId === el.dataset.resumeEpisode);
+      return entry ? { key: `r:${entry.itemId}`, name: entry.name, poster: entry.poster, item: null } : null;
+    }
+    const id = el.dataset.itemId;
+    if (id === undefined) return null;
+    const item = this.findItem(el.dataset.categoryId ?? '', id);
+    return item ? this.itemSubject(item) : null;
+  }
+
+  private itemSubject(item: I): HeroSubject<I> {
+    return { key: `i:${this.itemId(item)}`, name: this.itemName(item), poster: this.itemPoster(item), item };
+  }
+
+  // The first title of the first rail, shown while nothing in the rails is focused.
+  private defaultHeroSubject(): HeroSubject<I> | null {
+    const first = this.layers.browse.querySelector<HTMLElement>(
+      '.catalog-rail .catalog-tile[data-focusable]:not(.catalog-see-all)',
+    );
+    const subject = first ? this.heroSubjectFor(first) : null;
+    if (subject) return subject;
+    const fallback = this.railGroups[0]?.items[0] ?? this.heroFallback();
+    return fallback ? this.itemSubject(fallback) : null;
+  }
+
+  // The hero follows the focused title while the rails own the keys; a
+  // focused See all or category tile leaves it as it was.
+  private syncHero(): void {
+    if (this.mode !== 'browse' || !this.layers.browse.querySelector('.catalog-hero')) return;
+    const el = Focus.owner() === this.focusScope ? this.current() : null;
+    let subject = el ? this.heroSubjectFor(el) : null;
+    if (!subject && el && this.hero) subject = this.hero;
+    subject = subject ?? this.defaultHeroSubject();
+    if (subject) this.showHero(subject);
+    // The section may have been hidden, unmeasured, when the hero last rendered.
+    this.fitHeroText();
+  }
+
+  private showHero(subject: HeroSubject<I>): void {
+    if (this.hero?.key === subject.key && this.hero.item === subject.item) return;
+    this.cancelHeroDetails();
+    this.hero = subject;
+    this.renderHero();
+    this.scheduleHeroDetails(subject);
+  }
+
+  // Details wait until focus rests on the title; moving on cancels them.
+  private scheduleHeroDetails(subject: HeroSubject<I>): void {
+    const item = subject.item;
+    if (!item || !this.heroDetailsPending(item)) return;
+    this.heroTimer = setTimeout(() => {
+      this.heroTimer = null;
+      if (this.hero !== subject || this.mode !== 'browse' || !this.shown()) return;
+      const controller = new AbortController();
+      this.heroController = controller;
+      const settle = (): void => {
+        if (this.heroController === controller) this.heroController = null;
+      };
+      this.loadHeroDetails(item, controller.signal).then(() => {
+        settle();
+        if (!controller.signal.aborted && this.hero === subject) this.renderHero();
+      }, settle);
+    }, CONFIG.XTREAM.HERO_DETAILS_DELAY_MS);
+  }
+
+  private cancelHeroDetails(): void {
+    if (this.heroTimer !== null) clearTimeout(this.heroTimer);
+    this.heroTimer = null;
+    this.heroController?.abort();
+    this.heroController = null;
+  }
+
+  private shown(): boolean {
+    return this.container.isConnected && !this.container.classList.contains('hidden');
+  }
+
+  private heroMarkup(): Safe {
+    const subject = this.hero;
+    if (!subject) return html`<div class="catalog-hero-scrim"></div>`;
+    const details = subject.item ? this.heroDetails(subject.item) : {};
+    const year = details.year && details.year > 0 ? String(details.year) : '';
+    const meta = [details.genre ?? '', year].filter(part => !!part);
+    // A backdrop that is only the poster again would crop like one.
+    const backdrop = details.backdrop ?? '';
+    const wide = !!backdrop && backdrop !== subject.poster;
+    // An artwork URL sits inside a CSS url('…') string, where the html
+    // escaper's entity encoding is decoded before CSS parses it; percent-encode
+    // the characters that could break out of the string.
+    const bg = (wide ? backdrop : subject.poster).replace(/["'()\\\s]/g, encodeURIComponent);
+    return html`
+      ${bg ? html`<div class="catalog-hero-art${wide ? '' : ' catalog-hero-art-soft'}"
+                       style="background-image: url('${bg}')"></div>` : ''}
+      <div class="catalog-hero-scrim"></div>
+      <div class="catalog-hero-body">
+        <h1 class="catalog-hero-title">${subject.name}</h1>
+        <div class="catalog-hero-meta">${meta.join('  ·  ')}</div>
+        ${details.plot ? html`<p class="catalog-hero-plot">${details.plot}</p>` : ''}
+      </div>
+    `;
+  }
+
+  private renderHero(): void {
     const hero = this.layers.browse.querySelector<HTMLElement>('.catalog-hero');
     if (!hero) return;
-    const title = this.layers.browse.querySelector<HTMLElement>('.catalog-hero-title');
-    if (title) title.textContent = name; // textContent escapes untrusted names
-    // Poster sits inside a CSS url('…') string; percent-encode the characters
-    // that could break out of it (matches renderBrowse's heroBg).
-    const bg = poster ? poster.replace(/["'()\\\s]/g, encodeURIComponent) : '';
-    hero.style.backgroundImage = bg ? `url('${bg}')` : 'none';
+    morph(hero, this.heroMarkup());
+    this.fitHeroText();
+  }
+
+  // The title's place depends on the layout alone, never on the title shown,
+  // so a plot that lands or changes length never moves it: about a third of
+  // the way down, or higher where a large Interface or text size leaves too
+  // little room for a two-line title and the meta line beneath. The plot
+  // grows down from there and drops lines from its end where room runs out,
+  // so no line shows cut in half.
+  private fitHeroText(): void {
+    const body = this.layers.browse.querySelector<HTMLElement>('.catalog-hero-body');
+    const hero = body?.parentElement;
+    const title = body?.querySelector<HTMLElement>('.catalog-hero-title');
+    const meta = body?.querySelector<HTMLElement>('.catalog-hero-meta');
+    if (!body || !hero || !title || !meta || !hero.clientHeight) return;
+    const height = hero.clientHeight;
+    const pad = parseFloat(getComputedStyle(body).bottom) || 0;
+    const line = parseFloat(getComputedStyle(title).lineHeight) || 0;
+    const metaBlock = meta.offsetHeight + (parseFloat(getComputedStyle(meta).marginTop) || 0);
+    let titleLines = HERO_TITLE_LINES;
+    let need = titleLines * line + metaBlock;
+    if (need > height - 2 * pad) {
+      titleLines = 1;
+      need = line + metaBlock;
+    }
+    const top = Math.max(pad, Math.min(height * HERO_TITLE_ANCHOR, height - pad - need));
+    body.style.setProperty('top', `${Math.round(top)}px`);
+    if (titleLines < HERO_TITLE_LINES) title.style.setProperty('-webkit-line-clamp', String(titleLines));
+    else title.style.removeProperty('-webkit-line-clamp');
+    const plot = body.querySelector<HTMLElement>('.catalog-hero-plot');
+    if (!plot) return;
+    plot.style.removeProperty('display');
+    plot.style.removeProperty('-webkit-line-clamp');
+    const bottom = body.getBoundingClientRect().bottom;
+    let lines = HERO_PLOT_LINES;
+    while (lines > 0 && plot.getBoundingClientRect().bottom > bottom + 0.5) {
+      lines--;
+      if (lines === 0) plot.style.setProperty('display', 'none');
+      else plot.style.setProperty('-webkit-line-clamp', String(lines));
+    }
+  }
+
+  // --- browse rails: one rail at a time under the hero ---
+
+  // Aligns the rail holding `el` with the top of the rail area, so the rails
+  // above it are clipped away whole. True when it scrolled.
+  private snapRail(el: HTMLElement, instant: boolean): boolean {
+    const rails = this.layers.browse.querySelector<HTMLElement>('.catalog-rails');
+    const rail = el.closest<HTMLElement>('.catalog-rail');
+    if (!rails || !rail || !rails.contains(rail)) return false;
+    this.fitRails(rails);
+    return this.scrollRails(rails, this.railOffset(rails, rail), instant);
+  }
+
+  // A rail's offset in the scrolled content, which holds mid smooth scroll.
+  private railOffset(rails: HTMLElement, rail: HTMLElement): number {
+    return Math.round(rails.scrollTop + rail.getBoundingClientRect().top
+      - rails.getBoundingClientRect().top - rails.clientTop);
+  }
+
+  private scrollRails(rails: HTMLElement, target: number, instant: boolean): boolean {
+    const top = Math.max(0, target);
+    if (Math.abs(top - rails.scrollTop) < 1) return false;
+    if (instant) withInstantScroll([rails], () => { rails.scrollTop = top; });
+    else rails.scrollTop = top;
+    return true;
+  }
+
+  // The rail area takes half the view, or more where one rail needs it (a
+  // large Interface or text size), so the focused rail always shows whole.
+  private fitRails(rails: HTMLElement): void {
+    let tallest = 0;
+    Array.from(rails.querySelectorAll<HTMLElement>('.catalog-rail')).forEach((rail) => {
+      tallest = Math.max(tallest, rail.offsetHeight);
+    });
+    const fit = `${tallest}px`;
+    if (tallest <= 0 || this.layers.browse.style.getPropertyValue('--catalog-rail-fit') === fit) return;
+    this.layers.browse.style.setProperty('--catalog-rail-fit', fit);
+    this.fitHeroText();
+  }
+
+  // The wheel steps the rails as the remote does, without moving focus.
+  private onWheel(e: CustomEvent<NavWheelDetail>): void {
+    const wheel = e.detail;
+    if (this.mode !== 'browse' || !wheel || !wheel.deltaY || Math.abs(wheel.deltaX) > Math.abs(wheel.deltaY)) return;
+    const rails = this.layers.browse.querySelector<HTMLElement>('.catalog-rails');
+    if (!rails || !(e.target instanceof Node) || !rails.contains(e.target)) return;
+    e.preventDefault();
+    wheel.preventScroll();
+    const deltaY = wheel.deltaY;
+    const now = Date.now();
+    const since = now - this.lastWheelStepAt;
+    if (since < CONFIG.NAVIGATION.RAIL_WHEEL_STEP_MS) return;
+    // A smooth step still running counts from where it is headed.
+    const from = since < CONFIG.NAVIGATION.REVEAL_SETTLE_MS ? this.wheelTarget : rails.scrollTop;
+    this.lastWheelStepAt = now;
+    const offsets = Array.from(rails.querySelectorAll<HTMLElement>('.catalog-rail'))
+      .map(rail => this.railOffset(rails, rail));
+    if (!offsets.length) return;
+    let index = 0;
+    offsets.forEach((offset, i) => {
+      if (Math.abs(offset - from) < Math.abs(offsets[index] - from)) index = i;
+    });
+    const next = Math.max(0, Math.min(offsets.length - 1, index + (deltaY > 0 ? 1 : -1)));
+    this.wheelTarget = offsets[next];
+    this.scrollRails(rails, offsets[next], false);
   }
 
   // Concealed titles are dropped at load, so every rail, grid, and hero built
@@ -1228,6 +1459,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     if (!menu) return;
     this.nav.setRestrict(this.layers[this.mode]);
     this.pick(via, () => closeDropdown(this.nav, menu));
+    if (this.gridWindowStale && this.mode === 'grid') this.renderGrid(false, true);
   }
 
   private applySort(sort: CatalogSortPreference, direction?: CatalogSortDirection): void {
@@ -1235,7 +1467,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     const applied = changed && StorageService.setCatalogSort(this.parentalKind, sort);
     if (applied) {
       this.sort = sort;
-      this.browseSortReturn = null;
       Object.keys(this.serverItemsByCategory).forEach(id => {
         this.itemsByCategory[id] = sortCatalogItems(
           this.serverItemsByCategory[id], sort.by, getLocale(), sort.direction,
@@ -1436,14 +1667,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     this.showLayer('browse');
     const browse = this.layers.browse;
     this.resume = this.visibleResume(this.account!.id);
-    const hero = this.railGroups[0]?.items[0] ?? this.heroFallback();
     const continueRail = this.collectionRail('continue');
     const watchlistRail = this.collectionRail('watchlist');
     const hasContent = this.categories.length > 0 || !!continueRail || !!watchlistRail;
-    // A poster URL sits inside a CSS url('…') string, where the html escaper's
-    // entity encoding is decoded before CSS parses it; percent-encode the
-    // characters that could break out of the string.
-    const heroBg = hero ? this.itemPoster(hero).replace(/["'()\\\s]/g, encodeURIComponent) : '';
     // Once some categories have no rail, "All Categories" lists every category,
     // rails included, so it is the one complete index of the catalog.
     const moreCats = this.categories.length > this.railGroups.length ? this.categories : [];
@@ -1460,19 +1686,11 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
         ${!hasContent
           ? html`<p class="catalog-hint catalog-empty">${this.emptyMessage}</p>`
           : html`
-            <div class="catalog-hero" style="background-image: url('${heroBg}')">
-              <div class="catalog-hero-scrim"></div>
-            </div>
-            <div class="catalog-hero-body">
-              <div class="catalog-hero-kicker">${this.kicker}</div>
-              <h1 class="catalog-hero-title">${hero ? this.itemName(hero) : this.kicker}</h1>
-            </div>
+            <div class="catalog-hero">${this.heroMarkup()}</div>
             <div class="catalog-rails">
-              <div class="catalog-rails-spacer"></div>
               <div class="catalog-rails-body">
                 ${continueRail}
                 ${watchlistRail}
-                ${this.categories.length ? this.sortControls() : ''}
                 ${this.railGroups.map((r) => this.categoryRail(r))}
                 ${moreCats.length ? html`
                   <div class="catalog-rail" data-key="rail:all-categories"
@@ -1501,10 +1719,14 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
                   </div>
                 ` : ''}
               </div>
+              <div class="catalog-rails-end"></div>
             </div>
           `}
       </div>
     `);
+    const rails = browse.querySelector<HTMLElement>('.catalog-rails');
+    if (rails) this.fitRails(rails);
+    this.fitHeroText();
     const categoryRail = browse.querySelector<HTMLElement>('.catalog-category-rail');
     if (categoryRail) {
       this.scrollGuard.syncOffset(
@@ -1520,6 +1742,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       this.resetBrowseRailOffsets = false;
     }
     if (restoreFocus) this.restoreBrowseFocus();
+    this.syncHero();
   }
 
   private collectionActions(width: number): Safe {
@@ -1550,6 +1773,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   // `followView`: the window follows a user scroll, whose offset stays as is;
   // above the first row the window's offset is 0 while the view's is not.
   protected renderGrid(restoreFocus = true, followView = false): void {
+    this.gridWindowStale = false;
     this.dismissSort(null);
     this.showLayer('grid');
     const gridLayer = this.layers.grid;

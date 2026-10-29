@@ -4,7 +4,7 @@ import { morph } from '../utils/morph';
 import { StorageService } from '../services/storage-service';
 import { loadSeriesCategories, loadSeries, loadSeriesInfo } from '../services/xtream-catalog';
 import { xtreamEpisodeUrl, type XtreamCredentials } from '../utils/xtream-url';
-import { CatalogView, type CatalogHandlers, type CollectionKind, type CollectionEntry } from './catalog-view';
+import { CatalogView, type CatalogHandlers, type CollectionKind, type CollectionEntry, type HeroDetails } from './catalog-view';
 import { PLAY_ICON, watchlistIcon } from './icons';
 import { showToast } from './toast';
 import { t, tp } from '../i18n';
@@ -100,6 +100,11 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     const entry = this.visibleWatchlist('series')
       .find((item) => item.itemId === seriesId);
     return entry ? this.watchlistEntryToSeries(entry) : null;
+  }
+
+  // The series list already carries what the hero shows.
+  protected heroDetails(s: SeriesItem): HeroDetails {
+    return { genre: s.genre, year: s.year, plot: s.plot, backdrop: s.backdrop };
   }
 
   protected heroFallback(): SeriesItem | null {

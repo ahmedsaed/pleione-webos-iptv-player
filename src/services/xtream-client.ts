@@ -138,6 +138,31 @@ function firstNonEmptyString(...values: unknown[]): string {
   return '';
 }
 
+// Xtream sends backdrop_path as a list of URLs, though some panels send one string.
+function firstBackdrop(value: unknown): string {
+  return Array.isArray(value) ? firstNonEmptyString(...(value as unknown[])) : firstNonEmptyString(value);
+}
+
+// Only the browse hero reads a list-level plot, and it shows a few lines, so a
+// large catalog keeps no full synopses in memory.
+function listPlot(value: unknown): string {
+  const plot = toStr(value).trim();
+  return plot.length > CONFIG.XTREAM.LIST_PLOT_MAX_CHARS
+    ? plot.slice(0, CONFIG.XTREAM.LIST_PLOT_MAX_CHARS) : plot;
+}
+
+// Only fields the provider filled, so lists without them stay as small as before.
+function heroMetadata(item: Record<string, unknown>): { genre?: string; plot?: string; backdrop?: string } {
+  const genre = toStr(item.genre).trim();
+  const plot = listPlot(item.plot);
+  const backdrop = firstBackdrop(item.backdrop_path);
+  return {
+    ...(genre ? { genre } : {}),
+    ...(plot ? { plot } : {}),
+    ...(backdrop ? { backdrop } : {}),
+  };
+}
+
 function mapFetchError(err: unknown): XtreamRequestError {
   if (err instanceof XtreamRequestError) return err;
   if (err instanceof FetchTextError) {
@@ -482,6 +507,7 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
         imdbId: toStr(i.imdb_id ?? i.imdb).replace(/^tt/i, ''),
         tmdbId: toStr(i.tmdb_id ?? i.tmdb),
         year: Number(toStr(i.releasedate ?? i.release_date).slice(0, 4)) || 0,
+        ...(firstBackdrop(i.backdrop_path) ? { backdrop: firstBackdrop(i.backdrop_path) } : {}),
       };
     },
 
@@ -513,6 +539,7 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
           poster: toStr(s.cover),
           rating: toStr(s.rating),
           categoryId: toStr(s.category_id),
+          ...heroMetadata(s),
           ...catalogSortMetadata(s, true),
         }))
         .filter((s) => s.seriesId !== '');

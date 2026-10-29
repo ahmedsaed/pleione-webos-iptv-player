@@ -533,6 +533,8 @@ export interface VodInfo {
   imdbId: string;
   tmdbId: string;
   year: number;
+  // A wide backdrop, when the provider sends one; optional in cached snapshots.
+  backdrop?: string;
 }
 
 export interface SeriesCategory {
@@ -549,6 +551,10 @@ export interface SeriesItem {
   categoryId: string;
   addedAt?: number;
   year?: number;
+  // List-level details for the browse hero; absent from older cached lists.
+  genre?: string;
+  plot?: string;
+  backdrop?: string;
 }
 
 export interface Episode {
