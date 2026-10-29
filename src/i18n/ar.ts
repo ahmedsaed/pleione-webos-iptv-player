@@ -325,6 +325,8 @@ export const AR_MESSAGES = {
   'settings.overlayDark': 'داكن',
   'settings.overlayFrosted': 'زجاجي',
   'settings.overlayHint': 'النمط الداكن أسهل قراءة فوق الفيديو. النمط الزجاجي يناسب السمات الفاتحة.',
+  'settings.interfaceSize': 'حجم الواجهة',
+  'settings.interfaceSizeHint': 'يغيّر حجم النصوص والصور وعناصر التحكم معًا.',
   'settings.textSize': 'حجم النص',
   'settings.textSizeDefault': '{percent}% (افتراضي)',
   'settings.display': 'العرض',
