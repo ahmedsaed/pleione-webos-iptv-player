@@ -122,6 +122,6 @@ test('catalog, settings, and search show no scrollbar', async ({ page }) => {
 
   await enterTab(page, 'search');
   await page.locator('.search-box-input').fill('channel');
-  await expect(page.locator('#view-search .catalog-tile').first()).toBeVisible();
+  await expect(page.locator('#view-search .search-channel-card').first()).toBeVisible();
   await expectNoScrollbars(page, 'search');
 });

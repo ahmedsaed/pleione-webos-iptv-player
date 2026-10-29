@@ -32,7 +32,6 @@ import { HomeButton } from './components/home-button';
 import { Movies } from './components/movies';
 import { Series } from './components/series';
 import { Search } from './components/search';
-import { SearchHistoryDropdown } from './components/search-history-dropdown';
 import { showToast } from './components/toast';
 import { showNumberEntry, hideNumberEntry } from './components/number-entry';
 import { ReminderService } from './services/reminder-service';
@@ -93,7 +92,6 @@ class App {
   private searchBox!: SearchBox;
   private homeButton!: HomeButton;
   private search!: Search;
-  private historyDropdown!: SearchHistoryDropdown;
   private movies!: Movies;
   private series!: Series;
   private lastSearchQuery = '';
@@ -299,6 +297,12 @@ class App {
       onLeaveLeft: () => this.leaveLeft(),
       // Step back out to the search box, where a second Back opens the menu.
       onBack: () => this.searchBox.focus(),
+      onPickRecent: (query) => {
+        this.searchBox.setQuery(query);
+        this.searchBox.release();
+        this.handleSearchQuery(query);
+        this.search.focusFirstResult();
+      },
       onPlayChannel: (idx, catchup) => { this.searchBox.release(); this.playChannel(idx, catchup); },
       onOpenMovie: (account, vod) => {
         this.searchBox.release();
@@ -323,17 +327,6 @@ class App {
           ));
       },
     });
-    this.historyDropdown = new SearchHistoryDropdown({
-      onPick: (query) => {
-        this.searchBox.setQuery(query);
-        this.searchBox.release();
-        this.handleSearchQuery(query);
-        this.search.focusFirstResult();
-      },
-      onCleared: () => this.searchBox.focus(),
-      onReturnToInput: () => this.searchBox.focus(),
-      onDismiss: () => this.searchBox.focus(),
-    });
     this.searchBox = new SearchBox($('.search-box-host', this.views.search)!, {
       onQuery: (query) => this.handleSearchQuery(query),
       onLeave: () => {
@@ -341,12 +334,9 @@ class App {
           this.search.focusFirstResult();
           return true;
         }
-        return this.openHistoryDropdown() && this.historyDropdown.focusFirst();
+        return this.search.focusRecent();
       },
-      onBack: () => {
-        this.historyDropdown.close('back');
-        this.openNavMenu('key');
-      },
+      onBack: () => this.openNavMenu('key'),
     });
     this.home = new Home(this.views.home, {
       onOpenSection: (section, via) => this.selectSection(section, via),
@@ -1060,7 +1050,6 @@ class App {
       ParentalControlService.endManagement();
       this.viewStack = ['settings'];
     }
-    this.historyDropdown?.close('view-change');
     this.livePreview?.beforeViewChange(name);
     if (name !== 'channels' && this.channelList.isEditing) this.channelList.exitEditMode();
     // Re-assert the persisted theme on every view transition. This reverts any
@@ -1175,30 +1164,12 @@ class App {
         err,
       ));
     this.searchBox.focus();
-    this.openHistoryDropdown();
   }
 
-  // The search box's query changed; an empty box drops the recent searches
-  // back down.
+  // The search box's query changed; an empty box shows the recent searches.
   private handleSearchQuery(query: string): void {
     this.lastSearchQuery = query;
     this.search.scheduleQuery(query);
-    if (query.trim().length > 0) {
-      this.historyDropdown.close('typed');
-      return;
-    }
-    this.openHistoryDropdown();
-  }
-
-  private openHistoryDropdown(): boolean {
-    const anchor = this.isCurrentView('search') ? this.searchBox.anchor() : null;
-    if (anchor && this.historyDropdown.open(anchor)) return true;
-    log.debug(
-      'Recent searches not opened',
-      'event=search.history.open.skipped',
-      `reason=${anchor ? 'empty' : 'no-anchor'}`,
-    );
-    return false;
   }
 
   // Show the guide and refresh its data in the background (shared by the EPG
@@ -1284,7 +1255,6 @@ class App {
   private openNavMenu(via: 'key' | 'pointer'): void {
     const section = this.currentSection();
     if (section === null) return;
-    this.historyDropdown.close('view-change');
     this.navMenu.open(via);
   }
 

@@ -340,6 +340,27 @@ describe('SearchWorkerIndex with cached documents', () => {
     expect((await index.query(query(1, 'alpha')))?.movies.indices).toEqual([0, 1]);
   });
 
+  it('folds Arabic spellings of cached catalog names like queries', async () => {
+    const names = ['فيلم أحمد', 'مسلسل مصطفى', 'قناة ٧'];
+    const memory = new MemoryReader(new Map<string, CachedRecord>([
+      ['catalog-cache|a|vod_all', { key: 'a|vod_all', timestamp: 30, data: names.map(name => ({ name })) }],
+    ]));
+    const index = new SearchWorkerIndex(memory);
+    index.index({ sessionId: 1, reset: true });
+    await index.index({
+      sessionId: 1,
+      cachedMovies: {
+        record: VOD_REF,
+        length: names.length,
+        selection: null,
+        samples: sampleDocuments(names.length, item => [names[item]]),
+      },
+    });
+    expect((await index.query(query(1, 'احمد')))?.movies.indices).toEqual([0]);
+    expect((await index.query(query(1, 'مصطفي')))?.movies.indices).toEqual([1]);
+    expect((await index.query(query(1, 'قناه 7')))?.movies.indices).toEqual([2]);
+  });
+
   it('reports a changed record so the page posts that source', async () => {
     const { channels, selection } = displayedChannels();
     const request = cachedRequest(channels, selection);
@@ -501,7 +522,7 @@ describe('SearchWorkerIndex with persisted source indexes', () => {
       },
     });
     expect(response.unresolved).toBeUndefined();
-    expect(response.persist?.map(candidate => candidate.key)).toEqual(['catalog-cache|a|vod_all|31|v1']);
+    expect(response.persist?.map(candidate => candidate.key)).toEqual(['catalog-cache|a|vod_all|31|v2']);
     expect(sourceReads(memory)).toEqual(['read:a|vod_all']);
     expect((await index.query(query(1, 'alpha')))?.movies.indices).toEqual([1]);
   });
@@ -509,7 +530,7 @@ describe('SearchWorkerIndex with persisted source indexes', () => {
   it('ignores a stored index of another format or a broken shape', async () => {
     const memory = reader();
     await persisted(memory);
-    const key = 'catalog-cache|a|vod_all|30|v1';
+    const key = 'catalog-cache|a|vod_all|30|v2';
     const stored = memory.records.get(`search-index-cache|${key}`)!;
     for (const broken of [
       { ...stored, format: 0 },
@@ -582,11 +603,11 @@ describe('SearchWorkerIndex with persisted source indexes', () => {
     expect(await index.persist({
       entries: [
         { key: candidate.key, prefix: candidate.prefix, fields: { expiresAt: 5, bytes: 9 } },
-        { key: 'catalog-cache|other|1|v1', prefix: 'catalog-cache|other|', fields: {} },
+        { key: 'catalog-cache|other|1|v2', prefix: 'catalog-cache|other|', fields: {} },
       ],
     })).toEqual({ written: [candidate.key] });
     expect(memory.records.get(`search-index-cache|${candidate.key}`))
-      .toMatchObject({ key: candidate.key, expiresAt: 5, bytes: 9, format: 1 });
+      .toMatchObject({ key: candidate.key, expiresAt: 5, bytes: 9, format: 2 });
   });
 
   it('prewarms with the timestamp the cache metadata records', async () => {
@@ -597,7 +618,7 @@ describe('SearchWorkerIndex with persisted source indexes', () => {
     const response = await index.prewarm({
       sources: [{ store: 'catalog-cache', key: 'a|vod_all' }],
     });
-    expect(response.persist.map(candidate => candidate.key)).toEqual(['catalog-cache|a|vod_all|30|v1']);
+    expect(response.persist.map(candidate => candidate.key)).toEqual(['catalog-cache|a|vod_all|30|v2']);
     expect(memory.log).toEqual(['read:entry:catalog-cache:a|vod_all', 'count:search-index-cache', 'read:a|vod_all']);
   });
 

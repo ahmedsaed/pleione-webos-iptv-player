@@ -212,16 +212,28 @@ export interface SearchPrewarmResponse {
   skipped?: Array<{ store: SearchCacheRecord['store']; reason: string }>;
 }
 
+// Indices of recently watched or favorite items, ranked first within a tier.
+export interface SearchQueryBoost {
+  channels: number[];
+  movies: number[];
+  series: number[];
+}
+
 export interface SearchQueryRequest {
   sessionId: number;
   query: string;
   limit: number;
   includeCatalog: boolean;
+  // Fuzzy matches join only while direct ones are fewer than this.
+  fuzzyBelow?: number;
+  boost?: SearchQueryBoost;
 }
 
 export interface SearchRankedIndices {
   indices: number[];
   hasMore: boolean;
+  // Every match, beyond the published indices.
+  total?: number;
 }
 
 export interface SearchQueryResponse {

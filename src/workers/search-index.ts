@@ -5,6 +5,7 @@ import {
   rankPreparedTopK,
   type PreparedNameSearchIndex,
   type PreparedSearchItem,
+  type RankOptions,
 } from '../utils/channel-search';
 import { CONFIG } from '../config';
 import {
@@ -349,14 +350,15 @@ export class SearchWorkerIndex {
 
   private runQuery(request: SearchQueryRequest): SearchQueryResponse | null {
     if (request.sessionId !== this.sessionId) return null;
+    const { query, limit, fuzzyBelow, boost } = request;
     return {
-      channels: rankedFields(this.channels, request.query, request.limit),
-      programmes: rankedFields(this.programmes, request.query, request.limit),
+      channels: rankedFields(this.channels, query, limit, { fuzzyBelow, boosted: boostSet(boost?.channels) }),
+      programmes: rankedFields(this.programmes, query, limit, { fuzzyBelow }),
       movies: request.includeCatalog
-        ? rankedNames(this.movies, request.query, request.limit)
+        ? rankedNames(this.movies, query, limit, { boosted: boostSet(boost?.movies) })
         : emptyResult(),
       series: request.includeCatalog
-        ? rankedNames(this.series, request.query, request.limit)
+        ? rankedNames(this.series, query, limit, { boosted: boostSet(boost?.series) })
         : emptyResult(),
     };
   }
@@ -385,22 +387,30 @@ function foldedNames(values: string[]): PreparedNameSearchIndex<number> {
   return { items, values };
 }
 
+function boostSet(indices: number[] | undefined): ((index: number) => boolean) | undefined {
+  if (!indices?.length) return undefined;
+  const set = new Set(indices);
+  return index => set.has(index);
+}
+
 function rankedFields(
   index: PreparedSearchItem<number>[],
   query: string,
   limit: number,
+  options: RankOptions<number>,
 ): SearchRankedIndices {
-  const result = rankPreparedTopK(index, query, limit);
-  return { indices: result.items, hasMore: result.hasMore };
+  const result = rankPreparedTopK(index, query, limit, true, options);
+  return { indices: result.items, hasMore: result.hasMore, total: result.total };
 }
 
 function rankedNames(
   index: PreparedNameSearchIndex<number>,
   query: string,
   limit: number,
+  options: RankOptions<number>,
 ): SearchRankedIndices {
-  const result = rankPreparedNamesTopK(index, query, limit);
-  return { indices: result.items, hasMore: result.hasMore };
+  const result = rankPreparedNamesTopK(index, query, limit, options);
+  return { indices: result.items, hasMore: result.hasMore, total: result.total };
 }
 
 function emptyNames(): PreparedNameSearchIndex<number> {
@@ -408,5 +418,5 @@ function emptyNames(): PreparedNameSearchIndex<number> {
 }
 
 function emptyResult(): SearchRankedIndices {
-  return { indices: [], hasMore: false };
+  return { indices: [], hasMore: false, total: 0 };
 }

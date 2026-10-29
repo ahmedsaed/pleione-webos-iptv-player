@@ -492,7 +492,7 @@ test('Search: a virtual results rail scrolls far and keeps a usable ring; a hidd
   await expect(page.locator('.search-box-input')).toBeFocused();
   await input.fill('alpha');
   const movies = page.locator('#view-search [data-search-virtual="movies"]');
-  const channels = page.locator('#view-search [data-search-virtual="channels-rail"]');
+  const channels = page.locator('#view-search [data-search-virtual="channels"]');
   const series = page.locator('#view-search [data-search-virtual="series"]');
   await expect(movies.locator('.catalog-tile').first()).toBeVisible();
   for (const rail of [movies, channels, series]) await expectEdgeTrack(rail);

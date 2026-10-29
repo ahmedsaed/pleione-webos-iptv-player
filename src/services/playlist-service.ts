@@ -27,6 +27,7 @@ import {
   rankPreparedTopK,
   type PreparedSearchItem,
   type RankedSearchResult,
+  type RankOptions,
 } from '../utils/channel-search';
 import { createLogger } from '../utils/logger';
 import { StorageService } from './storage-service';
@@ -946,13 +947,14 @@ class PlaylistServiceImpl {
     query: string,
     limit: number,
     playlist?: string,
+    options?: RankOptions<Channel>,
   ): RankedSearchResult<Channel> {
-    if (!query.trim()) return { items: [], hasMore: false };
+    if (!query.trim()) return { items: [], hasMore: false, total: 0 };
     this.ensureLocalSearchIndexes();
     const index = playlist
       ? this.channelSearchByPlaylist.get(playlist) ?? []
       : this.channelSearchIndex;
-    return rankPreparedTopK(index, query, limit);
+    return rankPreparedTopK(index, query, limit, true, options);
   }
 
   getPlaylistIdsForGroup(group: ChannelGroupId): string[] {

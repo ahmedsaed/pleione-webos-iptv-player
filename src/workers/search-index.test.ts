@@ -45,10 +45,10 @@ describe('SearchWorkerIndex', () => {
       limit: 10,
       includeCatalog: true,
     })).toEqual({
-      channels: { indices: [1, 0], hasMore: false },
-      programmes: { indices: [1], hasMore: false },
-      movies: { indices: [1, 0], hasMore: false },
-      series: { indices: [1, 0], hasMore: false },
+      channels: { indices: [1, 0], hasMore: false, total: 2 },
+      programmes: { indices: [1], hasMore: false, total: 1 },
+      movies: { indices: [1, 0], hasMore: false, total: 2 },
+      series: { indices: [1, 0], hasMore: false, total: 2 },
     });
   });
 
@@ -71,6 +71,39 @@ describe('SearchWorkerIndex', () => {
     })?.channels.indices).toEqual([0]);
   });
 
+  it('matches Arabic spellings that differ in alef, final letters, harakat, tatweel, and digits', () => {
+    const index = new SearchWorkerIndex();
+    post(index, 1, {
+      channels: [['قناة أحمد', 'أخبار'], ['Bravo', '']],
+      programmes: [['مُسَلْسَل ٢', 'دراما']],
+      movies: ['فيلم إيمان', 'Alpha'],
+      series: ['مسلسل مصطفى'],
+    });
+    const ask = (query: string) => index.query({ sessionId: 1, query, limit: 10, includeCatalog: true });
+    expect(ask('قناه احمد')?.channels.indices).toEqual([0]);
+    expect(ask('اخبار')?.channels.indices).toEqual([0]);
+    expect(ask('مسلسل 2')?.programmes.indices).toEqual([0]);
+    expect(ask('ايمان')?.movies.indices).toEqual([0]);
+    expect(ask('مصطفـي')?.series.indices).toEqual([0]);
+  });
+
+  it('ranks boosted items first within their tier', () => {
+    const index = new SearchWorkerIndex();
+    post(index, 1, {
+      channels: [['Alpha'], ['Alpha One'], ['Alpha Two']],
+      movies: ['Alpha One', 'Alpha Two', 'X Alpha'],
+    });
+    const result = index.query({
+      sessionId: 1,
+      query: 'alpha',
+      limit: 10,
+      includeCatalog: true,
+      boost: { channels: [2], movies: [1, 2], series: [] },
+    });
+    expect(result?.channels.indices).toEqual([0, 2, 1]);
+    expect(result?.movies.indices).toEqual([1, 0, 2]);
+  });
+
   it('caps results and reports additional matches', () => {
     const index = new SearchWorkerIndex();
     post(index, 1, { movies: ['Alpha 1', 'Alpha 2', 'Alpha 3'] });
@@ -80,7 +113,7 @@ describe('SearchWorkerIndex', () => {
       query: 'alpha',
       limit: 2,
       includeCatalog: true,
-    })?.movies).toEqual({ indices: [0, 1], hasMore: true });
+    })?.movies).toEqual({ indices: [0, 1], hasMore: true, total: 3 });
   });
 
   it('assembles a source from ordered chunks and serves it only once complete', () => {

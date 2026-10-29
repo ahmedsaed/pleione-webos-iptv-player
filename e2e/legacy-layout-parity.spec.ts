@@ -379,7 +379,7 @@ const M3U_SCREENS: Screen[] = [
       await enterTab(p, 'search');
       await p.locator('.search-box-input').fill('zzqqxx');
       await expect(p.locator('#view-search')).toBeVisible();
-      await expect(p.locator('#view-search .catalog-tile')).toHaveCount(0);
+      await expect(p.locator('#view-search [data-focusable]')).toHaveCount(0);
     },
   },
   {

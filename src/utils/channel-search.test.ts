@@ -10,6 +10,7 @@ import {
   rankPrepared,
   rankPreparedNamesTopK,
   rankPreparedTopK,
+  searchMatchRanges,
 } from './channel-search';
 
 function ch(name: string, id = name): Channel {
@@ -156,5 +157,128 @@ describe('rankByFields', () => {
     const result = rankPreparedTopK(prepared, 'alpha', 2);
     expect(result.items).toEqual(items.slice(0, 2));
     expect(result.hasMore).toBe(true);
+  });
+});
+
+describe('Arabic-aware folding', () => {
+  const find = (items: string[], query: string) =>
+    rankByName(items.map(name => ({ name })), query).map(item => item.name);
+
+  it('unifies alef forms in both directions', () => {
+    expect(find(['أحمد', 'بحر'], 'احمد')).toEqual(['أحمد']);
+    expect(find(['احمد', 'بحر'], 'أحمد')).toEqual(['احمد']);
+    expect(find(['إيمان'], 'ايمان')).toEqual(['إيمان']);
+    expect(find(['آمال'], 'امال')).toEqual(['آمال']);
+    expect(find(['ٱلفا'], 'الفا')).toEqual(['ٱلفا']);
+  });
+
+  it('unifies final yeh and teh marbuta', () => {
+    expect(find(['مصطفى'], 'مصطفي')).toEqual(['مصطفى']);
+    expect(find(['مصطفي'], 'مصطفى')).toEqual(['مصطفي']);
+    expect(find(['قناة'], 'قناه')).toEqual(['قناة']);
+    expect(find(['قناه'], 'قناة')).toEqual(['قناه']);
+  });
+
+  it('ignores tatweel and harakat', () => {
+    expect(find(['قنـــاة'], 'قناة')).toEqual(['قنـــاة']);
+    expect(find(['مُحَمَّد'], 'محمد')).toEqual(['مُحَمَّد']);
+    expect(find(['محمد'], 'مُحَمَّد')).toEqual(['محمد']);
+    expect(find(['الرحمٰن'], 'الرحمن')).toEqual(['الرحمٰن']);
+  });
+
+  it('matches Arabic-Indic and Persian digits as ASCII digits', () => {
+    expect(find(['قناة ٧'], 'قناة 7')).toEqual(['قناة ٧']);
+    expect(find(['Channel 7'], 'channel ٧')).toEqual(['Channel 7']);
+    expect(find(['Channel ۱۲'], '12')).toEqual(['Channel ۱۲']);
+  });
+
+  it('folds documents and queries the same in the field ranker', () => {
+    const channels = [ch('Bravo'), ch('قناة أحمد')];
+    expect(names(rankChannels(channels, 'قناه احمد'))).toEqual(['قناة أحمد']);
+  });
+});
+
+describe('ranking tiers', () => {
+  it('orders exact > prefix > word prefix > substring, with typos last', () => {
+    const items = [
+      { title: 'Xalpha' },
+      { title: 'Alhpa' },
+      { title: 'The Alpha' },
+      { title: 'Alpha Two' },
+      { title: 'Alpha' },
+    ];
+    const prepared = prepareSearchItems(items, item => [item.title]);
+    expect(rankPrepared(prepared, 'alpha').map(item => item.title))
+      .toEqual(['Alpha', 'Alpha Two', 'The Alpha', 'Xalpha', 'Alhpa']);
+  });
+
+  it('takes a later word-start occurrence over an earlier mid-word one', () => {
+    expect(rankByName([{ name: 'Xnews' }, { name: 'Xnews News' }], 'news').map(item => item.name))
+      .toEqual(['Xnews News', 'Xnews']);
+  });
+
+  it('ranks a title match ahead of a match in other fields', () => {
+    const items = [
+      { title: 'Bravo', category: 'Alpha' },
+      { title: 'Charlie Alphabet', category: 'Drama' },
+    ];
+    expect(rankByFields(items, 'alpha', item => [item.title, item.category]).map(item => item.title))
+      .toEqual(['Charlie Alphabet', 'Bravo']);
+  });
+
+  it('boosts favorite or recent items within their tier, never across tiers', () => {
+    const items = [{ name: 'Alpha' }, { name: 'Alpha One' }, { name: 'Alpha Two' }, { name: 'X Alpha' }];
+    const boosted = new Set([items[2], items[3]]);
+    expect(rankPreparedNamesTopK(prepareNameSearchItems(items), 'alpha', 10, {
+      boosted: item => boosted.has(item),
+    }).items.map(item => item.name)).toEqual(['Alpha', 'Alpha Two', 'Alpha One', 'X Alpha']);
+
+    const fields = prepareSearchItems(items, item => [item.name]);
+    expect(rankPreparedTopK(fields, 'alpha', 10, true, {
+      boosted: item => boosted.has(item),
+    }).items.map(item => item.name)).toEqual(['Alpha', 'Alpha Two', 'Alpha One', 'X Alpha']);
+  });
+
+  it('boosts a typo match only among typo matches', () => {
+    const items = [{ name: 'Alhpa' }, { name: 'Alpha Two' }];
+    const prepared = prepareSearchItems(items, item => [item.name]);
+    expect(rankPreparedTopK(prepared, 'alpha', 10, true, { boosted: item => item === items[0] })
+      .items.map(item => item.name)).toEqual(['Alpha Two', 'Alhpa']);
+  });
+
+  it('counts every match, and with a fixed fuzzy threshold the count holds for any limit', () => {
+    const items = [{ name: 'Alpha' }, { name: 'Alpha Two' }, { name: 'Alhpa' }];
+    const prepared = prepareSearchItems(items, item => [item.name]);
+    expect(rankPreparedTopK(prepared, 'alpha', 1, true, { fuzzyBelow: 10 }))
+      .toEqual({ items: [items[0]], hasMore: true, total: 3 });
+    expect(rankPreparedTopK(prepared, 'alpha', 10, true, { fuzzyBelow: 2 }).total).toBe(2);
+    expect(rankPreparedTopK(prepared, 'alpha', 1, true, { fuzzyBelow: 2 }).total).toBe(2);
+    expect(rankPreparedNamesTopK(prepareNameSearchItems(items), 'alpha', 1).total).toBe(2);
+  });
+});
+
+describe('searchMatchRanges', () => {
+  it('spans the matched part of the original text', () => {
+    expect(searchMatchRanges('Alpha News', 'alp')).toEqual([{ start: 0, end: 3 }]);
+    expect(searchMatchRanges('Xnews News', 'news')).toEqual([{ start: 6, end: 10 }]);
+  });
+
+  it('maps folded matches back over accents, harakat, and tatweel', () => {
+    expect(searchMatchRanges('Café Bravo', 'cafe')).toEqual([{ start: 0, end: 4 }]);
+    expect(searchMatchRanges('Café Bravo', 'cafe')).toEqual([{ start: 0, end: 5 }]);
+    const name = 'فيلم أَحمد';
+    const [range] = searchMatchRanges(name, 'احمد');
+    expect(name.slice(range.start, range.end)).toBe('أَحمد');
+    expect(searchMatchRanges('قنـاة', 'قناه')).toEqual([{ start: 0, end: 5 }]);
+  });
+
+  it('highlights each query word when the whole query does not occur', () => {
+    expect(searchMatchRanges('Alpha News HD', 'news alpha'))
+      .toEqual([{ start: 0, end: 5 }, { start: 6, end: 10 }]);
+  });
+
+  it('shows nothing for a typo match or an empty query', () => {
+    expect(searchMatchRanges('Alpha', 'alhpa')).toEqual([]);
+    expect(searchMatchRanges('Alpha', '  ')).toEqual([]);
   });
 });

@@ -13,13 +13,6 @@ export interface SearchBoxHandlers {
   onBack: () => void;
 }
 
-// Where a dropdown hangs from the box.
-export interface SearchBoxAnchor {
-  right: number;
-  bottom: number;
-  width: number;
-}
-
 // The Search section's query box, at the top of the Search view. While its
 // caret is in the input, its scope owns the keys and draws no ring (the caret
 // marks where they go); Down or Enter hands them to the results below.
@@ -84,12 +77,6 @@ export class SearchBox {
     if (!this.active) return;
     this.active = false;
     Focus.pop(this.scope);
-  }
-
-  anchor(): SearchBoxAnchor | null {
-    const rect = this.input.parentElement?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return null;
-    return { right: rect.right, bottom: rect.bottom, width: rect.width };
   }
 
   private handleAction(action: Action): void {

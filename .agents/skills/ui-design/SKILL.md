@@ -230,8 +230,7 @@ performance setting, not a no-animation preference.
 - Gate only animations with a measured cost: smooth scrolling (opt-in
   under `full`), layout-driven transitions (width, padding, `max-height`),
   focus transitions on long lists (channel rows,
-  sidebar channel rows), the recent-searches fade (a full-screen scrim),
-  and the playing pulse — on the webOS 4 emulator even one small
+  sidebar channel rows), and the playing pulse — on the webOS 4 emulator even one small
   infinite loop keeps the compositor drawing every frame.
   Other status loops — live pulse, marquee, spinner — stay in every
   mode until measured. Don't use
