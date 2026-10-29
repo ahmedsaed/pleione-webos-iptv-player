@@ -1,5 +1,6 @@
 import {
   test, expect, type Page, routePlaylist, routeLiveManifest, seedPlaylist, PLAYLIST_URL, enterTab, readUserDataStore,
+  isChromium53,
 } from './helpers';
 import type { Locator } from '@playwright/test';
 import { seedXtream } from './fixtures/xtream';
@@ -1915,5 +1916,42 @@ test.describe('Settings pages', () => {
     await expect(page.locator('#view-settings')).toBeVisible();
     expect(await shownPages(page)).toEqual(['guide']);
     await expect(page.locator('#manage-reminders')).toHaveClass(/focused/);
+
+test.describe('Settings cache budget', () => {
+  // webOS 4 has no navigator.storage; the budget comes from the prefixed
+  // quota API instead of the small unknown-quota fallback.
+  test('budgets the cache from the quota the engine reports', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#view-settings')).toBeVisible();
+    // The cache figure lives on the Data Management page.
+    await page.locator('[data-settings-target="data"]').click();
+    const expected = await page.evaluate(async (legacy) => {
+      const MAX = 1024 * 1024 * 1024;
+      const budget = legacy
+        ? await new Promise<number>((resolve, reject) => {
+          (navigator as Navigator & {
+            webkitTemporaryStorage: {
+              queryUsageAndQuota(ok: (usage: number, quota: number) => void, fail: () => void): void;
+            };
+          }).webkitTemporaryStorage.queryUsageAndQuota(
+            (_usage, quota) => resolve(Math.min(Math.floor(quota * 0.25), MAX)),
+            reject,
+          );
+        })
+        : Math.min(Math.floor((await navigator.storage.estimate()).quota! * 0.5), MAX);
+      return { storage: 'storage' in navigator, budget };
+    }, isChromium53());
+    expect(expected.storage).toBe(!isChromium53());
+    expect(expected.budget).toBeGreaterThan(4 * 1024 * 1024);
+    const units = ['B', 'KiB', 'MiB', 'GiB'];
+    let value = expected.budget;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+    await expect(page.locator('#cache-usage .cache-usage-value span'))
+      .toHaveText(`/ ${value.toFixed(digits)} ${units[unit]}`);
   });
 });

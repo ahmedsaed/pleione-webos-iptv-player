@@ -9,6 +9,7 @@ import {
   CATALOG_STORE,
   CHANNEL_HEALTH_STORE,
   EPG_STORE,
+  isQuotaExceededError,
   openPersistenceDb,
   PLAYLIST_STORE,
   requestResult,
@@ -22,7 +23,13 @@ import { cacheEntryMetaId, cacheRecordTimestamp, PLAYLIST_CACHE_KEY } from './id
 
 const log = createLogger('CacheStorage');
 const CACHE_CATEGORIES = ['playlist', 'epg', 'catalog', 'subtitle', 'health', 'search'] as const;
-const FALLBACK_BUDGET_BYTES = 384 * 1024 * 1024;
+// Without a quota API the engine is an old TV: the accounting-only budget
+// (below) of the smallest quota measured, webOS 4's ~19 MB.
+const FALLBACK_BUDGET_BYTES = 4 * 1024 * 1024;
+// With no trustworthy origin usage, only the JSON byte count below guards the
+// quota, and on-disk use runs about twice it (a 9 MB catalog filled 19 MB).
+const ACCOUNTING_ONLY_QUOTA_SHARE = 0.25;
+const LEGACY_QUOTA_TIMEOUT_MS = 1000;
 const MAX_BUDGET_BYTES = 1024 * 1024 * 1024;
 const SUBTITLE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SEARCH_INDEX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -130,13 +137,28 @@ interface CachedPlaylistPayload {
 
 type StoredRecord = Record<string, unknown> & CacheFields;
 
+interface StorageEstimateResult {
+  usage: number | null;
+  quota: number | null;
+  source: 'storage-manager' | 'legacy' | 'unknown';
+}
+
+interface LegacyStorageQuota {
+  queryUsageAndQuota(
+    success: (usage: number, quota: number) => void,
+    error?: (err: unknown) => void,
+  ): void;
+}
+
 let metadataPromise: Promise<void> | null = null;
 let mutationChain: Promise<void> = Promise.resolve();
 const accessTouches = new Map<string, number>();
 let storageEstimateCache: {
-  value: { usage: number | null; quota: number | null };
+  value: StorageEstimateResult;
   timestamp: number;
 } | null = null;
+let legacyQuotaUnresponsive = false;
+let lastQuotaSource: StorageEstimateResult['source'] | null = null;
 let scheduledPlaylist: {
   channels: Channel[];
   epgSources: EpgSource[];
@@ -741,24 +763,75 @@ async function readEntryMeta(
   return isCacheEntryMeta(raw) ? raw : null;
 }
 
-async function storageEstimate(): Promise<{ usage: number | null; quota: number | null }> {
-  try {
-    // StorageManager is absent on webOS 4; guard before accessing it.
-    if (typeof navigator === 'undefined' || !navigator.storage?.estimate) {
-      return { usage: null, quota: null };
-    }
-    // eslint-disable-next-line compat/compat
-    const estimate = await navigator.storage.estimate();
-    return {
-      usage: typeof estimate.usage === 'number' ? estimate.usage : null,
-      quota: typeof estimate.quota === 'number' ? estimate.quota : null,
-    };
-  } catch {
-    return { usage: null, quota: null };
+// webOS 4 (Chromium 53) predates StorageManager but still has the prefixed
+// quota API. Its usage is unreliable there (reported 0 on a full origin),
+// so only its quota is used.
+function legacyQuota(): Promise<number | null> {
+  const storage = typeof navigator === 'undefined'
+    ? undefined
+    : (navigator as Navigator & { webkitTemporaryStorage?: LegacyStorageQuota })
+      .webkitTemporaryStorage;
+  if (legacyQuotaUnresponsive || !storage || typeof storage.queryUsageAndQuota !== 'function') {
+    return Promise.resolve(null);
   }
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = (quota: number | null) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      resolve(quota);
+    };
+    timer = setTimeout(() => {
+      legacyQuotaUnresponsive = true;
+      finish(null);
+    }, LEGACY_QUOTA_TIMEOUT_MS);
+    try {
+      storage.queryUsageAndQuota(
+        (_usage, quota) => finish(
+          typeof quota === 'number' && isFinite(quota) && quota > 0 ? quota : null,
+        ),
+        () => finish(null),
+      );
+    } catch {
+      finish(null);
+    }
+  });
 }
 
-async function cachedStorageEstimate(): Promise<{ usage: number | null; quota: number | null }> {
+async function storageEstimate(): Promise<StorageEstimateResult> {
+  let result: StorageEstimateResult = { usage: null, quota: null, source: 'unknown' };
+  try {
+    // StorageManager is absent on webOS 4; guard before accessing it.
+    if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
+      const estimate = await navigator.storage.estimate();
+      lastQuotaSource = 'storage-manager';
+      return {
+        usage: typeof estimate.usage === 'number' ? estimate.usage : null,
+        quota: typeof estimate.quota === 'number' ? estimate.quota : null,
+        source: 'storage-manager',
+      };
+    }
+    const quota = await legacyQuota();
+    if (quota !== null) result = { usage: null, quota, source: 'legacy' };
+  } catch {
+    // An unreadable quota falls back to the fixed budget.
+  }
+  if (result.source !== lastQuotaSource) {
+    lastQuotaSource = result.source;
+    log.info(
+      'Storage quota read without StorageManager',
+      'event=persistence.cache.quota.fallback',
+      `source=${result.source}`,
+      `quotaBytes=${String(result.quota ?? 'unknown')}`,
+      `budgetBytes=${String(budgetFor(result))}`,
+    );
+  }
+  return result;
+}
+
+async function cachedStorageEstimate(): Promise<StorageEstimateResult> {
   const now = Date.now();
   if (storageEstimateCache
       && now - storageEstimateCache.timestamp < STORAGE_ESTIMATE_TTL_MS) {
@@ -769,16 +842,18 @@ async function cachedStorageEstimate(): Promise<{ usage: number | null; quota: n
   return value;
 }
 
-function budgetForQuota(quota: number | null): number {
+function budgetFor(estimate: StorageEstimateResult): number {
+  const { quota } = estimate;
   if (quota === null || quota <= 0) return FALLBACK_BUDGET_BYTES;
-  return Math.min(Math.floor(quota * 0.5), MAX_BUDGET_BYTES);
+  const share = estimate.usage === null ? ACCOUNTING_ONLY_QUOTA_SHARE : 0.5;
+  return Math.min(Math.floor(quota * share), MAX_BUDGET_BYTES);
 }
 
 export async function getCacheUsage(): Promise<CacheUsageSummary> {
   const [metadata, estimate] = await Promise.all([readMetadata(), storageEstimate()]);
   return {
     ...metadata,
-    budgetBytes: budgetForQuota(estimate.quota),
+    budgetBytes: budgetFor(estimate),
     originUsageBytes: estimate.usage,
     quotaBytes: estimate.quota,
   };
@@ -823,12 +898,25 @@ async function deleteCandidates(candidates: CacheCandidate[]): Promise<number> {
     removedBytes += candidate.byteSize;
   }
   try {
+    // Deletes alone: a full origin rejects any transaction that also puts.
     const tx = db.transaction([...CACHE_STORES, META_STORE], 'readwrite');
     for (const candidate of candidates) {
       tx.objectStore(candidate.store).delete(candidate.key);
       tx.objectStore(META_STORE).delete(entryMetaId(candidate.store, candidate.key));
       accessTouches.delete(entryMetaId(candidate.store, candidate.key));
     }
+    await transactionDone(tx);
+  } catch (err) {
+    log.warn(
+      'Cache eviction failed',
+      'event=persistence.cache.eviction.failed',
+      'operation=evict',
+      err,
+    );
+    return 0;
+  }
+  try {
+    const tx = db.transaction(META_STORE, 'readwrite');
     const now = Date.now();
     const metaStore = tx.objectStore(META_STORE);
     for (const category of CACHE_CATEGORIES) {
@@ -848,15 +936,27 @@ async function deleteCandidates(candidates: CacheCandidate[]): Promise<number> {
       updatedAt: now,
     } satisfies CacheMeta);
     await transactionDone(tx);
-    return removedBytes;
+  } catch {
+    await invalidateMetadata(db);
+  }
+  return removedBytes;
+}
+
+// Drops the totals so the next access rebuilds them from the stores; a delete
+// still commits when the origin is too full for the corrected totals.
+async function invalidateMetadata(db: IDBDatabase): Promise<void> {
+  metadataPromise = null;
+  try {
+    const tx = db.transaction(META_STORE, 'readwrite');
+    tx.objectStore(META_STORE).delete('total');
+    await transactionDone(tx);
   } catch (err) {
     log.warn(
-      'Cache eviction failed',
-      'event=persistence.cache.eviction.failed',
+      'Cache accounting reset failed',
+      'event=persistence.cache.accounting.reset.failed',
       'operation=evict',
       err,
     );
-    return 0;
   }
 }
 
@@ -908,7 +1008,7 @@ async function ensureCapacity(deltaBytes: number): Promise<void> {
   if (deltaBytes <= 0) return;
   const metadata = await readMetadata();
   const estimate = await cachedStorageEstimate();
-  const budgetBytes = budgetForQuota(estimate.quota);
+  const budgetBytes = budgetFor(estimate);
   const cacheOver = metadata.total.bytes + deltaBytes - budgetBytes;
   const originOver = estimate.quota !== null && estimate.usage !== null
     ? estimate.usage + deltaBytes - Math.floor(estimate.quota * 0.8)
@@ -924,13 +1024,6 @@ async function ensureCapacity(deltaBytes: number): Promise<void> {
     );
     await pruneBytes(required + Math.max(CLEANUP_MARGIN_BYTES, Math.floor(deltaBytes * 0.1)));
   }
-}
-
-function isQuotaError(err: unknown): boolean {
-  return err instanceof DOMException && (
-    err.name === 'QuotaExceededError'
-    || err.name === 'NS_ERROR_DOM_QUOTA_REACHED'
-  );
 }
 
 async function commitRecord(
@@ -1002,7 +1095,7 @@ async function putRawNow(
     await commitRecord(store, record, latest);
     return true;
   } catch (err) {
-    if (allowQuotaRetry && isQuotaError(err)) {
+    if (allowQuotaRetry && isQuotaExceededError(err)) {
       log.warn(
         'Cache quota exceeded; pruning before retry',
         'event=persistence.cache.quota.exceeded',
@@ -1162,6 +1255,79 @@ async function clearStoreNow(store: CacheStore): Promise<void> {
 
 function clearStore(store: CacheStore): Promise<void> {
   return enqueueMutation(() => clearStoreNow(store));
+}
+
+// Cheapest to fetch again first; the parsed playlist keeps startup fast.
+const QUOTA_EVICTION_ORDER: readonly CacheStore[] = [
+  CATALOG_STORE,
+  EPG_STORE,
+  SUBTITLE_STORE,
+  CHANNEL_HEALTH_STORE,
+  STREAM_MIME_STORE,
+  PLAYLIST_STORE,
+];
+
+export interface QuotaEviction {
+  stores: CacheStore[];
+  bytes: number;
+}
+
+// Frees room for user data the origin quota rejected: clears whole cache
+// stores in order until the accounted bytes reach the target, plus every
+// Search index. Clears and deletes only, since a full origin rejects puts;
+// the accounting is rebuilt on next use.
+export function evictCachesForQuota(
+  targetBytes = CLEANUP_MARGIN_BYTES,
+): Promise<QuotaEviction> {
+  return enqueueMutation(async () => {
+    const db = await openDb();
+    if (!db) return { stores: [], bytes: 0 };
+    await ensureMetadata();
+    let entries: CacheEntryMeta[] | null = null;
+    try {
+      const tx = db.transaction(META_STORE, 'readonly');
+      const records = await requestResult(tx.objectStore(META_STORE).getAll()) as unknown[];
+      entries = records.filter(isCacheEntryMeta);
+    } catch {
+      // Unknown accounting clears every store.
+    }
+    const stores: CacheStore[] = [SEARCH_INDEX_STORE];
+    let bytes = entries ? usageOf(entries.filter(e => e.store === SEARCH_INDEX_STORE)).bytes : 0;
+    for (const store of QUOTA_EVICTION_ORDER) {
+      if (entries && bytes >= targetBytes) break;
+      stores.push(store);
+      if (entries) bytes += usageOf(entries.filter(e => e.store === store)).bytes;
+    }
+    const tx = db.transaction([...stores, META_STORE], 'readwrite');
+    for (const store of stores) tx.objectStore(store).clear();
+    const metaStore = tx.objectStore(META_STORE);
+    metaStore.delete('total');
+    for (const entry of entries ?? []) {
+      if (stores.indexOf(entry.store) >= 0) metaStore.delete(entry.category);
+    }
+    await transactionDone(tx);
+
+    metadataPromise = null;
+    storageEstimateCache = null;
+    accessTouches.clear();
+    clearGeneration++;
+    for (const store of stores) {
+      if (SEARCH_SOURCE_STORES.indexOf(store) >= 0) {
+        sourceClearGenerations[store] = (sourceClearGenerations[store] ?? 0) + 1;
+      }
+    }
+    if (stores.indexOf(CATALOG_STORE) >= 0) catalogGeneration++;
+    if (stores.indexOf(PLAYLIST_STORE) >= 0) {
+      discardScheduledPlaylist('cache_clear');
+      playlistGeneration++;
+      try {
+        localStorage.removeItem(CONFIG.STORAGE_PREFIX + 'cached_playlist');
+      } catch {
+        // IndexedDB remains authoritative when Web Storage is unavailable.
+      }
+    }
+    return { stores, bytes };
+  });
 }
 
 function playlistSourceSignature(): string {
@@ -1699,7 +1865,7 @@ export function reserveSearchIndex(
     }
     const metadata = await readMetadata();
     const estimate = await cachedStorageEstimate();
-    let room = budgetForQuota(estimate.quota) - metadata.total.bytes;
+    let room = budgetFor(estimate) - metadata.total.bytes;
     if (estimate.quota !== null && estimate.usage !== null) {
       room = Math.min(room, Math.floor(estimate.quota * 0.8) - estimate.usage);
     }

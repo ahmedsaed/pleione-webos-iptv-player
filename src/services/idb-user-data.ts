@@ -1,4 +1,6 @@
+import { evictCachesForQuota } from './idb-cache';
 import {
+  isQuotaExceededError,
   openPersistenceDb,
   requestResult,
   transactionDone,
@@ -28,6 +30,44 @@ function enqueueWrite(operation: () => Promise<void>): Promise<void> {
     (err) => { writeFailure = err; },
   );
   return result;
+}
+
+// User data outranks every cache: a write the origin quota rejects evicts
+// caches and is tried once more.
+async function withQuotaRecovery(
+  operation: string,
+  store: string,
+  write: () => Promise<void>,
+): Promise<void> {
+  try {
+    await write();
+    return;
+  } catch (err) {
+    if (!isQuotaExceededError(err)) throw err;
+    let evicted = 'none';
+    let freedBytes = 0;
+    let outcome = 'evict_failed';
+    try {
+      const eviction = await evictCachesForQuota();
+      evicted = eviction.stores.join(',') || 'none';
+      freedBytes = eviction.bytes;
+      outcome = 'retry_failed';
+      await write();
+      outcome = 'recovered';
+    } catch (retryErr) {
+      throw outcome === 'evict_failed' ? err : retryErr;
+    } finally {
+      log.warn(
+        'User data write hit the storage quota; evicted caches',
+        'event=persistence.user.quota.evicted',
+        `operation=${operation}`,
+        `store=${store}`,
+        `evicted=${evicted}`,
+        `freedBytes=${String(freedBytes)}`,
+        `outcome=${outcome}`,
+      );
+    }
+  }
 }
 
 export async function flushUserDataWrites(): Promise<void> {
@@ -225,11 +265,13 @@ export function applyUserChanges(
       throw new Error('IndexedDB unavailable');
     }
     try {
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      for (const key of deletes) store.delete(key);
-      for (const record of puts) store.put(record);
-      await transactionDone(tx);
+      await withQuotaRecovery('write', storeName, async () => {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        for (const key of deletes) store.delete(key);
+        for (const record of puts) store.put(record);
+        await transactionDone(tx);
+      });
     } catch (err) {
       log.error(
         'User data write failed',
@@ -257,13 +299,15 @@ export function replaceAllUserData(
       throw new Error('IndexedDB unavailable');
     }
     try {
-      const tx = db.transaction(USER_DATA_STORES, 'readwrite');
-      for (const storeName of USER_DATA_STORES) {
-        const store = tx.objectStore(storeName);
-        store.clear();
-        for (const item of records[storeName] ?? []) store.put(item);
-      }
-      await transactionDone(tx);
+      await withQuotaRecovery('recover', 'all', async () => {
+        const tx = db.transaction(USER_DATA_STORES, 'readwrite');
+        for (const storeName of USER_DATA_STORES) {
+          const store = tx.objectStore(storeName);
+          store.clear();
+          for (const item of records[storeName] ?? []) store.put(item);
+        }
+        await transactionDone(tx);
+      });
     } catch (err) {
       log.error(
         'User data recovery write failed',
