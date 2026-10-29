@@ -87,8 +87,8 @@ Everything is deterministic and synthetic.
 | Live channels | 150 in `Group 1`-`Group 8` | 2000 in 40 groups |
 | Catch-up | every third channel (and `Alpha`), 3 days | 1 day |
 | Guide | 3 past days + 2 days ahead | 1 + 1 day |
-| Movies | 120 in 6 groups | 1500 in 25 groups |
-| Series | 24 in 4 groups, 1-3 seasons | 300 in 12 groups |
+| Movies | 240 in 6 groups | 1500 in 25 groups |
+| Series | 120 in 4 groups, 1-3 seasons | 300 in 12 groups |
 
 Channels are `Alpha`, `Bravo`, `Charlie`, then `Channel 4`, `Channel 5`,
 and so on; programmes are `Program N`; movies are `Movie A`, `Movie B`, …;

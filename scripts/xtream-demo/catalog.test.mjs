@@ -11,8 +11,8 @@ describe('createCatalog', () => {
   it('builds the small catalog', () => {
     const catalog = createCatalog('small');
     expect(catalog.channels).toHaveLength(150);
-    expect(catalog.movies).toHaveLength(120);
-    expect(catalog.series).toHaveLength(24);
+    expect(catalog.movies).toHaveLength(240);
+    expect(catalog.series).toHaveLength(120);
     expect(catalog.channels.slice(0, 3).map(channel => channel.name))
       .toEqual(['Alpha', 'Bravo', 'Charlie']);
   });
@@ -103,5 +103,16 @@ describe('EPG schedule', () => {
       expect(programme.start).toBeGreaterThanOrEqual(NOW - alpha.archiveDays * DAY);
     }
     expect(list.some(programme => hasArchive(catalog.channel(2), programme, NOW))).toBe(false);
+  });
+});
+
+describe('small catalog rails', () => {
+  it('fills every non-empty group past the 20-title rail, so each ends in See all', () => {
+    const catalog = createCatalog('small');
+    for (const [items, groups] of [[catalog.movies, catalog.vodCategories], [catalog.series, catalog.seriesCategories]]) {
+      for (const group of groups.filter(g => !g.empty)) {
+        expect(items.filter(item => item.categoryId === group.id).length).toBeGreaterThan(20);
+      }
+    }
   });
 });
