@@ -12,6 +12,7 @@ import type {
 } from '../workers/tasks';
 import type { EpgChannel, ParsedEpg, Programme } from '../types';
 import { createLogger } from '../utils/logger';
+import { loaderTransientFailure, parseRetryAfterMs, retryTransient } from '../utils/retry';
 
 export type XMLTVLoadResult = XMLTVWorkerResponse;
 const log = createLogger('XMLTVLoad');
@@ -33,30 +34,41 @@ export async function fetchAndParseXMLTV(
     `timeoutMs=${String(timeout)}`,
   );
   try {
-    const accumulator = new XMLTVAccumulator();
-    const result = await runAppWorkerTask('xmltv.load', {
-      url,
-      timeout,
-      options: {
-        nowMs: options.nowMs ?? Date.now(),
-        channelIds: options.channelIds ? Array.from(options.channelIds) : undefined,
-        channelNames: options.channelNames ? Array.from(options.channelNames) : undefined,
-        retainChannelCatalog: options.retainChannelCatalog,
-        maxProgrammes: options.maxProgrammes,
+    const nowMs = options.nowMs ?? Date.now();
+    let accumulator = new XMLTVAccumulator();
+    const result = await retryTransient(() => {
+      // A retried download starts over with an empty guide.
+      const sink = accumulator = new XMLTVAccumulator();
+      return runAppWorkerTask('xmltv.load', {
+        url,
+        timeout,
+        options: {
+          nowMs,
+          channelIds: options.channelIds ? Array.from(options.channelIds) : undefined,
+          channelNames: options.channelNames ? Array.from(options.channelNames) : undefined,
+          retainChannelCatalog: options.retainChannelCatalog,
+          maxProgrammes: options.maxProgrammes,
+        },
+      }, chunk => {
+        if (chunk.kind === 'progress') {
+          log.info(
+            'XMLTV stream load progress',
+            'event=epg.xmltv.load.progress',
+            `attempt=${String(chunk.attempt)}`,
+            `encoding=${chunk.encoding}`,
+            `bytes=${String(chunk.inputBytes)}`,
+            `chunks=${String(chunk.chunks)}`,
+          );
+          return;
+        }
+        sink.accept(chunk);
+      });
+    }, {
+      kind: 'epg',
+      classify: error => {
+        const details = workerFailureDetails(error);
+        return details ? loaderTransientFailure(details) : null;
       },
-    }, chunk => {
-      if (chunk.kind === 'progress') {
-        log.info(
-          'XMLTV stream load progress',
-          'event=epg.xmltv.load.progress',
-          `attempt=${String(chunk.attempt)}`,
-          `encoding=${chunk.encoding}`,
-          `bytes=${String(chunk.inputBytes)}`,
-          `chunks=${String(chunk.chunks)}`,
-        );
-        return;
-      }
-      accumulator.accept(chunk);
     });
     result.data = accumulator.complete(result.data);
     if (result.metrics.attempts > 1) logRetry();
@@ -127,6 +139,8 @@ function workerFailureDetails(error: unknown): {
   encoding: 'gzip' | 'plain';
   inputBytes: number;
   chunks: number;
+  status?: number;
+  retryAfterMs?: number | null;
 } | null {
   if (!(error instanceof Error) || !('details' in error)) return null;
   const details = error.details;
@@ -151,6 +165,8 @@ function workerFailureDetails(error: unknown): {
         encoding: value.encoding,
         inputBytes: value.inputBytes,
         chunks: value.chunks,
+        ...(typeof value.status === 'number' ? { status: value.status } : {}),
+        ...(typeof value.retryAfterMs === 'number' ? { retryAfterMs: value.retryAfterMs } : {}),
       }
     : null;
 }
@@ -165,6 +181,8 @@ interface XMLTVWorkerFailureDetails {
   encoding: 'gzip' | 'plain';
   inputBytes: number;
   chunks: number;
+  status?: number;
+  retryAfterMs?: number | null;
 }
 
 class XMLTVWorkerError extends Error {
@@ -230,10 +248,16 @@ async function parsePass(
   let inputBytes = 0;
   let chunks = 0;
   let nextProgressBytes = PROGRESS_INTERVAL_BYTES;
+  let status: number | undefined;
+  let retryAfterMs: number | null = null;
   const started = Date.now();
   try {
     const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    if (!response.ok) {
+      status = response.status;
+      retryAfterMs = parseRetryAfterMs(response.headers?.get('retry-after'));
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
     stage = 'read';
     reader = typeof response.body?.getReader === 'function'
       ? response.body.getReader()
@@ -322,6 +346,7 @@ async function parsePass(
       encoding,
       inputBytes,
       chunks,
+      ...(status !== undefined ? { status, retryAfterMs } : {}),
     });
   } finally {
     if (reader && !complete) void reader.cancel().catch(() => {});

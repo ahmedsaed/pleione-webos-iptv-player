@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const { fetchTextMock } = vi.hoisted(() => ({ fetchTextMock: vi.fn() }));
 vi.mock('../utils/fetch-helper', async (importOriginal) => ({
@@ -710,5 +710,143 @@ describe('XtreamClient Series', () => {
     expect(info!.episodesBySeason[1][0].subtitles).toEqual([
       { id: '1', name: 'Track 1', lang: 'l1', url: 'http://host/e.srt' },
     ]);
+  });
+});
+
+describe('XtreamClient transient failure retries', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const vodList = JSON.stringify([{ stream_id: 1, name: 'Alpha', category_id: '1' }]);
+
+  it('recovers a catalog call after server errors and a network error', async () => {
+    const info = vi.spyOn(console, 'log').mockImplementation(() => {});
+    fetchTextMock
+      .mockRejectedValueOnce(new FetchTextError('http', 'HTTP 503', 503))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(vodList);
+
+    const result = createXtreamClient(creds).getVodStreams();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetchTextMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchTextMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await expect(result).resolves.toEqual([expect.objectContaining({ name: 'Alpha' })]);
+    expect(fetchTextMock).toHaveBeenCalledTimes(3);
+    expect(info).toHaveBeenCalledWith(
+      '[Network]',
+      'Provider request recovered after retry',
+      'event=network.retry.recovered',
+      'kind=xtream',
+      'attempts=3',
+    );
+  });
+
+  it('surfaces the error after 3 retries and logs the exhaustion once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchTextMock.mockRejectedValue(new FetchTextError('timeout', 'Request timed out'));
+
+    const result = createXtreamClient(creds).getVodInfo('1');
+    const settled = expect(result).rejects.toMatchObject({ code: 'timeout' });
+    await vi.advanceTimersByTimeAsync(7000);
+    await settled;
+
+    expect(fetchTextMock).toHaveBeenCalledTimes(4);
+    expect(warn.mock.calls.filter(call => call[2] === 'event=network.retry.exhausted'))
+      .toEqual([[
+        '[Network]',
+        'Provider request failed after retries',
+        'event=network.retry.exhausted',
+        'kind=xtream',
+        'attempts=4',
+        'reason=timeout',
+      ]]);
+    expect(warn.mock.calls.filter(call => call[2] === 'event=xtream.request.failed'))
+      .toHaveLength(1);
+  });
+
+  it.each([401, 403, 404])('does not retry HTTP %i', async status => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchTextMock.mockRejectedValue(new FetchTextError('http', `HTTP ${status}`, status));
+
+    await expect(createXtreamClient(creds).getVodStreams())
+      .rejects.toMatchObject({ code: 'request_failed' });
+    expect(fetchTextMock).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not retry an oversized or invalid JSON response', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchTextMock.mockRejectedValueOnce(new FetchTextError('too_large', 'Response exceeds limit'));
+    await expect(createXtreamClient(creds).getVodStreams())
+      .rejects.toMatchObject({ code: 'too_large' });
+    expect(fetchTextMock).toHaveBeenCalledTimes(1);
+
+    fetchTextMock.mockResolvedValueOnce('<html>');
+    await expect(createXtreamClient(creds).getVodStreams())
+      .rejects.toMatchObject({ code: 'invalid_json' });
+    expect(fetchTextMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry an account check that rejects the credentials', async () => {
+    fetchTextMock.mockResolvedValue(JSON.stringify({ user_info: { auth: 0 } }));
+    await expect(createXtreamClient(creds).getAccountInfo())
+      .resolves.toMatchObject({ auth: false });
+    expect(fetchTextMock).toHaveBeenCalledTimes(1);
+
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchTextMock.mockRejectedValue(new FetchTextError('http', 'HTTP 401', 401));
+    await expect(createXtreamClient(creds).getAccountInfo()).resolves.toBeNull();
+    expect(fetchTextMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets an interactive account check skip timeout retries but not server errors', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    fetchTextMock.mockRejectedValueOnce(new FetchTextError('timeout', 'Request timed out'));
+    await expect(createXtreamClient(creds).getAccountInfo(undefined, { retryTimeouts: false }))
+      .resolves.toBeNull();
+    expect(fetchTextMock).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+
+    fetchTextMock
+      .mockRejectedValueOnce(new FetchTextError('http', 'HTTP 503', 503))
+      .mockResolvedValueOnce(JSON.stringify({ user_info: { auth: 1 } }));
+    const checked = createXtreamClient(creds).getAccountInfo(undefined, { retryTimeouts: false });
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(checked).resolves.toMatchObject({ auth: true });
+    expect(fetchTextMock).toHaveBeenCalledTimes(3);
+
+    fetchTextMock
+      .mockRejectedValueOnce(new FetchTextError('timeout', 'Request timed out'))
+      .mockResolvedValueOnce(JSON.stringify({ user_info: { auth: 1 } }));
+    const background = createXtreamClient(creds).getAccountInfo();
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(background).resolves.toMatchObject({ auth: true });
+    expect(fetchTextMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('stops at once with no further request when the caller aborts during a delay', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchTextMock.mockRejectedValue(new FetchTextError('http', 'HTTP 500', 500));
+    const controller = new AbortController();
+
+    const result = createXtreamClient(creds).getVodStreams('1', controller.signal);
+    const settled = expect(result).rejects.toMatchObject({ code: 'cancelled' });
+    await vi.advanceTimersByTimeAsync(500);
+    controller.abort();
+    await settled;
+
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(fetchTextMock).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
   });
 });

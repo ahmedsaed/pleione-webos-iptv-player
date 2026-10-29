@@ -1,7 +1,9 @@
 import { gzipSync, strToU8 } from 'fflate';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
+  FetchTextError,
   fetchLimitedText,
+  fetchTextTransientFailure,
   fetchMaybeGzipText,
   fetchText,
   fetchWithTimeout,
@@ -268,6 +270,51 @@ describe('fetchLimitedText', () => {
     const assertion = expect(pending).rejects.toMatchObject({ code: 'timeout' });
     await vi.advanceTimersByTimeAsync(5000);
     await assertion;
+  });
+
+  it('keeps the HTTP status and a numeric Retry-After on a failed response', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      statusText: 'Too Many Requests',
+      headers: new Headers({ 'retry-after': '7' }),
+    })));
+
+    await expect(fetchLimitedText('http://host/a', 1024, 5000)).rejects.toMatchObject({
+      code: 'http',
+      status: 429,
+      retryAfterMs: 7000,
+    });
+  });
+});
+
+describe('fetchTextTransientFailure', () => {
+  it('retries timeouts, network errors, 408, 429, and 5xx', () => {
+    expect(fetchTextTransientFailure(new FetchTextError('timeout', 't')))
+      .toEqual({ reason: 'timeout' });
+    expect(fetchTextTransientFailure(new TypeError('Failed to fetch')))
+      .toEqual({ reason: 'network' });
+    expect(fetchTextTransientFailure(new FetchTextError('http', 'h', 408)))
+      .toEqual({ reason: 'http_408', retryAfterMs: null });
+    expect(fetchTextTransientFailure(new FetchTextError('http', 'h', 429, 3000)))
+      .toEqual({ reason: 'http_429', retryAfterMs: 3000 });
+    expect(fetchTextTransientFailure(new FetchTextError('http', 'h', 502)))
+      .toEqual({ reason: 'http_5xx', retryAfterMs: null });
+  });
+
+  it('never retries a caller abort, a final status, or unusable content', () => {
+    for (const error of [
+      new FetchTextError('aborted', 'a'),
+      new FetchTextError('too_large', 'l'),
+      new FetchTextError('invalid_content', 'c'),
+      new FetchTextError('http', 'h', 401),
+      new FetchTextError('http', 'h', 403),
+      new FetchTextError('http', 'h', 404),
+      new SyntaxError('bad json'),
+      new Error('other'),
+    ]) {
+      expect(fetchTextTransientFailure(error)).toBeNull();
+    }
   });
 });
 
