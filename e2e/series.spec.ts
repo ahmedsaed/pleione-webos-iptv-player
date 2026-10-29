@@ -109,11 +109,11 @@ test('browse Series, open a detail, and play an episode', async ({ page }) => {
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
   await page.keyboard.press('Enter');
   await expect(page.locator('#view-series .series-season-btn[data-season="1"]')).toContainText('Season 1');
-  await expect(page.locator('#view-series .episode-row[data-episode-id="10"]')).toContainText('Episode One');
+  await expect(page.locator('#view-series .episode-card[data-episode-id="10"]')).toContainText('Episode One');
 
   // Play the episode, then Back hides the controls and a second Back returns
   // to the Series view.
-  await page.locator('.episode-row[data-episode-id="10"]')
+  await page.locator('.episode-card[data-episode-id="10"]')
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
   await page.keyboard.press('Enter');
   await expect(page.locator('#view-player')).toBeVisible();
@@ -125,7 +125,7 @@ test('browse Series, open a detail, and play an episode', async ({ page }) => {
   await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
   await expect(page.locator('#view-series')).toBeVisible();
   // The detail survives the player round-trip (Series isn't re-rendered on return).
-  await expect(page.locator('#view-series .episode-row[data-episode-id="10"]')).toContainText('Episode One');
+  await expect(page.locator('#view-series .episode-card[data-episode-id="10"]')).toContainText('Episode One');
 });
 
 test('Back walks Series detail -> browse -> side menu instead of ejecting', async ({ page }) => {
@@ -170,7 +170,7 @@ test('episode playback suppresses the live channel sidebar and opens nothing at 
   await page.locator('.catalog-tile[data-item-id="1"]')
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
   await page.keyboard.press('Enter');
-  await page.locator('.episode-row[data-episode-id="10"]')
+  await page.locator('.episode-card[data-episode-id="10"]')
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
   await page.keyboard.press('Enter');
   await expect(page.locator('#view-player')).toBeVisible();
@@ -225,7 +225,7 @@ async function startEpisode(page: import('@playwright/test').Page, id: number): 
       .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
     await page.keyboard.press('Enter');
   }
-  await page.locator(`.episode-row[data-episode-id="${id}"]`)
+  await page.locator(`.episode-card[data-episode-id="${id}"]`)
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
   await page.keyboard.press('Enter');
   await expect(page.locator('#view-player')).toBeVisible();

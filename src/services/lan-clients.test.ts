@@ -35,6 +35,8 @@ const { storageMock, fetchWithTimeoutMock } = vi.hoisted(() => ({
     setManualEpgSources: vi.fn(),
     getOnlineSubtitleConfig: vi.fn(),
     setOnlineSubtitleConfig: vi.fn(),
+    getTmdbApiKey: vi.fn(() => ''),
+    setTmdbApiKey: vi.fn(() => true),
     remove: vi.fn(),
   },
   fetchWithTimeoutMock: vi.fn(),
@@ -372,6 +374,7 @@ describe('SetupClient.applyPendingActions', () => {
         opensubtitlesApiKeyConfigured: true,
         opensubtitlesPasswordConfigured: true,
         opensubtitlesUsername: 'u2',
+        tmdbConfigured: false,
       },
     });
   });
@@ -655,6 +658,7 @@ describe('SetupClient.applyPendingActions', () => {
       opensubtitlesApiKeyConfigured: true,
       opensubtitlesPasswordConfigured: false,
       opensubtitlesUsername: 'old-user',
+      tmdbConfigured: false,
     });
     expect(JSON.stringify(published)).not.toContain('old-password');
     expect(fetchWithTimeoutMock).toHaveBeenCalledWith(

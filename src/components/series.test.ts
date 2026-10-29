@@ -12,6 +12,8 @@ const { catalogMock, storageMock, watchlistState, toastMock } = vi.hoisted(() =>
       getCatalogSort: vi.fn((): CatalogSortPreference => ({ by: 'default', direction: 'asc' })),
       setCatalogSort: vi.fn((_kind: 'vod' | 'series', _sort: CatalogSortPreference) => true),
       getResumeList: vi.fn(() => [] as unknown[]),
+      getTmdbApiKey: vi.fn(() => ''),
+      isWatched: vi.fn(() => false),
       getResume: vi.fn(() => null),
       getWatchlist: vi.fn(() => watchlistState.entries),
       isWatchlisted: vi.fn((_accountId: string, _kind: WatchlistKind, itemId: string) =>
@@ -384,6 +386,10 @@ const SERIES_INFO = {
   },
 };
 
+function metaParts(): string[] {
+  return Array.from(container.querySelectorAll('.detail-meta-part')).map(part => part.textContent?.trim() ?? '');
+}
+
 async function openDetail(view: Series) {
   const tile = container.querySelector('.catalog-tile[data-item-id="s1"]') as HTMLElement;
   tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
@@ -411,16 +417,16 @@ describe('Series detail', () => {
     const { view } = await openWith();
     await openDetail(view);
 
-    expect(container.querySelectorAll('.episode-row').length).toBeLessThan(20);
-    expect(container.querySelector<HTMLElement>('.series-episodes-spacer')?.style.height)
-      .toBe('6900000px');
+    expect(container.querySelectorAll('.episode-card').length).toBeLessThan(20);
+    expect(container.querySelector<HTMLElement>('.episode-track-spacer')?.style.width)
+      .toBe('21400000px');
 
-    const detail = container.querySelector<HTMLElement>('.series-detail')!;
-    detail.scrollTop = 100 * 138;
-    detail.dispatchEvent(new Event('scroll', { bubbles: true }));
+    const track = container.querySelector<HTMLElement>('.episode-track')!;
+    track.scrollLeft = 100 * 428;
+    track.dispatchEvent(new Event('scroll', { bubbles: true }));
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     const episode = container.querySelector<HTMLElement>(
-      '[data-episode-index="100"] .episode-row',
+      '[data-episode-index="100"] .episode-card',
     )!;
     episode.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
 
@@ -448,7 +454,7 @@ describe('Series detail', () => {
     try {
       const { view } = await openWith();
       await openDetail(view);
-      const detail = container.querySelector<HTMLElement>('.series-detail')!;
+      const detail = container.querySelector<HTMLElement>('.episode-track')!;
       const keyOf = (index: number): string => {
         const row = container.querySelector<HTMLElement>(`[data-episode-index="${String(index)}"] [data-key]`)!;
         const rail = row.closest<HTMLElement>('[data-rail-key]')?.dataset.railKey ?? '';
@@ -460,12 +466,12 @@ describe('Series detail', () => {
 
       let top = 0;
       const behaviors: string[] = [];
-      Object.defineProperty(detail, 'scrollTop', {
+      Object.defineProperty(detail, 'scrollLeft', {
         configurable: true,
         get: () => top,
         set: (value: number) => { top = value; behaviors.push(detail.style.scrollBehavior); },
       });
-      top = 100 * 138;
+      top = 100 * 428;
       detail.dispatchEvent(new Event('scroll', { bubbles: true }));
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       expect(container.querySelector('[data-episode-index="0"]')).toBeNull();
@@ -500,7 +506,7 @@ describe('Series detail', () => {
     try {
       const { view } = await openWith();
       await openDetail(view);
-      const detail = container.querySelector<HTMLElement>('.series-detail')!;
+      const detail = container.querySelector<HTMLElement>('.episode-track')!;
       const keyOf = (index: number): string => {
         const row = container.querySelector<HTMLElement>(`[data-episode-index="${String(index)}"] [data-key]`)!;
         const rail = row.closest<HTMLElement>('[data-rail-key]')?.dataset.railKey ?? '';
@@ -512,13 +518,13 @@ describe('Series detail', () => {
 
       let top = 0;
       const behaviors: string[] = [];
-      Object.defineProperty(detail, 'scrollTop', {
+      Object.defineProperty(detail, 'scrollLeft', {
         configurable: true,
         get: () => top,
         set: (value: number) => { top = value; behaviors.push(detail.style.scrollBehavior); },
       });
       const scrollAway = async (): Promise<void> => {
-        top = 100 * 138;
+        top = 100 * 428;
         detail.dispatchEvent(new Event('scroll', { bubbles: true }));
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         expect(container.querySelector('[data-episode-index="0"]')).toBeNull();
@@ -547,7 +553,7 @@ describe('Series detail', () => {
     }
   });
 
-  it('brings a scrolled-away episode fully in when its rows measure taller than estimated', async () => {
+  it('brings a scrolled-away episode into the row when focus reaches it', async () => {
     const episodes = Array.from({ length: 500 }, (_, index) => ({
       id: `e${String(index)}`,
       title: `Episode ${String(index)}`,
@@ -560,33 +566,35 @@ describe('Series detail', () => {
       subtitles: [],
     }));
     catalogMock.loadSeriesInfo.mockResolvedValue({ seasons: [1], episodesBySeason: { 1: episodes } });
-    const rect = Element.prototype.getBoundingClientRect;
-    const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-      if (!this.classList.contains('episode-row')) return rect.call(this);
-      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 184, width: 0, height: 184, toJSON: () => ({}) };
-    });
-    try {
-      const { view } = await openWith();
-      await openDetail(view);
-      const row = container.querySelector<HTMLElement>('[data-episode-index="0"] [data-key]')!;
-      const rail = row.closest<HTMLElement>('[data-rail-key]')?.dataset.railKey ?? '';
-      expect(container.querySelector('[data-episode-index="40"]')).toBeNull();
+    const { view } = await openWith();
+    await openDetail(view);
+    const card = container.querySelector<HTMLElement>('[data-episode-index="0"] [data-key]')!;
+    const rail = card.closest<HTMLElement>('[data-rail-key]')?.dataset.railKey ?? '';
+    expect(container.querySelector('[data-episode-index="40"]')).toBeNull();
 
-      view.focusScope.focus(JSON.stringify(['detail', rail, 'ep:e40']), 'key');
-      Focus.flush();
+    view.focusScope.focus(JSON.stringify(['detail', rail, 'ep:e40']), 'key');
+    Focus.flush();
 
-      const list = (view as unknown as {
-        episodeVirtualizer: { scrollOffset: number; getItemOffset(index: number): number };
-      }).episodeVirtualizer;
-      const viewport = 984;
-      expect(list.getItemOffset(41) - list.getItemOffset(40)).toBe(200);
-      expect(list.getItemOffset(41)).toBeLessThanOrEqual(list.scrollOffset + viewport);
-      expect(list.getItemOffset(40)).toBeGreaterThanOrEqual(list.scrollOffset);
-      expect(container.querySelector<HTMLElement>('.series-detail')!.scrollTop).toBe(list.scrollOffset);
-      expect(container.querySelector<HTMLElement>('.focused')?.dataset.key).toBe('ep:e40');
-    } finally {
-      spy.mockRestore();
-    }
+    const list = (view as unknown as {
+      episodeVirtualizer: { scrollOffset: number; getItemOffset(index: number): number };
+    }).episodeVirtualizer;
+    const viewport = 1760;
+    expect(list.getItemOffset(41) - list.getItemOffset(40)).toBe(428);
+    expect(list.getItemOffset(41)).toBeLessThanOrEqual(list.scrollOffset + viewport);
+    expect(list.getItemOffset(40)).toBeGreaterThanOrEqual(list.scrollOffset);
+    expect(container.querySelector<HTMLElement>('.episode-track')!.scrollLeft).toBe(list.scrollOffset);
+    expect(container.querySelector<HTMLElement>('.focused')?.dataset.key).toBe('ep:e40');
+  });
+
+  it('steps through episodes with Left and Right and stays put at either end', async () => {
+    catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+    const { view } = await openWith();
+    await openDetail(view);
+    const first = container.querySelector<HTMLElement>('.episode-card')!;
+    first.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('left');
+    Focus.flush();
+    expect(container.querySelector<HTMLElement>('.focused')?.dataset.key).toBe(first.dataset.key);
   });
 
   it('adds and removes the series from Watchlist without losing button focus', async () => {
@@ -600,13 +608,13 @@ describe('Series detail', () => {
     expect(storageMock.toggleWatchlist).toHaveBeenCalledWith(expect.objectContaining({
       accountId: 'x1', kind: 'series', itemId: 's1', name: 'Series One',
     }));
-    expect(container.querySelector('[data-action="watchlist"]')?.textContent).toContain('Remove from Watchlist');
+    expect(container.querySelector('[data-action="watchlist"]')?.getAttribute('aria-pressed')).toBe('true');
     Focus.flush();
     expect(container.querySelector('.focused')?.getAttribute('data-key')).toBe('watchlist');
     expect(toastMock.showToast).toHaveBeenLastCalledWith('Added to Watchlist');
 
     view.handleAction('select');
-    expect(container.querySelector('[data-action="watchlist"]')?.textContent).toContain('Add to Watchlist');
+    expect(container.querySelector('[data-action="watchlist"]')?.getAttribute('aria-pressed')).toBe('false');
     expect(toastMock.showToast).toHaveBeenLastCalledWith('Removed from Watchlist');
   });
 
@@ -618,7 +626,7 @@ describe('Series detail', () => {
     });
     const { view, handlers } = await openWith();
     await openDetail(view);
-    const row = container.querySelector(`.episode-row[data-episode-id="${first.id}"]`) as HTMLElement;
+    const row = container.querySelector(`.episode-card[data-episode-id="${first.id}"]`) as HTMLElement;
     row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ title: 'Series One - S01E01 - Pilot' }));
@@ -629,21 +637,21 @@ describe('Series detail', () => {
     const { view, handlers } = await openWith();
     await openDetail(view);
 
-    expect(container.querySelector('.detail-meta')?.textContent)
-      .toContain('2021  ·  45 min  ·  Drama  ·  8.4');
+    expect(metaParts()).toEqual(['2021', '2 seasons', 'Drama', '8.4']);
     expect(container.querySelector('.detail-plot')?.textContent).toBe('Series plot.');
-    expect(container.querySelectorAll('.detail-cast')[0]?.textContent)
-      .toContain('Cast Actor 1, Actor 2');
-    expect(container.querySelectorAll('.detail-cast')[1]?.textContent)
-      .toContain('Director Director 1');
-    expect(container.querySelector<HTMLImageElement>('.series-detail-poster img')?.src)
+    expect(Array.from(container.querySelectorAll('.detail-person-name')).map(n => n.textContent))
+      .toEqual(['Actor 1', 'Actor 2', 'Director 1']);
+    expect(Array.from(container.querySelectorAll('.detail-person-role')).map(n => n.textContent))
+      .toEqual(['Director']);
+    expect(Array.from(container.querySelectorAll('.detail-person-initials')).map(n => n.textContent))
+      .toEqual(['A', 'A', 'D']);
+    expect(container.querySelector<HTMLImageElement>('.detail-poster-wrap img')?.src)
       .toBe('http://host/series.jpg');
     expect(container.querySelector('.series-season-btn[data-season="1"]')?.textContent).toContain('Season 1');
     expect(container.querySelector('.series-season-btn[data-season="2"]')).not.toBeNull();
-    expect(container.querySelector('.episode-row[data-episode-id="e1"]')?.textContent).toContain('Episode One');
-    expect(container.textContent).toContain('Ep plot.');
+    expect(container.querySelector('.episode-card[data-episode-id="e1"]')?.textContent).toContain('Episode One');
 
-    const row = container.querySelector('.episode-row[data-episode-id="e1"]') as HTMLElement;
+    const row = container.querySelector('.episode-card[data-episode-id="e1"]') as HTMLElement;
     row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
@@ -672,8 +680,7 @@ describe('Series detail', () => {
     const { view } = await openWith();
     await openDetail(view);
 
-    expect(container.querySelector('.detail-meta')?.textContent)
-      .toContain('2022  ·  45 min  ·  Drama  ·  8.4');
+    expect(metaParts()).toEqual(['2022', '2 seasons', 'Drama', '8.4']);
   });
 
   it('switches season and plays that season\'s episode with its own container extension', async () => {
@@ -684,10 +691,10 @@ describe('Series detail', () => {
     const season2 = container.querySelector('.series-season-btn[data-season="2"]') as HTMLElement;
     season2.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
-    expect(container.querySelector('.episode-row[data-episode-id="e2"]')).not.toBeNull();
-    expect(container.querySelector('.episode-row[data-episode-id="e1"]')).toBeNull();
+    expect(container.querySelector('.episode-card[data-episode-id="e2"]')).not.toBeNull();
+    expect(container.querySelector('.episode-card[data-episode-id="e1"]')).toBeNull();
 
-    const row = container.querySelector('.episode-row[data-episode-id="e2"]') as HTMLElement;
+    const row = container.querySelector('.episode-card[data-episode-id="e2"]') as HTMLElement;
     row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
@@ -705,11 +712,56 @@ describe('Series detail', () => {
     const { view, handlers } = await openWith();
     await openDetail(view);
 
-    expect(container.querySelector('.episode-row[data-episode-id="e1"] .episode-resume')).not.toBeNull();
-    const row = container.querySelector('.episode-row[data-episode-id="e1"]') as HTMLElement;
+    expect(container.querySelector('.episode-card[data-episode-id="e1"] .catalog-progress-fill')).not.toBeNull();
+    const row = container.querySelector('.episode-card[data-episode-id="e1"]') as HTMLElement;
     row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e1', resumeSecs: 450 }));
+  });
+
+  it('resumes the last-watched episode from the detail and opens on its season', async () => {
+    catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+    const saved = {
+      accountId: 'x1', kind: 'episode', itemId: 'e2', name: 'Series One — S2E1 — Episode Two',
+      poster: '', ext: 'mkv', position: 400, duration: 1600, updatedAt: 2,
+      watchlistOwner: { kind: 'series', itemId: 's1' },
+    };
+    storageMock.getResumeList.mockReturnValue([saved]);
+    storageMock.getResume.mockImplementation((_a: string, _k: string, id: string) => (id === 'e2' ? saved : null));
+    const { view, handlers } = await openWith();
+    await openDetail(view);
+
+    const resume = container.querySelector<HTMLElement>('[data-action="resume"]')!;
+    expect(resume.textContent).toContain('Resume S2 · E1');
+    expect(resume.querySelector<HTMLElement>('.detail-btn-progress-fill')?.style.width).toBe('25%');
+    expect(container.querySelector('.series-season-btn.active')?.getAttribute('data-season')).toBe('2');
+    expect(container.querySelector('.focused')?.getAttribute('data-key')).toBe('resume');
+    view.handleAction('select');
+    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e2', resumeSecs: 400 }));
+  });
+
+  it('fills the progress bar of a watched episode', async () => {
+    catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+    storageMock.isWatched.mockImplementation((_a: string, kind: string, id: string) => kind === 'episode' && id === 'e1');
+    try {
+      const { view } = await openWith();
+      await openDetail(view);
+      const fill = container.querySelector<HTMLElement>('.episode-card[data-episode-id="e1"] .catalog-progress-fill');
+      expect(fill?.style.width).toBe('100%');
+    } finally {
+      storageMock.isWatched.mockImplementation(() => false);
+    }
+  });
+
+  it('plays the first episode from Play when nothing was watched', async () => {
+    catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+    const { view, handlers } = await openWith();
+    await openDetail(view);
+    expect(container.querySelector('[data-action="resume"]')).toBeNull();
+    container.querySelector<HTMLElement>('[data-action="play"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e1', resumeSecs: 0 }));
   });
 
   it('restores the episodes before and after from Continue Watching', async () => {

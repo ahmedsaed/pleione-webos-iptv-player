@@ -56,6 +56,7 @@ const {
       opensubtitles: { apiKey: '', username: '', password: '', token: '', tokenTs: 0 },
       assrt: { apiKey: '' },
     },
+    tmdbApiKey: '',
   };
   return {
     state,
@@ -156,6 +157,8 @@ const {
       migrateCatchupEpgOffsets: vi.fn(),
       setLocalePreference: vi.fn(),
       setOnlineSubtitleConfig: vi.fn((cfg: any) => { state.onlineSubtitles = cfg; }),
+      getTmdbApiKey: vi.fn(() => state.tmdbApiKey),
+      setTmdbApiKey: vi.fn((key: string) => { state.tmdbApiKey = key.trim(); return true; }),
       remove: vi.fn(),
       clearRecentlyWatched: vi.fn(),
       clearWatchlist: vi.fn(),
@@ -1693,6 +1696,25 @@ describe('Settings.save', () => {
     (container.querySelector('#assrt-key') as HTMLInputElement).value = 'AZ';
     click('#save-settings');
     expect(storageMock.getOnlineSubtitleConfig().assrt.apiKey).toBe('AZ');
+  });
+
+  it('saves the TMDB key for cast photos, empty by default', () => {
+    settings.render();
+    const input = container.querySelector('#tmdb-key') as HTMLInputElement;
+    expect(input.value).toBe('');
+    input.value = '  k1  ';
+    click('#save-settings');
+    expect(storageMock.getTmdbApiKey()).toBe('k1');
+  });
+
+  it('credits TMDB in About with its required notice and a bundled logo', () => {
+    settings.render();
+    const about = container.querySelector('.settings-attribution')!;
+    expect(about.textContent).toContain(
+      'This product uses the TMDB API but is not endorsed or certified by TMDB.');
+    const logo = about.querySelector('svg')!;
+    expect(logo.getAttribute('aria-label')).toBe('TMDB');
+    expect(about.innerHTML).not.toMatch(/https?:/);
   });
 });
 

@@ -139,30 +139,30 @@ test('adds and removes Movies and Series through their detail screens', async ({
 
   await enterTab(page, 'movies');
   await focusAndSelect(page, '#view-movies .catalog-tile[data-item-id="10"]');
-  await expect(page.locator('#view-movies [data-action="watchlist"]')).toContainText('Add to Watchlist');
+  await expect(page.locator('#view-movies [data-action="watchlist"]')).toHaveAttribute('aria-pressed', 'false');
   await page.locator('#view-movies [data-action="watchlist"]').click();
-  await expect(page.locator('#view-movies [data-action="watchlist"]')).toContainText('Remove from Watchlist');
+  await expect(page.locator('#view-movies [data-action="watchlist"]')).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () =>
     (await storedWatchlist(page)).map((entry) => `${entry.kind}:${entry.itemId}`))
     .toEqual(['vod:10']);
   await page.locator('#view-movies [data-action="watchlist"]').click();
-  await expect(page.locator('#view-movies [data-action="watchlist"]')).toContainText('Add to Watchlist');
+  await expect(page.locator('#view-movies [data-action="watchlist"]')).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(() => storedWatchlist(page)).toEqual([]);
 
   await enterTab(page, 'series');
   await focusAndSelect(page, '#view-series .catalog-tile[data-item-id="1"]');
-  await expect(page.locator('#view-series [data-action="watchlist"]')).toContainText('Add to Watchlist');
+  await expect(page.locator('#view-series [data-action="watchlist"]')).toHaveAttribute('aria-pressed', 'false');
   await page.locator('#view-series [data-action="watchlist"]').click();
-  await expect(page.locator('#view-series [data-action="watchlist"]')).toContainText('Remove from Watchlist');
+  await expect(page.locator('#view-series [data-action="watchlist"]')).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () =>
     (await storedWatchlist(page)).map((entry) => `${entry.kind}:${entry.itemId}`))
     .toEqual(['series:1']);
   await page.locator('#view-series [data-action="watchlist"]').click();
-  await expect(page.locator('#view-series [data-action="watchlist"]')).toContainText('Add to Watchlist');
+  await expect(page.locator('#view-series [data-action="watchlist"]')).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(() => storedWatchlist(page)).toEqual([]);
 });
 
-test('shows Resume on return, keeps playback actions aligned, and offers progress removal', async ({ page }) => {
+test('shows Resume at the saved position on return and keeps playback actions aligned', async ({ page }) => {
   await seedWatchlistCatalog(page, [movieEntry('10', 'Movie One', 1000)]);
   await routeLiveManifest(page);
   await neuterVideo(page);
@@ -179,10 +179,10 @@ test('shows Resume on return, keeps playback actions aligned, and offers progres
   await leaveVod(page);
 
   await expect(page.locator('#view-movies')).toBeVisible();
-  await expect(page.locator('#view-movies [data-action="resume"]')).toBeVisible();
-  const actions = page.locator('#view-movies .detail-btn:not([data-action="remove-resume"])');
+  await expect(page.locator('#view-movies [data-action="resume"]')).toContainText('Resume 0:20');
+  const actions = page.locator('#view-movies .detail-btn');
   await expect(actions).toHaveCount(3);
-  await expect(page.locator('#view-movies [data-action="remove-resume"]')).toContainText('Remove from Continue Watching');
+  await expect(actions.nth(2)).toContainText('Play from start');
   const layout = await actions.evaluateAll((buttons) => buttons.map((button) => ({
     height: (button as HTMLElement).offsetHeight,
     top: (button as HTMLElement).offsetTop,
@@ -193,7 +193,7 @@ test('shows Resume on return, keeps playback actions aligned, and offers progres
   expect(layout.every((item) => item.whiteSpace === 'nowrap')).toBe(true);
 });
 
-test('keeps pseudo-localized playback actions aligned and wraps progress removal without clipping', async ({ page }) => {
+test('keeps pseudo-localized playback actions aligned and unclipped', async ({ page }) => {
   await seedWatchlistCatalog(page, [movieEntry('10', 'Movie One', 1000)]);
   await page.addInitScript(() => {
     localStorage.setItem('iptv_resume', JSON.stringify({
@@ -216,7 +216,7 @@ test('keeps pseudo-localized playback actions aligned and wraps progress removal
   await enterTab(page, 'movies');
   await focusAndSelect(page, '#view-movies [data-watchlist-item="10"]');
 
-  const actions = page.locator('#view-movies .detail-btn:not([data-action="remove-resume"])');
+  const actions = page.locator('#view-movies .detail-btn');
   await expect(actions).toHaveCount(3);
   await expect(actions.first()).toContainText('[!!');
   const layout = await page.locator('#view-movies .detail-actions').evaluate((row) => ({
@@ -230,10 +230,10 @@ test('keeps pseudo-localized playback actions aligned and wraps progress removal
   }));
   expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1);
   expect(layout.buttons.every(button => button.scrollWidth <= button.clientWidth + 1)).toBe(true);
-  expect(new Set(layout.buttons.slice(0, 3).map(button => button.top)).size).toBe(1);
-  expect(layout.buttons).toHaveLength(4);
-  expect(layout.buttons[3].top).toBeGreaterThanOrEqual(layout.buttons[0].top);
-  await expect(page.locator('#view-movies [data-action="remove-resume"]')).toBeVisible();
+  expect(new Set(layout.buttons.map(button => button.top)).size).toBe(1);
+  expect(layout.buttons).toHaveLength(3);
+  const right = await actions.last().evaluate(button => button.getBoundingClientRect().right);
+  expect(right).toBeLessThanOrEqual(1920);
 });
 
 test('auto-plays the next Watchlist movie and removes each completed movie', async ({ page }) => {
@@ -271,7 +271,7 @@ test('auto-plays the next episode and removes a series only after its final epis
 
   await enterTab(page, 'series');
   await focusAndSelect(page, '#view-series .catalog-tile[data-item-id="1"]');
-  await focusAndSelect(page, '#view-series .episode-row[data-episode-id="101"]');
+  await focusAndSelect(page, '#view-series .episode-card[data-episode-id="101"]');
   await expect(page.locator('#player-osd .osd-channel-name')).toContainText('Episode One');
 
   await finishCurrentVideo(page);

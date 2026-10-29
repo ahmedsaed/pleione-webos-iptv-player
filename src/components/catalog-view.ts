@@ -14,8 +14,12 @@ import { InputMode } from '../navigation/input-mode';
 import type { NavWheelDetail } from '../navigation/key-handler';
 import { html, raw, Safe, withInstantScroll } from '../utils/dom';
 import { categoryLockBadge, lockBadge } from './parental-badge';
-import { SORT_ASCENDING_ICON, SORT_DESCENDING_ICON, SEE_ALL_ICON, REMOVE_ICON, CHECK_ICON, TRASH_ICON, PENCIL_ICON } from './icons';
+import { SORT_ASCENDING_ICON, SORT_DESCENDING_ICON, SEE_ALL_ICON, REMOVE_ICON, CHECK_ICON, TRASH_ICON, PENCIL_ICON, PLUS_ICON, STAR_ICON } from './icons';
 import { ConfirmationPrompt } from './confirmation-prompt';
+import { DetailTextOverlay } from './detail-text-overlay';
+import { castGradient, castInitials, type CastMember } from '../utils/cast';
+import { genreSet, rankMoreLikeThis } from '../utils/more-like-this';
+import { tmdbProfileUrl, type TmdbPerson } from '../services/tmdb';
 import { backKey, okHint } from './key-hints';
 import { showToast } from './toast';
 import { dropdown, toggleDropdown, closeDropdown, commitDropdownOption } from './dropdown';
@@ -65,6 +69,17 @@ const CATALOG_GRID_VIEWPORT_WIDTH = 1760;
 const CATALOG_GRID_VIEWPORT_HEIGHT = 900;
 const CATEGORY_RAIL_STRIDE = 320;
 const CATEGORY_RAIL_VIEWPORT = 1760;
+// Match .detail-body, .detail-poster-wrap, and the line boxes in
+// catalog-view.css.
+const DETAIL_BODY_TOP = 96;
+const DETAIL_EDGE_PAD = 24;
+const DETAIL_POSTER_TOP = 120;
+const DETAIL_POSTER_HEIGHT = 450;
+const DETAIL_POSTER_RIGHT = 120;
+const DETAIL_BODY_WIDTH = 1040;
+const DETAIL_COLUMN_GAP = 60;
+const DETAIL_TITLE_LINES = 2;
+const DETAIL_PLOT_LINES = 3;
 
 // Matches the rail track's padding and its end spacer in catalog-view.css.
 const RAIL_EDGE_GUTTER = 12;
@@ -104,6 +119,31 @@ interface HeroSubject<I> {
   name: string;
   poster: string;
   item: I | null;
+}
+
+// What a detail page shows. Every block keeps its place and size whether
+// its text is there, short, long, or still loading.
+export interface DetailPage {
+  id: string;
+  name: string;
+  poster: string;
+  backdrop: string;
+  year: string;
+  runtime: string;
+  genre: string;
+  rating: string;
+  plot: string;
+  actions: Safe;
+  rows: Array<Safe | ''>;
+}
+
+export interface DetailAction {
+  key: string;
+  label: string;
+  icon: string;
+  primary?: boolean;
+  progress?: number;
+  pressed?: boolean;
 }
 
 export interface HeroDetails {
@@ -209,6 +249,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private lastRevealKey: string | null = null;
   private lastRevealAt = 0;
   private lastRevealInstant = false;
+  private readonly plotOverlay: DetailTextOverlay;
+  private detailText: { title: string; text: string } | null = null;
 
   constructor(protected container: HTMLElement, protected handlers: CatalogHandlers) {
     const layer = (mode: Mode): HTMLElement => {
@@ -222,6 +264,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     this.nav = new SpatialNav(container, (el) => this.onFocusChanged(el), { follow: false });
     this.nav.setRestrict(this.layers.browse);
     this.clearPrompt = new ConfirmationPrompt(`prompt.${this.scopeName()}.collection`);
+    this.plotOverlay = new DetailTextOverlay(`prompt.${this.scopeName()}.plot`);
     this.focusScope = Focus.register({
       id: `${this.scopeName()}.catalog`,
       root: container,
@@ -415,8 +458,22 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   }
 
   private defaultKey(): string | null {
-    const first = this.nav.first();
+    const first = this.firstTarget();
     return first ? this.keyFor(first) : null;
+  }
+
+  // A detail starts on its first action (Play or Resume), not on the
+  // description above it.
+  private firstTarget(): HTMLElement | null {
+    const actions = this.mode === 'detail'
+      ? this.layers.detail.querySelector<HTMLElement>('.detail-actions') : null;
+    if (actions) {
+      this.nav.setRestrict(actions);
+      const action = this.nav.first();
+      this.nav.setRestrict(this.layers.detail);
+      if (action) return action;
+    }
+    return this.nav.first();
   }
 
   // Keys the virtualized grid, category rail, or episode list may not render.
@@ -492,8 +549,15 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       return scrolled ? true : null;
     }
     if (parsed.mode === 'detail') {
+      // A virtualized episode renders before it is placed; the rails then
+      // snap to its row like the browse rails do.
       const extra = this.revealExtraKey(parsed.key, instant);
-      if (extra !== undefined) return extra;
+      if (extra === true) scrolled = true;
+      const el = this.resolveKey(key);
+      if (!el) return scrolled ? true : null;
+      if (extra === undefined && this.revealRailGutter(el, instant)) scrolled = true;
+      if (this.snapRail(el, instant)) scrolled = true;
+      return scrolled ? true : null;
     }
     const el = this.resolveKey(key);
     if (el && this.revealElement(el, instant)) scrolled = true;
@@ -600,7 +664,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   protected settleDetailFocus(): void {
     if (this.current()) return;
     this.pick(this.focusScope.focusKey === null ? this.placementVia() : null, () => {
-      if (!this.nav.focusFirst()) this.nav.focus(null);
+      this.nav.focus(this.firstTarget());
     });
   }
 
@@ -709,6 +773,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   deactivate(): void {
     this.cancelHeroDetails();
     this.clearPrompt.hide();
+    this.plotOverlay.hide();
     this.dismissSort(null);
     this.requestController?.abort();
     this.requestController = null;
@@ -891,8 +956,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     }
     const current = this.current();
     const sortRow = current?.closest<HTMLElement>('.catalog-sort, .catalog-collection-actions');
-    const horizontalRegion = sortRow ?? (this.mode === 'browse'
-      ? current?.closest<HTMLElement>('.catalog-rail-track:not(.catalog-category-rail)') : null);
+    const horizontalRegion = sortRow ?? (this.mode !== 'grid'
+      ? current?.closest<HTMLElement>('.catalog-rail-track:not(.catalog-category-rail):not(.episode-track), .series-seasons') : null);
     if (horizontalRegion && (action === 'left' || action === 'right')) {
       this.nav.setRestrict(horizontalRegion);
       const moved = this.nav.move(action);
@@ -912,6 +977,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       }
     }
     if (this.moveExtraFocus(action)) return;
+    if (this.mode === 'detail' && (action === 'up' || action === 'down')
+        && this.moveDetailLine(action)) return;
     if (this.mode === 'browse' && (action === 'left' || action === 'right')
         && this.moveCategoryFocus(action)) return;
     if (this.mode === 'grid'
@@ -1006,6 +1073,10 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     if (el.dataset.categoryId !== undefined
         && (el.classList.contains('catalog-cat') || el.classList.contains('catalog-see-all'))) {
       void this.openGrid(el.dataset.categoryId);
+      return;
+    }
+    if (el.dataset.action === 'plot') {
+      this.openPlot();
       return;
     }
     if (this.selectExtra(el)) return;
@@ -1375,9 +1446,13 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   // Aligns the rail holding `el` with the top of the rail area, so the rails
   // above it are clipped away whole. True when it scrolled.
   private snapRail(el: HTMLElement, instant: boolean): boolean {
-    const rails = this.layers.browse.querySelector<HTMLElement>('.catalog-rails');
+    const rails = this.layers[this.mode].querySelector<HTMLElement>('.catalog-rails');
+    if (!rails) return false;
     const rail = el.closest<HTMLElement>('.catalog-rail');
-    if (!rails || !rail || !rails.contains(rail)) return false;
+    // Focus above the rails (a detail's buttons) shows them from the top.
+    if (!rail || !rails.contains(rail)) {
+      return this.mode === 'detail' && this.scrollRails(rails, 0, instant);
+    }
     this.fitRails(rails);
     return this.scrollRails(rails, this.railOffset(rails, rail), instant);
   }
@@ -1404,16 +1479,18 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       tallest = Math.max(tallest, rail.offsetHeight);
     });
     const fit = `${tallest}px`;
-    if (tallest <= 0 || this.layers.browse.style.getPropertyValue('--catalog-rail-fit') === fit) return;
-    this.layers.browse.style.setProperty('--catalog-rail-fit', fit);
-    this.fitHeroText();
+    const layer = this.layers[this.mode];
+    if (tallest <= 0 || layer.style.getPropertyValue('--catalog-rail-fit') === fit) return;
+    layer.style.setProperty('--catalog-rail-fit', fit);
+    if (this.mode === 'detail') this.fitDetail();
+    else this.fitHeroText();
   }
 
   // The wheel steps the rails as the remote does, without moving focus.
   private onWheel(e: CustomEvent<NavWheelDetail>): void {
     const wheel = e.detail;
-    if (this.mode !== 'browse' || !wheel || !wheel.deltaY || Math.abs(wheel.deltaX) > Math.abs(wheel.deltaY)) return;
-    const rails = this.layers.browse.querySelector<HTMLElement>('.catalog-rails');
+    if (this.mode === 'grid' || !wheel || !wheel.deltaY || Math.abs(wheel.deltaX) > Math.abs(wheel.deltaY)) return;
+    const rails = this.layers[this.mode].querySelector<HTMLElement>('.catalog-rails');
     if (!rails || !(e.target instanceof Node) || !rails.contains(e.target)) return;
     e.preventDefault();
     wheel.preventScroll();
@@ -1568,6 +1645,255 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     this.gridFocusIndex = 0;
     this.gridVirtualizer.setScrollOffset(0);
     this.renderGrid();
+  }
+
+  // --- detail page ---
+
+  // The detail's hero: backdrop (or the softened poster), title, meta line,
+  // description, and actions in fixed boxes, the poster on the right, and
+  // the rows below in a rail area that snaps a row at a time.
+  protected detailPage(page: DetailPage): Safe {
+    this.detailText = page.plot ? { title: page.name, text: page.plot } : null;
+    const wide = !!page.backdrop && page.backdrop !== page.poster;
+    // Percent-encoded like the browse hero's, for the CSS url('…') string.
+    const bg = (wide ? page.backdrop : page.poster).replace(/["'()\\\s]/g, encodeURIComponent);
+    const parts: Safe[] = [];
+    [page.year, page.runtime, page.genre].forEach((part) => {
+      if (part) parts.push(html`<span class="detail-meta-part">${part}</span>`);
+    });
+    if (page.rating) {
+      parts.push(html`<span class="detail-meta-part detail-rating"><span class="detail-star">${raw(STAR_ICON)}</span>${page.rating}</span>`);
+    }
+    const meta = parts.map((part, i) => (i
+      ? html`<span class="detail-meta-dot" aria-hidden="true">·</span>${part}`
+      : part));
+    return html`
+      <div class="catalog-view catalog-detail ${this.scopeName()}-detail" data-key="detail:${page.id}" data-nav-container>
+        <div class="detail-backdrop">
+          ${bg ? html`<div class="detail-art${wide ? '' : ' detail-art-soft'}"
+                           style="background-image: url('${bg}')"></div>` : ''}
+          <div class="detail-scrim"></div>
+        </div>
+        <div class="detail-hero">
+          <div class="detail-poster-wrap">${this.posterCell(page.name, page.poster)}</div>
+          <div class="detail-body">
+            <div class="detail-title-box"><h1 class="detail-title">${page.name}</h1></div>
+            <div class="detail-meta">${meta}</div>
+            <div class="detail-plot-box" ${raw(page.plot ? 'data-focusable' : '')} data-key="plot" data-action="plot">
+              <p class="detail-plot">${page.plot}</p>
+            </div>
+            <div class="detail-actions">${page.actions}</div>
+          </div>
+        </div>
+        <div class="catalog-rails detail-rails">
+          <div class="catalog-rails-body">${page.rows.filter((row): row is Safe => !!row)}</div>
+          <div class="catalog-rails-end"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  protected detailButton(action: DetailAction): Safe {
+    const progress = action.progress !== undefined
+      ? Math.max(2, Math.min(100, Math.round(action.progress * 100))) : null;
+    return html`
+      <button class="detail-btn${action.primary ? ' detail-btn-primary' : ''}" type="button"
+              data-focusable data-key="${action.key}" data-action="${action.key}"
+              ${raw(action.pressed === undefined ? '' : `aria-pressed="${String(action.pressed)}"`)}>
+        <span class="detail-btn-icon">${raw(action.icon)}</span>
+        <span class="detail-btn-label">${action.label}</span>
+        ${progress !== null ? html`<span class="detail-btn-progress"><span class="detail-btn-progress-fill" style="width:${progress}%"></span></span>` : ''}
+      </button>
+    `;
+  }
+
+  protected watchlistButton(watchlisted: boolean): Safe {
+    return this.detailButton({
+      key: 'watchlist',
+      label: t('common.watchlist'),
+      icon: watchlisted ? CHECK_ICON : PLUS_ICON,
+      pressed: watchlisted,
+    });
+  }
+
+  // Up to a dozen people: a photo when TMDB matched the name, else initials
+  // on a color of their own. OK on a person does nothing.
+  protected castRail(members: CastMember[], photos: Map<string, TmdbPerson>): Safe | '' {
+    if (!members.length) return '';
+    return this.detailRail('cast', t('catalog.cast'), members.map((member, i) => {
+      const match = photos.get(member.name);
+      const photo = match ? tmdbProfileUrl(match.p) : '';
+      const role = member.director ? t('catalog.director') : match?.r ?? '';
+      return html`
+        <div class="detail-person" data-focusable data-key="person:${i}">
+          <div class="detail-person-face" style="background-image:${photo ? 'none' : castGradient(member.name)}">
+            <span class="detail-person-initials">${castInitials(member.name)}</span>${photo
+              ? html`<img class="detail-person-photo" src="${photo}" alt="" onerror="this.style.display='none'">`
+              : ''}
+          </div>
+          <div class="detail-person-name">${member.name}</div>
+          ${role ? html`<div class="detail-person-role">${role}</div>` : ''}
+        </div>
+      `;
+    }));
+  }
+
+  // Titles from the same category that the section already holds, ranked by
+  // the genres they share with this one, then by rating.
+  protected moreLikeThisRail(categoryId: string, currentId: string, genre: string): Safe | '' {
+    const items = this.itemsByCategory[categoryId] ?? [];
+    const similar = rankMoreLikeThis(currentId, genreSet(genre), items.map(item => ({
+      id: this.itemId(item),
+      item,
+      genres: genreSet(this.itemGenre(item)),
+      rating: item.rating ?? '',
+    })));
+    if (!similar.length) return '';
+    return this.detailRail('similar', t('catalog.moreLikeThis'), similar.map(item => this.tile(item)));
+  }
+
+  // A genre the section already knows for a title, without asking for it.
+  protected itemGenre(_item: I): string | undefined { return undefined; }
+
+  protected detailRail(key: string, title: string, items: Safe[], head: Safe | '' = '', trackClass = ''): Safe {
+    return html`
+      <div class="catalog-rail detail-rail" data-key="rail:${key}" data-rail-key="${key}">
+        <div class="catalog-rail-head detail-rail-head">
+          <h2 class="catalog-rail-title">${title}</h2>${head}
+        </div>
+        <div class="catalog-rail-track${trackClass ? ` ${trackClass}` : ''}" data-edge-scroll>${items}</div>
+      </div>
+    `;
+  }
+
+  // Loads the one category a detail belongs to when no rail or grid has, so
+  // More like this has titles to rank.
+  protected async ensureCategoryItems(categoryId: string, signal: AbortSignal): Promise<boolean> {
+    const account = this.account;
+    if (!account || !categoryId || this.itemsByCategory[categoryId]
+        || !this.categories.some(category => category.id === categoryId)) return false;
+    try {
+      const items = await this.loadVisibleItems(account, categoryId, signal);
+      if (signal.aborted || this.account?.id !== account.id) return false;
+      this.setCategoryItems(categoryId, items);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Lays the hero out in the room the rails leave it. The title and the
+  // description keep their reserved lines unless a large Interface or text
+  // size leaves too little room; then they lose lines by the layout alone,
+  // never by the text shown, so nothing moves when details arrive.
+  protected fitDetail(): void {
+    const layer = this.layers.detail;
+    const hero = layer.querySelector<HTMLElement>('.detail-hero');
+    const body = hero?.querySelector<HTMLElement>('.detail-body');
+    const poster = hero?.querySelector<HTMLElement>('.detail-poster-wrap');
+    if (!hero || !body || !hero.clientHeight) return;
+    const height = hero.clientHeight;
+    const pad = uiPx(DETAIL_EDGE_PAD);
+    // The poster shrinks to the hero's height and the text column stops short
+    // of it; where the actions would reach it (a large Interface or text
+    // size, a long translation), the poster gives way.
+    const gap = uiPx(DETAIL_COLUMN_GAP);
+    body.style.setProperty('width', `${uiPx(DETAIL_BODY_WIDTH)}px`);
+    if (poster) {
+      poster.style.removeProperty('display');
+      const posterHeight = Math.max(0, Math.min(uiPx(DETAIL_POSTER_HEIGHT), height - 2 * pad));
+      const posterWidth = Math.round(posterHeight * 2 / 3);
+      const posterLeft = hero.clientWidth - uiPx(DETAIL_POSTER_RIGHT) - posterWidth;
+      poster.style.setProperty('top', `${Math.max(pad, Math.min(uiPx(DETAIL_POSTER_TOP), height - pad - posterHeight))}px`);
+      poster.style.setProperty('height', `${posterHeight}px`);
+      poster.style.setProperty('width', `${posterWidth}px`);
+      const last = body.querySelector<HTMLElement>('.detail-actions')?.lastElementChild as HTMLElement | null;
+      const actionsEnd = last ? last.offsetLeft + last.offsetWidth : 0;
+      if (body.offsetLeft + actionsEnd + gap > posterLeft) {
+        poster.style.setProperty('display', 'none');
+        body.style.setProperty('width', `${Math.max(0, hero.clientWidth - 2 * body.offsetLeft)}px`);
+      } else {
+        body.style.setProperty('width', `${Math.max(0, Math.min(uiPx(DETAIL_BODY_WIDTH), posterLeft - gap - body.offsetLeft))}px`);
+      }
+    }
+    const plotBox = body.querySelector<HTMLElement>('.detail-plot-box');
+    let top = uiPx(DETAIL_BODY_TOP);
+    let titleLines = DETAIL_TITLE_LINES;
+    let plotLines = DETAIL_PLOT_LINES;
+    const apply = (): number => {
+      body.style.setProperty('top', `${Math.round(top)}px`);
+      body.style.setProperty('--detail-title-lines', String(titleLines));
+      body.style.setProperty('--detail-plot-lines', String(Math.max(1, plotLines)));
+      if (plotBox) {
+        if (plotLines > 0) plotBox.style.removeProperty('display');
+        else plotBox.style.setProperty('display', 'none');
+      }
+      return body.offsetHeight;
+    };
+    let need = apply();
+    while (top + need > height - pad) {
+      if (top > pad) top = Math.max(pad, height - pad - need);
+      else if (titleLines > 1) titleLines--;
+      else if (plotLines > 0) plotLines--;
+      else break;
+      need = apply();
+    }
+  }
+
+  // After each detail render: the rails fit their tallest row, the hero the rest.
+  protected settleDetailLayout(): void {
+    const rails = this.layers.detail.querySelector<HTMLElement>('.detail-rails');
+    if (rails && this.mode === 'detail') this.fitRails(rails);
+    this.fitDetail();
+    // A row that arrives above the focused one (Cast, once details load)
+    // would push it down; its row snaps back to the top at once.
+    const el = this.current();
+    if (rails && el && rails.contains(el)) this.snapRail(el, true);
+  }
+
+  // Up and Down on a detail step line by line (description, actions, season
+  // tabs, then each row) to the target nearest across, so a row the rails
+  // clipped above is never skipped for the actions.
+  private moveDetailLine(action: 'up' | 'down'): boolean {
+    const current = this.current();
+    if (!current) return false;
+    const lines = Array.from(this.layers.detail.querySelectorAll<HTMLElement>(
+      '.detail-plot-box[data-focusable], .detail-actions, .series-seasons, .detail-rails .catalog-rail-track',
+    )).map(line => ({
+      line,
+      targets: line.hasAttribute('data-focusable')
+        ? [line]
+        : Array.from(line.querySelectorAll<HTMLElement>('[data-focusable]')),
+    })).filter(entry => entry.targets.length > 0 && getComputedStyle(entry.line).display !== 'none');
+    const index = lines.findIndex(entry => entry.line === current || entry.line.contains(current));
+    if (index < 0) return false;
+    const next = lines[index + (action === 'up' ? -1 : 1)];
+    if (!next) return true;
+    const box = current.getBoundingClientRect();
+    const x = box.left + box.width / 2;
+    let best = next.targets[0];
+    let bestDistance = Infinity;
+    // The full-width description hands back to the first action.
+    if (!current.classList.contains('detail-plot-box')) next.targets.forEach((target) => {
+      const r = target.getBoundingClientRect();
+      const distance = Math.abs(r.left + r.width / 2 - x);
+      if (distance < bestDistance) {
+        best = target;
+        bestDistance = distance;
+      }
+    });
+    this.place(best, 'key');
+    return true;
+  }
+
+  private openPlot(): void {
+    const text = this.detailText;
+    if (!text || this.mode !== 'detail') return;
+    this.plotOverlay.show(text.title, text.text, () => {
+      if (this.mode === 'detail' && Focus.owner() === this.focusScope) {
+        this.request(this.focusScope.focusKey, this.placementVia());
+      }
+    });
   }
 
   protected posterCell(name: string, poster: string): Safe {

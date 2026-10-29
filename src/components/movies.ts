@@ -5,7 +5,10 @@ import { StorageService } from '../services/storage-service';
 import { loadVodCategories, loadVodStreams, loadVodInfo } from '../services/xtream-catalog';
 import { xtreamVodUrl } from '../utils/xtream-url';
 import { CatalogView, type CollectionKind, type CollectionEntry, type HeroDetails } from './catalog-view';
-import { PLAY_ICON, REMOVE_ICON, watchlistIcon } from './icons';
+import { PLAY_ICON, RESTART_ICON } from './icons';
+import { parseCast } from '../utils/cast';
+import { formatDuration, formatPosition } from '../utils/time';
+import { loadTmdbCredits, matchTmdbPeople, type TmdbPerson } from '../services/tmdb';
 import { showToast } from './toast';
 import { t, tp } from '../i18n';
 import { CONFIG } from '../config';
@@ -26,6 +29,7 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
   private currentInfo: VodInfo | null = null;
   private openedFromWatchlist = false;
   private detailController: AbortController | null = null;
+  private castPhotos = new Map<string, TmdbPerson>();
   // get_vod_info results the browse hero has shown, newest last; null when
   // the provider had none, so a title is asked for once.
   private readonly heroInfo = new Map<string, VodInfo | null>();
@@ -159,13 +163,11 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
     };
   }
 
+  protected itemGenre(v: VodItem): string | undefined {
+    return this.heroInfo.get(this.heroInfoKey(v))?.genre || undefined;
+  }
+
   protected selectExtra(el: HTMLElement): boolean {
-    if (el.dataset.action === 'remove-resume' && this.account && this.currentVod) {
-      StorageService.clearResume(this.account.id, 'vod', this.currentVod.streamId);
-      showToast(t('catalog.continueWatchingRemoved'));
-      this.renderDetail();
-      return true;
-    }
     if (el.dataset.watchlistItem !== undefined) {
       const vod = this.watchlistToVod(el.dataset.watchlistItem);
       if (vod) void this.openDetail(vod, true);
@@ -214,7 +216,11 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
     // What the browse hero already fetched shows at once.
     const shown = this.heroInfo.get(this.heroInfoKey(vod)) ?? null;
     this.currentInfo = shown;
+    this.castPhotos = new Map();
     this.renderDetail();
+    void this.ensureCategoryItems(vod.categoryId, signal).then((loaded) => {
+      if (loaded && this.mode === 'detail' && this.currentVod === vod) this.renderDetail();
+    });
     try {
       this.currentInfo = await loadVodInfo(account, vod.streamId, signal);
       if (!signal.aborted) this.rememberHeroInfo(vod, this.currentInfo);
@@ -223,6 +229,19 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
       this.currentInfo = shown;
     }
     if (this.mode === 'detail' && this.currentVod === vod) this.renderDetail();
+    await this.loadCastPhotos(vod, signal);
+  }
+
+  // Opt-in TMDB photos for the provider's cast; nothing is asked without a key.
+  private async loadCastPhotos(vod: VodItem, signal: AbortSignal): Promise<void> {
+    const info = this.currentInfo;
+    if (!info || signal.aborted || !StorageService.getTmdbApiKey()) return;
+    const members = parseCast(info.cast, info.director);
+    if (!members.length) return;
+    const people = await loadTmdbCredits('movie', { tmdbId: info.tmdbId, imdbId: info.imdbId }, signal);
+    if (!people || signal.aborted || this.currentVod !== vod) return;
+    this.castPhotos = matchTmdbPeople(members.map(m => m.name), people);
+    if (this.mode === 'detail' && this.castPhotos.size) this.renderDetail();
   }
 
   private play(resume: boolean): void {
@@ -283,45 +302,42 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
     if (!vod || !a) return;
     const info = this.currentInfo;
     const saved = StorageService.getResume(a.id, 'vod', vod.streamId);
-    const poster = info?.poster || vod.poster;
-    const year = info ? (info.releaseDate.match(/\d{4}/) || [''])[0] : '';
-    const mins = info && info.durationSecs > 0
-      ? t('catalog.minutes', { count: Math.floor(info.durationSecs / 60) })
-      : '';
-    const meta = [year, mins, info?.genre, info?.rating || vod.rating].filter((s) => !!s);
+    const year = info?.year || Number((info?.releaseDate.match(/\d{4}/) || [''])[0]) || vod.year || 0;
     const watchlisted = StorageService.isWatchlisted(a.id, 'vod', vod.streamId);
-
-    morph(this.layer('detail'), html`
-      <div class="catalog-view movies-detail" data-nav-container>
-        <div class="detail-poster-wrap">${this.posterCell(vod.name, poster)}</div>
-        <div class="detail-body">
-          <h1 class="detail-title">${vod.name}</h1>
-          <div class="detail-meta">${meta.join('  ·  ')}</div>
-          ${info?.plot ? html`<p class="detail-plot">${info.plot}</p>` : ''}
-          ${info?.cast ? html`<div class="detail-cast"><span class="detail-label">${t('catalog.cast')}</span> ${info.cast}</div>` : ''}
-          ${info?.director ? html`<div class="detail-cast"><span class="detail-label">${t('catalog.director')}</span> ${info.director}</div>` : ''}
-          <div class="detail-actions">
-            ${saved ? html`
-              <button class="detail-btn detail-btn-primary" data-focusable data-key="resume" data-action="resume">
-                <span class="detail-btn-icon">${raw(PLAY_ICON)}</span><span>${t('common.resume')}</span>
-              </button>` : ''}
-            <button class="detail-btn ${saved ? '' : 'detail-btn-primary'}" data-focusable data-key="play" data-action="play">
-              <span class="detail-btn-icon">${raw(PLAY_ICON)}</span><span>${t(saved ? 'catalog.playFromStart' : 'catalog.play')}</span>
-            </button>
-            <button class="detail-btn" data-focusable data-key="watchlist" data-action="watchlist">
-              <span class="detail-btn-icon">${raw(watchlistIcon(watchlisted))}</span>
-              <span>${t(watchlisted ? 'catalog.removeWatchlist' : 'catalog.addWatchlist')}</span>
-            </button>
-            ${saved ? html`
-              <button class="detail-btn detail-btn-danger" data-focusable data-key="remove-resume" data-action="remove-resume">
-                <span class="detail-btn-icon">${raw(REMOVE_ICON)}</span>
-                <span>${t('catalog.removeContinueWatching')}</span>
-              </button>
-            ` : ''}
-          </div>
-        </div>
-      </div>
-    `);
+    const actions = saved ? html`
+      ${this.detailButton({
+        key: 'resume',
+        label: t('catalog.resumeAt', { position: formatPosition(saved.position) }),
+        icon: PLAY_ICON,
+        primary: true,
+        progress: saved.duration > 0 ? saved.position / saved.duration : undefined,
+      })}
+      ${this.watchlistButton(watchlisted)}
+      ${this.detailButton({ key: 'play', label: t('catalog.playFromStart'), icon: RESTART_ICON })}
+    ` : html`
+      ${this.detailButton({
+        key: 'play', label: t('catalog.play'), icon: PLAY_ICON, primary: true,
+        progress: StorageService.isWatched(a.id, 'vod', vod.streamId) ? 1 : undefined,
+      })}
+      ${this.watchlistButton(watchlisted)}
+    `;
+    morph(this.layer('detail'), this.detailPage({
+      id: vod.streamId,
+      name: vod.name,
+      poster: info?.poster || vod.poster,
+      backdrop: info?.backdrop || '',
+      year: year > 0 ? String(year) : '',
+      runtime: info && info.durationSecs >= 60 ? formatDuration(info.durationSecs * 1000) : '',
+      genre: info?.genre ?? '',
+      rating: info?.rating || vod.rating,
+      plot: info?.plot ?? '',
+      actions,
+      rows: [
+        this.castRail(parseCast(info?.cast ?? '', info?.director ?? ''), this.castPhotos),
+        this.moreLikeThisRail(vod.categoryId, vod.streamId, info?.genre ?? ''),
+      ],
+    }));
+    this.settleDetailLayout();
     this.settleDetailFocus();
   }
 }

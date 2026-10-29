@@ -68,6 +68,7 @@ describe('phone setup synchronization', () => {
       type: 'online-subtitles',
       preferredLanguage: '',
       subdlApiKey: 'k1',
+      tmdbApiKey: 'k3',
       opensubtitles: { apiKey: 'k2', username: 'u2', password: 'password-secret' },
     });
 
@@ -108,6 +109,7 @@ describe('phone setup synchronization', () => {
         tokenTs: 0,
       },
     });
+    expect(StorageService.getTmdbApiKey()).toBe('k3');
     expect(await (await fetch(`${baseUrl}/setup-actions`)).json()).toEqual([]);
 
     const state = await (await fetch(`${baseUrl}/setup-state${setupToken}`)).json();
@@ -136,8 +138,10 @@ describe('phone setup synchronization', () => {
         opensubtitlesApiKeyConfigured: true,
         opensubtitlesPasswordConfigured: true,
         opensubtitlesUsername: 'u2',
+        tmdbConfigured: true,
       },
     });
+    expect(JSON.stringify(state)).not.toContain('k3');
     expect((state as { xtreamAccounts: Array<Record<string, unknown>> })
       .xtreamAccounts[0]).not.toHaveProperty('password');
     expect(JSON.stringify(state)).not.toContain('password-secret');

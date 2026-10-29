@@ -173,6 +173,7 @@ describe('setup state', () => {
       opensubtitlesApiKeyConfigured: true,
       opensubtitlesPasswordConfigured: true,
       opensubtitlesUsername: 'u2',
+      tmdbConfigured: true,
     },
   };
 

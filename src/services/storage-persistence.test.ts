@@ -382,4 +382,29 @@ describe('StorageService IndexedDB migration', () => {
     expect(watchKeys).not.toContain('watch:x1|series|s1');
     await Stored.clearUserData();
   });
+
+  it('keeps a watched flag in user data across a relaunch, and caps how many it keeps', async () => {
+    localStorage.clear();
+    vi.resetModules();
+    const { StorageService: Stored } = await import('./storage-service');
+    await Stored.init();
+    await Stored.clearUserData();
+    await Stored.init();
+    Stored.setResume(resumeEntry({ itemId: 'm1', position: 5_990 }));
+    Stored.markWatched('x1', 'episode', 'e1', 1);
+    for (let i = 0; i < 2_000; i++) Stored.markWatched('x1', 'episode', `n${String(i)}`, 10 + i);
+    await Stored.flush();
+    expect(Stored.getResume('x1', 'vod', 'm1')).toBeNull();
+
+    vi.resetModules();
+    const { StorageService: Relaunched } = await import('./storage-service');
+    await Relaunched.init();
+    expect(Relaunched.isWatched('x1', 'vod', 'm1')).toBe(true);
+    expect(Relaunched.isWatched('x1', 'episode', 'e1')).toBe(false);
+    expect(Relaunched.isWatched('x1', 'episode', 'n1999')).toBe(true);
+    const keys = (await loadUserRecords('playback-progress')).map(item => item.key);
+    expect(keys.filter(key => key.startsWith('watched:'))).toHaveLength(2_000);
+    expect(keys).toContain('watched:x1|vod|m1');
+    await Relaunched.clearUserData();
+  });
 });

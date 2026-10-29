@@ -44,6 +44,18 @@ export type WatchlistToggleResult = 'added' | 'removed' | 'full';
 
 type StoredCatchup = CatchupProgressEntry & { expiresAt: number };
 
+// A movie or episode played to its end, kept after its resume point goes so
+// its card can show a full progress bar.
+export interface WatchedEntry {
+  accountId: string;
+  kind: ResumeKind;
+  itemId: string;
+  watchedAt: number;
+}
+
+// Oldest go first past this; each entry is a few dozen bytes.
+const WATCHED_MAX_ITEMS = 2000;
+
 interface UserDataState {
   favorites: string[];
   reminders: Reminder[];
@@ -52,6 +64,7 @@ interface UserDataState {
   subtitlePrefs: Record<string, SubtitlePref>;
   subtitleOffsets: Record<string, number>;
   resume: Record<string, ResumeEntry>;
+  watched: Record<string, WatchedEntry>;
   watchlist: Record<string, WatchlistEntry>;
   onlineSubPicks: Record<string, PickedOnlineSub>;
   catchupProgress: Record<string, StoredCatchup>;
@@ -199,6 +212,21 @@ function trimResume(
 
 // Without IndexedDB the localStorage map is the store, so an over-cap one
 // (saved before the cap existed) is trimmed and rewritten the first time it is read.
+function watchedKey(entry: Pick<WatchedEntry, 'accountId' | 'kind' | 'itemId'>): string {
+  return `watched:${entry.accountId}|${entry.kind}|${entry.itemId}`;
+}
+
+function trimWatched(all: Record<string, WatchedEntry>): WatchedEntry[] {
+  const keys = Object.keys(all);
+  if (keys.length <= WATCHED_MAX_ITEMS) return [];
+  const removed = keys
+    .sort((a, b) => all[a].watchedAt - all[b].watchedAt)
+    .slice(0, keys.length - WATCHED_MAX_ITEMS)
+    .map(key => all[key]);
+  removed.forEach(entry => { delete all[`${entry.accountId}|${entry.kind}|${entry.itemId}`]; });
+  return removed;
+}
+
 function fallbackResume(): Record<string, ResumeEntry> {
   const all = get<Record<string, ResumeEntry>>('resume', {});
   if (trimResume(all).length) set('resume', all);
@@ -263,6 +291,10 @@ function allUserRecords(data: UserDataState): Parameters<typeof replaceAllUserDa
       ...Object.keys(data.resume).map(key => {
         const entry = data.resume[key];
         return record(resumeKey(entry), entry, { updatedAt: entry.updatedAt });
+      }),
+      ...Object.keys(data.watched).map(key => {
+        const entry = data.watched[key];
+        return record(watchedKey(entry), entry, { updatedAt: entry.watchedAt });
       }),
       ...Object.keys(data.catchupProgress).map(key => {
         const entry = data.catchupProgress[key];
@@ -404,7 +436,7 @@ async function loadUserDataState(): Promise<UserDataState> {
   const channelState = records['channel-state'];
   const watchlist = records.watchlist as UserDataRecord<WatchlistEntry>[];
   const progress = records['playback-progress'] as
-    UserDataRecord<ResumeEntry | StoredCatchup>[];
+    UserDataRecord<ResumeEntry | StoredCatchup | WatchedEntry>[];
   const recentlyWatched = records['recently-watched'] as
     UserDataRecord<RecentlyWatchedLiveEntry>[];
   const onlineSubPicks = records['online-sub-picks'] as
@@ -420,6 +452,7 @@ async function loadUserDataState(): Promise<UserDataState> {
     subtitlePrefs: {},
     subtitleOffsets: {},
     resume: {},
+    watched: {},
     watchlist: {},
     onlineSubPicks: {},
     catchupProgress: {},
@@ -463,6 +496,9 @@ async function loadUserDataState(): Promise<UserDataState> {
     if (item.key.startsWith('resume:')) {
       const entry = item.value as ResumeEntry;
       data.resume[`${entry.accountId}|${entry.kind}|${entry.itemId}`] = entry;
+    } else if (item.key.startsWith('watched:')) {
+      const entry = item.value as WatchedEntry;
+      data.watched[`${entry.accountId}|${entry.kind}|${entry.itemId}`] = entry;
     } else if (item.key.startsWith('catchup:')) {
       const entry = item.value as StoredCatchup;
       data.catchupProgress[`${entry.channelKey}|${entry.progStart}`] = entry;
@@ -1217,9 +1253,15 @@ export const StorageService = {
     const entry = all[`${accountId}|${kind}|${itemId}`] ?? null;
     return entry ? cloneValue(entry) : null;
   },
+  // A title that reaches its end is watched; watching it again (a resume
+  // point short of the end) makes it in progress instead.
   setResume(entry: ResumeEntry): void {
     const key = `${entry.accountId}|${entry.kind}|${entry.itemId}`;
     const finished = entry.duration > 0 && entry.position >= entry.duration - CONFIG.XTREAM.RESUME_FINISH_PAD;
+    if (finished) this.markWatched(entry.accountId, entry.kind, entry.itemId);
+    else if (entry.position >= CONFIG.XTREAM.RESUME_MIN_SECS) {
+      this.clearWatched(entry.accountId, entry.kind, entry.itemId);
+    }
     if (userData) {
       if (finished || entry.position < CONFIG.XTREAM.RESUME_MIN_SECS) {
         delete userData.resume[key];
@@ -1263,7 +1305,50 @@ export const StorageService = {
     delete all[key];
     set('resume', all);
   },
+  isWatched(accountId: string, kind: ResumeKind, itemId: string): boolean {
+    const all = userData ? userData.watched : get<Record<string, WatchedEntry>>('watched', {});
+    return !!all[`${accountId}|${kind}|${itemId}`];
+  },
+  markWatched(accountId: string, kind: ResumeKind, itemId: string, now = Date.now()): void {
+    const entry: WatchedEntry = { accountId, kind, itemId, watchedAt: now };
+    const key = `${accountId}|${kind}|${itemId}`;
+    if (userData) {
+      userData.watched[key] = entry;
+      const evicted = trimWatched(userData.watched);
+      persistUserChanges('playback-progress', [
+        record(watchedKey(entry), entry, { updatedAt: now }),
+      ], evicted.map(watchedKey));
+      return;
+    }
+    const all = get<Record<string, WatchedEntry>>('watched', {});
+    all[key] = entry;
+    trimWatched(all);
+    set('watched', all);
+  },
+  clearWatched(accountId: string, kind: ResumeKind, itemId: string): void {
+    const key = `${accountId}|${kind}|${itemId}`;
+    if (userData) {
+      if (!userData.watched[key]) return;
+      delete userData.watched[key];
+      persistUserChanges('playback-progress', [], [watchedKey({ accountId, kind, itemId })]);
+      return;
+    }
+    const all = get<Record<string, WatchedEntry>>('watched', {});
+    if (!all[key]) return;
+    delete all[key];
+    set('watched', all);
+  },
   clearResumeList(accountId: string, kind?: ResumeKind): void {
+    // Clearing playback progress clears what was watched as well.
+    const watched = userData ? userData.watched : get<Record<string, WatchedEntry>>('watched', {});
+    const unwatched = Object.keys(watched).map(key => watched[key])
+      .filter(entry => entry.accountId === accountId && (!kind || entry.kind === kind));
+    unwatched.forEach(entry => { delete watched[`${entry.accountId}|${entry.kind}|${entry.itemId}`]; });
+    if (userData) {
+      if (unwatched.length) persistUserChanges('playback-progress', [], unwatched.map(watchedKey));
+    } else if (unwatched.length) {
+      set('watched', watched);
+    }
     const all = userData ? userData.resume : fallbackResume();
     const removed: ResumeEntry[] = [];
     for (const key of Object.keys(all)) {
@@ -1370,6 +1455,16 @@ export const StorageService = {
   },
   setOnlineSubtitleConfig(cfg: OnlineSubtitleConfig): boolean {
     return set('online_subtitles', cfg);
+  },
+
+  // The user's own TMDB key (v3 API key or v4 read access token); empty
+  // means no TMDB requests at all.
+  getTmdbApiKey(): string {
+    const key = get<unknown>('tmdb_api_key', '');
+    return typeof key === 'string' ? key.trim() : '';
+  },
+  setTmdbApiKey(key: string): boolean {
+    return set('tmdb_api_key', key.trim());
   },
 
   getPickedOnlineSub(accountId: string, kind: ResumeKind, itemId: string): PickedOnlineSub | null {

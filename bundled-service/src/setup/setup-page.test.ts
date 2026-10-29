@@ -528,6 +528,7 @@ describe('setup page forms', () => {
             opensubtitlesApiKeyConfigured: true,
             opensubtitlesPasswordConfigured: true,
             opensubtitlesUsername: 'u1',
+            tmdbConfigured: true,
           },
         }));
       }
@@ -580,7 +581,8 @@ describe('setup page forms', () => {
       opensubtitles: { password: 'p1' },
     });
     expect(dom.window.document.querySelector('#subtitle-state')!.textContent)
-      .toBe('SubDL: Configured · Assrt: Built-in access · OpenSubtitles: Configured');
+      .toBe('SubDL: Configured · Assrt: Built-in access · OpenSubtitles: Configured · TMDB: Configured');
+    expect(form.querySelector<HTMLInputElement>('[name="tmdbApiKey"]')!.value).toBe('********');
     expect(password.value).toBe('********');
     dom.window.close();
   });

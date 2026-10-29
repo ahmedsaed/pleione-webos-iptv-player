@@ -614,6 +614,7 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
         imdbId: firstNonEmptyString(info.imdb_id, info.imdb).replace(/^tt/i, ''),
         tmdbId: firstNonEmptyString(info.tmdb_id, info.tmdb),
         year: yearMatch ? Number(yearMatch[0]) : 0,
+        ...(firstBackdrop(info.backdrop_path) ? { backdrop: firstBackdrop(info.backdrop_path) } : {}),
         seasons,
         episodesBySeason,
       };

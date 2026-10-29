@@ -1,5 +1,6 @@
 import type { Action, ChannelCycleMode, EpgSource, ManualEpgSource, NavDirection, PlaylistEntry, TzMode, XtreamLiveCategoryFilter, XtreamLiveCategorySnapshot } from '../types';
 import { $, $$, html, raw, withInstantScroll, type Safe } from '../utils/dom';
+import { TMDB_LOGO, TMDB_NOTICE } from './tmdb-attribution';
 import { morph } from '../utils/morph';
 import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
@@ -1017,6 +1018,17 @@ export class Settings {
                   </div>
                 </div>
               </div>
+              <div class="settings-section">
+                <h3 class="settings-section-title">${t('settings.castPhotos')}</h3>
+                <div class="settings-row">
+                  <div class="settings-field wide">
+                    <label><span class="settings-domain">TMDB</span> ${t('settings.apiKey')}</label>
+                    <input type="text" class="settings-input" data-focusable id="tmdb-key"
+                           value="${StorageService.getTmdbApiKey()}" placeholder="api_key">
+                    <div class="settings-item-hint">${t('settings.tmdbHint')}</div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="settings-category ${this.pageClass('advanced')}" id="settings-advanced"
@@ -1188,7 +1200,11 @@ export class Settings {
                 </div>
               </div>
               <div class="settings-about">
-                ${CONFIG.APP_NAME} v${CONFIG.VERSION}
+                <div>${CONFIG.APP_NAME} v${CONFIG.VERSION}</div>
+                <div class="settings-attribution">
+                  <span class="settings-attribution-logo">${raw(TMDB_LOGO)}</span>
+                  <span>${TMDB_NOTICE}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -2947,6 +2963,7 @@ export class Settings {
         tokenTs: sameCreds ? prevOs.opensubtitles.tokenTs : 0,
       },
     });
+    if ($('#tmdb-key', this.container)) StorageService.setTmdbApiKey(osVal('tmdb-key'));
 
     // Source, EPG URL, and time correction changes rebuild loaded data. Display-only
     // settings (time zone, auto-play) just re-render in place.

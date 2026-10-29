@@ -103,6 +103,7 @@ This is the complete active key inventory:
 | `iptv_epg_tz_offset` | `number \| null` | Last known feed offset in minutes east of UTC | Small derived state |
 | `iptv_epg_offsets` | `Record<string, number>` | User time correction in minutes, keyed by EPG source URL | Preference |
 | `iptv_online_subtitles` | `OnlineSubtitleConfig` | Preferred language; SubDL and Assrt API keys; OpenSubtitles API key, username, password, access token, and token timestamp | Configuration and credentials |
+| `iptv_tmdb_api_key` | `string` | The user's own TMDB v3 API key or v4 read access token for cast photos; empty means the app never contacts TMDB | Configuration and credentials |
 | `iptv_log_level` | `string` | Optional runtime logger threshold used by diagnostics | Developer preference |
 
 This lets the app discover its sources and render basic preferences before
@@ -134,6 +135,7 @@ origin, so object-store names do not repeat the `iptv_` prefix.
 | `channel-state` | `offset:<channel-key>` | None | Subtitle timing adjustment in seconds |
 | `watchlist` | `watch:<account-id>\|<vod-or-series>\|<item-id>` | `scope` | Name, poster, rating, category, extension, and added time; scope is account and content kind |
 | `playback-progress` | `resume:<account-id>\|<vod-or-episode>\|<item-id>` | `expiresAt`, `updatedAt` | Position, duration, title/poster/extension snapshot, optional autoplay queue and Watchlist owner |
+| `playback-progress` | `watched:<account-id>\|<vod-or-episode>\|<item-id>` | `updatedAt` | A movie or episode played to its end, and when; dropped once it is watched again past the resume threshold or its progress is cleared; the newest 2000 are kept |
 | `playback-progress` | `catchup:<channel-key>\|<program-start>` | `expiresAt`, `updatedAt` | EPG source URL, program start/stop, title/description/icon snapshot, position, completion, update time, and computed expiry |
 | `recently-watched` | `live:<channel-key>` | `updatedAt` | Channel key and last-confirmed watch time; capped to 30 live entries |
 | `online-sub-picks` | `pick:<account-id>\|<vod-or-episode>\|<item-id>` | None | Provider id, provider result id, display name, language, and subtitle format |
@@ -178,13 +180,16 @@ Known `catalog-cache` key families are:
 <account-id>|series_all
 <account-id>|series_info|<series-id>
 <account-id>|media_probe|<vod-or-episode>|<item-id>
+tmdb|<movie-or-tv>|<tmdb-id-or-imdb-tt-id>
 ```
 
 Catalog list/detail payloads contain the provider's normalized names, ids,
 posters, ratings, categories, stream extensions, plots, cast, genres, release
 data, episode metadata, and sidecar-subtitle descriptors. Media probes contain
 the parsed container information used by the OSD, such as codec, resolution,
-frame rate, HDR, and audio-channel metadata.
+frame rate, HDR, and audio-channel metadata. TMDB entries (only with a key) hold at most 24 credited people as name,
+profile-image path, and character, kept 30 days (7 for a title TMDB does
+not know); they are evicted with the rest of the catalog category.
 
 Cache payloads are normalized to a shared envelope:
 

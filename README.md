@@ -285,7 +285,7 @@ Open with the **Blue** key or the **Settings** tab in the top bar. Sections:
 - **Playback** — toggle auto-play and Live preview, and choose whether Channel
   Up/Down cycles the global list or stays within the active group, Favorites,
   or playlist.
-- **Online Subtitles** — choose a preferred subtitle language and configure SubDL, OpenSubtitles, and Assrt credentials for online search.
+- **Online Subtitles** — choose a preferred subtitle language and configure SubDL, OpenSubtitles, and Assrt credentials for online search. Optionally add your own TMDB API key (v3 key or v4 read access token) to show cast photos on movie and series pages; without one, the app never contacts TMDB.
 - **Advanced** — customize advanced interface, playback, and background refresh behavior.
 - **Data Management** — refresh data, clear caches or viewing lists, or reset the app.
 - **Save Changes** applies preferences and reloads playlist and guide data when their sources change. **Cancel** discards edits.
