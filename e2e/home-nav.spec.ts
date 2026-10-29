@@ -111,7 +111,7 @@ test('Search opened from Home loads the channels it matches', async ({ page }) =
   await goHome(page);
   await enterTab(page, 'search');
   await page.locator('.search-box-input').fill('one');
-  await expect(page.locator('#view-search .catalog-tile[data-channel-index="0"]')).toContainText('Channel One');
+  await expect(page.locator('#view-search .search-channel-card[data-channel-index="0"]')).toContainText('Channel One');
   await expect(page.locator('#view-search .catalog-tile[data-stream-id="10"]')).toBeVisible();
 });
 
