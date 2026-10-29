@@ -130,6 +130,15 @@ export async function pressStepsAndReadPlayer(page: Page, steps: number[][]): Pr
   }, steps);
 }
 
+/** Leave VOD playback with Back: the first Back hides the controls if they show. */
+export async function leaveVod(page: Page): Promise<void> {
+  const back = () => page.evaluate(() =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
+  await back();
+  if (await page.locator('#view-player').isVisible()) await back();
+  await expect(page.locator('#view-player')).toBeHidden();
+}
+
 /** Pre-seed one configured URL playlist so the app boots into the channel list. */
 export async function seedPlaylist(page: Page, url = PLAYLIST_URL): Promise<void> {
   await page.addInitScript((u) => {

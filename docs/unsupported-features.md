@@ -15,14 +15,13 @@ are webOS platform limitations; the rest are design choices.
   channels cannot be played simultaneously. See
   [LG's documentation](https://webostv.developer.lge.com/faq/can-i-use-two-video-tags-at-the-same-time).
 
-- **Playback speed for live TV, catch-up, and streamed VOD:** LG lists playback
-  speeds other than `1.0` as unsupported, and the standard
-  `HTMLMediaElement.playbackRate` has no effect on webOS. The non-standard
-  `com.webos.media/setPlayRate` Luna API changes the speed of file-based movies
-  and episodes (such as MP4 and MKV), so those offer playback speed in the
-  player menu. The native HLS and DASH pipelines accept the same request but
-  keep playing at `1x`, so live TV, catch-up, and HLS/DASH VOD always play at
-  normal speed. See
+- **Playback speed:** LG lists playback speeds other than `1.0` as
+  unsupported, and the standard `HTMLMediaElement.playbackRate` has no effect
+  on webOS. The non-standard `com.webos.media/setPlayRate` Luna API changes
+  the speed of file-based movies and episodes (such as MP4 and MKV), but the
+  native HLS and DASH pipelines accept the same request and keep playing at
+  `1x`, so the player offers no speed control and everything plays at normal
+  speed. See
   [LG's streaming specifications](https://webostv.developer.lge.com/develop/specifications/streaming-protocol-drm).
 
 - **Match frame rate (auto frame rate, AFR):** webOS gives apps no control

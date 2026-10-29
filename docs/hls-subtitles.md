@@ -321,7 +321,7 @@ under the same `channelPrefKey()` as the subtitle pick (`subtitle_offsets` map).
 - **Self-rendered WebVTT** owns its cues, so `HlsSubtitles.setOffset(s)` bakes the offset
   into new cues and delta-shifts existing ones — the merge/prune/dedup logic stays
   self-consistent because every cue lives in the same shifted space.
-- The UI is a `SubtitleOffsetOverlay` opened from the player's Subtitles menu ("Subtitle
+- The UI is a `SubtitleOffsetOverlay` opened from the player's Subtitles picker ("Subtitle
   Sync" row), routed input modally by `App`.
 - In-band **CEA-608/708** and **TTML/IMSC** are drawn by the native compositor with no cue
   access, so the offset control is hidden while they are the active caption.

@@ -1,6 +1,7 @@
 import {
   test,
   expect,
+  leaveVod,
   routeLiveManifest,
   neuterVideo,
   SAMPLE_M3U,
@@ -175,8 +176,7 @@ test('shows Resume on return, keeps playback actions aligned, and offers progres
     Object.defineProperty(video, 'duration', { configurable: true, get: () => 120 });
     Object.defineProperty(video, 'currentTime', { configurable: true, get: () => 20 });
   });
-  await page.evaluate(() =>
-    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
+  await leaveVod(page);
 
   await expect(page.locator('#view-movies')).toBeVisible();
   await expect(page.locator('#view-movies [data-action="resume"]')).toBeVisible();

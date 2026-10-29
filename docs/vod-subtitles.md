@@ -69,7 +69,7 @@ esbuild keeps in a deferred `__esm` wrapper, so a TV that never plays ASS never 
 or fetch failure logs a warning and leaves subtitles off (never a crash or blank screen).
 
 `AssSubtitles` (`src/services/ass-subtitles.ts`) owns the `assjs` instance and an `#ass-overlay`
-`<div>` positioned over the video plane (`pointer-events:none`, below the OSD/menu). Since ASS
+`<div>` positioned over the video plane (`pointer-events:none`, below the OSD and pickers). Since ASS
 sidecars aren't native tracks, `subtitleOptions()` appends a synthetic `SubtitleOption` per ASS
 sidecar at index `ASS_SUBTITLE_BASE + i` (a high base, disjoint from real textTracks indices and
 the `-1` Off / `-2` CC sentinels). `applySubtitleChoice` routes by range: an ASS index shows that

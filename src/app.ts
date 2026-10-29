@@ -24,7 +24,6 @@ import { LivePreview } from './components/live-preview';
 import { EpgGrid } from './components/epg-grid';
 import { Settings, type SaveAction } from './components/settings';
 import { Sidebar } from './components/sidebar';
-import { PlayerMenu } from './components/player-menu';
 import { type Section, sectionForView } from './components/sections';
 import { NavMenu } from './components/nav-menu';
 import { Home } from './components/home';
@@ -86,7 +85,6 @@ class App {
   private parentalControls!: ParentalControls;
   private parentalPinPrompt = new ParentalPinPrompt();
   private sidebar!: Sidebar;
-  private menu!: PlayerMenu;
   private reminderPrompt = new ReminderPrompt();
   private reminderManager!: ReminderManager;
   private reminderManagerOrigin: 'settings' | 'epg' = 'settings';
@@ -176,12 +174,11 @@ class App {
       this.channelList.setPlaying(idx, catchupStart);
       if (this.livePreview?.isShowing) this.channelList.render(false);
     },
-    () => !this.sidebar.visible && !this.menu.visible,
+    () => !this.sidebar.visible,
     () => {
       this.sidebar.refresh();
     }, () => {
       this.livePreview?.refresh();
-      this.menu.refresh();
     },
     () => this.livePreview?.canResumePlayback() ?? true,
     (channel, action, preview, ask = true) => {
@@ -198,7 +195,11 @@ class App {
         if (!this.isCurrentView('player')) this.showView('player');
         action();
       },
-    ));
+    ),
+    {
+      isFavorite: (channel) => StorageService.getFavorites().includes(channelKey(channel)),
+      toggleFavorite: (channel) => this.toggleChannelFavorite(channel),
+    });
     this.epgGrid = new EpgGrid(
       this.views.epg,
       (idx, catchup, scope) => this.playChannel(idx, catchup, scope),
@@ -264,21 +265,6 @@ class App {
       () => this.player.getCurrentIndex(),
       (idx, catchup, scope) => this.playChannel(idx, catchup, scope),
       () => this.player.getCurrentCatchupStart(),
-    );
-    this.menu = new PlayerMenu(
-      this.views.player,
-      () => this.player.getCurrentChannel(),
-      (action) => this.onMenuAction(action),
-      () => this.player.getAudioTracks(),
-      (index) => this.player.selectAudioTrack(index),
-      () => this.player.getSubtitleTracks(),
-      (index) => this.player.selectSubtitleTrack(index),
-      () => this.player.subtitleOffsetState(),
-      () => this.player.openSubtitleOffset(),
-      () => this.player.getPlaybackRateState(),
-      (rate) => this.player.setPlaybackRate(rate),
-      () => this.player.subtitleSearchAvailable(),
-      () => this.player.openSubtitleSearch(),
     );
 
     this.movies = new Movies(this.views.movies, {
@@ -1550,8 +1536,9 @@ class App {
   // the key diagnostic timeline names it, and FocusRing lets only its root
   // show a ring. A "button does nothing" report is usually an unexpected
   // owner. Prompts, the side menu, the search box, the sidebar, and the player's overlays push
-  // themselves while shown (the player view still routes the menu's and the
-  // subtitle search's keys); below them the shown view owns the keys.
+  // themselves while shown (the player view still routes the keys of its
+  // controls, track pickers, and subtitle search); below them the shown view
+  // owns the keys.
   private initFocusScopes(): void {
     const current = () => this.viewStack[this.viewStack.length - 1];
     const views = new Map<ViewName, FocusScope>();
@@ -1614,7 +1601,6 @@ class App {
     const editingChannels = currentView === 'channels' && this.channelList.isEditing;
     if (action === 'red' && currentView !== 'epg' && !editingChannels) {
       this.sidebar.hide();
-      this.menu.hide();
       this.player.stop();
       this.openEpg();
       return;
@@ -1622,13 +1608,13 @@ class App {
     if (action === 'blue' && currentView !== 'settings' && !editingChannels) {
       if (currentView === 'epg') this.epgGrid.deactivateFilters();
       this.sidebar.hide();
-      this.menu.hide();
       this.player.stop();
       this.settings.render();
       this.showView('settings');
       return;
     }
-    if (action === 'green' && currentView === 'player' && (this.sidebar.visible || this.menu.visible)) {
+    if (action === 'green' && currentView === 'player'
+        && (this.sidebar.visible || this.player.liveControlsShown())) {
       this.togglePlayingFavorite();
       return;
     }
@@ -1642,10 +1628,7 @@ class App {
       if (currentView === 'player') {
         if (this.sidebar.visible) {
           if (!this.sidebar.handleBack()) this.sidebar.hide();
-        } else if (this.menu.visible) {
-          // Let the menu step out of its audio sub-menu before closing.
-          if (!this.menu.handleBack()) this.menu.hide();
-        } else if (!this.player.hideOsdForBack() && !this.livePreview.returnFromFullscreen(true)) {
+        } else if (!this.player.handleBack() && !this.livePreview.returnFromFullscreen(true)) {
           this.player.handleAction('back');
         }
         return;
@@ -1710,45 +1693,22 @@ class App {
         this.search.handleAction(action);
         break;
       case 'player':
+        // VOD has no channel list: the player takes every key.
         if (this.player.isVod()) {
-          // An open VOD menu captures D-pad nav; Left or Right closes it. Right
-          // opens it unless the player can seek; with the OSD up (kept up while
-          // paused, until Back hides it), Left/Right seek and D-pad drives playback.
-          if (this.menu.visible) {
-            if (action === 'up' || action === 'down' || action === 'select') this.menu.handleAction(action);
-            else if (action === 'left' || action === 'right') this.menu.hide();
-          } else if (action === 'right' && this.player.vodRightOpensMenu()) {
-            this.menu.show();
-          } else {
-            this.player.handleAction(action, event);
-          }
-          break;
-        }
-        // While the OSD is up on seekable catch-up, Left/Right seek instead of
-        // opening the sidebar/menu (which stay reachable once the OSD hides).
-        if ((action === 'left' || action === 'right')
-            && !this.sidebar.visible && !this.menu.visible && this.player.canSeek()) {
           this.player.handleAction(action, event);
           break;
         }
-        if (action === 'left') {
-          if (this.menu.visible) this.menu.hide();
-          else if (this.sidebar.visible) this.sidebar.handleAction(action);
-          else this.sidebar.show();
-        } else if (action === 'right') {
-          if (this.sidebar.visible) this.sidebar.handleAction(action);
-          else if (this.menu.visible) this.menu.hide();
-          else this.menu.show();
-        } else if (this.sidebar.visible && (
+        if (this.sidebar.visible && (
+          action === 'left' || action === 'right' ||
           action === 'up' || action === 'down' ||
           action === 'channel_up' || action === 'channel_down' ||
           action === 'select'
         )) {
           this.sidebar.handleAction(action);
-        } else if (this.menu.visible && (
-          action === 'up' || action === 'down' || action === 'select'
-        )) {
-          this.menu.handleAction(action);
+        } else if (action === 'left' && !this.player.claimsLeft()) {
+          // Left opens the channel list unless the controls or a seekable
+          // stream's skip take it.
+          this.sidebar.show();
         } else {
           this.player.handleAction(action, event);
         }
@@ -1775,9 +1735,8 @@ class App {
       const overOsd = !!osd && !osd.classList.contains('hidden') && !!osdRect
         && e.clientY >= osdRect.top;
 
-      // VOD (movies/series) has no channels and no live menu — only the OSD
-      // (title + seek bar) is pointer-revealable; suppress the channel sidebar
-      // and the live player menu.
+      // VOD (movies/series) has no channels — only the OSD (title, seek bar,
+      // and controls) is pointer-revealable; suppress the channel sidebar.
       const vod = this.player.isVod();
       // A modal over the player, such as the subtitle sync adjuster, keeps
       // the edge panels shut.
@@ -1786,7 +1745,7 @@ class App {
       // Protect the full-width area beside and below the OSD too: its edge
       // controls sit next to margins where an imprecise cursor can open a panel.
       const overTabs = !!(e.target as HTMLElement).closest('.player-sidebar .sidebar-tabs');
-      if (!overOsd && !vod && !modal && e.clientX < 80 && !this.menu.visible) {
+      if (!overOsd && !vod && !modal && e.clientX < 80 && !this.player.pickerVisible()) {
         this.sidebar.show();
         this.sidebar.handlePointerMove(e.clientX, false, overTabs);
       } else if (this.sidebar.visible) {
@@ -1800,35 +1759,11 @@ class App {
         }
       }
 
-      // Right menu. Live/catch-up and VOD alike; for VOD it shows the VOD action
-      // set (Info, Settings) plus any audio/subtitle tracks — the channel rows
-      // are hidden, so it's never empty.
-      if (!overOsd && !modal && e.clientX > 1840 && !this.sidebar.visible) {
-        this.menu.show();
-      } else if (this.menu.visible) {
-        const overMenu = !!(e.target as HTMLElement).closest('.player-menu');
-        if (overMenu) {
-          this.menu.resetTimer();
-        } else if (e.clientX < 1540) {
-          this.menu.hide();
-        }
-      }
-
       // Bottom OSD info bar
-      if (e.clientY > 900 && !this.sidebar.visible && !this.menu.visible) {
+      if (e.clientY > 900 && !this.sidebar.visible && !this.player.pickerVisible()) {
         this.player.showOSD();
       }
     });
-  }
-
-  private onMenuAction(action: Action): void {
-    if (action === 'green') {
-      this.togglePlayingFavorite();
-    } else if (action === 'yellow') {
-      this.player.showOSD();
-    } else {
-      this.handleKey(action);
-    }
   }
 
   private togglePlayingFavorite(): void {

@@ -7,6 +7,7 @@ export type Mode = 'keys' | 'pointer';
 const CLASS = 'keyboard-nav';
 const listeners = new Set<(mode: Mode) => void>();
 let keyAfterPointer = false;
+let keyRepeat = false;
 let cursorHidden = false;
 
 function read(): Mode {
@@ -22,6 +23,11 @@ export const InputMode = {
    *  with its cursor still on screen. */
   get keyAfterPointer(): boolean {
     return keyAfterPointer;
+  },
+
+  /** Whether the key being handled is an auto-repeat of a held key. */
+  get keyRepeat(): boolean {
+    return keyRepeat;
   },
 
   /** Call `fn` on each switch; returns the unsubscribe. */
@@ -43,4 +49,9 @@ export function setInputMode(mode: Mode): void {
 /** KeyHandler only: webOS hid or showed its cursor; the mode stays as it is. */
 export function setCursorHidden(hidden: boolean): void {
   cursorHidden = hidden;
+}
+
+/** KeyHandler only: mark the key being dispatched as a held key's repeat. */
+export function setKeyRepeat(repeat: boolean): void {
+  keyRepeat = repeat;
 }

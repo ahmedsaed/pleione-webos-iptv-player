@@ -115,16 +115,21 @@ async function userPause(page: Page): Promise<void> {
   expect(s).toMatchObject({ osd: true, player: true, paused: true });
 }
 
-// Open the right-edge VOD menu, dive into Subtitles, and pick "Search online…"
-// to raise the search overlay; the menu closes as the overlay opens.
+// Open the Subtitles picker from the controls (the seek bar holds the keys
+// when they show) and pick "Search online…" to raise the search overlay; the
+// picker closes as the overlay opens.
+async function openSubtitlePicker(page: Page): Promise<void> {
+  await expect(page.locator('#player-osd')).toBeVisible();
+  await expect(page.locator('#player-osd .osd-progress.focused')).toHaveCount(1);
+  await page.keyboard.press('ArrowDown');  // seek bar -> Play/Pause
+  await page.keyboard.press('ArrowRight'); // -> Subtitles
+  await page.keyboard.press('Enter');      // open the picker (focus lands on "Off")
+  await expect(page.locator('#player-menu')).toHaveClass(/visible/);
+}
+
 async function openSearchOverlay(page: Page): Promise<void> {
-  await page.mouse.move(1900, 540);
+  await openSubtitlePicker(page);
   const menu = page.locator('#player-menu');
-  await expect(menu).toBeVisible();
-  await page.keyboard.press('ArrowDown'); // Title Info -> Settings
-  await page.keyboard.press('ArrowDown'); // Settings -> Playback Speed
-  await page.keyboard.press('ArrowDown'); // Playback Speed -> Subtitles
-  await page.keyboard.press('Enter');     // open the Subtitles sub-menu (focus lands on "Off")
   await expect(menu).toContainText('Search online');
   await page.keyboard.press('ArrowDown'); // Off -> Search online…
   await page.keyboard.press('Enter');     // open the search overlay
@@ -172,29 +177,16 @@ test('"Search online…" closes the menu and hands the D-pad to the first result
   await expect(rows.nth(1)).toHaveClass(/focused/);
 });
 
-test('Right over the overlay stays with it while the OSD is hidden', async ({ page }) => {
+test('Right over the overlay stays with it and opens no menu', async ({ page }) => {
   await seedVod(page);
   await routeAssrtSearch(page, () => [
     assrtSub({ id: '401', langDesc: '英', name: 'Release a', downloads: 10 }),
   ]);
   await startVodPlayback(page);
-  const osd = page.locator('#player-osd');
   const menu = page.locator('#player-menu');
-  await page.keyboard.press('Enter'); // no duration, so OK hides the OSD
-  await expect(osd).toHaveClass(/hidden/);
-  await page.keyboard.press('ArrowRight');
-  await expect(menu).toBeVisible();
-  await page.keyboard.press('ArrowDown'); // Title Info -> Settings
-  await page.keyboard.press('ArrowDown'); // Settings -> Playback Speed
-  await page.keyboard.press('ArrowDown'); // Playback Speed -> Subtitles
-  await page.keyboard.press('Enter');
-  await expect(menu).toContainText('Search online');
-  await page.keyboard.press('ArrowDown'); // Off -> Search online…
-  await page.keyboard.press('Enter');
+  await openSearchOverlay(page);
   const overlay = page.locator('#subtitle-search .subs-overlay');
-  await expect(overlay).toBeVisible();
   await expect(page.locator('#subtitle-search .subs-row')).toHaveCount(1);
-  await expect(osd).toHaveClass(/hidden/);
 
   await page.keyboard.press('ArrowRight');
   // Read once: a retrying check would also pass after the menu auto-hides.
@@ -246,7 +238,7 @@ test('a row hovered while the search box has the caret stays dark until Down lan
   await expect(page.locator('.focused')).toHaveCount(1);
 });
 
-test('the menu opened at the screen edge takes the arrow keys from the search box', async ({ page }) => {
+test('the picker opened from the controls takes the arrow keys from the search box', async ({ page }) => {
   await seedVod(page);
   await routeAssrtSearch(page, () => ['a', 'b', 'c'].map((id, i) =>
     assrtSub({ id: `70${String(i)}`, langDesc: '英', name: `Release ${id}`, downloads: 70 - i })));
@@ -263,9 +255,10 @@ test('the menu opened at the screen edge takes the arrow keys from the search bo
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await expect(page.locator('.focused')).toHaveCount(0);
 
-  await page.mouse.move(1900, 540);
+  await page.locator('#player-osd [data-dock-action="subtitles"]').click();
   await expect(menu).toHaveClass(/visible/);
   await expect(input).not.toBeFocused();
+  await page.keyboard.press('ArrowUp');
   await expect(menuRows.nth(0)).toHaveClass(/focused/);
   await page.keyboard.press('ArrowDown');
   await expect(menuRows.nth(1)).toHaveClass(/focused/);
@@ -335,17 +328,14 @@ test('the D-pad keeps the focused result in view down a long list', async ({ pag
   await expect.poll(inView).toBe(true);
 });
 
-test('the subtitle sync adjuster keeps the keys, and the screen edge keeps the menu shut', async ({ page }) => {
+test('the subtitle sync adjuster keeps the keys, and the screen edge opens no menu', async ({ page }) => {
   await seedXtream(page);
   await startVodPlayback(page);
   const menu = page.locator('#player-menu');
-  const settled = () => expect.poll(() => menu.evaluate((el) => el.getBoundingClientRect().right)).toBe(1920);
-  await page.mouse.move(1900, 540);
-  await expect(menu).toHaveClass(/visible/);
-  await settled();
-  await menu.locator('[data-menu-action="__subs_open__"]').click();
+  const subtitles = page.locator('#player-osd [data-dock-action="subtitles"]');
+  await subtitles.click();
   await menu.locator('[data-menu-action="__subs_track__"][data-track-index="2000"]').click();
-  await menu.locator('[data-menu-action="__subs_open__"]').click();
+  await subtitles.click();
   await menu.locator('[data-menu-action="__subs_offset__"]').click();
   await expect(page.locator('#subtitle-offset:not(.hidden)')).toBeVisible();
   await expect(menu).not.toHaveClass(/visible/);
@@ -354,19 +344,18 @@ test('the subtitle sync adjuster keeps the keys, and the screen edge keeps the m
 
   await page.mouse.move(1700, 540);
   await page.mouse.move(1900, 540);
-  // Past the slide-in, read once: a retrying check would also pass once the
-  // menu's own auto-hide closes it.
+  // Read once: a retrying check would also pass once a menu closed itself.
   await page.waitForTimeout(400);
   expect(await menu.getAttribute('class')).not.toMatch(/visible/);
   await expect(owner).toHaveAttribute('data-focus-scope', 'player.subtitle_offset');
 
   await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
   await expect(page.locator('#subtitle-offset')).toBeHidden();
-  await page.mouse.move(1700, 540);
-  await page.mouse.move(1900, 540);
+  await subtitles.click();
   await expect(menu).toHaveClass(/visible/);
   await expect(owner).toHaveAttribute('data-focus-scope', 'player.menu');
-  await expect(page.locator('.focused')).toHaveCount(1);
+  // The button the pointer rests on stays lit beside the picker's ring.
+  await expect(menu.locator('.focused')).toHaveCount(1);
 });
 
 test('Back closes the search overlay over a shown OSD and leaves the OSD up', async ({ page }) => {
@@ -390,12 +379,10 @@ test('Back closes the subtitle sync adjuster over a shown OSD and leaves the OSD
   await startVodPlayback(page);
   await userPause(page);
   const menu = page.locator('#player-menu');
-  await page.mouse.move(1900, 540);
-  await expect(menu).toHaveClass(/visible/);
-  await expect.poll(() => menu.evaluate((el) => el.getBoundingClientRect().right)).toBe(1920);
-  await menu.locator('[data-menu-action="__subs_open__"]').click();
+  const subtitles = page.locator('#player-osd [data-dock-action="subtitles"]');
+  await subtitles.click();
   await menu.locator('[data-menu-action="__subs_track__"][data-track-index="2000"]').click();
-  await menu.locator('[data-menu-action="__subs_open__"]').click();
+  await subtitles.click();
   await menu.locator('[data-menu-action="__subs_offset__"]').click();
   await expect(page.locator('#subtitle-offset:not(.hidden)')).toBeVisible();
 

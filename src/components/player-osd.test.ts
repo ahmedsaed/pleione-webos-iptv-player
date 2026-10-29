@@ -4,7 +4,13 @@ import { CONFIG } from '../config';
 import { StorageService } from '../services/storage-service';
 import type { Channel, Programme } from '../types';
 import type { DvrState } from '../utils/dvr';
-import { PlayerOsd, type PlayerOsdOptions, type PlayerOsdSnapshot } from './player-osd';
+import { Focus } from '../navigation/focus-scope';
+import {
+  PlayerOsd,
+  type PlayerOsdControls,
+  type PlayerOsdOptions,
+  type PlayerOsdSnapshot,
+} from './player-osd';
 
 const CHANNEL: Channel = {
   id: 'ch1',
@@ -32,6 +38,14 @@ function playback(duration: number, position = 0, paused = false) {
   return { duration, position, paused };
 }
 
+const NO_CONTROLS: PlayerOsdControls = {
+  episodes: null,
+  favorite: null,
+  pausable: false,
+  audio: false,
+  subtitles: false,
+};
+
 function snapshot(overrides: Partial<PlayerOsdSnapshot> = {}): PlayerOsdSnapshot {
   return {
     playback: null,
@@ -42,10 +56,22 @@ function snapshot(overrides: Partial<PlayerOsdSnapshot> = {}): PlayerOsdSnapshot
     upNextSeconds: 0,
     dvr: null,
     nowPlaying: null,
-    upcoming: null,
+    upcoming: [],
     streamInfo: null,
+    controls: NO_CONTROLS,
+    seek: null,
     ...overrides,
   };
+}
+
+function controls(): string[] {
+  return Array.from(document.querySelectorAll('#player-osd [data-dock-action]'))
+    .map(el => `${el.getAttribute('data-dock-action')}${el.hasAttribute('disabled') ? ':disabled' : ''}`);
+}
+
+function focusedKeys(): string[] {
+  return Array.from(document.querySelectorAll('#player-osd .focused'))
+    .map(el => el.getAttribute('data-key') ?? '');
 }
 
 function rect(left: number, top: number, width: number, height: number): DOMRect {
@@ -64,6 +90,7 @@ describe('PlayerOsd', () => {
   let state: PlayerOsdSnapshot;
   let callbacks: PlayerOsdOptions;
   let osd: PlayerOsd;
+  let activeWhenShown: boolean;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -72,14 +99,16 @@ describe('PlayerOsd', () => {
     container.innerHTML = '<div id="player-osd"></div>';
     document.body.appendChild(container);
     state = snapshot();
+    activeWhenShown = false;
     callbacks = {
       getSnapshot: () => state,
       canAutoReveal: () => true,
       canSeek: () => true,
+      activeWhenShown: () => activeWhenShown,
+      heldOpen: () => false,
       onSeekFraction: vi.fn(),
-      onPauseToggle: vi.fn(),
+      onControl: vi.fn(),
       onGoLive: vi.fn(),
-      onResync: vi.fn(),
       onPlayNext: vi.fn(),
       onCancelNext: vi.fn(),
     };
@@ -87,6 +116,7 @@ describe('PlayerOsd', () => {
   });
 
   afterEach(() => {
+    Focus.uninstall();
     vi.useRealTimers();
     document.body.innerHTML = '';
   });
@@ -132,7 +162,7 @@ describe('PlayerOsd', () => {
     state = snapshot({
       playback: playback(120, 30),
       nowPlaying: PROGRAMME,
-      upcoming: { ...PROGRAMME, title: 'Programme 2' },
+      upcoming: [{ ...PROGRAMME, title: 'Programme 2' }],
       streamInfo: {
         resolution: { tier: 'hd', label: 'Info 1' },
         hdr: 'HDR',
@@ -168,7 +198,6 @@ describe('PlayerOsd', () => {
     osd.render();
     expect(container.textContent).toContain('Programme 3');
     expect(container.querySelector('[data-seekbar]')).not.toBeNull();
-    expect(container.querySelector('[data-resync]')).not.toBeNull();
 
     state = snapshot({ playback: playback(120, 30), channel: null, vodTitle: 'Video 1' });
     osd.render();
@@ -249,23 +278,25 @@ describe('PlayerOsd', () => {
     }));
     expect(callbacks.onSeekFraction).toHaveBeenCalledWith(0.75);
 
-    const pause = container.querySelector('[data-playpause]') as HTMLElement;
+    state = { ...state, controls: { ...NO_CONTROLS, pausable: true, audio: true } };
+    osd.render();
+    const pause = container.querySelector('[data-dock-action="playpause"]') as HTMLElement;
     pause.getBoundingClientRect = () => rect(10, 10, 30, 30);
     container.dispatchEvent(new MouseEvent('click', {
       bubbles: true,
       clientX: 20,
       clientY: 20,
     }));
-    expect(callbacks.onPauseToggle).toHaveBeenCalledOnce();
+    expect(callbacks.onControl).toHaveBeenCalledWith('playpause');
 
-    const resync = container.querySelector('[data-resync]') as HTMLElement;
-    resync.getBoundingClientRect = () => rect(600, 10, 30, 30);
+    const audio = container.querySelector('[data-dock-action="audio"]') as HTMLElement;
+    audio.getBoundingClientRect = () => rect(600, 10, 30, 30);
     container.dispatchEvent(new MouseEvent('click', {
       bubbles: true,
       clientX: 610,
       clientY: 20,
     }));
-    expect(callbacks.onResync).toHaveBeenCalledOnce();
+    expect(callbacks.onControl).toHaveBeenLastCalledWith('audio');
 
     state = snapshot({
       playback: playback(120, 30),
@@ -309,5 +340,160 @@ describe('PlayerOsd', () => {
     osd.clearFailedIcons();
     osd.render();
     expect(container.querySelector('.osd-programme-icon')).not.toBeNull();
+  });
+
+  describe('controls', () => {
+    const VOD = (over: Partial<PlayerOsdControls> = {}) => snapshot({
+      playback: playback(120, 30),
+      channel: null,
+      vodTitle: 'Video 1',
+      controls: { ...NO_CONTROLS, pausable: true, ...over },
+    });
+
+    it('offers episode navigation, disabled at the ends, and track choices only when given', () => {
+      state = VOD({ episodes: { previous: false, next: true } });
+      osd.show();
+      expect(controls()).toEqual(['previous:disabled', 'playpause', 'next']);
+
+      state = VOD({ episodes: { previous: true, next: false }, audio: true, subtitles: true });
+      osd.render();
+      expect(controls()).toEqual(['previous', 'playpause', 'next:disabled', 'audio', 'subtitles']);
+
+      state = VOD();
+      osd.render();
+      expect(controls()).toEqual(['playpause']);
+    });
+
+    it('offers Favorite and Channel info on live, with the favorite state pressed', () => {
+      state = snapshot({ nowPlaying: PROGRAMME, controls: { ...NO_CONTROLS, favorite: true, audio: true } });
+      osd.show();
+      expect(controls()).toEqual(['favorite', 'info', 'audio']);
+      const favorite = container.querySelector('[data-dock-action="favorite"]')!;
+      expect(favorite.getAttribute('aria-pressed')).toBe('true');
+      expect(favorite.querySelector('.favorite-glyph.set')).not.toBeNull();
+    });
+
+    it('takes the keys on the seek bar when VOD shows it, and moves between rows and buttons', () => {
+      activeWhenShown = true;
+      state = VOD({ episodes: { previous: true, next: true }, audio: true });
+      osd.show();
+      Focus.flush();
+      expect(osd.isActive()).toBe(true);
+      expect(osd.focused()).toBe('seek');
+      expect(focusedKeys()).toEqual(['dock:seek']);
+      expect(container.querySelector('.osd-control-caption')!.textContent).toBe('');
+
+      expect(osd.move('up')).toBe(false);
+      expect(osd.move('down')).toBe(true);
+      Focus.flush();
+      expect(osd.focused()).toBe('playpause');
+      expect(focusedKeys()).toEqual(['dock:playpause']);
+      expect(container.querySelector('.osd-control-caption')!.textContent).toBe('Pause');
+
+      expect(osd.move('right')).toBe(true);
+      expect(osd.move('right')).toBe(true);
+      Focus.flush();
+      expect(osd.focused()).toBe('audio');
+      expect(container.querySelector('.osd-control-caption')!.textContent).toBe('Audio Track');
+      expect(container.querySelector('.osd-control-caption--end')).not.toBeNull();
+      expect(osd.move('right')).toBe(false);
+
+      osd.activateFocused();
+      expect(callbacks.onControl).toHaveBeenCalledWith('audio');
+
+      expect(osd.move('up')).toBe(true);
+      expect(osd.focused()).toBe('seek');
+    });
+
+    it('skips a disabled button', () => {
+      activeWhenShown = true;
+      state = VOD({ episodes: { previous: false, next: true } });
+      osd.show();
+      osd.move('down');
+      expect(osd.focused()).toBe('playpause');
+      expect(osd.move('left')).toBe(false);
+      expect(osd.focused()).toBe('playpause');
+    });
+
+    it('shows live controls without the keys until activated, and drops them on hide', () => {
+      state = snapshot({ nowPlaying: PROGRAMME, controls: { ...NO_CONTROLS, favorite: false } });
+      osd.show();
+      Focus.flush();
+      expect(osd.isActive()).toBe(false);
+      expect(osd.focused()).toBeNull();
+      expect(focusedKeys()).toEqual([]);
+
+      osd.activate();
+      Focus.flush();
+      expect(osd.focused()).toBe('favorite');
+      expect(focusedKeys()).toEqual(['dock:favorite']);
+
+      osd.hide();
+      expect(osd.isActive()).toBe(false);
+      expect(osd.focused()).toBeNull();
+    });
+
+    it('expands channel info in place and collapses it on hide', () => {
+      state = snapshot({
+        nowPlaying: PROGRAMME,
+        upcoming: [2, 3, 4, 5].map(n => ({ ...PROGRAMME, title: `Programme ${n}` })),
+        controls: { ...NO_CONTROLS, favorite: false },
+      });
+      osd.activate('info');
+      expect(container.querySelectorAll('.osd-next')).toHaveLength(1);
+      osd.activateFocused();
+      expect(callbacks.onControl).not.toHaveBeenCalled();
+      expect(container.querySelectorAll('.osd-next')).toHaveLength(3);
+      expect(container.querySelector('.osd-description--full')).not.toBeNull();
+      expect(container.querySelector('[data-dock-action="info"]')!.getAttribute('aria-pressed')).toBe('true');
+
+      osd.hide();
+      osd.show();
+      expect(container.querySelectorAll('.osd-next')).toHaveLength(1);
+    });
+
+    it('marks the skip target and its distance over the bar', () => {
+      state = VOD();
+      state = { ...state, seek: { delta: -70 } };
+      osd.show();
+      const bubble = container.querySelector<HTMLElement>('.osd-seek-bubble')!;
+      expect(bubble.style.left).toBe('25%');
+      expect(bubble.querySelector('.osd-seek-time')!.textContent).toBe('0:30');
+      expect(bubble.querySelector('.osd-seek-delta')!.textContent).toBe('-1:10');
+
+      state = { ...state, playback: playback(120, 60) };
+      osd.refreshProgress();
+      expect(bubble.style.left).toBe('50%');
+      expect(bubble.querySelector('.osd-seek-time')!.textContent).toBe('1:00');
+
+      state = { ...state, seek: null };
+      osd.render();
+      expect(container.querySelector('.osd-seek-bubble')).toBeNull();
+    });
+
+    it('names a hovered control while the keys are elsewhere', () => {
+      state = snapshot({ nowPlaying: PROGRAMME, controls: { ...NO_CONTROLS, favorite: false } });
+      osd.show();
+      container.querySelector('[data-dock-action="info"]')!
+        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      expect(container.querySelector('.osd-control-caption')!.textContent).toBe('Channel Info');
+      expect(osd.isActive()).toBe(false);
+      container.querySelector('[data-dock-action="info"]')!
+        .dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
+      expect(container.querySelector('.osd-control-caption')!.textContent).toBe('');
+    });
+
+    it('stays up while something opened from it holds it', () => {
+      let held = true;
+      callbacks.heldOpen = () => held;
+      state = VOD();
+      osd.show();
+      vi.advanceTimersByTime(CONFIG.PLAYER.DEFAULT_PLAYER_OSD_TIMEOUT_MS * 2);
+      expect(osd.isVisible()).toBe(true);
+      held = false;
+      osd.resetTimer();
+      vi.advanceTimersByTime(CONFIG.PLAYER.DEFAULT_PLAYER_OSD_TIMEOUT_MS);
+      expect(osd.isVisible()).toBe(false);
+    });
   });
 });

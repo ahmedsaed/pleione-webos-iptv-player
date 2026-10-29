@@ -218,13 +218,21 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     };
   }
 
-  private episodesAfter(episodeId: string, series: SeriesItem): VodQueueItem[] {
+  // The series' episodes in viewing order, split around `episodeId`.
+  private episodesAround(episodeId: string, series: SeriesItem): {
+    before: VodQueueItem[];
+    after: VodQueueItem[];
+  } {
     const info = this.currentInfo;
-    if (!info) return [];
+    if (!info) return { before: [], after: [] };
     const episodes = info.seasons.reduce<Episode[]>(
       (all, season) => all.concat(info.episodesBySeason[season] ?? []), []);
     const index = episodes.findIndex((ep) => ep.id === episodeId);
-    return index < 0 ? [] : episodes.slice(index + 1).map((ep) => this.episodePlayback(series, ep));
+    if (index < 0) return { before: [], after: [] };
+    return {
+      before: episodes.slice(0, index).map((ep) => this.episodePlayback(series, ep)),
+      after: episodes.slice(index + 1).map((ep) => this.episodePlayback(series, ep)),
+    };
   }
 
   private playEpisode(episodeId: string): void {
@@ -233,10 +241,12 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     const a = this.account;
     if (!ep || !series || !a) return;
     const saved = StorageService.getResume(a.id, 'episode', ep.id);
+    const around = this.episodesAround(ep.id, series);
     this.handlers.onPlayVod({
       ...this.episodePlayback(series, ep),
       resumeSecs: saved ? saved.position : 0,
-      episodeQueue: this.episodesAfter(ep.id, series),
+      episodeQueue: around.after,
+      previousEpisodes: around.before,
     });
   }
 
@@ -264,6 +274,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       resumeSecs: r.position,
       subtitles: [],
       episodeQueue: r.episodeQueue,
+      previousEpisodes: r.previousEpisodes,
       watchlistOwner: r.watchlistOwner,
     });
   }

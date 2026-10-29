@@ -52,6 +52,8 @@ html.q-no-flex-gap .osd-stream-info > * + * { margin-left: 8px; }
 html.q-no-flex-gap .osd-programme-detail > * + * { margin-left: 16px; }
 html.q-no-flex-gap .osd-programme-time > * + * { margin-left: 16px; }
 html.q-no-flex-gap .osd-progress-row > * + * { margin-left: 12px; }
+html.q-no-flex-gap .osd-seek-bubble > * + * { margin-left: 8px; }
+html.q-no-flex-gap .osd-controls-group > * + * { margin-left: 12px; }
 html.q-no-flex-gap .osd-dvr-live > * + * { margin-left: 8px; }
 html.q-no-flex-gap .osd-next > * + * { margin-left: 12px; }
 html.q-no-flex-gap .osd-next-episode-actions > * + * { margin-left: 16px; }
@@ -61,7 +63,7 @@ html.q-no-flex-gap .player-sidebar .sidebar-group-item > * + * { margin-left: 10
 html.q-no-flex-gap .player-sidebar .sidebar-tabs > * + * { margin-left: 4px; }
 html.q-no-flex-gap .player-sidebar .sidebar-ch-item > * + * { margin-left: 14px; }
 html.q-no-flex-gap .player-sidebar .sidebar-ch-item .ch-info > * + * { margin-top: 2px; }
-html.q-no-flex-gap .player-menu .menu-items > * + * { margin-top: 6px; }
+html.q-no-flex-gap .player-menu .menu-items > * + * { margin-top: 4px; }
 html.q-no-flex-gap .player-menu .menu-item > * + * { margin-left: 14px; }
 html.q-no-flex-gap .subs-row > * + * { margin-left: 12px; }
 html.q-no-flex-gap .subs-count > * + * { margin-left: 5px; }

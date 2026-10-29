@@ -62,7 +62,16 @@ export const CONFIG = {
     // full-width number does not feel stalled once it can no longer grow.
     DEFAULT_NUMBER_ENTRY_OSD_TIMEOUT_MS: 1200,
     CHANNEL_NUMBER_MAX_DIGITS: 4,  // fallback cap until the channel count is known
-    SEEK_STEP: 30,              // seconds per Left/Right press while seeking catch-up or live DVR
+    SEEK_STEP: 10,              // seconds per Left/Right press while seeking VOD, catch-up, or live DVR
+    // Holding Left/Right speeds the skip up: these steps apply once the key has
+    // been held this long, and a held key steps at most once per SEEK_HOLD_REPEAT_MS.
+    SEEK_HOLD_MEDIUM_MS: 1000,
+    SEEK_HOLD_MEDIUM_STEP: 30,
+    SEEK_HOLD_FAST_MS: 3000,
+    SEEK_HOLD_FAST_STEP: 60,
+    SEEK_HOLD_REPEAT_MS: 250,
+    SEEK_BUBBLE_MS: 1500,       // how long the seek target stays over the progress bar after the last skip
+    PREVIOUS_EPISODE_WINDOW: 60, // seconds into an episode within which Previous plays the previous episode, not a restart
     HLS_MAX_RECOVERIES: 3,      // bounded hls.js fatal-error retries before giving up → next channel
     STALL_POLL_MS: 2000,        // native stall watchdog: currentTime poll interval
     STALL_FREEZE_TICKS: 5,      // ~10s frozen before the first in-place reload
@@ -73,14 +82,6 @@ export const CONFIG = {
     DVR_LIVE_EDGE: 10,          // within this many seconds of the window end counts as "at live"
     DVR_GO_LIVE_PAD: 3,         // Go-to-Live seeks to seekable.end minus this (s), avoiding a stall at the edge
     DVR_OLDEST_PAD: 3,          // Rewind stays inside the sliding window so its next refresh cannot strand playback
-    RESYNC_SEEK_BACK: 0.5,      // manual A/V resync: seconds to seek back to force a native-pipeline flush
-    RESYNC_TIMEOUT: 8000,       // ms safety cap to clear the "Resyncing…" message if `playing` never fires
-    PLAYBACK_RATE_MEDIA_POLL_MS: 250, // wait cadence for the native pipeline's video.mediaId
-    PLAYBACK_RATE_MEDIA_TIMEOUT: 5000, // max wait for video.mediaId before rejecting a rate change
-    PLAYBACK_RATE_LUNA_TIMEOUT: 3000, // max wait for com.webos.media/setPlayRate
-    PLAYBACK_RATE_REASSERT_MS: 250, // native pipeline may ignore the first accepted rate command
-    PLAYBACK_RATE_REASSERT_COUNT: 2, // initial command plus two reassertions proved stable on-device
-    PLAYBACK_RATE_VERIFY_MS: 3000, // playback sampled after a native rate change to confirm it took effect
     SUBTITLE_OFFSET_STEP: 0.25, // seconds per Left/Right press in the subtitle-sync adjuster
     SUBTITLE_OFFSET_MAX: 60,    // max |offset| the adjuster allows (seconds)
     SUBTITLE_SEARCH_TIMEOUT: 8000, // ms one online provider may take before the merged search gives up on it

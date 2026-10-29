@@ -637,6 +637,7 @@ describe('Series detail', () => {
       url: 'http://host:8080/series/u/p/e1.mp4',
       title: expect.stringContaining('S1E1'),
       watchlistOwner: { kind: 'series', itemId: 's1' },
+      previousEpisodes: [],
       episodeQueue: [
         expect.objectContaining({
           itemId: 'e2',
@@ -677,6 +678,9 @@ describe('Series detail', () => {
     view.handleAction('select');
     expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
       itemId: 'e2', kind: 'episode', url: 'http://host:8080/series/u/p/e2.mkv',
+      // Previous episode reaches back across the season boundary.
+      previousEpisodes: [expect.objectContaining({ itemId: 'e1', url: 'http://host:8080/series/u/p/e1.mp4' })],
+      episodeQueue: [],
     }));
   });
 
@@ -694,16 +698,18 @@ describe('Series detail', () => {
     expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e1', resumeSecs: 450 }));
   });
 
-  it('restores the remaining episode queue from Continue Watching', async () => {
+  it('restores the episodes before and after from Continue Watching', async () => {
     const next = {
       url: 'http://host:8080/series/u/p/e2.mkv', title: 'Series One — S2E1 — Episode Two',
       poster: '', accountId: 'x1', itemId: 'e2', kind: 'episode', subtitles: [],
     };
+    const previous = { ...next, itemId: 'e0', title: 'Series One — S0E1' };
     storageMock.getResumeList.mockReturnValue([
       {
         accountId: 'x1', kind: 'episode', itemId: 'e1', name: 'Series One — S1E1',
         poster: '', ext: 'mp4', position: 450, duration: 1500, updatedAt: 1,
         episodeQueue: [next],
+        previousEpisodes: [previous],
         watchlistOwner: { kind: 'series', itemId: 's1' },
       },
     ]);
@@ -713,6 +719,7 @@ describe('Series detail', () => {
     view.handleAction('select');
     expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
       episodeQueue: [next],
+      previousEpisodes: [previous],
       watchlistOwner: { kind: 'series', itemId: 's1' },
     }));
   });

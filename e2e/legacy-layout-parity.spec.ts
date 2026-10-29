@@ -307,18 +307,18 @@ const M3U_SCREENS: Screen[] = [
   {
     // Geometry matches exactly; the residue is the backdrop-filter fallback's
     // opaque panel, which shifts glyph antialiasing against the video plane.
-    name: 'player-menu',
+    name: 'player-controls',
     budget: 0.001,
     go: async (p) => {
-      await p.keyboard.press('ArrowRight');
-      await expect(p.locator('#player-menu')).toBeVisible();
+      await p.keyboard.press('Enter');
+      await expect(p.locator('#player-osd [data-dock-action="favorite"].focused')).toBeVisible();
     },
   },
   {
     name: 'menu-audio',
     budget: 0.001,
     go: async (p) => {
-      await p.locator('[data-menu-action="__audio_open__"]').click();
+      await p.locator('#player-osd [data-dock-action="audio"]').click();
       await expect(p.locator('[data-menu-action="__audio_track__"]').first()).toBeVisible();
     },
   },
@@ -326,16 +326,17 @@ const M3U_SCREENS: Screen[] = [
     name: 'menu-subtitles',
     budget: 0.001,
     go: async (p) => {
-      await p.locator('[data-menu-action="__menu_back__"]').click();
-      await p.locator('[data-menu-action="__subs_open__"]').click();
+      await p.keyboard.press('Escape');
+      await p.locator('#player-osd [data-dock-action="subtitles"]').click();
       await expect(p.locator('[data-menu-action="__subs_track__"]').first()).toBeVisible();
     },
   },
   {
     name: 'player-sidebar',
-    budget: 0.001, // same opaque-panel residue as the menu
+    budget: 0.001, // same opaque-panel residue as the picker
     go: async (p) => {
-      await p.keyboard.press('Escape');
+      await p.keyboard.press('Escape'); // the picker
+      await p.keyboard.press('Escape'); // the controls
       await p.keyboard.press('ArrowLeft');
       await p.keyboard.press('ArrowLeft');
       await expect(p.locator('#player-sidebar')).toBeVisible();
@@ -645,27 +646,10 @@ const XTREAM_SCREENS: Screen[] = [
     },
   },
   {
-    name: 'vod-menu',
-    budget: 0.001,
-    go: async (p) => {
-      await p.mouse.move(1900, 540);
-      await expect(p.locator('#player-menu')).toBeVisible();
-    },
-  },
-  {
-    name: 'vod-menu-speed',
-    budget: 0.001,
-    go: async (p) => {
-      await p.locator('[data-menu-action="__speed_open__"]').click();
-      await expect(p.locator('#player-menu [data-playback-rate="1.5"]')).toBeVisible();
-    },
-  },
-  {
     name: 'vod-menu-subtitles',
     budget: 0.001,
     go: async (p) => {
-      await p.locator('[data-menu-action="__menu_back__"]').click();
-      await p.locator('[data-menu-action="__subs_open__"]').click();
+      await p.locator('#player-osd [data-dock-action="subtitles"]').click();
       await expect(p.locator('[data-menu-action="__subs_search__"]')).toBeVisible();
     },
   },
@@ -676,7 +660,7 @@ const XTREAM_SCREENS: Screen[] = [
     budget: 0.001,
     go: async (p) => {
       await p.locator('[data-menu-action="__subs_track__"][data-track-index="2000"]').click();
-      await p.locator('[data-menu-action="__subs_open__"]').click();
+      await p.locator('#player-osd [data-dock-action="subtitles"]').click();
       await p.locator('[data-menu-action="__subs_offset__"]').click();
       await expect(p.locator('#subtitle-offset:not(.hidden)')).toBeVisible();
     },
@@ -689,8 +673,7 @@ const XTREAM_SCREENS: Screen[] = [
     budget: 0.001,
     go: async (p) => {
       await p.keyboard.press('Escape');
-      await p.mouse.move(1900, 540);
-      await p.locator('[data-menu-action="__subs_open__"]').click();
+      await p.locator('#player-osd [data-dock-action="subtitles"]').click();
       await p.locator('[data-menu-action="__subs_search__"]').click();
       await expect(p.locator('#subtitle-search .subs-count').first()).toBeVisible();
     },
