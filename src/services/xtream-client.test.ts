@@ -405,7 +405,7 @@ describe('XtreamClient VOD', () => {
     expect(info).toEqual({
       plot: 'A plot', cast: 'Actor', director: 'Dir', genre: 'Drama',
       releaseDate: '2020-01-01', durationSecs: 5400, poster: 'http://host/p.png', subtitles: [],
-      imdbId: '', tmdbId: '', year: 2020,
+      imdbId: '', tmdbId: '', rating: '', year: 2020,
     });
   });
 
@@ -415,6 +415,27 @@ describe('XtreamClient VOD', () => {
     }));
     expect(await createXtreamClient(creds).getVodInfo('10'))
       .toMatchObject({ backdrop: 'http://host/b1.jpg' });
+  });
+
+  it('reads a movie score from VOD info on the 10 scale', async () => {
+    fetchTextMock.mockResolvedValue(JSON.stringify({ info: { rating: '7.25' } }));
+    expect((await createXtreamClient(creds).getVodInfo('10'))?.rating).toBe('7.3');
+    fetchTextMock.mockResolvedValue(JSON.stringify({ info: { rating: 0, rating_5based: 3.5 } }));
+    expect((await createXtreamClient(creds).getVodInfo('10'))?.rating).toBe('7');
+  });
+
+  it('treats a zero list score as unrated and falls back to the 5-based score', async () => {
+    fetchTextMock.mockResolvedValue(JSON.stringify([
+      { stream_id: 1, name: 'Movie A', rating: '0', rating_5based: 4, category_id: '1' },
+      { stream_id: 2, name: 'Movie B', rating: '0', rating_5based: 0, category_id: '1' },
+      { stream_id: 3, name: 'Movie C', rating: 'n/a', category_id: '1' },
+    ]));
+    const movies = await createXtreamClient(creds).getVodStreams();
+    expect(movies.map(m => m.rating)).toEqual(['8', '', '']);
+    fetchTextMock.mockResolvedValue(JSON.stringify([
+      { series_id: 7, name: 'Series A', rating: '0', rating_5based: '2.5', category_id: '1' },
+    ]));
+    expect((await createXtreamClient(creds).getSeries())[0].rating).toBe('5');
   });
 
   it('classifies malformed catalog JSON instead of returning an empty catalog', async () => {
@@ -671,7 +692,7 @@ describe('XtreamClient Series', () => {
         cover: '',
         movie_image: '',
         cover_big: 'http://host/series-big.png',
-        rating: '',
+        rating: '0',
         rating_5based: '4.2',
         imdb_id: '',
         imdb: 'tt1234567',
@@ -684,7 +705,8 @@ describe('XtreamClient Series', () => {
     expect(info).toMatchObject({
       releaseDate: '',
       poster: 'http://host/series-big.png',
-      rating: '4.2',
+      // "0" is unrated, so the 5-based score shows, doubled to the 10 scale.
+      rating: '8.4',
       imdbId: '1234567',
       tmdbId: '7654',
       year: 2022,

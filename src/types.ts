@@ -532,6 +532,7 @@ export interface VodInfo {
   subtitles: SidecarSubtitle[];
   imdbId: string;
   tmdbId: string;
+  rating: string;
   year: number;
   // A wide backdrop, when the provider sends one; optional in cached snapshots.
   backdrop?: string;

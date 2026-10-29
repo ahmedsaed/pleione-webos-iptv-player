@@ -253,7 +253,9 @@ test('keeps virtual grids and newly loaded categories sorted, independently for 
   await series.locator('.dropdown-trigger').click();
   await series.locator('[data-dropdown-value="rating"]').click();
   await series.getByRole('radio', { name: 'Lowest', exact: true }).click();
-  await expect(gridTiles(page, 'series').first()).toHaveText('Title 50');
+  // A "0" score is unrated and sorts with the unrated titles, so the lowest
+  // real score (1) leads.
+  await expect(gridTiles(page, 'series').first()).toHaveText('Title 41');
   await page.reload();
   await enterTab(page, 'movies');
   await openCategory(page);
