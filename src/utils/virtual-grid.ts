@@ -122,12 +122,11 @@ export class VirtualGrid {
     const current = Math.max(0, Math.min(index, itemCount - 1));
     const columns = this.getColumnCount(viewportWidth);
     switch (direction) {
+      // Left and Right read on across rows, as text does.
       case 'left':
-        return current % columns === 0 ? current : current - 1;
+        return current === 0 ? current : current - 1;
       case 'right':
-        return current % columns === columns - 1 || current === itemCount - 1
-          ? current
-          : current + 1;
+        return current === itemCount - 1 ? current : current + 1;
       case 'up':
         return current - columns < 0 ? current : current - columns;
       case 'down':

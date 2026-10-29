@@ -1817,21 +1817,25 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     const range = this.gridVirtualizer.getRange(count, viewportWidth, viewportHeight);
     const actionWidth = this.gridVirtualizer.getItemPosition(range.columns - 1, range.columns).left
       + uiPx(CATALOG_GRID_POSTER_WIDTH);
+    // Whole columns rarely fill the track; center them, and the heading with them.
+    const inset = Math.max(0, Math.floor((viewportWidth - actionWidth) / 2));
     const cells: Safe[] = [];
     for (let index = range.start; index < range.end; index++) {
       const position = this.gridVirtualizer.getItemPosition(index, range.columns);
       cells.push(html`
         <div class="catalog-grid-cell" data-key="grid:${source.keyAt(index)}" data-grid-index="${index}"
-             style="left:${position.left}px;top:${position.top}px">${source.render(index)}</div>
+             style="left:${position.left + inset}px;top:${position.top}px">${source.render(index)}</div>
       `);
     }
     const managing = !!kind && this.managing;
     morph(gridLayer, html`
       <div class="catalog-view catalog-grid${managing ? ' catalog-managing' : ''}" data-nav-container>
-        <h1 class="catalog-grid-title">${kind ? html`
-          ${this.collectionTitle(kind)} <span class="catalog-grid-count">${this.collectionCount(kind, count)}</span>
-        ` : cat ? cat.name : this.kicker}</h1>
-        ${kind ? this.collectionActions(actionWidth) : this.sortControls()}
+        <div class="catalog-grid-head" style="padding-left:${inset}px;padding-right:${inset}px">
+          <h1 class="catalog-grid-title">${kind ? html`
+            ${this.collectionTitle(kind)} <span class="catalog-grid-count">${this.collectionCount(kind, count)}</span>
+          ` : cat ? cat.name : this.kicker}</h1>
+          ${kind ? this.collectionActions(actionWidth) : this.sortControls()}
+        </div>
         ${count === 0
           ? html`<p class="catalog-hint">${kind
             ? t(kind === 'continue' ? 'catalog.continueWatchingEmpty' : 'catalog.watchlistEmpty')

@@ -1,3 +1,4 @@
+import { seedXtream } from './fixtures/xtream';
 import {
   test,
   expect,
@@ -164,3 +165,22 @@ test('Arabic EPG time correction keeps its sign with the number', async ({ page 
   expect(unit).toBeLessThan(sign);
   expect(sign).toBeLessThan(digit);
 });
+
+test('Arabic rail titles keep the screen gutter on the right', async ({ page }) => {
+  await seedXtream(page, { catalog: 'large' });
+  await page.addInitScript(() => localStorage.setItem('iptv_locale', JSON.stringify('ar')));
+  await page.goto('/');
+  await enterTab(page, 'movies');
+  const titles = page.locator('#view-movies .catalog-layer-browse .catalog-rail-title');
+  await expect(titles.first()).toBeVisible();
+  const rights = await titles.evaluateAll((els) => els
+    .filter((el) => el.getBoundingClientRect().width > 0)
+    .map((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      return range.getBoundingClientRect().right;
+    }));
+  expect(rights.length).toBeGreaterThan(0);
+  for (const right of rights) expect(right).toBeLessThanOrEqual(1920 - 80 + 1);
+});
+
