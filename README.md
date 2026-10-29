@@ -257,6 +257,16 @@ npm run preview
 
 Opens at http://localhost:3000. Video playback uses HLS.js, mpegts.js, and Shaka on desktop.
 
+### Demo Xtream server
+
+```bash
+npm run xtream:demo
+```
+
+Serves a synthetic Xtream catalog with real, locally generated media (needs
+ffmpeg) for testing in the preview or on a TV on your LAN. See
+[`docs/xtream-demo-server.md`](docs/xtream-demo-server.md).
+
 ## Settings
 
 Open with the **Blue** key or the **Settings** tab in the top bar. Sections:
@@ -314,6 +324,7 @@ some of the features above:
 - [`docs/vod-subtitles.md`](docs/vod-subtitles.md) — how VOD (Xtream movies & episodes) subtitles work: in-container tracks plus sidecar SRT/WebVTT/ASS, and online subtitle search (SubDL, OpenSubtitles, Assrt)
 - [`docs/storage-and-data.md`](docs/storage-and-data.md) — what the app stores, where it lives, and how user data is separated from disposable caches
 - [`docs/lan-service.md`](docs/lan-service.md) — phone setup and M3U uploads over the bundled LAN service
+- [`docs/xtream-demo-server.md`](docs/xtream-demo-server.md) — a local demo Xtream server with a synthetic catalog and real media for manual testing
 - [`docs/unsupported-features.md`](docs/unsupported-features.md) — features that webOS does not allow or that are intentionally out of scope, with alternatives
 
 ## License and third-party notices

@@ -79,6 +79,7 @@ npm run test:watch             # vitest watch
 npm run test:e2e               # Playwright, 2 projects (see legacy-engine)
 npm run test:all               # lint + unit + e2e
 npm run screenshots            # regenerate README screenshots
+npm run xtream:demo            # demo Xtream server on :8090 (ffmpeg; docs/xtream-demo-server.md)
 npm run service:smoke          # bundled service on real Node.js 0.12.2
 npm run service:smoke:matrix   # webOS 4-26 Node runtime matrix
 ./build.sh [--install [device]]  # package the IPK (see webos-device)
