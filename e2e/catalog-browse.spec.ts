@@ -361,3 +361,49 @@ test('snaps smoothly to the same place under full animation', async ({ page }) =
     expect(g.visibleAbove).toBe(0);
   }
 });
+
+// The focused poster lifts like a Home card, and its ring stays whole inside
+// the rail, which clips overflow.
+async function liftedAndUnclipped(page: Page, scope: string): Promise<void> {
+  const tile = page.locator(`${scope} .catalog-tile.focused`);
+  await expect(tile).toHaveCount(1);
+  await expect.poll(() => tile.evaluate((el) => getComputedStyle(el).transform)).toMatch(/^matrix\(1\.05, 0, 0, 1\.05/);
+  const fit = await tile.evaluate((el) => {
+    const ring = el.querySelector('.catalog-poster-wrap')!.getBoundingClientRect();
+    const pad = 5; // outline 3px + offset 2px
+    let clip = { top: -Infinity, bottom: Infinity };
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      if (cs.overflowY === 'visible' && cs.overflowX === 'visible') continue;
+      const r = a.getBoundingClientRect();
+      clip = { top: Math.max(clip.top, r.top), bottom: Math.min(clip.bottom, r.bottom) };
+    }
+    return { top: ring.top - pad - clip.top, bottom: clip.bottom - (ring.bottom + pad) };
+  });
+  expect(fit.top).toBeGreaterThanOrEqual(-0.5);
+  expect(fit.bottom).toBeGreaterThanOrEqual(-0.5);
+}
+
+for (const section of ['movies', 'series'] as const) {
+  test(`${section}: the focused poster lifts and keeps its whole ring in rails and the grid`, async ({ page }) => {
+    await seedCatalog(page, []);
+    await page.goto('/');
+    await enterTab(page, section);
+    const layer = browse(page, section);
+    await expect(layer.locator('[data-rail-key="cat:1"] .catalog-tile').first()).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await liftedAndUnclipped(page, `#view-${section} .catalog-layer-browse`);
+    await page.keyboard.press('ArrowDown');
+    await liftedAndUnclipped(page, `#view-${section} .catalog-layer-browse`);
+    const unfocused = layer.locator('.catalog-tile:not(.focused)').first();
+    expect(await unfocused.evaluate((el) => getComputedStyle(el).transform)).toBe('none');
+
+    // The category page's grid lifts its focused tile the same way.
+    await layer.locator('[data-collection-see-all], .catalog-see-all-card').first().click();
+    const grid = page.locator(`#view-${section} .catalog-layer-grid`);
+    await expect(grid).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await liftedAndUnclipped(page, `#view-${section} .catalog-layer-grid`);
+  });
+}
+

@@ -373,3 +373,19 @@ test('a light theme keeps the cards and darkens the header text', async ({ page 
   expect(colors.label).toBe('rgb(255, 255, 255)');
   expect(colors.title).not.toBe('rgb(255, 255, 255)');
 });
+
+test('Save and Cancel in Settings return to Home, where Settings was opened', async ({ page }) => {
+  await seedHome(page);
+  await goHome(page);
+  await enterTab(page, 'settings');
+  await expect(page.locator('#view-settings')).toBeVisible();
+  await page.locator('#save-settings').click();
+  await expect(page.locator('#view-home')).toBeVisible();
+  await expect(page.locator('#view-channels')).toBeHidden();
+
+  await enterTab(page, 'settings');
+  await expect(page.locator('#view-settings')).toBeVisible();
+  await page.locator('#cancel-settings').click();
+  await expect(page.locator('#view-home')).toBeVisible();
+});
+
