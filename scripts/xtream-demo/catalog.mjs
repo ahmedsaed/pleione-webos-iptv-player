@@ -5,8 +5,9 @@
 export const SIZES = {
   small: {
     liveCategories: 8, channels: 150,
-    vodCategories: 6, movies: 120,
-    seriesCategories: 4, series: 24,
+    // Over 20 titles per group, so every rail ends in its See all tile.
+    vodCategories: 6, movies: 240,
+    seriesCategories: 4, series: 120,
     epgPastDays: 3, epgFutureDays: 2, archiveDays: 3,
     programmeMinutes: [15, 30, 30, 45, 60, 60, 90],
   },
