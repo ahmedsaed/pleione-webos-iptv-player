@@ -9,6 +9,8 @@ class FakeWorker {
   static instances: FakeWorker[] = [];
   static respond = true;
   static chunks: unknown[] = [];
+  static failures: Array<{ chunks: unknown[]; details: Record<string, unknown> }> = [];
+  static requests = 0;
   private messageListener: ((event: MessageEvent<unknown>) => void) | null = null;
   private errorListener: ((event: ErrorEvent) => void) | null = null;
 
@@ -19,8 +21,25 @@ class FakeWorker {
 
   postMessage(message: unknown): void {
     FakeWorker.request = message;
+    FakeWorker.requests++;
     if (!FakeWorker.respond) return;
     const id = (message as { id: number }).id;
+    const failure = FakeWorker.failures.shift();
+    if (failure) {
+      queueMicrotask(() => {
+        for (const chunk of failure.chunks) {
+          this.messageListener?.({
+            data: { kind: 'progress', id, chunk },
+          } as MessageEvent<unknown>);
+        }
+        this.messageListener?.({ data: {
+          kind: 'failure',
+          id,
+          error: { name: 'XMLTVWorkerError', message: 'failed', details: failure.details },
+        } } as MessageEvent<unknown>);
+      });
+      return;
+    }
     queueMicrotask(() => {
       for (const chunk of FakeWorker.chunks) {
         this.messageListener?.({
@@ -75,6 +94,8 @@ afterEach(() => {
   FakeWorker.instances = [];
   FakeWorker.respond = true;
   FakeWorker.chunks = [];
+  FakeWorker.failures = [];
+  FakeWorker.requests = 0;
   vi.useRealTimers();
 });
 
@@ -234,5 +255,101 @@ describe('fetchAndParseXMLTV worker client', () => {
     await fetchAndParseXMLTV('http://host/a');
 
     expect(FakeWorker.instances).toHaveLength(2);
+  });
+});
+
+describe('fetchAndParseXMLTV transient failure retries', () => {
+  const failure = (details: Record<string, unknown>, chunks: unknown[] = []) => ({
+    chunks,
+    details: {
+      pass: 'initial',
+      elapsedMs: 1,
+      retried: false,
+      transport: 'stream',
+      encoding: 'plain',
+      inputBytes: 0,
+      chunks: 0,
+      ...details,
+    },
+  });
+
+  it('recovers after a server error and a dropped body with only the final guide', async () => {
+    vi.useFakeTimers();
+    const info = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('document', { baseURI: 'http://host/app/index.html' });
+    vi.stubGlobal('Worker', FakeWorker);
+    FakeWorker.failures = [
+      failure({ stage: 'fetch', reason: 'http', status: 503, retryAfterMs: null }),
+      failure({ stage: 'read', reason: 'exception' }, [
+        { kind: 'reset', attempt: 1 },
+        { kind: 'channels', attempt: 1, entries: [['old', { name: 'Discarded', icon: '' }]] },
+      ]),
+    ];
+    FakeWorker.chunks = [
+      { kind: 'reset', attempt: 1 },
+      { kind: 'channels', attempt: 1, entries: [['ch1', { name: 'Alpha', icon: '' }]] },
+    ];
+
+    const result = fetchAndParseXMLTV('http://host/a');
+    await vi.advanceTimersByTimeAsync(999);
+    expect(FakeWorker.requests).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeWorker.requests).toBe(2);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const loaded = await result;
+    expect(FakeWorker.requests).toBe(3);
+    expect(loaded.data.channels).toEqual({ ch1: { name: 'Alpha', icon: '' } });
+    expect(info).toHaveBeenCalledWith(
+      '[Network]',
+      'Provider request recovered after retry',
+      'event=network.retry.recovered',
+      'kind=epg',
+      'attempts=3',
+    );
+  });
+
+  it('fails after 3 retries and logs the exhaustion once', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('document', { baseURI: 'http://host/app/index.html' });
+    vi.stubGlobal('Worker', FakeWorker);
+    FakeWorker.failures = [1, 2, 3, 4, 5].map(() =>
+      failure({ stage: 'fetch', reason: 'timeout' }));
+
+    const result = fetchAndParseXMLTV('http://host/a');
+    const settled = expect(result).rejects.toThrow('failed');
+    await vi.advanceTimersByTimeAsync(7000);
+    await settled;
+
+    expect(FakeWorker.requests).toBe(4);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      '[Network]',
+      'Provider request failed after retries',
+      'event=network.retry.exhausted',
+      'kind=epg',
+      'attempts=4',
+      'reason=timeout',
+    );
+  });
+
+  it('does not retry a missing guide or a parse failure', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('document', { baseURI: 'http://host/app/index.html' });
+    vi.stubGlobal('Worker', FakeWorker);
+    FakeWorker.failures = [
+      failure({ stage: 'fetch', reason: 'http', status: 404, retryAfterMs: null }),
+      failure({ stage: 'decode_parse', reason: 'exception' }),
+    ];
+
+    await expect(fetchAndParseXMLTV('http://host/a')).rejects.toThrow('failed');
+    expect(FakeWorker.requests).toBe(1);
+    await expect(fetchAndParseXMLTV('http://host/a')).rejects.toThrow('failed');
+    expect(FakeWorker.requests).toBe(2);
   });
 });

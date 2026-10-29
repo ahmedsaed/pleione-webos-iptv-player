@@ -1652,6 +1652,7 @@ test.describe('Settings upload', () => {
       win.PalmServiceBridge = FakePalmServiceBridge;
     });
 
+    await routePlaylist(page);
     await seedPlaylist(page);
     await page.goto('/');
 

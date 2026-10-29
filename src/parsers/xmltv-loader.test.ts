@@ -141,7 +141,11 @@ describe('fetchAndParseXMLTV', () => {
 
   it('logs a structured failure without committing a partial result', async () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
-      new Response('', { status: 503, statusText: 'Unavailable' })));
+      new Response('', {
+        status: 503,
+        statusText: 'Unavailable',
+        headers: { 'retry-after': '4' },
+      })));
 
     await expect(fetchAndParseXMLTVInWorker({
       url: 'http://host/a',
@@ -154,6 +158,8 @@ describe('fetchAndParseXMLTV', () => {
         stage: 'fetch',
         reason: 'http',
         retried: false,
+        status: 503,
+        retryAfterMs: 4000,
       },
     });
   });

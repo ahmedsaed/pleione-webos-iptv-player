@@ -1,4 +1,9 @@
-import { FetchTextError, fetchLimitedText } from '../utils/fetch-helper';
+import {
+  FetchTextError,
+  fetchLimitedText,
+  fetchTextTransientFailure,
+} from '../utils/fetch-helper';
+import { retryTransient } from '../utils/retry';
 import { xtreamPlayerApi, type XtreamCredentials } from '../utils/xtream-url';
 import { createLogger } from '../utils/logger';
 import type { VodCategory, VodItem, VodInfo, SeriesCategory, SeriesItem, SeriesInfo, Episode, SidecarSubtitle } from '../types';
@@ -212,15 +217,34 @@ function logRequestFailure(
   );
 }
 
+export interface XtreamRequestOptions {
+  /** False makes a timeout final, so an interactive check reports it quickly. */
+  retryTimeouts?: boolean;
+}
+
 async function fetchJsonStrict(
   url: string,
   timeout: number,
   maxBytes: number,
   signal?: AbortSignal,
+  options: XtreamRequestOptions = {},
 ): Promise<unknown> {
   let text: string;
   try {
-    text = await fetchLimitedText(url, maxBytes, timeout, signal);
+    text = await retryTransient(
+      () => fetchLimitedText(url, maxBytes, timeout, signal),
+      {
+        kind: 'xtream',
+        classify: error => {
+          const failure = fetchTextTransientFailure(error);
+          return failure?.reason === 'timeout' && options.retryTimeouts === false
+            ? null
+            : failure;
+        },
+        signal,
+        abortError: () => new FetchTextError('aborted', 'Request was cancelled'),
+      },
+    );
   } catch (err) {
     const requestError = mapFetchError(err);
     logRequestFailure(url, requestError, timeout, maxBytes);
@@ -243,9 +267,10 @@ async function fetchJson(
   timeout: number,
   maxBytes: number,
   signal?: AbortSignal,
+  options?: XtreamRequestOptions,
 ): Promise<unknown> {
   try {
-    return await fetchJsonStrict(url, timeout, maxBytes, signal);
+    return await fetchJsonStrict(url, timeout, maxBytes, signal, options);
   } catch (err) {
     if (isXtreamRequestCancelled(err)) throw err;
     return null;
@@ -338,12 +363,16 @@ function parseServerOffset(server: Record<string, unknown>): number | null {
 export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
   return {
     /** Account status, or null when the panel is unreachable / returns non-JSON. */
-    async getAccountInfo(signal?: AbortSignal): Promise<XtreamAccountInfo | null> {
+    async getAccountInfo(
+      signal?: AbortSignal,
+      options?: XtreamRequestOptions,
+    ): Promise<XtreamAccountInfo | null> {
       const data = await fetchJson(
         xtreamPlayerApi(creds),
         ACCOUNT_INFO_TIMEOUT,
         CONFIG.XTREAM.ACCOUNT_MAX_BYTES,
         signal,
+        options,
       ) as { user_info?: Record<string, unknown> } | null;
       const u = data?.user_info;
       if (!u) return null;

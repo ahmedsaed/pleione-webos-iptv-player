@@ -1,5 +1,5 @@
 import { appendFileSync } from 'node:fs';
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Page, type Route } from '@playwright/test';
 import { postTargetApis, removeApis } from '../scripts/chromium-53-simulation.mjs';
 
 export { expect, type Page };
@@ -42,6 +42,23 @@ export const LIVE_MANIFEST =
  */
 export async function stubUploadService(page: Page): Promise<void> {
   await page.route('http://127.0.0.1:8890/**', (route) => route.abort());
+}
+
+/**
+ * A spec that seeds a synthetic Xtream account without routing its Player
+ * API, or loads SAMPLE_M3U without routing its guide, would reach the
+ * network, and the app retries a network error for seconds. Answer either
+ * with a 404 instead: it fails at once, as an unreachable provider did
+ * before retries. A spec's own route, or a real local server, still answers.
+ */
+export async function stubProviderApi(page: Page): Promise<void> {
+  const notFound = (route: Route) =>
+    route.fulfill({ status: 404, contentType: 'text/plain', body: 'not found' });
+  await page.route(
+    (url) => url.hostname.endsWith('example.com') && url.pathname.endsWith('/player_api.php'),
+    notFound,
+  );
+  await page.route('http://epg.example.com/**', notFound);
 }
 
 /** Serve an M3U body for the configured playlist URL (glob-matched by filename). */
@@ -251,6 +268,7 @@ export const test = base.extend({
     await page.addInitScript(() => localStorage.setItem('iptv_show_guide_tab', 'true'));
     // Upstream flows start on Live; showHome() opts a test into Pleione's Home.
     await page.addInitScript(() => localStorage.setItem('iptv_start_on_live', 'true'));
+    await stubProviderApi(page);
     const ringFailures = await auditRings(page, process.env.RING_AUDIT,
       `${testInfo.project.name} › ${testInfo.titlePath.slice(1).join(' › ')}`);
     await use(page);
