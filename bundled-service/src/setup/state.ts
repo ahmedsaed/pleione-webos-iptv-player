@@ -14,6 +14,7 @@ export interface OnlineSubtitleState {
   opensubtitlesApiKeyConfigured: boolean;
   opensubtitlesPasswordConfigured: boolean;
   opensubtitlesUsername: string;
+  tmdbConfigured: boolean;
 }
 
 export interface ManualEpgSourceState {
@@ -129,6 +130,9 @@ export function parseSetupState(value: unknown): SetupState {
         256,
         false,
       ),
+      tmdbConfigured: onlineSubtitles.tmdbConfigured === undefined
+        ? false
+        : booleanValue(onlineSubtitles.tmdbConfigured, 'TMDB status'),
     },
   };
 }
@@ -147,6 +151,7 @@ export class SetupStateStore {
       opensubtitlesApiKeyConfigured: false,
       opensubtitlesPasswordConfigured: false,
       opensubtitlesUsername: '',
+      tmdbConfigured: false,
     },
   };
 

@@ -410,7 +410,8 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
 .reminder-prompt,
 .catchup-resume-prompt,
 .confirmation-prompt,
-.parental-pin-prompt {
+.parental-pin-prompt,
+.detail-text-prompt {
   position: fixed;
   top: 0;
   right: 0;
@@ -425,14 +426,16 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
 .reminder-prompt.hidden,
 .catchup-resume-prompt.hidden,
 .confirmation-prompt.hidden,
-.parental-pin-prompt.hidden {
+.parental-pin-prompt.hidden,
+.detail-text-prompt.hidden {
   display: none;
 }
 
 .reminder-dialog,
 .catchup-resume-dialog,
 .confirmation-dialog,
-.parental-pin-dialog {
+.parental-pin-dialog,
+.detail-text-dialog {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -482,6 +485,25 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
 .confirmation-title {
   margin: 0 0 16px;
   font-size: 34px;
+}
+
+/* A title's full description, opened from its detail page. */
+.detail-text-dialog {
+  max-width: 1100px;
+  text-align: left;
+}
+.detail-text-title {
+  margin: 0 0 20px;
+  font-size: 34px;
+  color: var(--text-primary);
+}
+.detail-text-body {
+  max-height: calc(var(--canvas-height) * 0.6);
+  overflow-y: auto;
+  font-size: 26px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-line;
 }
 
 .confirmation-btn.danger {

@@ -787,6 +787,11 @@
             <input class="config-input" name="opensubtitlesPassword" type="password"
               autocomplete="off">
           </label>
+          <label class="config-field">
+            <span>TMDB <span data-message="apiKey">API key</span></span>
+            <input class="config-input" name="tmdbApiKey" type="password"
+              autocomplete="off">
+          </label>
           <button class="config-save" type="submit"
             data-message="saveSubtitleSettings">Save subtitle settings</button>
           <p class="config-status" aria-live="polite"></p>
@@ -2142,8 +2147,10 @@
     };
     var subdlApiKey = credentialUpdate("subdlApiKey");
     var assrtApiKey = credentialUpdate("assrtApiKey");
+    var tmdbApiKey = credentialUpdate("tmdbApiKey");
     if (subdlApiKey !== undefined) payload.subdlApiKey = subdlApiKey;
     if (assrtApiKey !== undefined) payload.assrtApiKey = assrtApiKey;
+    if (tmdbApiKey !== undefined) payload.tmdbApiKey = tmdbApiKey;
     var opensubtitles = {};
     var osFields = [
       ["apiKey", credentialUpdate("opensubtitlesApiKey")],
@@ -2294,6 +2301,7 @@
     };
     setCredential("subdlApiKey", state.subdlConfigured);
     setCredential("assrtApiKey", state.assrtConfigured);
+    setCredential("tmdbApiKey", !!state.tmdbConfigured);
     setCredential(
       "opensubtitlesApiKey",
       state.opensubtitlesApiKeyConfigured === undefined
@@ -2311,6 +2319,7 @@
       "Assrt: " + tr(state.assrtConfigured ? "configured" : "builtInAccess"),
       "OpenSubtitles: " +
         tr(state.opensubtitlesConfigured ? "configured" : "notConfigured"),
+      "TMDB: " + tr(state.tmdbConfigured ? "configured" : "notConfigured"),
     ].join(" · ");
   }
 

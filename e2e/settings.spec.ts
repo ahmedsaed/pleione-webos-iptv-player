@@ -769,7 +769,7 @@ test.describe('Settings text fields', () => {
 
     await field.hover();
     await expect(field).toHaveClass(/focused/);
-    await page.locator('#settings-subtitles .settings-section-title').hover();
+    await page.locator('#settings-subtitles .settings-section-title').first().hover();
     await expect(field).not.toHaveClass(/focused/);
 
     // Nobody can see the field, so OK must not put a caret in it.

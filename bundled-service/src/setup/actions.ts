@@ -22,6 +22,7 @@ export type SetupActionPayload =
       preferredLanguage: string;
       subdlApiKey?: string;
       assrtApiKey?: string;
+      tmdbApiKey?: string;
       opensubtitles?: OpenSubtitlesCredentials | null;
     };
 
@@ -98,6 +99,7 @@ export function parseSetupAction(value: unknown): SetupActionPayload {
   if (input.type === 'online-subtitles') {
     const subdlApiKey = optionalApiKey(input.subdlApiKey, 'SubDL API key');
     const assrtApiKey = optionalApiKey(input.assrtApiKey, 'Assrt token');
+    const tmdbApiKey = optionalApiKey(input.tmdbApiKey, 'TMDB API key');
     let opensubtitles: OpenSubtitlesCredentials | null | undefined;
     if (input.opensubtitles === null) {
       opensubtitles = null;
@@ -124,6 +126,7 @@ export function parseSetupAction(value: unknown): SetupActionPayload {
       preferredLanguage: subtitleLanguage(input.preferredLanguage),
       ...(subdlApiKey === undefined ? {} : { subdlApiKey }),
       ...(assrtApiKey === undefined ? {} : { assrtApiKey }),
+      ...(tmdbApiKey === undefined ? {} : { tmdbApiKey }),
       ...(opensubtitles === undefined ? {} : { opensubtitles }),
     };
   }

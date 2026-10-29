@@ -612,6 +612,17 @@
   color: var(--text-muted);
 }
 
+/* TMDB's required notice: its logo kept smaller than the app's name. */
+.settings-attribution {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.settings-attribution-logo { display: inline-flex; width: 96px; height: 13px; flex: 0 0 auto; }
+.settings-attribution-logo svg { width: 100%; height: 100%; }
+
 .empty-hint {
   font-size: 20px;
   color: var(--text-muted);

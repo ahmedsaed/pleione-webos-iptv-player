@@ -38,6 +38,7 @@ export type SetupAction =
       preferredLanguage: string;
       subdlApiKey?: string;
       assrtApiKey?: string;
+      tmdbApiKey?: string;
       opensubtitles?: {
         apiKey?: string;
         username?: string;
@@ -64,6 +65,7 @@ export interface SetupState {
     opensubtitlesApiKeyConfigured: boolean;
     opensubtitlesPasswordConfigured: boolean;
     opensubtitlesUsername: string;
+    tmdbConfigured: boolean;
   };
 }
 
@@ -146,6 +148,7 @@ class SetupClientImpl {
           opensubtitlesPasswordConfigured:
             onlineSubtitles.opensubtitles.password !== '',
           opensubtitlesUsername: onlineSubtitles.opensubtitles.username,
+          tmdbConfigured: StorageService.getTmdbApiKey() !== '',
         },
     };
     try {
@@ -209,6 +212,8 @@ class SetupClientImpl {
       assrt: { ...previousOnlineSubtitles.assrt },
       opensubtitles: { ...previousOnlineSubtitles.opensubtitles },
     };
+    const previousTmdbKey = StorageService.getTmdbApiKey();
+    let tmdbKey = previousTmdbKey;
     const playlistActionIds: number[] = [];
     const epgActionIds: number[] = [];
     const subtitleActionIds: number[] = [];
@@ -306,6 +311,7 @@ class SetupClientImpl {
         if (typeof action.assrtApiKey === 'string') {
           onlineSubtitles.assrt.apiKey = action.assrtApiKey;
         }
+        if (typeof action.tmdbApiKey === 'string') tmdbKey = action.tmdbApiKey.trim();
         if (action.opensubtitles === null) {
           onlineSubtitles.opensubtitles = {
             apiKey: '',
@@ -341,8 +347,10 @@ class SetupClientImpl {
     const playlistsStored = !playlistsChanged || StorageService.setPlaylists(playlists);
     const epgStored =
       !epgChanged || StorageService.setManualEpgSources(manualEpgSources);
+    const tmdbChanged = tmdbKey !== previousTmdbKey;
     const subtitlesStored =
-      !subtitlesChanged || StorageService.setOnlineSubtitleConfig(onlineSubtitles);
+      (!subtitlesChanged || StorageService.setOnlineSubtitleConfig(onlineSubtitles))
+      && (!tmdbChanged || StorageService.setTmdbApiKey(tmdbKey));
 
     if (!playlistsStored) log.error('Playlist setup actions were not persisted');
     if (!epgStored) log.error('EPG setup action was not persisted');
@@ -357,7 +365,7 @@ class SetupClientImpl {
     }
     return (playlistsChanged && playlistsStored) ||
       (epgChanged && epgStored) ||
-      (subtitlesChanged && subtitlesStored);
+      ((subtitlesChanged || tmdbChanged) && subtitlesStored);
   }
 }
 

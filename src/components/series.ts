@@ -5,24 +5,26 @@ import { StorageService } from '../services/storage-service';
 import { loadSeriesCategories, loadSeries, loadSeriesInfo } from '../services/xtream-catalog';
 import { xtreamEpisodeUrl, type XtreamCredentials } from '../utils/xtream-url';
 import { CatalogView, type CatalogHandlers, type CollectionKind, type CollectionEntry, type HeroDetails } from './catalog-view';
-import { PLAY_ICON, watchlistIcon } from './icons';
+import { PLAY_ICON } from './icons';
 import { showToast } from './toast';
 import { t, tp } from '../i18n';
 import { VirtualList } from '../utils/virtual-list';
 import { uiPx } from '../utils/ui-scale';
+import { castGradient, parseCast } from '../utils/cast';
+import { formatPosition } from '../utils/time';
+import { loadTmdbCredits, matchTmdbPeople, type TmdbPerson } from '../services/tmdb';
 
-const EPISODE_GAP = 16;
-const EPISODE_NO_PLOT_ESTIMATE = 138;
-const EPISODE_PLOT_ESTIMATE = 216;
-const EPISODE_OVERSCAN = 5;
-// The whole detail page scrolls, so the fallback is the page viewport, not the
-// space left under the header.
-const EPISODE_VIEWPORT_FALLBACK = 984;
+// An episode card's width plus the gap after it, as in catalog-view.css.
+const EPISODE_STRIDE = 428;
+const EPISODE_OVERSCAN = 3;
+const EPISODE_VIEWPORT_FALLBACK = 1760;
+// The composed resume label carries the episode code (see episodeLabel).
+const RESUME_CODE = /\bS(\d+)E(\d+)\b/;
 
 // The Series section: browse (Continue rail of resumed episodes + per-category
 // rails + an "all categories" drill-in) → per-category poster grid → a detail
-// screen with a season selector over an episode list. The browse/grid/nav
-// machinery lives in CatalogView.
+// screen whose Episodes row has season tabs over a sideways row of episode
+// cards. The browse/grid/nav machinery lives in CatalogView.
 export class Series extends CatalogView<SeriesCategory, SeriesItem> {
   protected get kicker(): string { return t('common.series'); }
   protected readonly resumeKind: ResumeKind = 'episode';
@@ -36,16 +38,17 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
   private currentInfo: SeriesInfo | null = null;
   private selectedSeason = 0;
   private detailLoading = false;
-  private episodeFocusIndex = 0;
-  private episodeSource: Episode[] | null = null;
-  private measuredEpisodes = new Set<number>();
   private detailController: AbortController | null = null;
+  private castPhotos = new Map<string, TmdbPerson>();
   private readonly episodeVirtualizer = new VirtualList({
+    itemSize: () => uiPx(EPISODE_STRIDE),
     overscan: EPISODE_OVERSCAN,
     fallbackViewportSize: EPISODE_VIEWPORT_FALLBACK,
   });
   private episodeScrollFrame: number | null = null;
-  // A held key's reveal writes the list's offset without a smooth scroll.
+  // The episode window last rendered; a scroll inside it needs no render.
+  private episodeWindow = '';
+  // A held key's reveal writes the row's offset without a smooth scroll.
   private instantEpisodeScroll = false;
 
   constructor(container: HTMLElement, handlers: CatalogHandlers) {
@@ -102,6 +105,8 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     return entry ? this.watchlistEntryToSeries(entry) : null;
   }
 
+  protected itemGenre(s: SeriesItem): string | undefined { return s.genre; }
+
   // The series list already carries what the hero shows.
   protected heroDetails(s: SeriesItem): HeroDetails {
     return { genre: s.genre, year: s.year, plot: s.plot, backdrop: s.backdrop };
@@ -125,6 +130,8 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
 
   protected selectExtra(el: HTMLElement): boolean {
     if (el.dataset.action === 'watchlist') { this.toggleWatchlist(); return true; }
+    if (el.dataset.action === 'resume') { this.resumeSeries(); return true; }
+    if (el.dataset.action === 'play') { this.playFirstEpisode(); return true; }
     if (el.dataset.resumeEpisode !== undefined) { this.playResume(el.dataset.resumeEpisode); return true; }
     if (el.dataset.season !== undefined) { this.selectSeason(Number(el.dataset.season)); return true; }
     if (el.dataset.episodeId !== undefined) { this.playEpisode(el.dataset.episodeId); return true; }
@@ -160,11 +167,13 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     this.enterDetail();
     this.currentInfo = null;
     this.selectedSeason = 0;
-    this.episodeFocusIndex = 0;
-    this.episodeSource = null;
+    this.castPhotos = new Map();
     this.episodeVirtualizer.setScrollOffset(0);
     this.detailLoading = true;
     this.renderDetail();
+    void this.ensureCategoryItems(series.categoryId, signal).then((loaded) => {
+      if (loaded && this.mode === 'detail' && this.currentSeries === series) this.renderDetail();
+    });
     try {
       this.currentInfo = await loadSeriesInfo(account, series.seriesId, signal);
     } catch (err) {
@@ -173,17 +182,68 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     }
     if (this.mode === 'detail' && this.currentSeries === series) {
       this.detailLoading = false;
-      this.selectedSeason = this.currentInfo?.seasons[0] ?? 0;
+      // The row opens on the season and episode Resume plays.
+      const resumed = this.resumeEpisode();
+      this.selectedSeason = resumed?.episode?.season ?? this.currentInfo?.seasons[0] ?? 0;
+      const index = resumed?.episode ? this.episodeIndexOf(`ep:${resumed.episode.id}`) : -1;
+      if (index > 0) this.episodeVirtualizer.ensureVisible(index, this.episodeViewport());
       this.renderDetail();
+      await this.loadCastPhotos(series, signal);
     }
   }
 
+  // Opt-in TMDB photos for the provider's cast; nothing is asked without a key.
+  private async loadCastPhotos(series: SeriesItem, signal: AbortSignal): Promise<void> {
+    const info = this.currentInfo;
+    if (!info || signal.aborted || !StorageService.getTmdbApiKey()) return;
+    const members = parseCast(info.cast, info.director);
+    if (!members.length) return;
+    const people = await loadTmdbCredits('tv', { tmdbId: info.tmdbId, imdbId: info.imdbId }, signal);
+    if (!people || signal.aborted || this.currentSeries !== series) return;
+    this.castPhotos = matchTmdbPeople(members.map(m => m.name), people);
+    if (this.mode === 'detail' && this.castPhotos.size) this.renderDetail();
+  }
+
   private selectSeason(season: number): void {
+    if (season === this.selectedSeason) return;
     this.selectedSeason = season;
-    this.episodeFocusIndex = 0;
-    this.episodeSource = null;
     this.episodeVirtualizer.setScrollOffset(0);
     this.renderDetail();
+  }
+
+  // The series' most recently watched episode, with its place in the
+  // catalog once the episode list has loaded.
+  private resumeEpisode(): { entry: ResumeEntry; episode: Episode | null } | null {
+    const series = this.currentSeries;
+    const a = this.account;
+    if (!series || !a) return null;
+    let best: { entry: ResumeEntry; episode: Episode | null } | null = null;
+    for (const entry of StorageService.getResumeList(a.id)) {
+      if (entry.kind !== 'episode') continue;
+      const episode = this.findEpisode(entry.itemId);
+      if (!episode && entry.watchlistOwner?.itemId !== series.seriesId) continue;
+      if (!best || entry.updatedAt > best.entry.updatedAt) best = { entry, episode };
+    }
+    return best;
+  }
+
+  private resumeSeries(): void {
+    const resumed = this.resumeEpisode();
+    if (!resumed) return;
+    if (resumed.episode) this.playEpisode(resumed.episode.id);
+    else this.playResume(resumed.entry.itemId);
+  }
+
+  private playFirstEpisode(): void {
+    const info = this.currentInfo;
+    if (!info) return;
+    for (const season of info.seasons) {
+      const first = (info.episodesBySeason[season] ?? [])[0];
+      if (first) {
+        this.playEpisode(first.id);
+        return;
+      }
+    }
   }
 
   private findEpisode(episodeId: string): Episode | null {
@@ -294,23 +354,82 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     `;
   }
 
-  private episodeRow(accountId: string, ep: Episode): Safe {
+  private episodeCard(accountId: string, ep: Episode): Safe {
     const saved = StorageService.getResume(accountId, 'episode', ep.id);
-    const mins = ep.durationSecs > 0 ? t('catalog.minutes', { count: Math.floor(ep.durationSecs / 60) }) : '';
+    const mins = ep.durationSecs >= 60 ? t('catalog.minutes', { count: Math.floor(ep.durationSecs / 60) }) : '';
+    // Percent-encoded like the hero's, for the CSS url('…') string.
+    const poster = ep.poster.replace(/["'()\\\s]/g, encodeURIComponent);
     return html`
-      <div class="episode-row" data-focusable data-key="ep:${ep.id}" data-episode-id="${ep.id}">
-        <span class="episode-badge">${raw(PLAY_ICON)}</span>
-        <div class="episode-body">
-          <div class="episode-title">
-            <span class="episode-num">E${ep.episode}</span>
-            <span class="episode-name">${ep.title}</span>
-            ${saved ? html`<span class="episode-resume">${t('common.resume')}</span>` : ''}
-          </div>
-          ${mins ? html`<div class="episode-meta">${mins}</div>` : ''}
-          ${ep.plot ? html`<p class="episode-plot">${ep.plot}</p>` : ''}
+      <div class="episode-card" data-focusable data-key="ep:${ep.id}" data-episode-id="${ep.id}">
+        <div class="episode-thumb" style="background-image:${castGradient(`${ep.season}:${ep.episode}:${ep.id}`)}">
+          ${poster ? html`<div class="episode-thumb-art" style="background-image:url('${poster}')"></div>` : ''}
+          ${saved ? this.progressBar(saved.position, saved.duration)
+            : StorageService.isWatched(accountId, 'episode', ep.id) ? this.progressBar(1, 1) : ''}
         </div>
+        <div class="episode-title">${ep.title ? `E${ep.episode} · ${ep.title}` : `E${ep.episode}`}</div>
+        <div class="episode-meta">${mins}</div>
       </div>
     `;
+  }
+
+  private seasonTabs(info: SeriesInfo): Safe | '' {
+    if (info.seasons.length === 0) return '';
+    return html`
+      <div class="series-seasons">
+        ${info.seasons.map((n) => html`
+          <button class="series-season-btn${n === this.selectedSeason ? ' active' : ''}" type="button"
+                  aria-pressed="${String(n === this.selectedSeason)}"
+                  data-focusable data-key="season:${n}" data-season="${n}">${t('catalog.season', { number: n })}</button>
+        `)}
+      </div>
+    `;
+  }
+
+  private episodesRail(accountId: string): Safe {
+    const info = this.currentInfo;
+    const hint = (text: string, head: Safe | '' = ''): Safe => this.detailRail(
+      'episodes', t('catalog.episodes'), [html`<p class="catalog-hint episode-hint">${text}</p>`], head,
+    );
+    if (this.detailLoading) return hint(t('common.loading'));
+    if (!info) return hint(t('catalog.loadEpisodesFailed'));
+    if (info.seasons.length === 0) return hint(t('catalog.noEpisodes'));
+    const episodes = this.selectedEpisodes();
+    if (!episodes.length) return hint(t('catalog.noSeasonEpisodes'), this.seasonTabs(info));
+    const range = this.episodeVirtualizer.getRange(episodes.length, this.episodeViewport());
+    this.episodeWindow = `${this.selectedSeason}:${range.start}:${range.end}`;
+    return this.detailRail('episodes', t('catalog.episodes'), [html`
+      <div class="episode-track-spacer" style="width:${this.episodeVirtualizer.getTotalSize(episodes.length)}px">
+        ${episodes.slice(range.start, range.end).map((ep, offset) => {
+          const index = range.start + offset;
+          return html`
+            <div class="episode-cell" data-key="episode-cell:${ep.id}" data-episode-index="${index}"
+                 style="left:${this.episodeVirtualizer.getItemOffset(index)}px">
+              ${this.episodeCard(accountId, ep)}
+            </div>
+          `;
+        })}
+      </div>
+    `], this.seasonTabs(info), 'episode-track');
+  }
+
+  private primaryAction(): Safe {
+    const resumed = this.resumeEpisode();
+    if (!resumed) {
+      return this.detailButton({ key: 'play', label: t('catalog.play'), icon: PLAY_ICON, primary: true });
+    }
+    const { entry, episode } = resumed;
+    const code = episode ? null : RESUME_CODE.exec(entry.name);
+    const season = episode ? episode.season : code ? Number(code[1]) : 0;
+    const number = episode ? episode.episode : code ? Number(code[2]) : 0;
+    return this.detailButton({
+      key: 'resume',
+      label: t('catalog.resumeAt', {
+        position: season > 0 || number > 0 ? `S${season} · E${number}` : formatPosition(entry.position),
+      }),
+      icon: PLAY_ICON,
+      primary: true,
+      progress: entry.duration > 0 ? entry.position / entry.duration : undefined,
+    });
   }
 
   protected renderDetail(restoreFocus = true): void {
@@ -318,125 +437,47 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     const a = this.account;
     if (!series || !a) return;
     const info = this.currentInfo;
-    const episodes = info ? (info.episodesBySeason[this.selectedSeason] ?? []) : [];
-    const poster = info?.poster || series.poster;
-    const year = info?.year ? String(info.year) : '';
-    const mins = info && info.episodeRunTimeMins > 0
-      ? t('catalog.minutes', { count: info.episodeRunTimeMins })
-      : '';
-    const meta = [year, mins, info?.genre, info?.rating || series.rating]
-      .filter((value) => !!value);
-    if (episodes !== this.episodeSource) {
-      this.episodeSource = episodes;
-      this.measuredEpisodes.clear();
-      this.episodeVirtualizer.setItemSizes(episodes.map(ep =>
-        ep.plot ? EPISODE_PLOT_ESTIMATE : EPISODE_NO_PLOT_ESTIMATE));
-    }
-    const focusedKey = this.focusedKey();
+    const track = this.episodeTrack();
+    if (restoreFocus && track) this.episodeVirtualizer.setScrollOffset(track.scrollLeft);
+    const year = info?.year || series.year || 0;
+    const seasons = info?.seasons.length ?? 0;
     const watchlisted = StorageService.isWatchlisted(a.id, 'series', series.seriesId);
-    const previousScroller = this.layer('detail').querySelector<HTMLElement>('.series-detail');
-    const previousEpisodes = this.layer('detail').querySelector<HTMLElement>('.series-episodes');
-    this.episodeVirtualizer.setLeadingSize(
-      this.episodeListStart(previousScroller, previousEpisodes),
-    );
-    if (restoreFocus && previousScroller) {
-      this.episodeVirtualizer.setScrollOffset(previousScroller.scrollTop);
+    morph(this.layer('detail'), this.detailPage({
+      id: series.seriesId,
+      name: series.name,
+      poster: info?.poster || series.poster,
+      backdrop: info?.backdrop || series.backdrop || '',
+      year: year > 0 ? String(year) : '',
+      runtime: seasons > 0 ? tp('catalog.seasonCount', seasons) : '',
+      genre: info?.genre || series.genre || '',
+      rating: info?.rating || series.rating,
+      plot: info?.plot || series.plot || '',
+      actions: html`${this.primaryAction()}${this.watchlistButton(watchlisted)}`,
+      rows: [
+        this.episodesRail(a.id),
+        this.castRail(parseCast(info?.cast ?? '', info?.director ?? ''), this.castPhotos),
+        this.moreLikeThisRail(series.categoryId, series.seriesId, info?.genre || series.genre || ''),
+      ],
+    }));
+    const rendered = this.episodeTrack();
+    if (rendered) {
+      this.scrollGuard.syncOffset(rendered, 'horizontal', this.episodeVirtualizer.scrollOffset,
+        this.instantEpisodeScroll);
     }
-    const episodeViewport = previousScroller?.clientHeight || EPISODE_VIEWPORT_FALLBACK;
-    const focusedEpisodeIndex = focusedKey === null ? -1 : this.episodeIndexOf(focusedKey);
-    if (restoreFocus && focusedEpisodeIndex >= 0) this.episodeFocusIndex = focusedEpisodeIndex;
-    this.episodeFocusIndex = Math.max(0, Math.min(this.episodeFocusIndex, episodes.length - 1));
-    if (restoreFocus && focusedEpisodeIndex >= 0 && episodes.length) {
-      this.episodeVirtualizer.ensureVisible(this.episodeFocusIndex, episodeViewport);
-    }
-    const episodeRange = this.episodeVirtualizer.getRange(episodes.length, episodeViewport);
-
-    morph(this.layer('detail'), html`
-      <div class="catalog-view series-detail" data-nav-container>
-        <div class="series-detail-head">
-          <div class="detail-poster-wrap series-detail-poster">${this.posterCell(series.name, poster)}</div>
-          <div class="detail-body">
-            <h1 class="detail-title">${series.name}</h1>
-            ${meta.length ? html`<div class="detail-meta">${meta.join('  ·  ')}</div>` : ''}
-            ${info?.plot ? html`<p class="detail-plot">${info.plot}</p>` : ''}
-            ${info?.cast ? html`<div class="detail-cast"><span class="detail-label">${t('catalog.cast')}</span> ${info.cast}</div>` : ''}
-            ${info?.director ? html`<div class="detail-cast"><span class="detail-label">${t('catalog.director')}</span> ${info.director}</div>` : ''}
-            <div class="detail-actions">
-              <button class="detail-btn" data-focusable data-key="watchlist" data-action="watchlist">
-                <span class="detail-btn-icon">${raw(watchlistIcon(watchlisted))}</span>
-                <span>${t(watchlisted ? 'catalog.removeWatchlist' : 'catalog.addWatchlist')}</span>
-              </button>
-            </div>
-            ${this.detailLoading
-              ? html`<p class="catalog-hint">${t('common.loading')}</p>`
-              : !info
-                ? html`<p class="catalog-hint">${t('catalog.loadEpisodesFailed')}</p>`
-                : info.seasons.length === 0
-                  ? html`<p class="catalog-hint">${t('catalog.noEpisodes')}</p>`
-                  : html`
-                  <div class="series-seasons">
-                    ${info.seasons.map((n) => html`
-                      <button class="series-season-btn ${n === this.selectedSeason ? 'active' : ''}"
-                              data-focusable data-key="season:${n}" data-season="${n}">${t('catalog.season', { number: n })}</button>
-                    `)}
-                  </div>
-                `}
-          </div>
-        </div>
-        ${info && info.seasons.length > 0 ? html`
-          <div class="series-episodes">
-            ${episodes.length === 0
-              ? html`<p class="catalog-hint">${t('catalog.noSeasonEpisodes')}</p>`
-              : html`
-                <div class="series-episodes-spacer"
-                     style="height:${this.episodeVirtualizer.getTotalSize(episodes.length)}px">
-                  ${episodes.slice(episodeRange.start, episodeRange.end).map((ep, offset) => {
-                    const index = episodeRange.start + offset;
-                    return html`
-                      <div class="series-episode-cell"
-                           data-key="episode-cell:${ep.id}"
-                           data-episode-index="${index}"
-                           style="top:${this.episodeVirtualizer.getItemOffset(index)}px">
-                        ${this.episodeRow(a.id, ep)}
-                      </div>
-                    `;
-                  })}
-                </div>
-              `}
-          </div>
-        ` : ''}
-      </div>
-    `);
-    const measuredSizes = Array.from(
-      this.layer('detail').querySelectorAll<HTMLElement>('.series-episode-cell'),
-    ).map(cell => ({
-      cell,
-      index: parseInt(cell.dataset.episodeIndex || '-1', 10),
-    })).filter(item => item.index >= 0 && !this.measuredEpisodes.has(item.index))
-      .map((item) => {
-        this.measuredEpisodes.add(item.index);
-        const row = item.cell.querySelector<HTMLElement>('.episode-row');
-        return {
-          index: item.index,
-          size: row ? row.getBoundingClientRect().height + uiPx(EPISODE_GAP) : 0,
-        };
-      }).filter(item => item.index >= 0 && item.size > uiPx(EPISODE_GAP));
-    if (this.episodeVirtualizer.updateItemSizes(measuredSizes)) {
-      this.renderDetail(restoreFocus);
-      return;
-    }
-    const episodeList = this.layer('detail').querySelector<HTMLElement>('.series-episodes');
-    const scroller = this.layer('detail').querySelector<HTMLElement>('.series-detail');
-    if (scroller) {
-      this.episodeVirtualizer.setLeadingSize(this.episodeListStart(scroller, episodeList));
-      this.scrollGuard.syncOffset(
-        scroller,
-        'vertical',
-        this.episodeVirtualizer.scrollOffset,
-        this.instantEpisodeScroll,
-      );
-    }
+    this.settleDetailLayout();
     if (restoreFocus) this.settleDetailFocus();
+  }
+
+  private episodeTrack(): HTMLElement | null {
+    return this.layer('detail').querySelector<HTMLElement>('.episode-track');
+  }
+
+  // The cards sit inside the track's padding, which bleeds under its margin.
+  private episodeViewport(): number {
+    const track = this.episodeTrack();
+    if (!track?.clientWidth) return EPISODE_VIEWPORT_FALLBACK;
+    const style = getComputedStyle(track);
+    return track.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
   }
 
   private selectedEpisodes(): Episode[] {
@@ -451,77 +492,52 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     return this.episodeIndexOf(key) >= 0;
   }
 
-  // An episode the list scrolled away renders again before it is shown.
+  // An episode the row scrolled away renders again before it is shown; one
+  // in the window only scrolls whole into view.
   protected revealExtraKey(key: string, instant: boolean): boolean | null | undefined {
     const index = this.episodeIndexOf(key);
-    if (index < 0 || this.layer('detail').querySelector(`[data-episode-index="${index}"]`)) {
-      return undefined;
-    }
-    const list = this.layer('detail').querySelector<HTMLElement>('.series-detail');
-    const viewport = list?.clientHeight || EPISODE_VIEWPORT_FALLBACK;
-    this.episodeFocusIndex = index;
-    this.episodeVirtualizer.ensureVisible(index, viewport);
+    if (index < 0) return undefined;
+    if (!this.episodeVirtualizer.ensureVisible(index, this.episodeViewport())) return null;
     if (instant) this.instantEpisodeScroll = true;
     try {
       this.renderDetail(false);
-      // The render measured the rows the estimate had placed it by.
-      if (this.episodeVirtualizer.ensureVisible(index, viewport)) this.renderDetail(false);
     } finally {
       this.instantEpisodeScroll = false;
     }
     return true;
   }
 
+  // Left and Right step through the season's episodes, rendering the next
+  // one first; at either end they stay put.
   protected moveExtraFocus(action: Action): boolean {
-    if (this.mode !== 'detail' || (action !== 'up' && action !== 'down')) return false;
+    if (this.mode !== 'detail' || (action !== 'left' && action !== 'right')) return false;
     const key = this.focusedKey();
     const current = key === null ? -1 : this.episodeIndexOf(key);
     if (current < 0) return false;
-    const episodes = this.selectedEpisodes();
-    const next = current + (action === 'up' ? -1 : 1);
-    if (next < 0 || next >= episodes.length) return false;
-    const list = this.layer('detail').querySelector<HTMLElement>('.series-detail');
-    this.episodeFocusIndex = next;
-    this.episodeVirtualizer.ensureVisible(
-      next,
-      list?.clientHeight || EPISODE_VIEWPORT_FALLBACK,
-    );
+    const next = current + (action === 'left' ? -1 : 1);
+    if (next < 0 || next >= this.selectedEpisodes().length) return true;
+    this.episodeVirtualizer.ensureVisible(next, this.episodeViewport());
     this.renderDetail(false);
     this.place(
-      this.layer('detail').querySelector<HTMLElement>(
-        `[data-episode-index="${next}"] [data-focusable]`,
-      ),
+      this.layer('detail').querySelector<HTMLElement>(`[data-episode-index="${next}"] [data-focusable]`),
       'key',
     );
     return true;
   }
 
   protected handleExtraScroll(target: HTMLElement): boolean {
-    if (this.mode !== 'detail' || !target.classList.contains('series-detail')) return false;
-    const offset = this.scrollGuard.readUserOffset(target, 'vertical');
+    if (this.mode !== 'detail' || !target.classList.contains('episode-track')) return false;
+    const offset = this.scrollGuard.readUserOffset(target, 'horizontal');
     if (offset === null) return true;
     this.episodeVirtualizer.setScrollOffset(offset);
     if (this.episodeScrollFrame === null) {
       this.episodeScrollFrame = requestAnimationFrame(() => {
         this.episodeScrollFrame = null;
-        if (this.mode === 'detail') this.renderDetail(false);
+        if (this.mode !== 'detail') return;
+        const range = this.episodeVirtualizer.getRange(this.selectedEpisodes().length, this.episodeViewport());
+        if (this.episodeWindow !== `${this.selectedSeason}:${range.start}:${range.end}`) this.renderDetail(false);
       });
     }
     return true;
-  }
-
-  // Where the episode list starts inside the scrolling detail page, i.e. the
-  // header the virtualizer has to skip before item 0. Both share an
-  // offsetParent (the page is statically positioned), so the difference is the
-  // in-content distance and stays correct while the page is scrolled.
-  private episodeListStart(
-    scroller: HTMLElement | null,
-    list: HTMLElement | null,
-  ): number {
-    if (!scroller || !list) return 0;
-    const top = list.offsetParent === scroller
-      ? list.offsetTop
-      : list.offsetTop - scroller.offsetTop;
-    return Math.max(0, top);
   }
 }

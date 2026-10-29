@@ -930,6 +930,7 @@ export class Player {
       const v = this.vod;
       this.vod = null; // before stop(), so it doesn't re-save a resume point for a finished movie
       StorageService.clearResume(v.accountId, v.kind, v.itemId);
+      StorageService.markWatched(v.accountId, v.kind, v.itemId);
       if (v.kind === 'vod') {
         StorageService.removeWatchlist(v.accountId, 'vod', v.itemId);
       } else if ((v.episodeQueue?.length ?? 0) === 0 && v.watchlistOwner) {

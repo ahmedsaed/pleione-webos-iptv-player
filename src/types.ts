@@ -582,6 +582,8 @@ export interface SeriesInfo {
   imdbId: string;
   tmdbId: string;
   year: number;
+  // A wide backdrop, when the provider sends one; optional in cached snapshots.
+  backdrop?: string;
   seasons: number[];
   episodesBySeason: Record<number, Episode[]>;
 }

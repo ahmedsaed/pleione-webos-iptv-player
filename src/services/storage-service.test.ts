@@ -776,6 +776,36 @@ describe('StorageService resume store', () => {
     expect(StorageService.getResume('x1', 'vod', '10')).toBeNull();
   });
 
+  it('marks a title watched once it reaches its end, per account, kind, and item', () => {
+    StorageService.setResume(resume({ position: 100 }));
+    expect(StorageService.isWatched('x1', 'vod', '10')).toBe(false);
+    StorageService.setResume(resume({ position: 5990, duration: 6000 }));
+    expect(StorageService.isWatched('x1', 'vod', '10')).toBe(true);
+    expect(StorageService.isWatched('x1', 'episode', '10')).toBe(false);
+    expect(StorageService.isWatched('x2', 'vod', '10')).toBe(false);
+  });
+
+  it('keeps a title watched when replay starts over, and drops it once a new resume point is saved', () => {
+    StorageService.markWatched('x1', 'vod', '10');
+    StorageService.setResume(resume({ position: 5 }));
+    expect(StorageService.isWatched('x1', 'vod', '10')).toBe(true);
+    StorageService.setResume(resume({ position: 100 }));
+    expect(StorageService.isWatched('x1', 'vod', '10')).toBe(false);
+    expect(StorageService.getResume('x1', 'vod', '10')?.position).toBe(100);
+  });
+
+  it('clears what was watched with the playback progress of that account and kind', () => {
+    StorageService.markWatched('x1', 'vod', '10');
+    StorageService.markWatched('x1', 'episode', 'e1');
+    StorageService.markWatched('x2', 'vod', '10');
+    StorageService.clearResumeList('x1', 'vod');
+    expect(StorageService.isWatched('x1', 'vod', '10')).toBe(false);
+    expect(StorageService.isWatched('x1', 'episode', 'e1')).toBe(true);
+    StorageService.clearResumeList('x1');
+    expect(StorageService.isWatched('x1', 'episode', 'e1')).toBe(false);
+    expect(StorageService.isWatched('x2', 'vod', '10')).toBe(true);
+  });
+
   it('does not store a position below RESUME_MIN_SECS, and clears an existing one', () => {
     StorageService.setResume(resume({ position: 5 }));
     expect(StorageService.getResume('x1', 'vod', '10')).toBeNull();

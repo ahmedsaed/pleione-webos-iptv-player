@@ -630,7 +630,7 @@ const XTREAM_SCREENS: Screen[] = [
     budget: 0,
     go: async (p) => {
       await p.locator('#view-series .catalog-tile[data-item-id="20"]').first().click();
-      await expect(p.locator('#view-series .episode-row')).toBeVisible();
+      await expect(p.locator('#view-series .episode-card')).toBeVisible();
     },
   },
   {

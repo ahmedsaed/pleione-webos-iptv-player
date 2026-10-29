@@ -161,7 +161,7 @@ test('returns to a neighboring browse episode after completing direct playback',
   await expect(rail.locator('.focused')).toHaveAttribute('data-key', 'r:episode3');
 });
 
-for (const collection of ['continue', 'watchlist'] as const) {
+for (const collection of ['watchlist'] as const) {
   test(`leaves an emptied ${collection} grid after removing its final movie from detail`, async ({ page }) => {
     await seedCollections(page, 1);
     await page.goto('/');
@@ -170,10 +170,9 @@ for (const collection of ['continue', 'watchlist'] as const) {
     await page.keyboard.press('Escape');
     const grid = layer(page);
     await grid.locator('.catalog-tile').click();
-    const action = page.locator(`#view-movies [data-action="${collection === 'continue' ? 'remove-resume' : 'watchlist'}"]`);
+    const action = page.locator('#view-movies [data-action="watchlist"]');
     await action.click();
-    if (collection === 'continue') await expect(action).toHaveCount(0);
-    else await expect(action).toContainText('Add to Watchlist');
+    await expect(action).toHaveAttribute('aria-pressed', 'false');
     await page.keyboard.press('Escape');
     await expect(grid).toBeEmpty();
     await expect(page.locator(`#view-movies [data-rail-key="${collection}"]`)).toHaveCount(0);
@@ -314,7 +313,7 @@ test('rejects a full Watchlist without replacing saved titles and shows an actio
   await page.locator('#view-movies [data-rail-key="cat:1"] .catalog-tile').first().click();
   await page.locator('#view-movies [data-action="watchlist"]').click();
   await expect(page.locator('.toast').filter({ hasText: 'Watchlist is full' })).toBeVisible();
-  await expect(page.locator('#view-movies [data-action="watchlist"]')).toContainText('Add to Watchlist');
+  await expect(page.locator('#view-movies [data-action="watchlist"]')).toHaveAttribute('aria-pressed', 'false');
   const rows = await readUserDataStore<WatchlistEntry>(page, 'watchlist');
   expect(rows.filter(row => row.value.accountId === 'x1' && row.value.kind === 'vod')).toHaveLength(200);
   expect(rows.some(row => row.value.itemId === 'vod199')).toBe(true);

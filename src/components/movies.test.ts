@@ -12,6 +12,8 @@ const { catalogMock, storageMock, watchlistState, toastMock } = vi.hoisted(() =>
       getCatalogSort: vi.fn((): CatalogSortPreference => ({ by: 'default', direction: 'asc' })),
       setCatalogSort: vi.fn((_kind: 'vod' | 'series', _sort: CatalogSortPreference) => true),
       getResumeList: vi.fn(() => [] as unknown[]),
+      getTmdbApiKey: vi.fn(() => ''),
+      isWatched: vi.fn(() => false),
       getResume: vi.fn((): ResumeEntry | null => null),
       clearResume: vi.fn(),
       getWatchlist: vi.fn(() => watchlistState.entries),
@@ -222,22 +224,10 @@ describe('Movies browse + grid', () => {
       expect(container.querySelector('.catalog-layer-browse .focused')).not.toBeNull();
     });
 
-    it.each(['continue', 'watchlist'] as const)(
+    it.each(['watchlist'] as const)(
       'leaves the %s collection after its final title is removed from detail',
       async (kind) => {
-        const entry: ResumeEntry = {
-          accountId: 'x1', kind: 'vod', itemId: 'm0', name: 'Title 0', poster: '', ext: 'mp4',
-          position: 100, duration: 600, updatedAt: 1,
-        };
-        if (kind === 'watchlist') savedTitles(1);
-        else {
-          storageMock.getResumeList.mockReturnValue([entry]);
-          storageMock.getResume.mockReturnValue(entry);
-          storageMock.clearResume.mockImplementationOnce(() => {
-            storageMock.getResumeList.mockReturnValue([]);
-            storageMock.getResume.mockReturnValue(null);
-          });
-        }
+        savedTitles(1);
         catalogMock.loadVodInfo.mockResolvedValue(null);
         const { view } = await openWith();
         container.querySelector<HTMLElement>(`[data-collection-manage="${kind}"]`)!.click();
@@ -246,13 +236,10 @@ describe('Movies browse + grid', () => {
         tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
         pressKey(view, 'select');
         await Promise.resolve();
-        const remove = container.querySelector<HTMLElement>(
-          `[data-action="${kind === 'continue' ? 'remove-resume' : 'watchlist'}"]`,
-        )!;
+        const remove = container.querySelector<HTMLElement>('[data-action="watchlist"]')!;
         remove.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
         pressKey(view, 'select');
-        if (kind === 'continue') expect(storageMock.clearResume).toHaveBeenCalledWith('x1', 'vod', 'm0');
-        else expect(watchlistState.entries).toHaveLength(0);
+        expect(watchlistState.entries).toHaveLength(0);
         pressKey(view, 'back');
         expect(container.querySelector('.catalog-layer-grid')?.textContent).toBe('');
         expect(container.querySelector(`[data-rail-key="${kind}"]`)).toBeNull();
@@ -609,7 +596,8 @@ describe('Movies browse + grid', () => {
     tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     await Promise.resolve(); await Promise.resolve();
-    expect(container.querySelector('.movies-detail')?.textContent).toContain('Drama  ·  7.5');
+    expect(Array.from(container.querySelectorAll('.movies-detail .detail-meta-part'))
+      .map(part => part.textContent?.trim())).toEqual(['Drama', '7.5']);
   });
 
   it('queues only the movies after one launched from the Watchlist rail', async () => {
@@ -997,12 +985,12 @@ describe('Movies browse + grid', () => {
       document.documentElement.classList.add('keyboard-nav');
       view.focusScope.track(JSON.stringify(['detail', '', 'gone']));
       Focus.flush();
-      expect(button('play').classList.contains('focused')).toBe(true);
+      expect(button('watchlist').classList.contains('focused')).toBe(true);
 
       view.focusScope.track(null);
       view.focusScope.enter('key');
       Focus.flush();
-      expect(button('play').classList.contains('focused')).toBe(true);
+      expect(button('watchlist').classList.contains('focused')).toBe(true);
       expect(button('resume').classList.contains('focused')).toBe(false);
     } finally {
       rect.mockRestore();
@@ -1556,28 +1544,6 @@ describe('Movies browse + grid', () => {
 });
 
 describe('Movies detail', () => {
-  it('removes only the movie progress and moves focus off the disappearing detail action', async () => {
-    storageMock.getResume.mockReturnValue({
-      accountId: 'x1', kind: 'vod', itemId: '10', name: 'Title 1', poster: '', ext: 'mp4',
-      position: 100, duration: 600, updatedAt: 1,
-    });
-    catalogMock.loadVodInfo.mockResolvedValue(null);
-    const { view } = await openWith();
-    const tile = container.querySelector<HTMLElement>('.catalog-tile[data-item-id="10"]')!;
-    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-    pressKey(view, 'select');
-    await Promise.resolve();
-    const remove = container.querySelector<HTMLElement>('[data-action="remove-resume"]')!;
-    remove.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-    storageMock.clearResume.mockImplementationOnce(() => { storageMock.getResume.mockReturnValue(null); });
-    pressKey(view, 'select');
-    expect(storageMock.clearResume).toHaveBeenCalledExactlyOnceWith('x1', 'vod', '10');
-    expect(storageMock.removeWatchlist).not.toHaveBeenCalled();
-    expect(container.querySelector('[data-action="remove-resume"]')).toBeNull();
-    expect(container.querySelector('.movies-detail .focused')?.getAttribute('data-key')).toBe('play');
-    expect(toastMock.showToast).toHaveBeenCalledWith('Removed from Continue Watching');
-  });
-
   it('adds and removes the movie from Watchlist without losing button focus', async () => {
     catalogMock.loadVodInfo.mockResolvedValue({
       plot: '', cast: '', director: '', genre: '', releaseDate: '', durationSecs: 0,
@@ -1595,13 +1561,13 @@ describe('Movies detail', () => {
     expect(storageMock.toggleWatchlist).toHaveBeenCalledWith(expect.objectContaining({
       accountId: 'x1', kind: 'vod', itemId: '10', name: 'Movie One',
     }));
-    expect(container.querySelector('[data-action="watchlist"]')?.textContent).toContain('Remove from Watchlist');
+    expect(container.querySelector('[data-action="watchlist"]')?.getAttribute('aria-pressed')).toBe('true');
     Focus.flush();
     expect(container.querySelector('.focused')?.getAttribute('data-key')).toBe('watchlist');
     expect(toastMock.showToast).toHaveBeenLastCalledWith('Added to Watchlist');
 
     view.handleAction('select');
-    expect(container.querySelector('[data-action="watchlist"]')?.textContent).toContain('Add to Watchlist');
+    expect(container.querySelector('[data-action="watchlist"]')?.getAttribute('aria-pressed')).toBe('false');
     expect(toastMock.showToast).toHaveBeenLastCalledWith('Removed from Watchlist');
   });
 

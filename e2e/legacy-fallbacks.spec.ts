@@ -341,7 +341,7 @@ test('no flex-gap container separates an element from loose text in the catalog'
   await expect(page.locator('.catalog-tile[data-item-id="20"]')).toBeVisible();
   await collect();
   await page.locator('.catalog-tile[data-item-id="20"]').click();
-  await expect(page.locator('#view-series .episode-row')).toBeVisible();
+  await expect(page.locator('#view-series .episode-card')).toBeVisible();
   await collect();
 
   // The online-subtitle overlay is deeper still: a VOD player, a configured

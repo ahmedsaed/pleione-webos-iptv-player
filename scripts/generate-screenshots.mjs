@@ -1461,7 +1461,7 @@ try {
     await page.waitForTimeout(600); // let the section's async catalog load settle
     await seriesTile.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
     await page.keyboard.press('Enter'); // open the focused series' detail
-    await page.locator('#view-series .series-detail .episode-row').first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.locator('#view-series .series-detail .episode-card').first().waitFor({ state: 'visible', timeout: 15_000 });
     await page.waitForTimeout(600);
     await clearToasts(page);
     await shoot(page, 'series-detail.png');
