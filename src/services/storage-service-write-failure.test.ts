@@ -3,6 +3,9 @@ import 'fake-indexeddb/auto';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { StorageService } from './storage-service';
 import * as idbUserData from './idb-user-data';
+import { clearAllCachedData, getCachedCatalog, setCachedCatalog } from './idb-cache';
+import { CATALOG_STORE } from './idb-database';
+import { fillOrigin } from '../test/full-origin';
 
 // persistUserChanges() is fire-and-forget: it attaches its own .then()/.catch()
 // to the applyUserChanges() promise *before* the caller here gets a chance to.
@@ -74,5 +77,54 @@ describe('StorageService write-failure handler', () => {
     await write.result;
 
     expect(onFailure).not.toHaveBeenCalled();
+  });
+});
+
+describe('StorageService.flush on a full origin', () => {
+  let origin: ReturnType<typeof fillOrigin> | null = null;
+
+  beforeEach(async () => {
+    localStorage.clear();
+    await StorageService.init();
+    await clearAllCachedData();
+    await setCachedCatalog('x1|vod_all', ['x'.repeat(5 * 1024 * 1024)]);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(async () => {
+    origin?.restore();
+    origin = null;
+    vi.restoreAllMocks();
+    await StorageService.clearUserData();
+  });
+
+  it('saves user data by evicting the caches', async () => {
+    origin = fillOrigin([CATALOG_STORE]);
+    StorageService.setFavorites(['ch1']);
+
+    await expect(StorageService.flush()).resolves.toBeUndefined();
+
+    expect(origin.full).toBe(false);
+    expect(await idbUserData.loadUserRecords('favorites')).toHaveLength(1);
+    expect(await getCachedCatalog('x1|vod_all')).toBeNull();
+  });
+
+  it('evicts the caches for the snapshot retry too', async () => {
+    // The first write fails for another reason; the origin fills before the
+    // flush rewrites the in-memory snapshot.
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+    const write = captureNextWrite();
+    StorageService.setFavorites(['ch1']);
+    await write.result.catch(() => {});
+    put.mockRestore();
+    origin = fillOrigin([CATALOG_STORE]);
+
+    await expect(StorageService.flush()).resolves.toBeUndefined();
+
+    expect(await idbUserData.loadUserRecords('favorites')).toHaveLength(1);
+    expect(await getCachedCatalog('x1|vod_all')).toBeNull();
   });
 });

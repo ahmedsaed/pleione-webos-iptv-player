@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto';
-import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import type { Channel } from '../types';
 import { CONFIG } from '../config';
 import {
@@ -12,6 +12,7 @@ import {
   clearCachedPlaylist,
   clearCachedStreamMimes,
   clearCachedChannelHealth,
+  evictCachesForQuota,
   flushCacheWrites,
   getCacheUsage,
   getCachedCatalog,
@@ -49,6 +50,7 @@ import {
 import { cachedNameDocuments } from '../workers/search-cache-documents';
 import { buildSourceIndex } from '../workers/search-source-index';
 import { IdbSearchCacheReader } from '../workers/search-cache-reader';
+import { fillOrigin } from '../test/full-origin';
 
 const channel = (id: string): Channel => ({
   id,
@@ -63,10 +65,29 @@ const channel = (id: string): Channel => ({
   catchupDays: 0,
 });
 
+// The quota estimate is cached for a minute; a test that changes the quota
+// after a write moves the clock past that.
+function skipEstimateCache() {
+  const realNow = Date.now;
+  return vi.spyOn(Date, 'now').mockImplementation(() => realNow.call(Date) + 61 * 1000);
+}
+
 describe('idb-cache', () => {
+  let storageDescriptor: PropertyDescriptor | undefined;
   beforeEach(async () => {
+    // A modern engine: a 768 MiB quota gives the default 384 MiB budget.
+    storageDescriptor = Object.getOwnPropertyDescriptor(navigator, 'storage');
+    Object.defineProperty(navigator, 'storage', {
+      configurable: true,
+      value: { estimate: async () => ({ usage: 0, quota: 768 * 1024 * 1024 }) },
+    });
     localStorage.clear();
     await clearAllCachedData();
+  });
+
+  afterEach(() => {
+    if (storageDescriptor) Object.defineProperty(navigator, 'storage', storageDescriptor);
+    else delete (navigator as Navigator & { storage?: StorageManager }).storage;
   });
 
   it('uses the next schema version after the published v3 database', async () => {
@@ -186,9 +207,11 @@ describe('idb-cache', () => {
       configurable: true,
       value: { estimate: async () => ({ usage: 0, quota: 100 }) },
     });
+    const clock = skipEstimateCache();
     try {
       await setCachedCatalog('x1|vod_categories', ['a']);
     } finally {
+      clock.mockRestore();
       if (storageDescriptor) {
         Object.defineProperty(navigator, 'storage', storageDescriptor);
       } else {
@@ -836,9 +859,11 @@ describe('idb-cache', () => {
         configurable: true,
         value: { estimate: async () => ({ usage, quota }) },
       });
+      const clock = skipEstimateCache();
       try {
         return await run();
       } finally {
+        clock.mockRestore();
         if (descriptor) Object.defineProperty(navigator, 'storage', descriptor);
         else delete (navigator as Navigator & { storage?: StorageManager }).storage;
       }
@@ -870,7 +895,7 @@ describe('idb-cache', () => {
     });
 
     it('skips an index larger than its share of the room left', async () => {
-      // FALLBACK budget 384 MiB: 10% is 38.4 MiB.
+      // Budget 384 MiB: 10% is 38.4 MiB.
       const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
       expect(await reserveSearchIndex(candidate('x1|vod_all', 39 * MiB))).toBeNull();
       expect(info.mock.calls.map(call => call.join(' '))).toContainEqual(expect.stringContaining(
@@ -1033,6 +1058,154 @@ describe('idb-cache', () => {
         vi.useRealTimers();
         stop();
       }
+    });
+  });
+
+  describe('on an engine without StorageManager', () => {
+    const MB = 1000 * 1000;
+    // webOS 4 reports about 19 MB and a usage of 0 even on a full origin.
+    const TV_QUOTA = 19 * MB;
+    let legacyDescriptor: PropertyDescriptor | undefined;
+
+    function setLegacyQuota(
+      query: ((success: (usage: number, quota: number) => void, error: () => void) => void) | null,
+    ): void {
+      Object.defineProperty(navigator, 'webkitTemporaryStorage', {
+        configurable: true,
+        value: query ? { queryUsageAndQuota: query } : undefined,
+      });
+    }
+
+    beforeEach(async () => {
+      Object.defineProperty(navigator, 'storage', { configurable: true, value: undefined });
+      legacyDescriptor = Object.getOwnPropertyDescriptor(navigator, 'webkitTemporaryStorage');
+      setLegacyQuota((success) => success(0, TV_QUOTA));
+      await clearAllCachedData();
+    });
+
+    afterEach(() => {
+      if (legacyDescriptor) Object.defineProperty(navigator, 'webkitTemporaryStorage', legacyDescriptor);
+      else delete (navigator as Navigator & { webkitTemporaryStorage?: unknown }).webkitTemporaryStorage;
+    });
+
+    it('budgets from the prefixed quota and ignores its usage', async () => {
+      const usage = await getCacheUsage();
+      expect(usage.quotaBytes).toBe(TV_QUOTA);
+      expect(usage.originUsageBytes).toBeNull();
+      expect(usage.budgetBytes).toBe(Math.floor(TV_QUOTA * 0.25));
+    });
+
+    it('logs the quota source once when it changes', async () => {
+      const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      try {
+        setLegacyQuota(null);
+        await getCacheUsage();
+        await getCacheUsage();
+        setLegacyQuota((success) => success(0, TV_QUOTA));
+        await getCacheUsage();
+        const events = info.mock.calls.map(call => call.join(' '))
+          .filter(line => line.indexOf('event=persistence.cache.quota.fallback') >= 0);
+        expect(events).toHaveLength(2);
+        expect(events[0]).toContain(
+          `source=unknown quotaBytes=unknown budgetBytes=${String(4 * 1024 * 1024)}`,
+        );
+        expect(events[1]).toContain(
+          `source=legacy quotaBytes=${String(TV_QUOTA)} budgetBytes=${String(Math.floor(TV_QUOTA * 0.25))}`,
+        );
+      } finally {
+        info.mockRestore();
+      }
+    });
+
+    it('keeps the cache under the budget before the quota is reached', async () => {
+      const budget = Math.floor(TV_QUOTA * 0.25);
+      for (let i = 0; i < 12; i++) {
+        await setCachedCatalog(`x1|vod_info_${String(i)}`, ['x'.repeat(MB)]);
+        expect((await getCacheUsage()).total.bytes).toBeLessThanOrEqual(budget);
+      }
+      expect(await getCachedCatalog('x1|vod_info_11')).not.toBeNull();
+      expect(await getCachedCatalog('x1|vod_info_0')).toBeNull();
+    });
+
+    it('uses a small fixed budget when no quota can be read', async () => {
+      setLegacyQuota(null);
+      expect((await getCacheUsage()).budgetBytes).toBe(4 * 1024 * 1024);
+    });
+
+    it('falls back when the prefixed quota API fails or throws', async () => {
+      setLegacyQuota((_success, error) => error());
+      expect((await getCacheUsage()).quotaBytes).toBeNull();
+      setLegacyQuota(() => { throw new Error('unsupported'); });
+      expect((await getCacheUsage()).budgetBytes).toBe(4 * 1024 * 1024);
+    });
+
+    it('stops waiting for a prefixed quota API that never answers', async () => {
+      setLegacyQuota(() => {});
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const usage = getCacheUsage();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect((await usage).quotaBytes).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+      // A later read does not wait again.
+      const query = vi.fn();
+      setLegacyQuota(query);
+      expect((await getCacheUsage()).budgetBytes).toBe(4 * 1024 * 1024);
+      expect(query).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('when the origin is full', () => {
+    it('still prunes the cache to make room for a write', async () => {
+      await setCachedCatalog('x1|vod_old', ['x'.repeat(5 * 1024 * 1024)]);
+      const origin = fillOrigin([CATALOG_STORE]);
+      try {
+        // The 384 MiB budget leaves the native quota error to trigger pruning.
+        await setCachedCatalog('x1|vod_new', ['a']);
+        expect(origin.full).toBe(false);
+      } finally {
+        origin.restore();
+      }
+      expect(await getCachedCatalog('x1|vod_old')).toBeNull();
+      expect(await getCachedCatalog('x1|vod_new')).not.toBeNull();
+      const usage = await getCacheUsage();
+      expect(usage.categories.catalog.entries).toBe(1);
+      expect(usage.total.entries).toBe(1);
+    });
+
+    it('evicts the catalog before other caches to free room for user data', async () => {
+      await setCachedPlaylist([channel('ch1')]);
+      await setCachedSubtitle('subdl:1', 'WEBVTT\n\nkept');
+      await setCachedCatalog('x1|vod_all', ['x'.repeat(5 * 1024 * 1024)]);
+      const origin = fillOrigin([CATALOG_STORE]);
+      let eviction;
+      try {
+        eviction = await evictCachesForQuota();
+        expect(origin.full).toBe(false);
+      } finally {
+        origin.restore();
+      }
+      expect(eviction.stores).toEqual([SEARCH_INDEX_STORE, CATALOG_STORE]);
+      expect(eviction.bytes).toBeGreaterThan(5 * 1024 * 1024);
+      expect(await getCachedCatalog('x1|vod_all')).toBeNull();
+      expect(await getCachedSubtitle('subdl:1')).toBe('WEBVTT\n\nkept');
+      expect(await getCachedPlaylist(null)).not.toBeNull();
+      // Accounting is rebuilt from what is left.
+      const usage = await getCacheUsage();
+      expect(usage.categories.catalog).toEqual({ bytes: 0, entries: 0 });
+      expect(usage.total.entries).toBe(2);
+    });
+
+    it('clears every cache when the catalog alone is not enough', async () => {
+      await setCachedPlaylist([channel('ch1')]);
+      await setCachedSubtitle('subdl:1', 'WEBVTT\n\ngone');
+      const eviction = await evictCachesForQuota();
+      expect(eviction.stores).toHaveLength(7);
+      expect(await getCachedSubtitle('subdl:1')).toBeNull();
+      expect(await getCachedPlaylist(null)).toBeNull();
+      expect((await getCacheUsage()).total).toEqual({ bytes: 0, entries: 0 });
     });
   });
 });

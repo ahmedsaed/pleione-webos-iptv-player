@@ -294,10 +294,22 @@ The budget adapts to the storage quota reported by
 budget = min(floor(reportedQuota * 0.5), 1 GiB)
 ```
 
-If the TV cannot report a quota, the app uses a 384 MiB fallback budget. The
+webOS 4 has no `navigator.storage`, so the app reads the quota from the older
+`navigator.webkitTemporaryStorage.queryUsageAndQuota()` instead. That API's
+usage figure is unreliable (it reported 0 on a full origin), so only the
+quota is used, and the cache's own byte count is the only guard. Stored
+records take roughly twice their counted size on disk (a 9 MB catalog filled
+a 19 MB quota), so this budget uses a quarter of the quota:
+
+```text
+budget = min(floor(legacyQuota * 0.25), 1 GiB)
+```
+
+If the TV cannot report a quota at all, the app uses a 4 MiB fallback
+budget: the same rule applied to the smallest quota measured on a TV. The
 result can therefore differ between TV models, webOS versions, and available
 storage. A displayed budget of 75 MiB is normal when webOS grants the app a
-quota of about 150 MiB.
+quota of about 150 MiB; about 4.5 MiB is normal on webOS 4.
 
 The displayed total covers only the managed cache. Small settings, personal
 records, browser-managed image files, and original LAN-uploaded M3U files are
@@ -339,6 +351,22 @@ larger of 4 MiB or 10% of the incoming delta. The margin avoids running another
 scan immediately after the next small write. A native `QuotaExceededError`
 triggers a second path that prunes the incoming record size plus 4 MiB, then
 retries the write once.
+
+Cleanup commits its deletions in a transaction of their own, before the
+updated totals: a full origin rejects any transaction that writes data, so a
+combined one would never free space. If the totals cannot be written, they
+are rebuilt from the stores on next use.
+
+### Personal data comes first
+
+Personal records share the origin quota with the cache. When webOS rejects a
+personal-data write, or the exit-time snapshot retry, with a quota error, the
+app clears whole cache stores until the freed space reaches 4 MiB, in this
+order: Search indexes (always), catalog and media metadata, program guides,
+subtitles, channel health results, stream MIME types, and finally parsed
+playlists. It then retries the write once and logs
+`persistence.user.quota.evicted` with the outcome. If the retry fails too,
+the save fails as before. Personal-data stores are never cleared.
 
 The category order is implemented after a global expired-record pass. Within
 each category, candidates sort by ascending `lastAccessedAt`, giving LRU

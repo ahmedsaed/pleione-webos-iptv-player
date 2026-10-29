@@ -167,3 +167,14 @@ export function requestResult<T>(req: IDBRequest<T>): Promise<T> {
     req.onerror = () => reject(req.error ?? new Error('IndexedDB request failed'));
   });
 }
+
+// Engines name the error differently; Chromium 53's DOMException still sets
+// the legacy code 22 (Firefox: 1014).
+export function isQuotaExceededError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const { name, code } = err as { name?: unknown; code?: unknown };
+  return name === 'QuotaExceededError'
+    || name === 'NS_ERROR_DOM_QUOTA_REACHED'
+    || code === 22
+    || code === 1014;
+}
