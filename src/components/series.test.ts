@@ -610,6 +610,20 @@ describe('Series detail', () => {
     expect(toastMock.showToast).toHaveBeenLastCalledWith('Removed from Watchlist');
   });
 
+  it('keeps a provider episode title that already names the series and episode', async () => {
+    const first = SERIES_INFO.episodesBySeason[1][0];
+    catalogMock.loadSeriesInfo.mockResolvedValue({
+      ...SERIES_INFO,
+      episodesBySeason: { ...SERIES_INFO.episodesBySeason, 1: [{ ...first, title: 'Series One - S01E01 - Pilot' }] },
+    });
+    const { view, handlers } = await openWith();
+    await openDetail(view);
+    const row = container.querySelector(`.episode-row[data-episode-id="${first.id}"]`) as HTMLElement;
+    row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ title: 'Series One - S01E01 - Pilot' }));
+  });
+
   it('renders a season selector and the first season\'s episodes, and plays from the start', async () => {
     catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
     const { view, handlers } = await openWith();

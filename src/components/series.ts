@@ -198,7 +198,11 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
 
   private episodeLabel(series: SeriesItem, ep: Episode): string {
     const code = `S${ep.season}E${ep.episode}`;
-    return ep.title ? `${series.name} — ${code} — ${ep.title}` : `${series.name} — ${code}`;
+    const title = ep.title.trim();
+    if (!title) return `${series.name} — ${code}`;
+    // Providers often name episodes "Series - S01E02 - Title" already.
+    if (title.toLowerCase().indexOf(series.name.trim().toLowerCase()) === 0) return title;
+    return `${series.name} — ${code} — ${title}`;
   }
 
   private episodePlayback(series: SeriesItem, ep: Episode): VodQueueItem {

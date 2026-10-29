@@ -328,7 +328,7 @@
 .osd-controls-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   flex-shrink: 0;
 }
 
@@ -336,9 +336,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 60px;
-  height: 60px;
-  padding: 12px;
+  width: 84px;
+  height: 84px;
+  padding: 18px;
   border: 2px solid transparent;
   border-radius: var(--radius);
   background: none;
@@ -348,8 +348,8 @@
 
 .osd-control svg {
   display: block;
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
 }
 
 .osd-control.focused {
@@ -382,7 +382,7 @@
   padding: 0 20px;
   overflow: hidden;
   color: var(--text-secondary);
-  font-size: 22px;
+  font-size: 24px;
   white-space: nowrap;
   text-overflow: ellipsis;
   /* Next to the focused group, in every script: Arabic keeps the LTR layout. */
