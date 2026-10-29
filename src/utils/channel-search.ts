@@ -1,4 +1,5 @@
 import {
+  foldArabic,
   isLetterOrNumber,
   splitLetterNumberTokens,
   stripCombiningDiacritics,
@@ -15,8 +16,11 @@ const SYNONYM_GROUPS = [
 
 const STOP_WORDS = new Set(['find', 'me', 'show', 'watch', 'for', 'please', 'channel', 'channels', 'program', 'programs']);
 
+// Documents and queries both pass through here, in the worker and on the
+// page alike; a change must bump SEARCH_INDEX_FORMAT, whose stored indexes
+// hold folded text.
 function fold(value: string): string {
-  return stripCombiningDiacritics(value.normalize('NFD')).toLowerCase();
+  return foldArabic(stripCombiningDiacritics(value.normalize('NFD'))).toLowerCase();
 }
 
 function splitFolded(value: string): string[] {
@@ -112,10 +116,30 @@ export interface PreparedNameSearchIndex<T> {
 export interface RankedSearchResult<T> {
   items: T[];
   hasMore: boolean;
+  /** Every match the ranking would publish with no limit. */
+  total: number;
 }
+
+export interface RankOptions<T> {
+  // Fuzzy matches join only while direct ones are fewer than this
+  // (default: the limit), so a fixed value keeps the total stable.
+  fuzzyBelow?: number;
+  // Recently watched or favorite: first within its match tier.
+  boosted?: (item: T) => boolean;
+}
+
+// Match tiers, best first. A title match outranks one in other fields.
+const TIER_EXACT = 0;
+const TIER_PREFIX = 1;
+const TIER_WORD_PREFIX = 2;
+const TIER_SUBSTRING = 3;
+const TIER_OTHER_FIELD = 4;
+const TIER_FUZZY = 8;
 
 interface ScoredSearchItem<T> {
   item: T;
+  tier: number;
+  boost: number;
   score: number;
   idx: number;
 }
@@ -123,6 +147,7 @@ interface ScoredSearchItem<T> {
 interface ScoredNameItem<T> {
   item: T;
   tier: number;
+  boost: number;
   pos: number;
   len: number;
   idx: number;
@@ -164,32 +189,56 @@ export function prepareNameSearchItems<T extends { name: string }>(
 }
 
 function compareScored<T>(a: ScoredSearchItem<T>, b: ScoredSearchItem<T>): number {
-  return a.score - b.score || a.idx - b.idx;
+  return a.tier - b.tier || b.boost - a.boost || a.score - b.score || a.idx - b.idx;
 }
 
 function compareNameScored<T>(a: ScoredNameItem<T>, b: ScoredNameItem<T>): number {
   return a.tier - b.tier
+    || b.boost - a.boost
     || a.pos - b.pos
     || a.len - b.len
     || a.idx - b.idx;
 }
 
-function directScore<T>(
+function isWordStart(value: string, pos: number): boolean {
+  return pos === 0 || !isLetterOrNumber(value[pos - 1]);
+}
+
+/** Where `query` best matches the folded `value`: its first word-start
+ *  occurrence, else its first occurrence; -1 when it doesn't occur. */
+function bestMatchPosition(value: string, query: string): number {
+  const first = value.indexOf(query);
+  if (first <= 0) return first;
+  for (let pos = first; pos !== -1; pos = value.indexOf(query, pos + 1)) {
+    if (isWordStart(value, pos)) return pos;
+  }
+  return first;
+}
+
+function matchTier(value: string, query: string, pos: number): number {
+  if (pos === 0) return value.length === query.length ? TIER_EXACT : TIER_PREFIX;
+  return isWordStart(value, pos) ? TIER_WORD_PREFIX : TIER_SUBSTRING;
+}
+
+interface DirectMatch {
+  tier: number;
+  score: number;
+}
+
+function directMatch<T>(
   prepared: PreparedSearchItem<T>,
   query: string,
-): number | null {
-  let best: number | null = null;
+): DirectMatch | null {
+  let best: DirectMatch | null = null;
   for (let fieldIndex = 0; fieldIndex < prepared.values.length; fieldIndex++) {
     const value = prepared.values[fieldIndex];
-    const pos = value.indexOf(query);
+    const pos = bestMatchPosition(value, query);
     if (pos === -1) continue;
-    const tier = value === query
-      ? 0
-      : pos === 0
-        ? 1
-        : !isLetterOrNumber(value[pos - 1]) ? 2 : 3;
-    const score = tier * 1000 + fieldIndex * 100 + pos * 10 + value.length;
-    if (best === null || score < best) best = score;
+    const fieldTier = matchTier(value, query, pos);
+    const tier = fieldIndex === 0 ? fieldTier : TIER_OTHER_FIELD;
+    const score = (fieldIndex === 0 ? 0 : fieldTier * 1_000_000 + fieldIndex * 100_000)
+      + Math.min(pos, 999) * 100 + Math.min(value.length, 99);
+    if (!best || tier < best.tier || (tier === best.tier && score < best.score)) best = { tier, score };
   }
   return best;
 }
@@ -274,35 +323,53 @@ export function rankPreparedTopK<T>(
   query: string,
   limit: number,
   includeFuzzy = true,
+  options: RankOptions<T> = {},
 ): RankedSearchResult<T> {
   const q = fold(query.trim());
   const terms = queryTokens(query);
-  if (!q || !terms.length || limit <= 0) return { items: [], hasMore: false };
+  if (!q || !terms.length || limit <= 0) return { items: [], hasMore: false, total: 0 };
+  const boosted = options.boosted;
+  const fuzzyBelow = options.fuzzyBelow ?? limit;
   const heap = new BoundedHeap<ScoredSearchItem<T>>(limit, compareScored);
   const directMatches = includeFuzzy ? new Uint8Array(items.length) : null;
   let matches = 0;
   for (let i = 0; i < items.length; i++) {
     const prepared = items[i];
-    const score = directScore(prepared, q);
-    if (score === null) continue;
+    const match = directMatch(prepared, q);
+    if (!match) continue;
     if (directMatches) directMatches[i] = 1;
     matches++;
-    heap.add({ item: prepared.item, score, idx: i });
+    heap.add({
+      item: prepared.item,
+      tier: match.tier,
+      boost: boosted?.(prepared.item) ? 1 : 0,
+      score: match.score,
+      idx: i,
+    });
   }
-  if (includeFuzzy && matches < limit) {
+  const fuzzy = includeFuzzy && matches < fuzzyBelow;
+  if (fuzzy) {
     for (let i = 0; i < items.length; i++) {
       const prepared = items[i];
       if (directMatches?.[i]) continue;
       const score = fuzzyScore(prepared, terms);
       if (score === null) continue;
       matches++;
-      heap.add({ item: prepared.item, score, idx: i });
+      heap.add({
+        item: prepared.item,
+        tier: TIER_FUZZY,
+        boost: boosted?.(prepared.item) ? 1 : 0,
+        score,
+        idx: i,
+      });
     }
   }
   return {
     items: heap.sorted().map(value => value.item),
     hasMore: matches > limit
-      || (includeFuzzy && matches >= limit && items.length > matches),
+      || (includeFuzzy && !fuzzy && matches >= limit && items.length > matches
+        && options.fuzzyBelow === undefined),
+    total: matches,
   };
 }
 
@@ -310,24 +377,23 @@ export function rankPreparedNamesTopK<T>(
   index: PreparedNameSearchIndex<T>,
   query: string,
   limit: number,
+  options: RankOptions<T> = {},
 ): RankedSearchResult<T> {
   const q = fold(query.trim());
-  if (!q || limit <= 0) return { items: [], hasMore: false };
+  if (!q || limit <= 0) return { items: [], hasMore: false, total: 0 };
+  const boosted = options.boosted;
   const heap = new BoundedHeap<ScoredNameItem<T>>(limit, compareNameScored);
   let matches = 0;
   for (let i = 0; i < index.items.length; i++) {
     const value = index.values[i];
-    const pos = value.indexOf(q);
+    const pos = bestMatchPosition(value, q);
     if (pos === -1) continue;
-    const tier = value === q
-      ? 0
-      : pos === 0
-        ? 1
-        : !isLetterOrNumber(value[pos - 1]) ? 2 : 3;
     matches++;
+    const item = index.items[i];
     heap.add({
-      item: index.items[i],
-      tier,
+      item,
+      tier: matchTier(value, q, pos),
+      boost: boosted?.(item) ? 1 : 0,
       pos,
       len: value.length,
       idx: i,
@@ -336,6 +402,7 @@ export function rankPreparedNamesTopK<T>(
   return {
     items: heap.sorted().map(value => value.item),
     hasMore: matches > limit,
+    total: matches,
   };
 }
 
@@ -361,4 +428,57 @@ export function rankChannels<T extends { name: string; group: string; sourceName
 ): T[] {
   // A renamed channel stays findable under its source name too.
   return rankByFields(items, query, item => [item.name, item.group, item.sourceName ?? '']);
+}
+
+export interface MatchRange {
+  start: number;
+  end: number;
+}
+
+// The folded text of `value` and, per folded unit, the span of the source
+// character it came from.
+function foldWithMap(value: string): { folded: string; starts: number[]; ends: number[] } {
+  let folded = '';
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (let i = 0; i < value.length;) {
+    const code = value.charCodeAt(i);
+    const width = code >= 0xD800 && code <= 0xDBFF && i + 1 < value.length ? 2 : 1;
+    const part = fold(value.slice(i, i + width));
+    let end = i + width;
+    // Marks the fold drops belong to the character before them.
+    while (end < value.length && !fold(value[end])) end++;
+    for (let unit = 0; unit < part.length; unit++) {
+      starts.push(i);
+      ends.push(end);
+    }
+    folded += part;
+    i = end;
+  }
+  return { folded, starts, ends };
+}
+
+/** The spans of `value` a query matched, for highlighting: the whole query
+ *  where it occurs, else each query word that does. Typo matches show none. */
+export function searchMatchRanges(value: string, query: string): MatchRange[] {
+  const q = fold(query.trim());
+  if (!q || !value) return [];
+  const { folded, starts, ends } = foldWithMap(value);
+  const span = (pos: number, length: number): MatchRange =>
+    ({ start: starts[pos], end: ends[pos + length - 1] });
+  const whole = bestMatchPosition(folded, q);
+  if (whole !== -1) return [span(whole, q.length)];
+  const ranges: MatchRange[] = [];
+  for (const term of queryTokens(query)) {
+    const pos = bestMatchPosition(folded, term);
+    if (pos !== -1) ranges.push(span(pos, term.length));
+  }
+  ranges.sort((a, b) => a.start - b.start);
+  const merged: MatchRange[] = [];
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
+    else merged.push({ start: range.start, end: range.end });
+  }
+  return merged;
 }

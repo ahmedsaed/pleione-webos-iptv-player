@@ -132,10 +132,6 @@ html.q-no-flex-gap .home-bento-cols-1 > * + * { margin-left: 48px; }
 html.q-no-flex-gap .home-bento-row > * + * { margin-left: 32px; }
 html.q-no-flex-gap .nav-menu-sections > * + * { margin-top: 8px; }
 html.q-no-flex-gap .nav-menu-item > * + * { margin-left: 20px; }
-html.q-no-flex-gap .search-list > * + * { margin-top: 8px; }
-html.q-no-flex-gap .search-channel-row > * + * { margin-left: 24px; }
-html.q-no-flex-gap .search-program-list > * + * { margin-top: 8px; }
-html.q-no-flex-gap .search-program-row > * + * { margin-left: 24px; }
 html.q-no-flex-gap .catalog-rail-track > * + * { margin-left: 20px; }
 html.q-no-flex-gap .catalog-sort > * + * { margin-left: 16px; }
 html.q-no-flex-gap .catalog-sort .catalog-sort-direction > * + * { margin-left: 10px; }

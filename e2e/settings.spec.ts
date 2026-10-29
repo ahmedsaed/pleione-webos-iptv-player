@@ -246,8 +246,6 @@ test.describe('Settings navigation', () => {
       motionFixtures.innerHTML = `
         <div class="channel-item"></div>
         <span class="playing-indicator"></span>
-        <div class="search-history-scrim"></div>
-        <div class="search-history-panel"></div>
         <div class="epg-programme-item state-live"></div>
         <div class="player-sidebar visible channels-only">
           <div class="sidebar-picker-arrow"><svg></svg></div>
@@ -270,12 +268,6 @@ test.describe('Settings navigation', () => {
         liveBadge: getComputedStyle(liveBadge).animationName,
         playingIndicator: getComputedStyle(
           motionFixtures.querySelector('.playing-indicator')!,
-        ).animationName,
-        historyScrim: getComputedStyle(
-          motionFixtures.querySelector('.search-history-scrim')!,
-        ).animationName,
-        historyPanel: getComputedStyle(
-          motionFixtures.querySelector('.search-history-panel')!,
         ).animationName,
         epgLiveRail: getComputedStyle(
           motionFixtures.querySelector('.epg-programme-item')!,
@@ -303,8 +295,6 @@ test.describe('Settings navigation', () => {
     expect(durations.sidebarRow.every(value => value <= 0.000001)).toBe(true);
     expect(durations.liveBadge).toBe('liveBadgeDotPulse');
     expect(durations.playingIndicator).toBe('none');
-    expect(durations.historyScrim).toBe('none');
-    expect(durations.historyPanel).toBe('none');
     expect(durations.epgLiveRail).toBe('epgRailPulse');
     expect(durations.groupPicker).toBe('group-picker-nudge');
     expect(durations.channelMarquee).toBe('marquee-bounce');
@@ -315,7 +305,7 @@ test.describe('Settings navigation', () => {
     await expect(page.locator('html')).toHaveAttribute('data-animation', 'essential');
   });
 
-  test('Reduced mode keeps list focus, the playing pulse, and the history fade', async ({ page }) => {
+  test('Reduced mode keeps list focus and the playing pulse', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('html')).toHaveAttribute('data-animation', 'reduced');
     const motion = await page.evaluate(() => {
@@ -323,8 +313,6 @@ test.describe('Settings navigation', () => {
       fixtures.innerHTML = `
         <div class="channel-item"></div>
         <span class="playing-indicator"></span>
-        <div class="search-history-scrim"></div>
-        <div class="search-history-panel"></div>
         <div class="player-sidebar"><div class="sidebar-ch-item"></div></div>
       `;
       document.body.appendChild(fixtures);
@@ -333,8 +321,6 @@ test.describe('Settings navigation', () => {
         channelRow: style('.channel-item').transitionDuration,
         sidebarRow: style('.sidebar-ch-item').transitionDuration,
         playingIndicator: style('.playing-indicator').animationName,
-        historyScrim: style('.search-history-scrim').animationName,
-        historyPanel: style('.search-history-panel').animationName,
       };
       fixtures.remove();
       return result;
@@ -342,8 +328,6 @@ test.describe('Settings navigation', () => {
     expect(motion.channelRow).toBe('0.2s');
     expect(motion.sidebarRow).toBe('0.2s');
     expect(motion.playingIndicator).toBe('pulse');
-    expect(motion.historyScrim).toBe('search-history-in');
-    expect(motion.historyPanel).toBe('search-history-in');
   });
 
   test('data-animation CSS owns the navigation scroll policy', async ({ page }) => {

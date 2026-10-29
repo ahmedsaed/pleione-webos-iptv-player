@@ -1,7 +1,7 @@
 import type { Action, CatchupInfo, Channel, PlaylistEntry, Programme, VodItem, SeriesItem } from '../types';
 import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { Focus, type FocusScope } from '../navigation/focus-scope';
-import { html, raw } from '../utils/dom';
+import { html, raw, type Safe } from '../utils/dom';
 import { channelLockBadge, seriesLockBadge, vodLockBadge } from './parental-badge';
 import { morph } from '../utils/morph';
 import { PlaylistService } from '../services/playlist-service';
@@ -21,10 +21,12 @@ import {
   prepareSearchItems,
   rankPreparedNamesTopK,
   rankPreparedTopK,
+  searchMatchRanges,
 } from '../utils/channel-search';
 import { channelKey, legacyChannelKey } from '../utils/channel';
 import { formatDayLabel, formatTime } from '../utils/time';
 import { showToast } from './toast';
+import { CLOCK_ICON, TRASH_ICON } from './icons';
 import { CatchupResumePrompt } from './catchup-resume-prompt';
 import { CONFIG } from '../config';
 import { createLogger } from '../utils/logger';
@@ -49,6 +51,8 @@ import type {
   SearchIndexChunk,
   SearchIndexRequest,
   SearchIndexSource,
+  SearchQueryBoost,
+  SearchQueryRequest,
   SearchQueryResponse,
 } from '../workers/tasks';
 import {
@@ -62,10 +66,25 @@ import {
 import { uiPx } from '../utils/ui-scale';
 
 const log = createLogger('Search');
-const SEARCH_LIST_VIEWPORT = 420;
 const SEARCH_RAIL_VIEWPORT = 1760;
-const SEARCH_ROW_OVERSCAN = 6;
 const SEARCH_RAIL_OVERSCAN = 4;
+// Card width plus the gap between cards, per rail.
+const CHANNEL_STRIDE = 322;
+const PROGRAM_STRIDE = 442;
+const POSTER_STRIDE = 202;
+
+type RailKey = 'channels' | 'programmes' | 'movies' | 'series';
+const RAIL_KEYS: RailKey[] = ['channels', 'programmes', 'movies', 'series'];
+const RAIL_STRIDES: Record<RailKey, number> = {
+  channels: CHANNEL_STRIDE,
+  programmes: PROGRAM_STRIDE,
+  movies: POSTER_STRIDE,
+  series: POSTER_STRIDE,
+};
+
+function railKey(value: string | undefined): RailKey | null {
+  return RAIL_KEYS.indexOf(value as RailKey) >= 0 ? value as RailKey : null;
+}
 
 export interface SearchHandlers {
   // Up off the top result, or nothing to land on yet: the query box.
@@ -75,6 +94,8 @@ export interface SearchHandlers {
   // Left at the results' left edge.
   onLeaveLeft: () => void;
   onBack: () => void;
+  // OK on a recent search: run it.
+  onPickRecent: (query: string) => void;
   onPlayChannel: (index: number, catchup?: CatchupInfo) => void;
   onOpenMovie: (account: PlaylistEntry, vod: VodItem) => void;
   onOpenSeries: (account: PlaylistEntry, series: SeriesItem) => void;
@@ -168,12 +189,15 @@ export class Search {
   private visiblePrograms: ProgramResult[] = [];
   private visibleMovies: VodItem[] = [];
   private visibleSeries: SeriesItem[] = [];
+  // Every match per section, beyond the ranked results kept.
+  private totals: Record<RailKey, number> = { channels: 0, programmes: 0, movies: 0, series: 0 };
+  // Each catalog list's item positions by id, for ranking boosts.
+  private readonly idIndexes = new WeakMap<object, Map<string, number>>();
   private resumePrompt = new CatchupResumePrompt('prompt.search');
-  private readonly channelListVirtualizer = this.createVirtualizer(88, SEARCH_ROW_OVERSCAN, SEARCH_LIST_VIEWPORT);
-  private readonly programVirtualizer = this.createVirtualizer(109, SEARCH_ROW_OVERSCAN, SEARCH_LIST_VIEWPORT);
-  private readonly channelRailVirtualizer = this.createVirtualizer(240, SEARCH_RAIL_OVERSCAN, SEARCH_RAIL_VIEWPORT);
-  private readonly movieVirtualizer = this.createVirtualizer(240, SEARCH_RAIL_OVERSCAN, SEARCH_RAIL_VIEWPORT);
-  private readonly seriesVirtualizer = this.createVirtualizer(240, SEARCH_RAIL_OVERSCAN, SEARCH_RAIL_VIEWPORT);
+  private readonly channelVirtualizer = this.createVirtualizer(CHANNEL_STRIDE);
+  private readonly programVirtualizer = this.createVirtualizer(PROGRAM_STRIDE);
+  private readonly movieVirtualizer = this.createVirtualizer(POSTER_STRIDE);
+  private readonly seriesVirtualizer = this.createVirtualizer(POSTER_STRIDE);
   private scrollFrame: number | null = null;
   // The window each virtual rail last rendered; its cells sit at fixed
   // offsets, so a scroll inside the window needs no render.
@@ -474,6 +498,7 @@ export class Search {
       return;
     }
     if (isFocusMove(action) && this.nav.showConcealed()) return;
+    if (this.moveRecentFocus(action)) return;
     if (this.moveVirtualFocus(action)) return;
     switch (action) {
       case 'up':
@@ -691,14 +716,74 @@ export class Search {
     else this.render();
   }
 
+  // Recent searches: Up from the top row goes straight to the box, past the
+  // clear button, so Up then OK can't wipe the history; Right reaches it.
+  private moveRecentFocus(action: Action): boolean {
+    const focused = this.nav.focused;
+    if (!focused || !this.container.contains(focused)) return false;
+    const clear = this.container.querySelector<HTMLElement>('[data-history-clear]');
+    if (focused === clear) {
+      if (action === 'up') this.handlers.onFocusBox();
+      else if (action === 'down' || action === 'left') this.nav.focus(this.firstRecent());
+      else return action === 'right';
+      return true;
+    }
+    if (!focused.classList.contains('search-recent-chip')) return false;
+    if (action === 'up') {
+      if (this.inTopRecentRow(focused) || !this.nav.move('up') || this.nav.focused === clear) {
+        this.handlers.onFocusBox();
+      }
+      return true;
+    }
+    if (action === 'right') {
+      if (!this.nav.move('right') && this.inTopRecentRow(focused)) this.nav.focus(clear);
+      return true;
+    }
+    return false;
+  }
+
+  private firstRecent(): HTMLElement | null {
+    return this.container.querySelector<HTMLElement>('.search-recent-chip');
+  }
+
+  private inTopRecentRow(el: HTMLElement): boolean {
+    const first = this.firstRecent();
+    return !!first && el.offsetTop === first.offsetTop;
+  }
+
+  /** The box handed off with an empty query: land on the first recent search. */
+  focusRecent(): boolean {
+    const first = this.firstRecent();
+    if (!first) return false;
+    this.nav.focus(first);
+    return true;
+  }
+
   private onSelect(): void {
     const el = this.nav.focused;
     // A result a re-render removed opens nothing; the next arrow recovers focus.
     if (!el || !this.container.contains(el)) return;
-    if (el.classList.contains('search-input')) {
-      const input = el as HTMLInputElement;
-      input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
+    if (el.dataset.historyQuery !== undefined) {
+      const query = el.dataset.historyQuery;
+      const history = StorageService.getSearchHistory();
+      // Position only: the query text itself stays out of the logs.
+      log.debug(
+        'Recent search picked',
+        'event=search.history.picked',
+        `count=${String(history.indexOf(query) + 1)}`,
+        `items=${String(history.length)}`,
+      );
+      this.nav.focus(null);
+      this.handlers.onPickRecent(query);
+      return;
+    }
+    if (el.hasAttribute('data-history-clear')) {
+      const items = StorageService.getSearchHistory().length;
+      if (!StorageService.clearSearchHistory()) return;
+      log.debug('Recent searches cleared', 'event=search.history.cleared', `items=${String(items)}`);
+      this.nav.focus(null);
+      this.render();
+      this.handlers.onFocusBox();
       return;
     }
     // Only a query that opened something is worth remembering, not every keystroke.
@@ -765,130 +850,119 @@ export class Search {
     this.nav.focus(first);
   }
 
-  private posterCell(name: string, poster: string): ReturnType<typeof html> {
+  private posterCell(name: string, poster: string): Safe {
     return poster
       ? html`<img class="catalog-poster" src="${poster}" alt="" loading="lazy" onerror="this.style.display='none'">`
       : html`<div class="catalog-poster catalog-poster-empty">${name.charAt(0)}</div>`;
   }
 
+  // One result section: a titled, counted, horizontally virtualized rail.
   private virtualRail<T>(
     title: string,
-    key: string,
+    key: RailKey,
     items: T[],
     virtualizer: VirtualList,
-    renderItem: (item: T) => ReturnType<typeof html>,
-  ): ReturnType<typeof html> {
+    renderItem: (item: T, index: number) => Safe,
+  ): Safe {
     const viewport = this.container.querySelector<HTMLElement>(
       `[data-search-virtual="${key}"]`,
     )?.clientWidth || SEARCH_RAIL_VIEWPORT;
     const range = virtualizer.getRange(items.length, viewport);
     this.railWindows.set(key, this.railWindow(items.length, range));
     return html`
-      <div class="catalog-rail">
-        <h2 class="catalog-rail-title">${title}</h2>
-        <div class="catalog-rail-track search-virtual-rail ${
-               key === 'channels-rail' ? 'search-channel-rail' : ''
-             }"
-             data-edge-scroll data-search-virtual="${key}" data-search-axis="horizontal">
-          <div class="search-virtual-rail-spacer"
-               style="width:${virtualizer.getTotalSize(items.length)}px">
+      <section class="search-section search-section-${key}" data-key="section:${key}">
+        <h2 class="search-section-title">${title}<span class="search-section-count">${
+          String(Math.max(this.totals[key], items.length))}</span></h2>
+        <div class="search-rail" data-edge-scroll data-search-virtual="${key}" data-search-axis="horizontal">
+          <div class="search-rail-spacer" style="width:${virtualizer.getTotalSize(items.length)}px">
             ${items.slice(range.start, range.end).map((item, offset) => {
               const index = range.start + offset;
               return html`
-                <div class="search-virtual-rail-cell"
+                <div class="search-rail-cell"
                      data-key="${key}:${index}"
                      data-search-section="${key}" data-search-index="${index}"
                      style="left:${virtualizer.getItemOffset(index)}px">
-                  ${renderItem(item)}
-                </div>
-              `;
-            })}
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  private virtualList<T>(
-    title: string,
-    key: string,
-    items: T[],
-    virtualizer: VirtualList,
-    renderItem: (item: T, index: number) => ReturnType<typeof html>,
-  ): ReturnType<typeof html> {
-    const viewport = this.container.querySelector<HTMLElement>(
-      `[data-search-virtual="${key}"]`,
-    )?.clientHeight || SEARCH_LIST_VIEWPORT;
-    const range = virtualizer.getRange(items.length, viewport);
-    return html`
-      <div class="search-virtual-section ${
-        key === 'channels-list' ? 'search-channels' : key === 'programmes' ? 'search-programs' : ''
-      }">
-        <h2 class="catalog-rail-title">${title}</h2>
-        <div class="search-virtual-scroll"
-             data-search-virtual="${key}" data-search-axis="vertical">
-          <div class="search-virtual-list-spacer"
-               style="height:${virtualizer.getTotalSize(items.length)}px">
-            ${items.slice(range.start, range.end).map((item, offset) => {
-              const index = range.start + offset;
-              return html`
-                <div class="search-virtual-list-cell"
-                     data-key="${key}:${index}"
-                     data-search-section="${key}" data-search-index="${index}"
-                     style="top:${virtualizer.getItemOffset(index)}px">
                   ${renderItem(item, index)}
                 </div>
               `;
             })}
           </div>
         </div>
-      </div>
+      </section>
     `;
   }
 
-  private channelTile(ch: Channel): ReturnType<typeof html> {
+  // The matched part of an untrusted name, in the accent color.
+  private highlighted(text: string): Safe {
+    const ranges = searchMatchRanges(text, this.query);
+    if (!ranges.length) return html`${text}`;
+    const parts: Safe[] = [];
+    let at = 0;
+    for (const range of ranges) {
+      if (range.start > at) parts.push(html`${text.slice(at, range.start)}`);
+      parts.push(html`<mark class="search-match">${text.slice(range.start, range.end)}</mark>`);
+      at = range.end;
+    }
+    if (at < text.length) parts.push(html`${text.slice(at)}`);
+    return html`${parts}`;
+  }
+
+  private channelCard(ch: Channel): Safe {
     const idx = PlaylistService.indexOf(ch);
+    const epgId = EpgService.findChannelId(ch);
+    const now = epgId ? EpgService.getNowPlaying(epgId) : null;
     return html`
-      <div class="catalog-tile search-channel-tile" data-focusable data-key="ch:${String(idx)}"
+      <div class="search-card search-channel-card" data-focusable data-key="ch:${String(idx)}"
            data-channel-index="${String(idx)}">
-        <div class="catalog-poster-wrap">${this.posterCell(ch.name, ch.logo)}${
-          raw(channelLockBadge(ch))}</div>
-        <div class="catalog-tile-name">${ch.name}</div>
+        <div class="search-card-logo">${ch.logo
+          ? html`<img src="${ch.logo}" alt="" loading="lazy" onerror="this.style.display='none'">`
+          : html`<span>${ch.name.charAt(0)}</span>`}</div>
+        <div class="search-card-text">
+          <div class="search-card-title">${raw(channelLockBadge(ch))}${this.highlighted(ch.name)}</div>
+          ${now ? html`<div class="search-card-sub">${now.title}</div>` : ''}
+        </div>
       </div>
     `;
   }
 
-  // A vertical-list row (logo + name) used for the M3U-only channel results.
-  private channelRow(ch: Channel): ReturnType<typeof html> {
-    const idx = PlaylistService.indexOf(ch);
+  private movieTile(v: VodItem): Safe {
     return html`
-      <div class="search-channel-row" data-focusable data-key="ch:${String(idx)}"
-           data-channel-index="${String(idx)}">
-        ${ch.logo
-          ? html`<img class="search-row-logo" src="${ch.logo}" alt="" loading="lazy" onerror="this.style.display='none'">`
-          : html`<div class="search-row-logo search-row-logo-empty">${ch.name.charAt(0)}</div>`}
-        <span class="search-row-name">${raw(channelLockBadge(ch))}${ch.name}</span>
-      </div>
-    `;
-  }
-
-  private movieTile(v: VodItem): ReturnType<typeof html> {
-    return html`
-      <div class="catalog-tile" data-focusable data-key="v:${v.streamId}" data-stream-id="${v.streamId}">
+      <div class="catalog-tile search-poster-tile" data-focusable data-key="v:${v.streamId}" data-stream-id="${v.streamId}">
         <div class="catalog-poster-wrap">${this.posterCell(v.name, v.poster)}${
           raw(vodLockBadge(v))}</div>
-        <div class="catalog-tile-name">${v.name}</div>
+        <div class="catalog-tile-name">${this.highlighted(v.name)}</div>
       </div>
     `;
   }
 
-  private seriesTile(s: SeriesItem): ReturnType<typeof html> {
+  private seriesTile(s: SeriesItem): Safe {
     return html`
-      <div class="catalog-tile" data-focusable data-key="s:${s.seriesId}" data-series-id="${s.seriesId}">
+      <div class="catalog-tile search-poster-tile" data-focusable data-key="s:${s.seriesId}" data-series-id="${s.seriesId}">
         <div class="catalog-poster-wrap">${this.posterCell(s.name, s.poster)}${
           raw(seriesLockBadge(s))}</div>
-        <div class="catalog-tile-name">${s.name}</div>
+        <div class="catalog-tile-name">${this.highlighted(s.name)}</div>
       </div>
+    `;
+  }
+
+  // Recent searches under the empty box: OK runs one.
+  private recentSection(): Safe {
+    const history = StorageService.getSearchHistory();
+    if (!history.length) return html``;
+    return html`
+      <section class="search-recent" data-key="recent">
+        <div class="search-recent-head">
+          <h2 class="search-section-title">${t('search.recent')}</h2>
+          <div class="search-recent-clear" data-focusable data-key="recent-clear"
+               data-history-clear>${raw(TRASH_ICON)}<span>${t('search.clearHistory')}</span></div>
+        </div>
+        <div class="search-recent-chips">
+          ${history.map(query => html`
+            <div class="search-recent-chip" data-focusable data-key="recent:${query}"
+                 data-history-query="${query}">${raw(CLOCK_ICON)}<span class="search-recent-label">${query}</span></div>
+          `)}
+        </div>
+      </section>
     `;
   }
 
@@ -1143,12 +1217,7 @@ export class Search {
         retryPending = this.recoveryRetryPending(sessionId);
         if (!retryPending) response = await this.recoverWorkerQuery(sessionId, query, 'lost');
       } else {
-        response = await runAppWorkerTask('search.query', {
-          sessionId,
-          query,
-          limit: this.resultLimit,
-          includeCatalog: !!this.account,
-        });
+        response = await runAppWorkerTask('search.query', this.queryRequest(sessionId, query));
       }
     } catch (error) {
       if (generation !== this.queryGeneration || sessionId !== this.workerSession || !this.active) return;
@@ -1206,35 +1275,108 @@ export class Search {
     this.applyPendingFocus();
   }
 
+  private queryRequest(sessionId: number, query: string): SearchQueryRequest {
+    return {
+      sessionId,
+      query,
+      limit: this.resultLimit,
+      includeCatalog: !!this.account,
+      fuzzyBelow: CONFIG.SEARCH.INITIAL_RESULTS,
+      boost: this.boost(this.indexedVod, this.indexedSeries),
+    };
+  }
+
+  // Recently watched and favorite items rank first within their match tier,
+  // as indices into the given lists.
+  private boost(vod: VodItem[], series: SeriesItem[]): SearchQueryBoost {
+    const channelIndices = new Set<number>();
+    for (const channel of PlaylistService.getByGroup('builtin:favorites')) {
+      channelIndices.add(PlaylistService.indexOf(channel));
+    }
+    for (const entry of StorageService.getRecentlyWatchedLive()) {
+      const resolved = PlaylistService.resolveChannelKey(entry.channelKey);
+      if (resolved) channelIndices.add(resolved.channelIndex);
+    }
+    const movieIds = new Set<string>();
+    const seriesIds = new Set<string>();
+    const account = this.account;
+    if (account) {
+      for (const entry of StorageService.getResumeList(account.id)) {
+        if (entry.kind === 'vod') movieIds.add(entry.itemId);
+        else if (entry.watchlistOwner) seriesIds.add(entry.watchlistOwner.itemId);
+      }
+      for (const entry of StorageService.getWatchlist(account.id, 'vod')) movieIds.add(entry.itemId);
+      for (const entry of StorageService.getWatchlist(account.id, 'series')) seriesIds.add(entry.itemId);
+    }
+    return {
+      channels: Array.from(channelIndices).filter(index => index >= 0),
+      movies: this.indicesOfIds(vod, movieIds, item => item.streamId),
+      series: this.indicesOfIds(series, seriesIds, item => item.seriesId),
+    };
+  }
+
+  private indicesOfIds<T>(items: T[], ids: Set<string>, idOf: (item: T) => string): number[] {
+    if (!ids.size || !items.length) return [];
+    let byId = this.idIndexes.get(items);
+    if (!byId) {
+      byId = new Map();
+      for (let index = 0; index < items.length; index++) byId.set(idOf(items[index]), index);
+      this.idIndexes.set(items, byId);
+    }
+    const indices: number[] = [];
+    ids.forEach((id) => {
+      const index = byId!.get(id);
+      if (index !== undefined) indices.push(index);
+    });
+    return indices;
+  }
+
   private queryLocally(query: string): SearchQueryResponse {
-    const channels = PlaylistService.searchLocalRanked(query, this.resultLimit);
+    const boost = this.boost(this.allVod, this.allSeries);
+    const boostedChannels = new Set(boost.channels.map(index => PlaylistService.channels[index]));
+    const boostedMovies = new Set(boost.movies.map(index => this.allVod[index]));
+    const boostedSeries = new Set(boost.series.map(index => this.allSeries[index]));
+    const fuzzyBelow = CONFIG.SEARCH.INITIAL_RESULTS;
+    const channels = PlaylistService.searchLocalRanked(query, this.resultLimit, undefined, {
+      fuzzyBelow,
+      boosted: channel => boostedChannels.has(channel),
+    });
     const programmes = rankPreparedTopK(
       prepareSearchItems(this.programIndex, programDocument),
       query,
       this.resultLimit,
+      true,
+      { fuzzyBelow },
     );
+    const empty = { items: [], hasMore: false, total: 0 };
     const movies = this.account
-      ? rankPreparedNamesTopK(prepareNameSearchItems(this.allVod), query, this.resultLimit)
-      : { items: [], hasMore: false };
+      ? rankPreparedNamesTopK(prepareNameSearchItems(this.allVod), query, this.resultLimit,
+        { boosted: item => boostedMovies.has(item) })
+      : empty;
     const series = this.account
-      ? rankPreparedNamesTopK(prepareNameSearchItems(this.allSeries), query, this.resultLimit)
-      : { items: [], hasMore: false };
+      ? rankPreparedNamesTopK(prepareNameSearchItems(this.allSeries), query, this.resultLimit,
+        { boosted: item => boostedSeries.has(item) })
+      : empty;
     return {
       channels: {
         indices: channels.items.map(channel => PlaylistService.indexOf(channel)),
         hasMore: channels.hasMore,
+        total: channels.total,
       },
       programmes: {
         indices: indicesOf(this.programIndex, programmes.items),
         hasMore: programmes.hasMore,
+        total: programmes.total,
       },
       movies: {
         indices: indicesOf(this.allVod, movies.items),
         hasMore: movies.hasMore,
+        total: movies.total,
       },
       series: {
         indices: indicesOf(this.allSeries, series.items),
         hasMore: series.hasMore,
+        total: series.total,
       },
     };
   }
@@ -1266,12 +1408,7 @@ export class Search {
         recovery = current;
       }
       if (!await recovery.done) return null;
-      const response = await runAppWorkerTask('search.query', {
-        sessionId,
-        query,
-        limit: this.resultLimit,
-        includeCatalog: !!this.account,
-      });
+      const response = await runAppWorkerTask('search.query', this.queryRequest(sessionId, query));
       if (response && owner) {
         log.info(
           'Search worker recovery completed',
@@ -1378,6 +1515,12 @@ export class Search {
     this.visiblePrograms = itemsAt(this.programIndex, response.programmes.indices);
     this.visibleMovies = itemsAt(vod, response.movies.indices);
     this.visibleSeries = itemsAt(series, response.series.indices);
+    this.totals = {
+      channels: response.channels.total ?? this.visibleChannels.length,
+      programmes: response.programmes.total ?? this.visiblePrograms.length,
+      movies: response.movies.total ?? this.visibleMovies.length,
+      series: response.series.total ?? this.visibleSeries.length,
+    };
     this.hasMoreResults = response.channels.hasMore || response.programmes.hasMore
       || response.movies.hasMore || response.series.hasMore;
   }
@@ -1387,6 +1530,7 @@ export class Search {
     this.visiblePrograms = [];
     this.visibleMovies = [];
     this.visibleSeries = [];
+    this.totals = { channels: 0, programmes: 0, movies: 0, series: 0 };
     this.hasMoreResults = false;
     this.queryPending = false;
     this.resetVirtualOffsets();
@@ -1448,7 +1592,7 @@ export class Search {
     }
   }
 
-  private programRow(result: ProgramResult, index: number): ReturnType<typeof html> {
+  private programCard(result: ProgramResult, index: number): Safe {
     const { channel, programme } = result;
     const now = Date.now();
     const state = programme.stop.getTime() <= now ? 'past' : programme.start.getTime() > now ? 'future' : 'live';
@@ -1459,15 +1603,14 @@ export class Search {
         ? (ReminderService.has(channelKey(channel), programme.start.getTime()) ? t('search.reminderSet') : t('search.setReminder'))
         : XtreamArchiveService.isAvailable(channel, programme.start.getTime()) ? t('search.catchUp') : t('search.openChannel');
     return html`
-      <div class="search-program-row state-${state}" data-focusable
+      <div class="search-card search-program-card state-${state}" data-focusable
            data-key="p:${String(result.channelIndex)}:${String(programme.start.getTime())}"
            data-program-index="${String(index)}">
-        <div class="search-program-time">${day.weekday} ${day.date}<br>${formatTime(programme.start)}</div>
-        <div class="search-program-body">
-          <div class="search-program-title">${programme.title}</div>
-          <div class="search-program-channel">${channel.name}${programme.category ? html` · ${programme.category}` : ''}</div>
+        <div class="search-card-text">
+          <div class="search-card-title">${this.highlighted(programme.title)}</div>
+          <div class="search-card-sub">${day.weekday} ${day.date} ${formatTime(programme.start)} · ${channel.name}</div>
+          <div class="search-program-action">${action}</div>
         </div>
-        <div class="search-program-action">${action}</div>
       </div>
     `;
   }
@@ -1554,83 +1697,38 @@ export class Search {
 
   private render(): void {
     const q = this.query.trim();
-    const isXtream = !!this.account;
-
     const hasResults = this.visibleChannels.length > 0 || this.visiblePrograms.length > 0
       || this.visibleMovies.length > 0 || this.visibleSeries.length > 0;
-    const hasMixedLists = !isXtream
-      && this.visibleChannels.length > 0
-      && this.visiblePrograms.length > 0;
-    const channelSection = this.visibleChannels.length
-      ? this.virtualList(
-          t('common.channels'),
-          'channels-list',
-          this.visibleChannels,
-          this.channelListVirtualizer,
-          (ch) => this.channelRow(ch),
-        )
-      : '';
-    const programSection = this.visiblePrograms.length
-      ? this.virtualList(
-          t('search.programs'),
-          'programmes',
-          this.visiblePrograms,
-          this.programVirtualizer,
-          (result, index) => this.programRow(result, index),
-        )
-      : '';
-
-    // Xtream: horizontal poster rails for catalog results. M3U-only channels and
-    // EPG programs use compact rows so their metadata remains readable.
     const resultsBody = !q
-      ? html``
+      ? this.recentSection()
       : this.pendingIndex
-        ? html`<p class="catalog-hint search-empty">${t('search.preparing')}</p>`
-      : this.queryPending
-        ? html``
-        : !hasResults
-        ? html`<p class="catalog-hint search-empty">${t('search.empty')}</p>`
-        : isXtream
-          ? html`
+        ? html`<p class="search-hint">${t('search.preparing')}</p>`
+        : this.queryPending
+          ? html``
+          : !hasResults
+            ? html`<p class="search-hint">${t('search.empty')}</p>`
+            : html`
                 ${this.visibleChannels.length
-                  ? this.virtualRail(
-                      t('common.channels'),
-                      'channels-rail',
-                      this.visibleChannels,
-                      this.channelRailVirtualizer,
-                      (ch) => this.channelTile(ch),
-                    )
+                  ? this.virtualRail(t('common.channels'), 'channels', this.visibleChannels,
+                    this.channelVirtualizer, (ch) => this.channelCard(ch))
                   : ''}
-                ${programSection}
+                ${this.visiblePrograms.length
+                  ? this.virtualRail(t('search.programs'), 'programmes', this.visiblePrograms,
+                    this.programVirtualizer, (result, index) => this.programCard(result, index))
+                  : ''}
                 ${this.visibleMovies.length
-                  ? this.virtualRail(
-                      t('common.movies'),
-                      'movies',
-                      this.visibleMovies,
-                      this.movieVirtualizer,
-                      (v) => this.movieTile(v),
-                    )
+                  ? this.virtualRail(t('common.movies'), 'movies', this.visibleMovies,
+                    this.movieVirtualizer, (v) => this.movieTile(v))
                   : ''}
                 ${this.visibleSeries.length
-                  ? this.virtualRail(
-                      t('common.series'),
-                      'series',
-                      this.visibleSeries,
-                      this.seriesVirtualizer,
-                      (s) => this.seriesTile(s),
-                    )
+                  ? this.virtualRail(t('common.series'), 'series', this.visibleSeries,
+                    this.seriesVirtualizer, (series) => this.seriesTile(series))
                   : ''}
-              `
-          : html`
-              ${channelSection}
-              ${programSection}
-            `;
+              `;
 
     // The query box sits above, outside this container; this renders results only.
     morph(this.container, html`
-      <div class="search-view ${isXtream ? '' : 'search-lists'} ${
-        hasMixedLists ? 'search-lists-mixed' : ''
-      }" data-nav-container data-search-query="${q}"
+      <div class="search-view" data-nav-container data-search-query="${q}"
            data-search-pending="${this.queryPending ? 'true' : 'false'}">
         <div class="search-results">${resultsBody}</div>
       </div>
@@ -1638,23 +1736,18 @@ export class Search {
     this.restoreVirtualOffsets();
   }
 
-  private createVirtualizer(
-    itemSize: number,
-    overscan: number,
-    viewport: number,
-  ): VirtualList {
+  private createVirtualizer(itemSize: number): VirtualList {
     return new VirtualList({
       itemSize: () => uiPx(itemSize),
-      overscan,
-      fallbackViewportSize: viewport,
+      overscan: SEARCH_RAIL_OVERSCAN,
+      fallbackViewportSize: SEARCH_RAIL_VIEWPORT,
     });
   }
 
-  private virtualizers(): Record<string, VirtualList> {
+  private virtualizers(): Record<RailKey, VirtualList> {
     return {
-      'channels-list': this.channelListVirtualizer,
+      channels: this.channelVirtualizer,
       programmes: this.programVirtualizer,
-      'channels-rail': this.channelRailVirtualizer,
       movies: this.movieVirtualizer,
       series: this.seriesVirtualizer,
     };
@@ -1662,33 +1755,26 @@ export class Search {
 
   private resetVirtualOffsets(): void {
     const virtualizers = this.virtualizers();
-    Object.keys(virtualizers).forEach(key => virtualizers[key].setScrollOffset(0));
+    RAIL_KEYS.forEach(key => virtualizers[key].setScrollOffset(0));
     this.container.querySelectorAll<HTMLElement>('[data-search-virtual]').forEach((el) => {
-      const axis = el.dataset.searchAxis === 'horizontal' ? 'horizontal' : 'vertical';
-      this.scrollGuard.syncOffset(el, axis, 0);
+      this.scrollGuard.syncOffset(el, 'horizontal', 0);
     });
   }
 
   private restoreVirtualOffsets(): void {
     const virtualizers = this.virtualizers();
-    Object.keys(virtualizers).forEach((key) => {
+    RAIL_KEYS.forEach((key) => {
       const el = this.container.querySelector<HTMLElement>(`[data-search-virtual="${key}"]`);
-      if (!el) return;
-      const offset = virtualizers[key].scrollOffset;
-      const axis = el.dataset.searchAxis === 'horizontal' ? 'horizontal' : 'vertical';
-      this.scrollGuard.syncOffset(el, axis, offset);
+      if (el) this.scrollGuard.syncOffset(el, 'horizontal', virtualizers[key].scrollOffset);
     });
   }
 
   private onVirtualScroll(event: Event): void {
     const target = event.target as HTMLElement;
-    const key = target.dataset.searchVirtual;
+    const key = railKey(target.dataset.searchVirtual);
     if (!key) return;
     const virtualizer = this.virtualizers()[key];
-    if (!virtualizer) return;
-    const axis: VirtualScrollAxis = target.dataset.searchAxis === 'horizontal'
-      ? 'horizontal'
-      : 'vertical';
+    const axis: VirtualScrollAxis = 'horizontal';
     const offset = this.scrollGuard.readUserOffset(target, axis);
     if (offset === null) return;
     virtualizer.setScrollOffset(offset);
@@ -1697,14 +1783,15 @@ export class Search {
       this.scrollFrame = null;
       const latest = this.scrollGuard.readUserOffset(target, axis);
       if (latest !== null) virtualizer.setScrollOffset(latest);
-      const viewport = axis === 'horizontal' ? target.clientWidth : target.clientHeight;
-      const total = virtualizer.getTotalSize(this.resultCount(key));
-      if (virtualizer.scrollOffset + viewport >= total - this.resultItemSize(key) * 2) {
+      const viewport = target.clientWidth;
+      const count = this.resultItems(key).length;
+      const total = virtualizer.getTotalSize(count);
+      if (virtualizer.scrollOffset + viewport >= total - uiPx(RAIL_STRIDES[key]) * 2) {
         this.expandResults();
       }
-      if (axis === 'horizontal' && this.railWindows.get(key) === this.railWindow(
-        this.resultCount(key),
-        virtualizer.getRange(this.resultCount(key), target.clientWidth || SEARCH_RAIL_VIEWPORT),
+      if (this.railWindows.get(key) === this.railWindow(
+        count,
+        virtualizer.getRange(count, target.clientWidth || SEARCH_RAIL_VIEWPORT),
       )) return;
       this.render();
     });
@@ -1715,44 +1802,20 @@ export class Search {
   }
 
   private moveVirtualFocus(action: Action): boolean {
+    if (action !== 'left' && action !== 'right') return false;
     const focused = this.nav.focused;
     // Focus a re-render removed recovers through the nav first.
     if (!focused || !this.container.contains(focused)) return false;
     const cell = focused.closest<HTMLElement>('[data-search-section]');
-    const key = cell?.dataset.searchSection;
+    const key = railKey(cell?.dataset.searchSection);
     const rawIndex = cell?.dataset.searchIndex;
     if (!key || rawIndex === undefined) return false;
-    const horizontal = key === 'channels-rail' || key === 'movies' || key === 'series';
-    if ((horizontal && action !== 'left' && action !== 'right')
-        || (!horizontal && action !== 'up' && action !== 'down')) return false;
-    let items = key === 'channels-list' || key === 'channels-rail'
-      ? this.visibleChannels
-      : key === 'programmes'
-        ? this.visiblePrograms
-        : key === 'movies'
-          ? this.visibleMovies
-          : this.visibleSeries;
     const current = parseInt(rawIndex, 10);
-    let next = current + (action === 'left' || action === 'up' ? -1 : 1);
-    if (next >= items.length && this.expandResults()) {
-      items = key === 'channels-list' || key === 'channels-rail'
-        ? this.visibleChannels
-        : key === 'programmes'
-          ? this.visiblePrograms
-          : key === 'movies'
-            ? this.visibleMovies
-            : this.visibleSeries;
-      next = current + 1;
-    }
-    if (next < 0 || next >= items.length) return false;
+    let next = current + (action === 'left' ? -1 : 1);
+    if (next >= this.resultItems(key).length && this.expandResults()) next = current + 1;
+    if (next < 0 || next >= this.resultItems(key).length) return false;
     const scroll = this.container.querySelector<HTMLElement>(`[data-search-virtual="${key}"]`);
-    const virtualizer = this.virtualizers()[key];
-    virtualizer.ensureVisible(
-      next,
-      horizontal
-        ? this.railContentWidth(scroll)
-        : scroll?.clientHeight || SEARCH_LIST_VIEWPORT,
-    );
+    this.virtualizers()[key].ensureVisible(next, this.railContentWidth(scroll));
     this.render();
     this.nav.focus(
       this.container.querySelector<HTMLElement>(
@@ -1770,17 +1833,11 @@ export class Search {
     return rail.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
   }
 
-  private resultCount(key: string): number {
-    if (key === 'channels-list' || key === 'channels-rail') return this.visibleChannels.length;
-    if (key === 'programmes') return this.visiblePrograms.length;
-    if (key === 'movies') return this.visibleMovies.length;
-    return this.visibleSeries.length;
-  }
-
-  private resultItemSize(key: string): number {
-    if (key === 'channels-list') return 88;
-    if (key === 'programmes') return 109;
-    return 240;
+  private resultItems(key: RailKey): unknown[] {
+    if (key === 'channels') return this.visibleChannels;
+    if (key === 'programmes') return this.visiblePrograms;
+    if (key === 'movies') return this.visibleMovies;
+    return this.visibleSeries;
   }
 
   private expandResults(): boolean {

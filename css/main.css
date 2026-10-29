@@ -122,12 +122,6 @@ html[data-animation="essential"] .playing-indicator {
   animation: none;
 }
 
-/* The full-screen scrim's fade drops frames on the webOS 4 emulator. */
-html[data-animation="essential"] .search-history-scrim,
-html[data-animation="essential"] .search-history-panel {
-  animation: none;
-}
-
 html[data-animation="full"] .playlist-tabs,
 html[data-animation="full"] .group-list,
 html[data-animation="full"] .channel-main,

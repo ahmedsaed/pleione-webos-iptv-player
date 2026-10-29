@@ -28,18 +28,26 @@ const {
     searchRanked: vi.fn(),
     indexOf: vi.fn(() => 0),
     getChannelCacheSource: vi.fn((): unknown => null),
+    getByGroup: vi.fn((): unknown[] => []),
+    resolveChannelKey: vi.fn((): unknown => null),
   },
   epgMock: {
     programmes: {} as Record<string, Programme[]>,
     findChannelId: vi.fn((channel: { id: string }) => channel.id),
     getSourceUrl: vi.fn(() => 'http://host/epg.xml'),
     programmeCacheOrigin: vi.fn((): unknown => null),
+    getNowPlaying: vi.fn((): Programme | null => null),
   },
   reminderMock: { has: vi.fn(() => false), add: vi.fn(), remove: vi.fn() },
   storageMock: {
     getCatchupProgressList: vi.fn(() => [] as unknown[]),
     clearCatchupProgress: vi.fn(),
     addSearchHistory: vi.fn(),
+    getSearchHistory: vi.fn((): string[] => []),
+    clearSearchHistory: vi.fn(() => true),
+    getRecentlyWatchedLive: vi.fn((): Array<{ channelKey: string }> => []),
+    getResumeList: vi.fn((): unknown[] => []),
+    getWatchlist: vi.fn((): unknown[] => []),
   },
   archiveMock: {
     load: vi.fn(async () => null as Set<number> | null),
@@ -145,6 +153,13 @@ beforeEach(() => {
   epgMock.findChannelId.mockImplementation((channel: { id: string }) => channel.id);
   reminderMock.has.mockReturnValue(false);
   storageMock.getCatchupProgressList.mockReturnValue([]);
+  storageMock.getSearchHistory.mockReturnValue([]);
+  storageMock.getRecentlyWatchedLive.mockReturnValue([]);
+  storageMock.getResumeList.mockReturnValue([]);
+  storageMock.getWatchlist.mockReturnValue([]);
+  playlistMock.getByGroup.mockReturnValue([]);
+  playlistMock.resolveChannelKey.mockReturnValue(null);
+  epgMock.getNowPlaying.mockReturnValue(null);
   archiveMock.load.mockResolvedValue(null);
   archiveMock.isAvailable.mockImplementation((channel: { catchupSource?: string }) => !!channel.catchupSource);
   catalogMock.getSearchCatalogExpiresAt.mockResolvedValue(
@@ -163,6 +178,7 @@ function mkHandlers() {
     onPlayChannel: vi.fn(),
     onOpenMovie: vi.fn(),
     onOpenSeries: vi.fn(),
+    onPickRecent: vi.fn(),
   };
 }
 
@@ -573,7 +589,7 @@ describe('Search', () => {
       workerMock.run.mockImplementation(originalRun);
     }
 
-    expect(container.querySelector('.catalog-tile[data-channel-index="0"]')?.textContent)
+    expect(container.querySelector('.search-channel-card[data-channel-index="0"]')?.textContent)
       .toContain('Alpha');
     expect(container.textContent).toContain('Alpha Sequel');
     expect(container.textContent).not.toContain('Alpha Movie');
@@ -726,7 +742,7 @@ describe('Search', () => {
       hold.release();
       await Promise.all([query, refresh]);
       await view.setQuery('report');
-      expect(container.querySelector('.search-program-row')?.textContent).toContain('Late Report');
+      expect(container.querySelector('.search-program-card')?.textContent).toContain('Late Report');
 
       info.mockClear();
       view.deactivate();
@@ -738,7 +754,7 @@ describe('Search', () => {
       hold.restore();
     }
 
-    const rows = Array.from(container.querySelectorAll('.search-program-row'), row => row.textContent);
+    const rows = Array.from(container.querySelectorAll('.search-program-card'), row => row.textContent);
     expect(rows).toEqual([expect.stringContaining('Late Report')]);
   });
 
@@ -1084,7 +1100,7 @@ describe('Search', () => {
       hold.restore();
     }
 
-    const rows = Array.from(container.querySelectorAll('.search-program-row'), row => row.textContent);
+    const rows = Array.from(container.querySelectorAll('.search-program-card'), row => row.textContent);
     expect(rows).toEqual([expect.stringContaining('New Report')]);
   });
 
@@ -1129,7 +1145,7 @@ describe('Search', () => {
     playlistMock.channels = [chan('Channel One')];
     const { view } = await openWith({ vod: [vod('10', 'Movie One')], series: [ser('s1', 'Series One')] });
     await view.setQuery('one');
-    expect(container.querySelector('.catalog-tile[data-channel-index="0"]')?.textContent).toContain('Channel One');
+    expect(container.querySelector('.search-channel-card[data-channel-index="0"]')?.textContent).toContain('Channel One');
     expect(container.querySelector('.catalog-tile[data-stream-id="10"]')?.textContent).toContain('Movie One');
     expect(container.querySelector('.catalog-tile[data-series-id="s1"]')?.textContent).toContain('Series One');
   });
@@ -1145,8 +1161,8 @@ describe('Search', () => {
     expect(initial).toBe(200);
     expect(container.querySelectorAll('.catalog-tile[data-stream-id]').length).toBeLessThan(30);
     expect(container.querySelector<HTMLElement>(
-      '[data-search-virtual="movies"] .search-virtual-rail-spacer',
-    )?.style.width).toBe(`${String(initial * 240)}px`);
+      '[data-search-virtual="movies"] .search-rail-spacer',
+    )?.style.width).toBe(`${String(initial * 202)}px`);
   });
 
   it('expands the ranked batch near the virtual rail boundary', async () => {
@@ -1157,14 +1173,14 @@ describe('Search', () => {
     const { view } = await openWith({ vod: many });
     await view.setQuery('movie');
     const rail = container.querySelector<HTMLElement>('[data-search-virtual="movies"]')!;
-    rail.scrollLeft = CONFIG.SEARCH.INITIAL_RESULTS * 240;
+    rail.scrollLeft = CONFIG.SEARCH.INITIAL_RESULTS * 202;
     rail.dispatchEvent(new Event('scroll', { bubbles: true }));
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     expect(container.querySelector<HTMLElement>(
-      '[data-search-virtual="movies"] .search-virtual-rail-spacer',
+      '[data-search-virtual="movies"] .search-rail-spacer',
     )?.style.width).toBe(
       `${String(CONFIG.SEARCH.INITIAL_RESULTS
-        * CONFIG.SEARCH.EXPANSION_FACTOR * 240)}px`,
+        * CONFIG.SEARCH.EXPANSION_FACTOR * 202)}px`,
     );
   });
 
@@ -1511,7 +1527,7 @@ describe('Search', () => {
     playlistMock.indexOf.mockReturnValue(7);
     const { view, handlers } = await openWith();
     await view.setQuery('one');
-    const tile = container.querySelector('.catalog-tile[data-channel-index="7"]') as HTMLElement;
+    const tile = container.querySelector('.search-channel-card[data-channel-index="7"]') as HTMLElement;
     tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(handlers.onPlayChannel).toHaveBeenCalledWith(7);
@@ -1541,7 +1557,7 @@ describe('Search', () => {
     await view.open(account, 'alpha');
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const hint = container.querySelector('.search-results .catalog-hint.search-empty');
+    const hint = container.querySelector('.search-results .search-hint');
     expect(hint?.textContent).toBe('Preparing search…');
     expect(container.textContent).not.toContain('No results');
     // No partial results: the channel already indexed stays hidden.
@@ -1555,7 +1571,7 @@ describe('Search', () => {
     finishVod([vod('10', 'Alpha Movie')]);
     await vi.waitFor(() => expect(container.textContent).toContain('Alpha Movie'));
     expect(container.textContent).not.toContain('Preparing search…');
-    expect(container.querySelector('.catalog-tile[data-channel-index="0"]')).not.toBeNull();
+    expect(container.querySelector('.search-channel-card[data-channel-index="0"]')).not.toBeNull();
     const [ready] = diagEvents(info, 'search.index.ready');
     expect(ready).toMatch(/mode=fallback channels=1 programmes=0 items=1 persisted=0 built=0 posted=2/);
     expect(Number(ready.match(/hintMs=(\d+)/)?.[1])).toBeGreaterThanOrEqual(40);
@@ -1584,7 +1600,7 @@ describe('Search', () => {
 
     finishVod([vod('10', 'Movie Two')]);
     await vi.waitFor(() => expect(handlers.onReleaseBox).toHaveBeenCalledTimes(1));
-    expect(container.querySelector('.catalog-tile[data-channel-index="0"]')?.classList.contains('focused'))
+    expect(container.querySelector('.search-channel-card[data-channel-index="0"]')?.classList.contains('focused'))
       .toBe(true);
     box.remove();
   });
@@ -1597,7 +1613,7 @@ describe('Search', () => {
     const view = new Search(container, mkHandlers());
     await view.open(account, 'alpha');
 
-    await vi.waitFor(() => expect(container.querySelector('.catalog-tile[data-channel-index="0"]')).not.toBeNull());
+    await vi.waitFor(() => expect(container.querySelector('.search-channel-card[data-channel-index="0"]')).not.toBeNull());
     expect(container.textContent).not.toContain('Preparing search…');
     error.mockRestore();
   });
@@ -1618,7 +1634,7 @@ describe('Search', () => {
       [CONFIG.SEARCH.INDEX_CHUNK_SIZE * 2, 5, total],
     ]);
     await view.setQuery(`channel ${total - 1}`);
-    expect(container.querySelector('.search-channel-row, [data-channel-index]')).not.toBeNull();
+    expect(container.querySelector('[data-channel-index]')).not.toBeNull();
   });
 
   it('re-indexes a stale catalog once its background refresh lands', async () => {
@@ -1759,7 +1775,7 @@ describe('Search', () => {
       expect((view as unknown as { workerIndexReady: boolean }).workerIndexReady).toBe(false);
 
       held.splice(0).forEach(release => release());
-      await vi.waitFor(() => expect(container.querySelector('.search-program-row')?.textContent)
+      await vi.waitFor(() => expect(container.querySelector('.search-program-card')?.textContent)
         .toContain('Evening Report'));
       expect(resets).toBe(1);
       expect((view as unknown as { workerIndexReady: boolean }).workerIndexReady).toBe(true);
@@ -1784,7 +1800,7 @@ describe('Search', () => {
     workerMock.run.mockClear();
 
     await view.refreshPrograms();
-    await vi.waitFor(() => expect(container.querySelector('.search-program-row')?.textContent)
+    await vi.waitFor(() => expect(container.querySelector('.search-program-card')?.textContent)
       .toContain('Late Report'));
     await new Promise(resolve => setTimeout(resolve, 50));
     const calls = workerMock.run.mock.calls;
@@ -1903,7 +1919,7 @@ describe('Search', () => {
     await view.setQuery('prime');
     expect(container.textContent).toContain('Alpha Prime');
     await view.setQuery('report');
-    expect(container.querySelector('.search-program-row')?.textContent).toContain('Alpha Prime');
+    expect(container.querySelector('.search-program-card')?.textContent).toContain('Alpha Prime');
     await view.setQuery('bravo');
     expect(container.textContent).toContain('Bravo Movie');
 
@@ -1933,7 +1949,7 @@ describe('Search', () => {
 
     await openWith();
     expect(persistMock).toHaveBeenCalledWith([
-      expect.objectContaining({ key: 'playlist-cache|offer|4|v1', prefix: 'playlist-cache|offer|' }),
+      expect.objectContaining({ key: 'playlist-cache|offer|4|v2', prefix: 'playlist-cache|offer|' }),
     ]);
   });
 
@@ -1967,7 +1983,7 @@ describe('Search', () => {
     expect(diagEvents(info, 'search.index.ready')[0]).toContain('mode=fallback');
 
     await view.setQuery('report');
-    expect(container.querySelector('.search-program-row')?.textContent).toContain('Evening Report');
+    expect(container.querySelector('.search-program-card')?.textContent).toContain('Evening Report');
     info.mockRestore();
   });
 
@@ -1977,7 +1993,7 @@ describe('Search', () => {
     epgMock.programmes = { Alpha: [prog('Evening Report', Date.now() + 3600000, Date.now() + 7200000)] };
     const { view } = await openWith();
     await view.setQuery('report');
-    const row = container.querySelector('.search-program-row');
+    const row = container.querySelector('.search-program-card');
     expect(row?.textContent).toContain('Evening Report');
     expect(row?.textContent).toContain('Alpha');
     expect(row?.textContent).toContain('Set reminder');
@@ -2003,7 +2019,7 @@ describe('Search', () => {
 
     expect(await Promise.all([older, newer])).toEqual([true, true]);
     await view.setQuery(`show ${total - 1}`);
-    expect(container.querySelector('.search-program-row')?.textContent).toContain(`Show ${total - 1}`);
+    expect(container.querySelector('.search-program-card')?.textContent).toContain(`Show ${total - 1}`);
   });
 
   it('runs a query typed while preparing once a program post is rejected', async () => {
@@ -2023,7 +2039,7 @@ describe('Search', () => {
       const info = vi.spyOn(console, 'log').mockImplementation(() => undefined);
       const view = new Search(container, mkHandlers());
       await view.open(null, 'report');
-      await vi.waitFor(() => expect(container.querySelector('.search-program-row')?.textContent)
+      await vi.waitFor(() => expect(container.querySelector('.search-program-card')?.textContent)
         .toContain('Evening Report'));
       expect(container.textContent).not.toContain('Preparing search…');
       expect(diagEvents(warn, 'search.index.lost'))
@@ -2133,7 +2149,7 @@ describe('Search', () => {
     });
     try {
       await view.refreshPrograms();
-      await vi.waitFor(() => expect(container.querySelector('.search-program-row')?.textContent)
+      await vi.waitFor(() => expect(container.querySelector('.search-program-card')?.textContent)
         .toContain('Late Report'));
     } finally {
       workerMock.run.mockImplementation(run);
@@ -2146,11 +2162,11 @@ describe('Search', () => {
     playlistMock.channels = [channel];
     const { view } = await openWith();
     await view.setQuery('report');
-    expect(container.querySelector('.search-program-row')).toBeNull();
+    expect(container.querySelector('.search-program-card')).toBeNull();
 
     epgMock.programmes = { Alpha: [prog('Late Report', Date.now() + 3600000, Date.now() + 7200000)] };
     await view.refreshPrograms();
-    expect(container.querySelector('.search-program-row')?.textContent).toContain('Late Report');
+    expect(container.querySelector('.search-program-card')?.textContent).toContain('Late Report');
   });
 
   it('refreshes a query typed while the initial program index is building', async () => {
@@ -2167,7 +2183,7 @@ describe('Search', () => {
     await view.setQuery('report');
     await opening;
 
-    expect(container.querySelector('.search-program-row')?.textContent)
+    expect(container.querySelector('.search-program-card')?.textContent)
       .toContain('Late Report');
   });
 
@@ -2200,7 +2216,7 @@ describe('Search', () => {
     const { view, handlers } = await openWith();
     await view.setQuery('report');
 
-    const rows = container.querySelectorAll<HTMLElement>('.search-program-row');
+    const rows = container.querySelectorAll<HTMLElement>('.search-program-card');
     rows[0].dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(handlers.onPlayChannel).toHaveBeenCalledWith(0, undefined);
@@ -2227,7 +2243,7 @@ describe('Search', () => {
     }]);
     const { view, handlers } = await openWith();
     await view.setQuery('past');
-    const row = container.querySelector('.search-program-row') as HTMLElement;
+    const row = container.querySelector('.search-program-card') as HTMLElement;
     row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(document.querySelector('.catchup-resume-prompt')?.classList.contains('hidden')).toBe(false);
@@ -2252,7 +2268,7 @@ describe('Search', () => {
     archiveMock.isAvailable.mockReturnValue(false);
     const { view, handlers } = await openWith();
     await view.setQuery('past');
-    const row = container.querySelector('.search-program-row') as HTMLElement;
+    const row = container.querySelector('.search-program-card') as HTMLElement;
     row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     await Promise.resolve();
@@ -2269,7 +2285,7 @@ describe('Search', () => {
     epgMock.programmes = { Alpha: [prog('Future Report', now + 60000, now + 120000)] };
     const { view } = await openWith();
     await view.setQuery('future');
-    const row = container.querySelector('.search-program-row') as HTMLElement;
+    const row = container.querySelector('.search-program-card') as HTMLElement;
     row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(reminderMock.add).toHaveBeenCalledWith(expect.objectContaining({
@@ -2303,7 +2319,7 @@ describe('Search', () => {
     await view.setQuery('one');
     view.focusFirstResult();
     Focus.flush();
-    expect(container.querySelector('.catalog-tile.focused')).not.toBeNull();
+    expect(container.querySelector('.search-channel-card.focused')).not.toBeNull();
   });
 
   it('returns to the search box when Up cannot move within the view', async () => {
@@ -2419,6 +2435,135 @@ describe('Search', () => {
   });
 });
 
+describe('Search recent searches', () => {
+  const hover = (el: Element | null) =>
+    el!.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+
+  it('shows recent searches as chips while the query is empty, and none once typed', async () => {
+    storageMock.getSearchHistory.mockReturnValue(['one', 'Movie']);
+    const { view } = await openWith();
+    const chips = () => Array.from(container.querySelectorAll('.search-recent-chip'))
+      .map(chip => chip.textContent?.trim());
+    expect(container.querySelector('.search-recent .search-section-title')?.textContent).toBe('Recent searches');
+    expect(chips()).toEqual(['one', 'Movie']);
+    expect(container.querySelector('.search-recent-chip svg')).not.toBeNull();
+    await view.setQuery('one');
+    expect(chips()).toEqual([]);
+    await view.setQuery('');
+    expect(chips()).toEqual(['one', 'Movie']);
+  });
+
+  it('renders nothing under the box without recent searches', async () => {
+    const { view } = await openWith();
+    expect(container.querySelector('.search-recent')).toBeNull();
+    expect(view.focusRecent()).toBe(false);
+  });
+
+  it('runs a recent search on OK and by pointer, logging only its position', async () => {
+    storageMock.getSearchHistory.mockReturnValue(['one', 'Movie']);
+    const debug = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const { view, handlers } = await openWith();
+    expect(view.focusRecent()).toBe(true);
+    view.handleAction('select');
+    expect(handlers.onPickRecent).toHaveBeenCalledWith('one');
+    const events = diagEvents(debug, 'search.history.picked');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toContain('count=1');
+    expect(events[0]).not.toContain('one ');
+
+    const chip = container.querySelectorAll('.search-recent-chip')[1];
+    const orig = document.elementFromPoint;
+    document.elementFromPoint = () => chip;
+    container.dispatchEvent(new MouseEvent('click', { clientX: 10, clientY: 10, bubbles: true }));
+    document.elementFromPoint = orig;
+    expect(handlers.onPickRecent).toHaveBeenLastCalledWith('Movie');
+    debug.mockRestore();
+  });
+
+  it('goes from the top row straight to the box with Up, and reaches clear with Right', async () => {
+    storageMock.getSearchHistory.mockReturnValue(['one']);
+    const { view, handlers } = await openWith();
+    Focus.setBase(() => view.focusScope);
+    view.focusRecent();
+    view.handleAction('up');
+    expect(handlers.onFocusBox).toHaveBeenCalledTimes(1);
+
+    view.focusRecent();
+    view.handleAction('right');
+    Focus.flush();
+    expect(container.querySelector('[data-history-clear]')?.classList.contains('focused')).toBe(true);
+    view.handleAction('down');
+    Focus.flush();
+    expect(container.querySelector('.search-recent-chip')?.classList.contains('focused')).toBe(true);
+  });
+
+  it('clears the history from its button and hands the keys to the box', async () => {
+    storageMock.getSearchHistory.mockReturnValue(['one']);
+    const { view, handlers } = await openWith();
+    hover(container.querySelector('[data-history-clear]'));
+    storageMock.getSearchHistory.mockReturnValue([]);
+    view.handleAction('select');
+    expect(storageMock.clearSearchHistory).toHaveBeenCalled();
+    expect(container.querySelector('.search-recent')).toBeNull();
+    expect(handlers.onFocusBox).toHaveBeenCalled();
+  });
+});
+
+describe('Search results', () => {
+  it('heads each rail with its match count, beyond the results kept', async () => {
+    const many = Array.from({ length: CONFIG.SEARCH.INITIAL_RESULTS + 30 }, (_, i) => vod(String(i), `Movie ${i}`));
+    const { view } = await openWith({ vod: many, series: [ser('s1', 'Movie Series')] });
+    await view.setQuery('movie');
+    expect(container.querySelector('.search-section-movies .search-section-count')?.textContent)
+      .toBe(String(CONFIG.SEARCH.INITIAL_RESULTS + 30));
+    expect(container.querySelector('.search-section-series .search-section-count')?.textContent).toBe('1');
+  });
+
+  it('highlights the matched text of untrusted names without interpreting markup', async () => {
+    const { view } = await openWith({ vod: [vod('1', '<img src=x onerror=alert(1)>Alpha')] });
+    await view.setQuery('alp');
+    const name = container.querySelector('.catalog-tile[data-stream-id="1"] .catalog-tile-name')!;
+    expect(name.querySelector('img')).toBeNull();
+    expect(name.querySelector('mark.search-match')?.textContent).toBe('Alp');
+    expect(name.textContent).toBe('<img src=x onerror=alert(1)>Alpha');
+  });
+
+  it('finds a title written with another alef form and highlights it', async () => {
+    const { view } = await openWith({ vod: [vod('1', 'فيلم أحمد'), vod('2', 'Bravo')] });
+    await view.setQuery('احمد');
+    expect(container.querySelectorAll('.catalog-tile[data-stream-id]')).toHaveLength(1);
+    expect(container.querySelector('.catalog-tile[data-stream-id="1"] mark')?.textContent).toBe('أحمد');
+  });
+
+  it('shows the program on now under a channel card', async () => {
+    playlistMock.channels = [chan('Channel One')];
+    epgMock.getNowPlaying.mockReturnValue(prog('Evening Report', Date.now() - 1000, Date.now() + 1000));
+    const { view } = await openWith();
+    await view.setQuery('one');
+    expect(container.querySelector('.search-channel-card .search-card-sub')?.textContent).toBe('Evening Report');
+  });
+
+  it('asks the worker to rank favorite and recently watched items first', async () => {
+    const channels = [chan('Alpha'), chan('Alpha One'), chan('Alpha Two')];
+    playlistMock.channels = channels;
+    playlistMock.indexOf.mockImplementation((ch: unknown) => channels.indexOf(ch as typeof channels[number]));
+    playlistMock.getByGroup.mockReturnValue([channels[2]]);
+    storageMock.getResumeList.mockReturnValue([{ kind: 'vod', itemId: '3' }]);
+    const { view } = await openWith({ vod: [vod('1', 'Alpha'), vod('2', 'Alpha Two'), vod('3', 'Alpha Three')] });
+    await view.setQuery('alpha');
+    const request = workerMock.run.mock.calls
+      .filter(call => call[0] === 'search.query')
+      .map(call => call[1] as SearchQueryRequest)
+      .pop();
+    expect(request?.boost).toEqual({ channels: [2], movies: [2], series: [] });
+    expect(request?.fuzzyBelow).toBe(CONFIG.SEARCH.INITIAL_RESULTS);
+    expect(Array.from(container.querySelectorAll('[data-search-section="channels"] [data-channel-index]'))
+      .map(el => (el as HTMLElement).dataset.channelIndex)).toEqual(['0', '2', '1']);
+    expect(Array.from(container.querySelectorAll('[data-search-section="movies"] [data-stream-id]'))
+      .map(el => (el as HTMLElement).dataset.streamId)).toEqual(['1', '3', '2']);
+  });
+});
+
 describe('Search (M3U-only, no account)', () => {
   async function openM3U() {
     const handlers = mkHandlers();
@@ -2433,17 +2578,17 @@ describe('Search (M3U-only, no account)', () => {
     expect(catalogMock.loadAllSeries).not.toHaveBeenCalled();
   });
 
-  it('renders channel results as a vertical list (no poster rails)', async () => {
+  it('renders channel results as a counted rail of wide cards', async () => {
     playlistMock.channels = [chan('Alpha News'), chan('Beta News')];
     playlistMock.indexOf.mockImplementation((ch: { name: string }) => (ch.name === 'Alpha News' ? 0 : 1));
     const { view } = await openM3U();
     await view.setQuery('news');
-    expect(container.querySelectorAll('.search-channel-row').length).toBe(2);
-    expect(container.querySelector('.catalog-rail')).toBeNull();
-    expect(container.querySelector('.search-channels .catalog-rail-title')?.textContent).toBe('Channels');
-    const cells = container.querySelectorAll<HTMLElement>('.search-virtual-list-cell');
-    expect(cells[0].style.top).toBe('0px');
-    expect(cells[1].style.top).toBe('88px');
+    expect(container.querySelectorAll('.search-channel-card').length).toBe(2);
+    expect(container.querySelector('.search-section-channels .search-section-title')?.textContent)
+      .toBe('Channels2');
+    const cells = container.querySelectorAll<HTMLElement>('[data-search-section="channels"]');
+    expect(cells[0].style.left).toBe('0px');
+    expect(cells[1].style.left).toBe('322px');
   });
 
   it('plays a channel row on select', async () => {
@@ -2451,7 +2596,7 @@ describe('Search (M3U-only, no account)', () => {
     playlistMock.indexOf.mockReturnValue(3);
     const { view, handlers } = await openM3U();
     await view.setQuery('news');
-    const row = container.querySelector('.search-channel-row') as HTMLElement;
+    const row = container.querySelector('.search-channel-card') as HTMLElement;
     row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(handlers.onPlayChannel).toHaveBeenCalledWith(3);
@@ -2462,7 +2607,7 @@ describe('Search (M3U-only, no account)', () => {
     playlistMock.indexOf.mockReturnValue(5);
     const { handlers, view } = await openM3U();
     await view.setQuery('news');
-    const row = container.querySelector('.search-channel-row') as HTMLElement;
+    const row = container.querySelector('.search-channel-card') as HTMLElement;
     const orig = document.elementFromPoint;
     document.elementFromPoint = () => row;
     container.dispatchEvent(new MouseEvent('click', { clientX: 100, clientY: 50, bubbles: true }));

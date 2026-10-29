@@ -68,6 +68,27 @@ export function stripCombiningDiacritics(value: string): string {
   return value.replace(COMBINING_DIACRITIC_MARKS_RE, '');
 }
 
+// Spellings of one Arabic word differ in hamza seats, final letters, tatweel,
+// harakat, and digit script. NFD has already split أ إ آ into ا plus a mark
+// in U+0653-U+0655, which this drops with the other harakat.
+const ARABIC_FOLD_RE = /[\u0629\u0640\u0649\u064B-\u065F\u0660-\u0669\u0670\u0671\u06F0-\u06F9]/g;
+
+function foldArabicChar(char: string): string {
+  const code = char.charCodeAt(0);
+  if (code === 0x0629) return '\u0647';
+  if (code === 0x0649) return '\u064A';
+  if (code === 0x0671) return '\u0627';
+  if (code >= 0x0660 && code <= 0x0669) return String(code - 0x0660);
+  if (code >= 0x06F0 && code <= 0x06F9) return String(code - 0x06F0);
+  return '';
+}
+
+/** Unifies Arabic letter variants, strips tatweel and harakat, and maps
+ *  Arabic-Indic and Persian digits to ASCII. Expects NFD input. */
+export function foldArabic(value: string): string {
+  return value.replace(ARABIC_FOLD_RE, foldArabicChar);
+}
+
 export function splitLetterNumberTokens(value: string): string[] {
   return value.split(LETTER_NUMBER_SEPARATOR_RE).filter(Boolean);
 }

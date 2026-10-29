@@ -23,8 +23,9 @@ vi.mock('./idb-cache', () => ({
 vi.mock('./xtream-catalog', () => ({ onCatalogListRefreshed: () => () => undefined }));
 
 import { SearchIndexPrewarmer, persistSearchIndexes } from './search-index-store';
+import { SEARCH_INDEX_FORMAT } from '../workers/search-source-index';
 
-const INDEX_KEY = 'catalog-cache|x1|vod_all|1|v1';
+const INDEX_KEY = `catalog-cache|x1|vod_all|1|v${String(SEARCH_INDEX_FORMAT)}`;
 const candidate = { key: INDEX_KEY, prefix: 'catalog-cache|x1|vod_all|', bytes: 10 };
 
 interface Request {

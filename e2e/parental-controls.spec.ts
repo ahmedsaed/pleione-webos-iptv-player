@@ -1099,7 +1099,7 @@ test('relocking drops hidden channels from open search results', async ({ page }
 
   await enterTab(page, 'search');
   await page.locator('.search-box-input').fill('channel');
-  const rows = page.locator('#view-search .search-channel-row');
+  const rows = page.locator('#view-search .search-channel-card');
   await expect(rows.filter({ hasText: 'Channel One' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'Channel Two' })).toHaveCount(1);
 
@@ -1120,7 +1120,7 @@ test('relocking while recent searches are open keeps movies in the next search',
   await page.locator('[data-parental-back]').click();
 
   await enterTab(page, 'search');
-  const tile = page.locator('.search-history-dropdown .search-history-tile');
+  const tile = page.locator('#view-search .search-recent-chip');
   await expect(tile).toHaveText(['Movie']);
   await lockNow(page);
 

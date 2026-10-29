@@ -1,61 +1,57 @@
-/* Search results: a query box over Channels / Programs / Movies / Series.
-   The poster rails reuse the shared catalog tile/poster visuals; these are the
-   search-only bits (the query box and the M3U vertical channel list). */
-.search-view {
-  width: var(--canvas-width);
-  height: 100%;
-  box-sizing: border-box;
-  padding: 40px 80px 60px;
-  overflow-y: auto;
-}
-/* Rails bleed to both screen edges, posters resting on the left keyline;
-   other results keep the view's margins. */
-.search-view:not(.search-lists) .catalog-rail-track {
-  margin-left: -80px;
-  margin-right: -80px;
-  padding-left: 80px;
-}
-/* The query box sits above the results, which fill the rest of the view. */
+/* Search: a centered query box over recent searches (empty query) or one
+   counted rail per result kind: Channels / Programs / Movies / Series.
+   The poster rails reuse the shared catalog tile visuals. */
 .search-layout {
   display: flex;
   flex-direction: column;
   height: 100%;
+  background:
+    radial-gradient(1100px 600px at 50% -10%, rgba(91, 79, 230, 0.28), transparent 65%),
+    var(--bg-primary);
+}
+html[data-theme="daylight"] .search-layout,
+html[data-theme="pastel-latte"] .search-layout,
+html[data-theme="paper-light"] .search-layout {
+  background:
+    radial-gradient(1100px 600px at 50% -10%, rgba(91, 79, 230, 0.16), transparent 65%),
+    var(--bg-primary);
 }
 .search-box-host {
   flex: none;
-  padding: 40px 80px 0;
+  padding: 72px 80px 0;
 }
 .search-results-host {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
 }
-.search-results-host > .search-view {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  padding-top: 24px;
-}
+
+/* The query box: a wide pill centered on the screen. */
 .search-box {
   display: flex;
   align-items: center;
-  max-width: 1000px;
-  height: 72px;
-  padding: 0 24px;
+  width: 1100px;
+  max-width: 100%;
+  height: 84px;
+  margin: 0 auto;
+  padding: 0 34px;
   box-sizing: border-box;
   background: var(--catalog-surface);
-  border: 3px solid var(--catalog-control);
-  border-radius: 12px;
+  border: 2px solid var(--border);
+  border-radius: 42px;
 }
 /* The caret is in the box: its keys go there. */
-.search-box.active { border-color: var(--accent); }
+.search-box.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent), 0 0 34px rgb(var(--accent-rgb) / 0.35);
+}
 .search-box-icon {
   display: flex;
   flex: none;
-  margin-right: 16px;
+  margin-right: 22px;
   color: var(--text-secondary);
 }
+.search-box.active .search-box-icon { color: var(--text-primary); }
 .search-box-icon svg {
   width: 36px;
   height: 36px;
@@ -66,277 +62,234 @@
   height: 100%;
   padding: 0;
   font-family: inherit;
-  font-size: 30px;
+  font-size: 32px;
   color: var(--text-primary);
   background: transparent;
   border: none;
   outline: none;
 }
-.search-results { display: block; }
-.search-empty { margin-top: 40px; }
+.search-box-input::placeholder { color: var(--text-secondary); }
 
-.search-virtual-section { margin-bottom: 28px; }
-
-/* The section height comes from the virtual spacer (sized inline to the full
-   list), capped here — a short result set must not reserve a full-height box. */
-.search-virtual-scroll {
-  position: relative;
-  max-height: 420px;
+/* Results start right under the box, so the top rows stay above the
+   system keyboard while it is open. */
+.search-view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--canvas-width);
+  height: 100%;
+  box-sizing: border-box;
+  padding: 54px 0 60px;
   overflow-y: auto;
+}
+.search-results { display: block; }
+
+/* Messages and recent searches line up under the box. */
+.search-hint,
+.search-recent {
+  width: 1100px;
+  max-width: calc(100% - 160px);
+  margin: 10px auto 0;
+  box-sizing: border-box;
+}
+.search-hint {
+  font-size: 24px;
+  color: var(--text-secondary);
+}
+
+.search-section { margin-bottom: 36px; }
+.search-section-title {
+  margin: 0 0 18px;
+  padding: 0 80px;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.search-section-count {
+  /* Both sides: an Arabic title puts the count on its left. */
+  margin: 0 16px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+/* Rails bleed to both screen edges, cards resting on the 80px keyline; the
+   vertical padding (taken back by the margins) keeps the focus ring and the
+   poster's scale clear of the scroller's clip. */
+.search-rail {
+  position: relative;
+  margin: -20px 0;
+  padding: 20px 80px;
+  overflow-x: auto;
+  overflow-y: hidden;
   overflow-anchor: none;
 }
-
-/* M3U-only results are one or two vertical lists that own the whole view, so
-   they share its height and bottom padding instead of stopping at the cap
-   above: a lone Channels list fills the screen, and with Programs alongside
-   it the two shrink in proportion to their contents. */
-.search-view.search-lists { padding-bottom: 0; }
-.search-lists .search-results {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-.search-lists .search-virtual-section {
-  display: flex;
-  flex-direction: column;
-  flex: 0 1 auto;
-  min-height: 0;
-}
-.search-lists .search-virtual-section:last-child { margin-bottom: 0; }
-.search-lists .search-virtual-scroll {
-  flex: 0 1 auto;
-  min-height: 0;
-  max-height: none;
-}
-.search-lists-mixed .search-channels {
-  flex-shrink: 0;
-  max-height: 462px;
-}
-.search-lists-mixed .search-channels .search-virtual-scroll {
-  max-height: 420px;
-}
-.search-virtual-list-spacer,
-.search-virtual-rail-spacer {
+.search-rail-spacer {
   position: relative;
-}
-.search-virtual-list-cell {
-  position: absolute;
-  left: 0;
-  right: 0;
-  box-sizing: border-box;
-}
-/* Rail cells are absolutely positioned, so the spacer carries the row height:
-   poster tile (330 + 10 margin + 31 name line) by default, and the shorter
-   landscape channel tile (124 logo) for the channel rail. */
-.search-virtual-rail-spacer {
   flex: 0 0 auto;
-  height: 371px;
+  height: calc(120px * var(--font-scale));
 }
-.search-channel-rail .search-virtual-rail-spacer { height: 165px; }
-.search-virtual-rail-cell {
+/* Poster (270) + 10 margin + one name line. */
+.search-section-movies .search-rail-spacer,
+.search-section-series .search-rail-spacer {
+  height: calc(280px + 31px * var(--font-scale));
+}
+.search-rail-cell {
   position: absolute;
   top: 0;
-  width: 220px;
 }
 
-/* Channel results carry 16:9-ish logos, not portrait posters — use a landscape
-   box and contain the logo so it isn't cropped. */
-.search-channel-tile .catalog-poster-wrap { height: 124px; }
-.search-channel-tile .catalog-poster { object-fit: contain; }
-
-/* M3U-only Search: a vertical list of channel rows (Xtream uses the poster
-   rails above). */
-.search-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.search-channels { margin-bottom: 28px; }
-.search-channel-row {
+/* Channel and program cards: wide tiles with a logo or a time line. */
+.search-card {
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 12px 20px;
+  width: 300px;
+  height: calc(120px * var(--font-scale));
+  padding: 0 20px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--catalog-surface);
   border: 2px solid transparent;
-  border-radius: 8px;
+  border-radius: 14px;
   cursor: pointer;
 }
-.search-channel-row.focused {
-  background: var(--bg-tertiary);
-  border-color: var(--focus-ring);
-}
-.search-row-logo {
-  width: 84px;
-  height: 52px;
-  object-fit: contain;
-  flex: none;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 4px;
-}
-.search-row-logo-empty {
+.search-program-card { width: 420px; }
+.search-card-logo {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  font-size: 26px;
-  font-weight: 700;
-  color: var(--text-secondary);
-}
-.search-row-name {
-  font-size: 30px;
-  color: var(--text-primary);
-}
-
-.search-programs { margin: 0 0 28px; }
-.search-program-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.search-program-row {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  min-height: 72px;
-  padding: 12px 20px;
-  border: 2px solid transparent;
-  border-radius: 8px;
-  background: var(--catalog-surface);
-  cursor: pointer;
-}
-.search-program-row.focused {
-  border-color: var(--focus-ring);
-  background: var(--bg-tertiary);
-}
-.search-program-time {
-  width: 150px;
-  flex: none;
-  font-size: 21px;
-  line-height: 1.35;
-  color: var(--text-secondary);
-}
-.search-program-body {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.search-program-title {
+  width: 72px;
+  height: 72px;
+  margin-right: 18px;
   overflow: hidden;
-  font-size: 28px;
-  color: var(--text-primary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.search-program-channel {
-  overflow: hidden;
-  margin-top: 4px;
-  font-size: 21px;
-  color: var(--text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.search-program-action {
-  flex: none;
-  padding: 8px 14px;
-  border-radius: 6px;
-  font-size: 20px;
-  color: var(--text-primary);
+  border-radius: 14px;
   background: var(--catalog-control);
+  font-size: 30px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
-.search-program-row.state-live .search-program-action {
-  color: #fff;
-  background: var(--accent);
+.search-card-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.search-card-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.search-card-title,
+.search-card-sub,
+.search-program-action {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-card-title {
+  font-size: 24px;
+  color: var(--text-primary);
+}
+.search-card-sub,
+.search-program-action {
+  margin-top: 2px;
+  font-size: 20px;
+  color: var(--text-secondary);
+}
+.search-program-card.state-live .search-program-action { color: var(--accent); }
+
+/* Movies and series: catalog posters, a size down to fit more per row. */
+.catalog-tile.search-poster-tile { width: 180px; }
+.search-poster-tile .catalog-poster-wrap {
+  width: 180px;
+  height: 270px;
+}
+.search-poster-tile .catalog-poster-empty { font-size: 56px; }
+/* One focus color on the screen: the box's and the cards'. */
+.catalog-tile.search-poster-tile.focused .catalog-poster-wrap {
+  outline-color: var(--focus-ring);
+  box-shadow: 0 0 0 6px var(--accent-glow), 0 10px 24px rgba(0, 0, 0, 0.6);
 }
 
-/* Recent searches: a translucent panel hung from the empty search box over
-   a dimmed view. The scrim stops below the box (set inline), which stays live.
-   Margins instead of flex `gap` so wrapped rows keep their spacing on
-   gap-less engines; legacy-webos-overrides.css makes the panel opaque where
-   backdrop-filter is missing. */
-.search-history-scrim {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 61;
-  background: rgba(0, 0, 0, 0.45);
+/* The matched part of a name. */
+.search-match {
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
 }
-.search-history-panel {
-  position: fixed;
-  z-index: 62;
-  box-sizing: border-box;
-  min-width: calc(600px * var(--font-scale));
-  max-width: 1200px;
-  padding: 20px 24px 12px;
-  background: rgb(var(--catalog-hero-scrim-rgb) / 0.82);
-  backdrop-filter: blur(24px);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-}
-.search-history-scrim,
-.search-history-panel {
-  animation: search-history-in 150ms ease-out;
-}
-@keyframes search-history-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.search-history-head {
+
+/* Recent searches: one-press chips under the empty box. Margins instead of
+   flex `gap` so wrapped rows keep their spacing on gap-less engines. */
+.search-recent-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  height: calc(32px * var(--font-scale));
+  margin-bottom: 18px;
 }
-.search-history-title {
+.search-recent-head .search-section-title {
   margin: 0 24px 0 0;
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  white-space: nowrap;
+  padding: 0;
 }
-.search-history-tiles {
+.search-recent-chips {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  margin: 0 -16px -16px 0;
 }
-.search-history-tile,
-.search-history-clear {
-  max-width: 100%;
-  box-sizing: border-box;
-  border: 2px solid transparent;
-  border-radius: var(--radius);
-  white-space: nowrap;
-}
-.search-history-tile {
-  height: 56px;
-  margin: 0 12px 12px 0;
-  padding: 0 20px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 52px;
-  font-size: 24px;
-  /* Mid-grey veil: lifts a tile off dark panels and sinks it into light
-     ones, where the panel's own tones sit too close together. */
-  background: rgba(128, 128, 128, 0.2);
-  color: var(--text-primary);
-}
-.search-history-clear {
+.search-recent-chip {
   display: flex;
   align-items: center;
-  flex: none;
-  height: 48px;
-  padding: 0 16px;
-  margin-right: -16px;
-  font-size: 22px;
-  color: var(--text-secondary);
+  max-width: 100%;
+  height: 58px;
+  margin: 0 16px 16px 0;
+  padding: 0 28px;
+  box-sizing: border-box;
+  overflow: hidden;
+  font-size: 24px;
+  white-space: nowrap;
+  color: var(--text-primary);
+  background: var(--catalog-control);
+  border: 2px solid transparent;
+  border-radius: 999px;
 }
-.search-history-clear svg {
+.search-recent-chip svg {
+  flex: none;
+  width: calc(24px * var(--font-scale));
+  height: calc(24px * var(--font-scale));
+  margin-right: 12px;
+  opacity: 0.7;
+}
+.search-recent-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-recent-chip.focused {
+  color: #fff;
+  background: var(--accent-dim);
+}
+.search-recent-chip.focused svg { opacity: 1; }
+.search-recent-clear {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 48px;
+  margin-right: -16px;
+  padding: 0 16px;
+  box-sizing: border-box;
+  font-size: 22px;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+}
+.search-recent-clear svg {
+  flex: none;
   width: calc(26px * var(--font-scale));
   height: calc(26px * var(--font-scale));
-  flex: none;
   margin-right: 8px;
 }
-.search-history-clear.focused {
+.search-recent-clear.focused {
   color: #fff;
   background: var(--danger);
   border-color: var(--danger) !important;

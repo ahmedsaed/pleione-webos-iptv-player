@@ -1469,10 +1469,9 @@ try {
     await context.close();
   }
 
-  // 11) Search — one query across Channels · Movies · Series. The Search tab
-  //     expands an inline input in the tab bar that drives the results view.
-  //     The recent-searches dropdown only shows on an empty query, so it is
-  //     captured first and laid back over the results (screenshot-only).
+  // 11) Search — one query across Channels · Programs · Movies · Series, each
+  //     a counted rail under the centered box, with the matched text in the
+  //     accent color.
   {
     const { context, page } = await newPage({ xtream: true });
     await page.addInitScript((history) => {
@@ -1481,41 +1480,12 @@ try {
     await gotoChannels(page, base);
     await enterTab(page, 'search');
     await page.locator('.search-box-input').waitFor({ state: 'visible' });
-    await page.locator('.search-history-panel').waitFor({ state: 'visible', timeout: 10_000 });
-    await page.keyboard.press('ArrowDown');
-    await page.locator('.search-history-tile.focused').waitFor({ state: 'visible' });
-    const historyHtml = await page.locator('.search-history-dropdown').innerHTML();
+    await page.locator('#view-search .search-recent-chip').first().waitFor({ state: 'visible', timeout: 10_000 });
     await page.locator('.search-box-input').fill('or'); // matches channels, movies, series
-    await page.locator('#view-search .catalog-rail-title').first().waitFor({ state: 'visible', timeout: 10_000 });
+    await page.locator('#view-search .search-section-title').first().waitFor({ state: 'visible', timeout: 10_000 });
     await page.locator('#view-search .catalog-tile[data-stream-id]').first().waitFor({ state: 'visible', timeout: 10_000 });
-    await page.locator('#view-search .search-program-row', { hasText: 'Reminder set' })
+    await page.locator('#view-search .search-program-card', { hasText: 'Reminder set' })
       .waitFor({ state: 'visible', timeout: 10_000 });
-    // Keep three program results (including the reminder one) — the rows are
-    // virtual cells now, so hiding one must also close its absolute slot.
-    await page.locator('#view-search .search-programs .search-virtual-list-cell').evaluateAll((cells) => {
-      const reminder = cells.find(
-        (cell) => cell.querySelector('.search-program-action')?.textContent === 'Reminder set');
-      if (!reminder) throw new Error('Search screenshot reminder result is missing');
-      const keep = [];
-      for (const cell of cells) {
-        if (cell !== reminder && keep.length < 2) keep.push(cell);
-      }
-      keep.push(reminder);
-      const stride = cells.length > 1
-        ? parseFloat(cells[1].style.top) - parseFloat(cells[0].style.top)
-        : reminder.getBoundingClientRect().height;
-      for (const cell of cells) cell.style.display = 'none';
-      keep.forEach((cell, i) => {
-        cell.style.display = '';
-        cell.style.top = `${i * stride}px`;
-      });
-      const spacer = cells[0].parentElement;
-      if (spacer) spacer.style.height = `${keep.length * stride}px`;
-    });
-    await page.locator('.search-history-dropdown').evaluate((root, html) => {
-      root.innerHTML = html;
-      root.classList.remove('hidden', 'search-history-dropdown--menu');
-    }, historyHtml);
     await page.waitForTimeout(800);
     await clearToasts(page);
     await shoot(page, 'search.png');

@@ -62,7 +62,7 @@ test('selecting a group filters the channel list', async ({ page }) => {
   await expect(page.locator('.channel-main')).not.toContainText('Delta Sports');
 });
 
-test('M3U-only Search (from the side menu) filters channels into a vertical list', async ({ page }) => {
+test('M3U-only Search (from the side menu) filters channels into a rail of cards', async ({ page }) => {
   await routePlaylist(page, SEARCH_M3U);
   await seedPlaylist(page);
   await page.goto('/');
@@ -71,11 +71,11 @@ test('M3U-only Search (from the side menu) filters channels into a vertical list
   await enterTab(page, 'search');
   await expect(page.locator('.search-box-input')).toBeFocused();
   await page.locator('.search-box-input').fill('alpha');
-  // Channels-only, rendered as a vertical list (no poster rails).
-  await expect(page.locator('.search-channel-row')).toHaveCount(2);
+  // Channels only: no movie or series rails without an Xtream account.
+  await expect(page.locator('.search-channel-card')).toHaveCount(2);
   await expect(page.locator('#view-search')).toBeVisible();
   await expect(page.locator('.search-results')).toContainText('Alpha News');
-  await expect(page.locator('.catalog-rail')).toHaveCount(0);
+  await expect(page.locator('.search-section-movies, .search-section-series')).toHaveCount(0);
 });
 
 test('M3U-only Search: a pointer click plays the channel', async ({ page }) => {
@@ -88,11 +88,11 @@ test('M3U-only Search: a pointer click plays the channel', async ({ page }) => {
   await enterTab(page, 'search');
   await expect(page.locator('.search-box-input')).toBeFocused();
   await page.locator('.search-box-input').fill('alpha');
-  await expect(page.locator('.search-channel-row')).toHaveCount(2);
+  await expect(page.locator('.search-channel-card')).toHaveCount(2);
 
   // Dispatch a click at the row's center, which the view activates by coordinate
   // hit-test.
-  await page.locator('.search-channel-row').first().evaluate((el) => {
+  await page.locator('.search-channel-card').first().evaluate((el) => {
     const r = el.getBoundingClientRect();
     el.dispatchEvent(new MouseEvent('click', {
       clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true,
@@ -116,32 +116,6 @@ test('channel rows fit both text lines in their fixed box', async ({ page }) => 
     'channel-now',
   );
   expect(fit.needed).toBeLessThanOrEqual(fit.available);
-});
-
-// Each result section has its own scroll box, so a lone Channels list has to
-// fill the view rather than stop at the height a second section would need.
-test('M3U-only Search fills the view when Channels is the only section', async ({ page }) => {
-  const many = ['#EXTM3U'];
-  for (let i = 0; i < 12; i++) {
-    many.push(`#EXTINF:-1 group-title="News",Alpha ${i}`, `http://streams.example.com/${i}.m3u8`);
-  }
-  await routePlaylist(page, many.join('\n'));
-  await seedPlaylist(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-
-  await enterTab(page, 'search');
-  await page.locator('.search-box-input').fill('alpha');
-  await expect(page.locator('#view-search')).toBeVisible();
-
-  const fill = await page.locator('.search-virtual-scroll').evaluate((el) => {
-    const view = el.closest('.search-view') as HTMLElement;
-    const available = view.clientHeight
-      - (el.getBoundingClientRect().top - view.getBoundingClientRect().top)
-      - parseFloat(getComputedStyle(view).paddingBottom);
-    return { height: el.getBoundingClientRect().height, available };
-  });
-  expect(fill.height).toBeGreaterThan(fill.available - 4);
 });
 
 test('the list follows the playing channel however it was tuned', async ({ page }) => {

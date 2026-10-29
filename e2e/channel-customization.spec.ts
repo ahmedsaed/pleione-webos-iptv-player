@@ -274,7 +274,7 @@ test('leaving edit mode through the side menu keeps hidden channels out of Searc
   await enterTab(page, 'search');
   await page.locator('.search-box-input').fill('Beta News');
 
-  await expect(page.locator('.search-channel-row')).toHaveCount(0);
+  await expect(page.locator('.search-channel-card')).toHaveCount(0);
   await expect(page.locator('.edit-hints')).toHaveCount(0);
 });
 
