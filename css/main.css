@@ -6,7 +6,6 @@
   --text-primary: #e8e8e8;
   --text-secondary: #a0a0b0;
   --text-muted: #666680;
-  --scrollbar-thumb: #666680;
   --accent: #00d4ff;
   --accent-dim: #0088aa;
   --accent-rgb: 0 212 255;
@@ -104,7 +103,6 @@
 }
 
 html[data-animation="essential"] .tab-bar-search-input,
-html[data-animation="essential"] .channel-scroll-thumb,
 html[data-animation="essential"] .epg-mapping-list,
 html[data-animation="essential"] .channel-health-progress-fill,
 html[data-animation="essential"] .osd-progress-bar {
@@ -379,18 +377,9 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
   font-size: 28px;
 }
 
-/* Scrollbar styling */
+/* TV lists scroll with focus; no surface shows a scrollbar. */
 ::-webkit-scrollbar {
-  width: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 3px;
+  display: none;
 }
 
 #video-player {

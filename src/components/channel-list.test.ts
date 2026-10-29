@@ -89,7 +89,6 @@ import { Focus, Tier, type FocusScope } from '../navigation/focus-scope';
 import { ringsIn } from '../navigation/focus-ring';
 import { morph } from '../utils/morph';
 import { html } from '../utils/dom';
-import { CONFIG } from '../config';
 import { setLocale } from '../i18n';
 import { channelKey } from '../utils/channel';
 import { UNCATEGORIZED_GROUP } from '../types';
@@ -228,40 +227,15 @@ describe('ChannelList.render', () => {
     expect(container.querySelector('.preview-list-hints')?.innerHTML).toBe(hints);
   });
 
-  it('shows the preview scrollbar while scrolling and hides it after a delay', () => {
-    vi.useFakeTimers();
+  it('draws no scroll indicator of its own in preview', () => {
     document.body.classList.add('has-live-preview');
     try {
       list.render();
-      const main = container.querySelector<HTMLElement>('.channel-main')!;
-      const indicator = container.querySelector<HTMLElement>('.channel-scroll-indicator')!;
-      const thumb = indicator.querySelector<HTMLElement>('.channel-scroll-thumb')!;
-      Object.defineProperties(main, {
-        clientHeight: { configurable: true, value: 400 },
-        scrollHeight: { configurable: true, value: 1000 },
-        scrollTop: { configurable: true, value: 200, writable: true },
-      });
-      Object.defineProperty(indicator, 'clientHeight', { configurable: true, value: 300 });
-
-      main.dispatchEvent(new Event('scroll'));
-
-      expect(indicator.classList.contains('visible')).toBe(true);
-      expect(thumb.style.height).toBe('120px');
-      expect(thumb.style.transform).toBe('translateY(60px)');
-      vi.advanceTimersByTime(CONFIG.CHANNEL_SCROLLBAR_HIDE_MS);
-      expect(indicator.classList.contains('visible')).toBe(false);
+      container.querySelector<HTMLElement>('.channel-main')!.dispatchEvent(new Event('scroll'));
+      expect(container.querySelector('.channel-scroll-indicator, .channel-scroll-thumb')).toBeNull();
     } finally {
       document.body.classList.remove('has-live-preview');
-      vi.useRealTimers();
     }
-  });
-
-  it('does not activate the custom scrollbar outside preview', () => {
-    list.render();
-    const main = container.querySelector<HTMLElement>('.channel-main')!;
-    main.dispatchEvent(new Event('scroll'));
-    expect(container.querySelector('.channel-scroll-indicator')?.classList.contains('visible'))
-      .toBe(false);
   });
 
   // With no channels the entry point falls through to the first focusable,

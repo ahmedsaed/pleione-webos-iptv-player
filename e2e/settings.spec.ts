@@ -1501,7 +1501,7 @@ test.describe('Settings Xtream live categories', () => {
     const picker = page.locator('.live-category-picker');
     await expect(picker.locator('[data-category-id]')).toHaveCount(3);
     await expect(picker.locator('.live-category-account-name')).toHaveText('Account 1');
-    // The heading rule stops at the list's scrollbar.
+    // The heading rule stops at the list's right edge.
     const [rule, list] = await Promise.all([
       picker.locator('.live-category-heading').boundingBox(),
       picker.locator('.live-category-list').boundingBox(),

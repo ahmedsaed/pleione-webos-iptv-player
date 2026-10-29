@@ -950,11 +950,6 @@ try {
     await page.locator('.live-preview-message').evaluate((message) => {
       message.style.display = 'none';
     });
-    await page.locator('.channel-main').evaluate((list) => {
-      list.scrollTop = 1;
-      list.dispatchEvent(new Event('scroll'));
-    });
-    await page.locator('.channel-scroll-indicator.visible').waitFor({ state: 'visible' });
     await clearToasts(page);
     await page.waitForTimeout(400);
     await shoot(page, 'live-preview.png');

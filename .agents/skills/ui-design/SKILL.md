@@ -144,6 +144,8 @@ broken.
 - **Don't let focus move layout.** Change border color, not border width;
   reserve the border at rest (`2px solid transparent`). Scale only with
   `transform` (buttons use `scale(1.03)`); never on video or dense rows.
+- **No scrollbars.** Focus moving down a list already shows that it
+  scrolls; `css/main.css` hides every native bar, so never draw one.
 - **Nothing clips the ring.** Every scroll container with focusable rows
   needs a gutter (see `.catalog-rail-track`'s padding plus negative
   margin) so glow and scale aren't cut by `overflow`.
@@ -171,8 +173,7 @@ broken.
 - **Only use tokens** from `css/main.css` `:root`: `--bg-primary` →
   `--bg-secondary` → `--bg-tertiary` → `--bg-card` for elevation,
   `--text-primary/secondary/muted`, `--accent`/`--accent-dim`,
-  `--danger`/`--success`/`--warning`, `--border`, `--focus-ring`,
-  `--scrollbar-thumb`.
+  `--danger`/`--success`/`--warning`, `--border`, `--focus-ring`.
 - Every theme in `css/themes.css` must look right — there are three light
   ones (Daylight, Pastel Latte, Paper Light) besides the dark ones.
 - **Scrims and gradients come from the theme** (`--catalog-hero-scrim-rgb`
@@ -219,8 +220,8 @@ Everyone likes animation; old TVs just can't afford all of it. The
 performance setting, not a no-animation preference.
 
 - Gate only animations with a measured cost: smooth scrolling (opt-in
-  under `full`), layout-driven transitions (width, padding, `max-height`,
-  scrollbar position), focus transitions on long lists (channel rows,
+  under `full`), layout-driven transitions (width, padding, `max-height`),
+  focus transitions on long lists (channel rows,
   sidebar channel rows), the recent-searches fade (a full-screen scrim),
   and the playing pulse — on the webOS 4 emulator even one small
   infinite loop keeps the compositor drawing every frame.

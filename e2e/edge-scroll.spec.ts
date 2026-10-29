@@ -90,7 +90,7 @@ async function expectScrolling(track: Locator, dir: 'left' | 'right', from: numb
 // held back by a re-render undoing its writes. The floor applies only while
 // enough track remains to keep moving for the whole sample.
 // A rail bleeds to the screen's left edge while its first poster rests on
-// the 80px keyline, and its scrollbar starts there too.
+// the 80px keyline.
 async function expectLeftBleed(track: Locator): Promise<void> {
   const geometry = await track.evaluate((el) => {
     const box = el.getBoundingClientRect();
@@ -292,7 +292,7 @@ for (const section of ['movies', 'series'] as const) {
     await expectScrolling(resume, 'right', (await enterEdgeAndDwell(page, resume, 'outer-right')).from);
     const fullWidth = await visibleBox(resume);
     expect(fullWidth.left, 'no unused gutter beside the rail').toBe(0);
-    expect(fullWidth.right, 'the rail reaches the viewport scrollbar').toBeGreaterThanOrEqual(1912);
+    expect(fullWidth.right, 'the rail reaches the right edge').toBeGreaterThanOrEqual(1920);
     await expectSteadyRate(page, resume);
     await expect.poll(() => left(resume), { timeout: 10_000 }).toBeGreaterThan(400);
     await page.screenshot({ path: testInfo.outputPath(

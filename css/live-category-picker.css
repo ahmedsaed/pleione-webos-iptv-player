@@ -30,7 +30,7 @@
   margin-bottom: 20px;
 }
 
-/* The rule ends at the list's scrollbar: the body's width plus the list's
+/* The rule ends at the list's right edge: the body's width plus the list's
    8px focus-ring bleed. */
 .live-category-heading {
   flex: 0 1 1108px;

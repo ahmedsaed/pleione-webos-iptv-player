@@ -30,7 +30,6 @@ import { getLocale, t, tp, type SupportedLocale } from '../i18n';
 import { ChannelListEditor } from './channel-list-editor';
 import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard } from '../utils/virtual-scroll';
-import { CONFIG } from '../config';
 
 // Row strides mirror the fixed row geometry in css/channel-list.css:
 // .channel-item is 88px, .group-item is 60px plus its 8px vertical margin.
@@ -110,8 +109,6 @@ export class ChannelList {
   // A Recently Watched row the list itself re-rendered or re-entered.
   private recentToReveal: string | null = null;
   readonly focusScope: FocusScope;
-  private channelScrollbarVisible = false;
-  private channelScrollbarTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly scrollGuard = new VirtualScrollGuard();
   private groupEntries: { id: ChannelGroupId; label: string; builtin?: BuiltinChannelGroup }[] = [];
   private groupEntriesChannels: Channel[] | null = null;
@@ -243,7 +240,6 @@ export class ChannelList {
         return;
       }
       if (!target.classList.contains('channel-main')) return;
-      this.showChannelScrollbar(target);
       if (this.currentGroup === 'builtin:recently-watched') return;
       const offset = this.scrollGuard.readUserOffset(target, 'vertical');
       if (offset === null) return;
@@ -410,11 +406,6 @@ export class ChannelList {
                   }</div>`)}
           </div>
         </div>
-        <div class="channel-scroll-indicator ${
-          this.channelScrollbarVisible ? 'visible' : ''
-        }" data-key="channel-scroll-indicator" aria-hidden="true">
-          <div class="channel-scroll-thumb"></div>
-        </div>
         ${this.editor.renderFooter(
           this.currentGroup === 'builtin:favorites' && filteredChannels.length > 0,
         ) || this.renderPreviewHints()}
@@ -448,7 +439,6 @@ export class ChannelList {
     if (main && !showingRecent) {
       this.scrollGuard.syncOffset(main, 'vertical', this.channelVirtualizer.scrollOffset);
     }
-    if (main) this.updateChannelScrollbar(main);
     const groupList = this.container.querySelector<HTMLElement>('.group-list');
     if (groupList) {
       this.scrollGuard.syncOffset(groupList, 'vertical', this.groupVirtualizer.scrollOffset);
@@ -459,36 +449,6 @@ export class ChannelList {
     if (this.previewFocused) this.ringHidden = true;
     if (ensureFocus && showingRecent) this.recentToReveal = this.nav.focused?.dataset.key ?? null;
     this.syncScope(ensureFocus ? 'key' : 'render');
-  }
-
-  private showChannelScrollbar(main: HTMLElement): void {
-    if (!this.container.closest('.has-live-preview')) return;
-    this.channelScrollbarVisible = true;
-    this.updateChannelScrollbar(main);
-    this.container.querySelector('.channel-scroll-indicator')?.classList.add('visible');
-    if (this.channelScrollbarTimer !== null) clearTimeout(this.channelScrollbarTimer);
-    this.channelScrollbarTimer = setTimeout(() => {
-      this.channelScrollbarTimer = null;
-      this.channelScrollbarVisible = false;
-      this.container.querySelector('.channel-scroll-indicator')?.classList.remove('visible');
-    }, CONFIG.CHANNEL_SCROLLBAR_HIDE_MS);
-  }
-
-  private updateChannelScrollbar(main: HTMLElement): void {
-    const indicator = this.container.querySelector<HTMLElement>('.channel-scroll-indicator');
-    const thumb = indicator?.querySelector<HTMLElement>('.channel-scroll-thumb');
-    if (!indicator || !thumb) return;
-    const viewport = main.clientHeight;
-    const content = main.scrollHeight;
-    const track = indicator.clientHeight;
-    if (viewport <= 0 || track <= 0 || content <= viewport) {
-      indicator.classList.remove('visible');
-      return;
-    }
-    const height = Math.max(48, Math.min(track, track * viewport / content));
-    const offset = (track - height) * main.scrollTop / (content - viewport);
-    thumb.style.height = `${height}px`;
-    thumb.style.transform = `translateY(${Math.max(0, Math.min(track - height, offset))}px)`;
   }
 
   // `key` names the preview control that takes the ring.
