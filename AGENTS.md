@@ -98,8 +98,14 @@ and `tsc` strictness are real gates.
 
 `.github/workflows/build.yml` runs typecheck (app, `service`, **and**
 `benchmarks`), `npm run lint` and the compat gate, `vitest run`, the esbuild
-bundle, `service:smoke:matrix`, and packages the IPK. Pushes/PRs to `main`
-build; tagged `v*` pushes publish a GitHub release with the `.ipk`.
+bundle, `service:smoke:matrix`, and packages the IPK, while the E2E suite
+runs in both projects across six parallel shards. Pushes to `main` and every
+PR build; tagged `v*` pushes publish a GitHub release with the `.ipk` once
+the build and every shard pass.
+
+Locally, run the unit tests and the E2E specs that cover the change with
+`--project=chromium` (both projects when it touches layout, CSS, or a
+browser API) and leave the full E2E suite to CI.
 
 ## Versioning
 
