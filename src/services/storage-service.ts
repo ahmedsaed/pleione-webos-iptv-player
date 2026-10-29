@@ -1101,6 +1101,11 @@ export const StorageService = {
     set('text_size', size);
   },
 
+  // Hidden (no UI): Pleione hides the Guide tab unless this is set.
+  getShowGuideTab(): boolean {
+    return get<boolean>('show_guide_tab', false) === true;
+  },
+
   getInterfaceSize(): InterfaceSize {
     const size = get<unknown>('interface_size', DEFAULT_INTERFACE_SIZE);
     return isValidInterfaceSize(size as string) ? (size as InterfaceSize) : DEFAULT_INTERFACE_SIZE;

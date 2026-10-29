@@ -200,6 +200,9 @@ export const test = base.extend({
       await page.addInitScript(removeApis, POST_TARGET_APIS);
     }
     await stubUploadService(page);
+    // Pleione hides the Guide tab; the suite keeps the upstream Guide flows by
+    // showing it. hideGuideTab() opts a test back into Pleione's default.
+    await page.addInitScript(() => localStorage.setItem('iptv_show_guide_tab', 'true'));
     const ringFailures = await auditRings(page, process.env.RING_AUDIT,
       `${testInfo.project.name} › ${testInfo.titlePath.slice(1).join(' › ')}`);
     await use(page);
@@ -323,4 +326,9 @@ function installRingAudit(recordNone: boolean): void {
 // merely *introspect* through a newer API (rather than exercise app behavior)
 // cannot run there; the behavior they observe is covered by the `chromium`
 // project.
+/** Pleione's default: no Guide tab. Call before `page.goto`. */
+export async function hideGuideTab(page: Page): Promise<void> {
+  await page.addInitScript(() => localStorage.removeItem('iptv_show_guide_tab'));
+}
+
 export const isChromium53 = (): boolean => test.info().project.name === 'chromium-53-simulation';

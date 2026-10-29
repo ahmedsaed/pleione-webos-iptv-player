@@ -43,6 +43,9 @@ body.tabbar-docked #view-epg .epg-view {
 }
 
 .tab-bar-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
   font-size: 30px;
   font-weight: 700;
   color: var(--accent);
@@ -51,6 +54,18 @@ body.tabbar-docked #view-epg .epg-view {
   margin-left: -24px;
   margin-right: 32px;
   white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tab-bar-logo {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+}
+
+.tab-bar-title-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

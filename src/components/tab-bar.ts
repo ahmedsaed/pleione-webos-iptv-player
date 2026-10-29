@@ -13,6 +13,7 @@ import { t } from '../i18n';
 import { createLogger } from '../utils/logger';
 import { Focus, Tier, type FocusScope } from '../navigation/focus-scope';
 import { uiPx } from '../utils/ui-scale';
+import { StorageService } from '../services/storage-service';
 
 // Cap for the expanded inline search box.
 export const SEARCH_INPUT_MAX_WIDTH = 600;
@@ -41,8 +42,13 @@ type SectionDef = typeof SECTIONS[number];
 
 // Xtream accounts get the full set; M3U-only accounts have no VOD/series catalog,
 // so they see Live, Guide, Settings and Search only.
-const FULL_SECTIONS: readonly SectionDef[] = SECTIONS;
-const LITE_SECTIONS: readonly SectionDef[] = SECTIONS.filter((s) => !s.xtreamOnly);
+// Pleione hides the Guide tab: its providers ship no guide. Red and the
+// player menu still open the guide, and a hidden preference brings the tab
+// back (the E2E suite turns it on).
+function navSections(hasXtream: boolean): readonly SectionDef[] {
+  const showGuide = StorageService.getShowGuideTab();
+  return SECTIONS.filter((s) => (showGuide || s.id !== 'epg') && (hasXtream || !s.xtreamOnly));
+}
 
 // The section a view belongs to (null for the chromeless player / loading
 // views, which own no tab).
@@ -82,7 +88,7 @@ interface TabBarHandlers {
 export class TabBar {
   private el: HTMLElement | null = null;
   private handlers: TabBarHandlers;
-  private sections: readonly SectionDef[] = FULL_SECTIONS;
+  private sections: readonly SectionDef[] = navSections(true);
   private hasXtream = true;
   private _shown = false;   // docked & visible on the current view
   private _focused = false; // holds input focus (ring + key capture)
@@ -159,7 +165,7 @@ export class TabBar {
 
   setSections(hasXtream: boolean): void {
     this.hasXtream = hasXtream;
-    this.sections = hasXtream ? FULL_SECTIONS : LITE_SECTIONS;
+    this.sections = navSections(hasXtream);
     if (!this.sections.some((s) => s.id === this.active)) this.active = 'live';
     this.focusIndex = Math.max(0, this.sections.findIndex((s) => s.id === this.active));
     if (this._shown) this.render();
@@ -508,7 +514,10 @@ export class TabBar {
     if (!this.el) return;
     morph(this.el, html`
       <div class="tab-bar-inner" data-nav-container>
-        <span class="tab-bar-title">${CONFIG.APP_NAME}</span>
+        <span class="tab-bar-title">
+          <img class="tab-bar-logo" src="largeIcon.png" alt="">
+          <span class="tab-bar-title-text">${CONFIG.APP_NAME}</span>
+        </span>
         ${this.sections.filter((s) => s.id !== 'search').map((s) => {
           const activeCls = s.id === this.active ? 'active' : '';
           return html`
