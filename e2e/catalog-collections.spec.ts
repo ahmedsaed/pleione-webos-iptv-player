@@ -222,6 +222,7 @@ test('refreshes concealed collection counts when the unlock session expires with
   await page.clock.install();
   await manager.locator('[data-parental-back]').click();
   await expect(page.locator('#view-settings')).toBeVisible();
+  await page.locator('[data-settings-target="data"]').click();
   const resumeHint = page.locator('#continue-watching-count-hint');
   const watchlistHint = page.locator('#watchlist-count-hint');
   await expect(resumeHint).toContainText('(2)');

@@ -74,6 +74,8 @@ async function openMenuRow(page: Page, action: string): Promise<void> {
 
 test('adds the demo server in Settings and loads live channels with a guide', async ({ page }) => {
   await page.goto('/');
+  // First run opens Settings on General; accounts live on the Sources page.
+  await page.locator('[data-settings-target="sources"]').click({ timeout: 20_000 });
   await page.waitForSelector('#add-xtream', { timeout: 20_000 });
   await page.click('#add-xtream');
   const card = page.locator('#xtream-entries .xtream-card').first();

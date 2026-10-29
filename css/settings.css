@@ -20,11 +20,10 @@
   border-radius: 10px;
 }
 
-/* At the largest text sizes a long localized title outgrows the sidebar. */
+/* At the largest text sizes a long localized title outgrows the sidebar; it
+   wraps, breaking a single long word, rather than losing any of its text. */
 .settings-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
   font-size: 36px;
   margin: 0 16px 22px;
   color: var(--accent);
