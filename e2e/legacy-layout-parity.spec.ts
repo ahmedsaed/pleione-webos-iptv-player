@@ -169,27 +169,15 @@ interface Screen {
 
 async function openSettingsPane(p: Page, pane: string): Promise<void> {
   await enterTab(p, 'settings');
-  // The stubbed service makes the panel render for real and refreshes the
-  // upload list; both land after the view opens, so wait for them before
-  // placing the column.
+  // The stubbed service makes the setup panel render for real and refreshes
+  // the upload list; both land after the view opens, so wait for them on
+  // their own pages before showing the one to compare.
+  await p.locator('[data-settings-target="general"]').click();
   await expect(p.locator('.setup-qr')).toBeVisible();
+  await p.locator('[data-settings-target="sources"]').click();
   await expect(p.locator('#upload-entries .empty-hint')).toBeVisible();
-  // Clicking the nav item starts the app's scroll animation, which can still
-  // be running when the frame is taken; that behavior has its own spec.
-  // Place the column where the animation would rest instead — sampling the
-  // top of every pane would be steadier, but then nothing below the fold is
-  // ever compared.
-  await p.evaluate((name) => {
-    const scroll = document.querySelector('.settings-scroll') as HTMLElement;
-    const target = document.querySelector(`#settings-${name}`)!;
-    // The scroller sets `scroll-behavior: smooth`, so even assigning
-    // scrollTop animates. Go through `setProperty`: the simulation deletes
-    // the CSSOM reflection but cannot take the property away from the real
-    // engine.
-    scroll.style.setProperty('scroll-behavior', 'auto');
-    scroll.scrollTop += target.getBoundingClientRect().top
-      - scroll.getBoundingClientRect().top;
-  }, pane);
+  await p.locator(`[data-settings-target="${pane}"]`).click();
+  await expect(p.locator(`#settings-${pane}`)).toBeVisible();
   await expect(p.locator(`.settings-nav-item.active[data-settings-target="${pane}"]`))
     .toBeVisible();
 }
@@ -262,13 +250,6 @@ const M3U_SCREENS: Screen[] = [
       await expect(secondScope).toHaveClass(/active/);
       await p.locator('.epg-scope-option.focused').evaluateAll((options) => {
         options.forEach(option => option.classList.remove('focused'));
-      });
-      await p.evaluate(() => {
-        const scroll = document.querySelector('.settings-scroll') as HTMLElement;
-        const target = document.querySelector('#settings-guide')!;
-        scroll.style.setProperty('scroll-behavior', 'auto');
-        scroll.scrollTop += target.getBoundingClientRect().top
-          - scroll.getBoundingClientRect().top;
       });
       await expect(sources.nth(1).locator('.manual-epg-scope-options')).toBeVisible();
     },
@@ -394,6 +375,7 @@ const M3U_SCREENS: Screen[] = [
     budget: 0,
     go: async (p) => {
       await enterTab(p, 'settings');
+      await p.locator('[data-settings-target="guide"]').click();
       await p.locator('#manage-reminders').click();
       await expect(p.locator('.reminder-manager-view')).toBeVisible();
     },

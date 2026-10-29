@@ -20,16 +20,28 @@
   border-radius: 10px;
 }
 
+/* At the largest text sizes a long localized title outgrows the sidebar; it
+   wraps, breaking a single long word, rather than losing any of its text. */
 .settings-title {
+  overflow-wrap: break-word;
   font-size: 36px;
   margin: 0 16px 22px;
   color: var(--accent);
 }
 
+/* At a large Interface or text size the categories outgrow the box, so the
+   list scrolls and the help rows stay put. Its padding is the focus ring's
+   gutter inside the scrollport (one more on the left for the active bar over
+   the border), pulled back out by the margin. */
 .settings-nav-list {
   display: flex;
   flex-direction: column;
+  flex: 0 1 auto;
   gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  margin: -6px -12px -6px -13px;
+  padding: 6px 12px 6px 13px;
 }
 
 .settings-nav-item {
@@ -147,6 +159,22 @@
   min-height: 0;
   padding: 0 12px 32px;
   overflow-y: auto;
+}
+
+/* Each category is its own page; the others stay rendered, so unsaved edits
+   survive switching, but take no space. */
+.settings-category {
+  display: none;
+}
+
+.settings-category.active {
+  display: block;
+}
+
+/* A page's last section has nothing below it to divide from. */
+.settings-category > .settings-section:last-child {
+  margin-bottom: 0;
+  border-bottom: 0;
 }
 
 .settings-section {
@@ -1039,17 +1067,25 @@
 .xtream-status.ok { color: var(--accent); }
 .xtream-status.err { color: var(--danger); }
 
-/* Theme picker: focusable swatch tiles. Each tile carries its own data-theme, so
-   its mini app-mock (tab bar, focused channel tile, list rows, status dots) and
-   its own surfaces/text render in that theme's colors. */
-.theme-swatch-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
+/* Theme picker: one rail of focusable swatch tiles. Each tile carries its own
+   data-theme, so its mini app-mock (tab bar, focused channel tile, list rows,
+   status dots) and its own surfaces/text render in that theme's colors. The
+   padding is the ring's gutter inside the scrollport, pulled back out by the
+   margin so the rail lines up with the rest of the page; a peek of the next
+   tile shows the rail goes on. */
+.theme-swatch-rail {
+  display: flex;
   gap: 18px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 20px 12px;
+  margin: -20px -12px;
 }
 
 .theme-swatch {
   display: block;
+  flex: 0 0 264px;
+  width: 264px;
   padding: 0;
   overflow: hidden;
   text-align: left;

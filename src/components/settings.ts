@@ -1,5 +1,5 @@
 import type { Action, ChannelCycleMode, EpgSource, ManualEpgSource, NavDirection, PlaylistEntry, TzMode, XtreamLiveCategoryFilter, XtreamLiveCategorySnapshot } from '../types';
-import { $, $$, html, raw, type Safe } from '../utils/dom';
+import { $, $$, html, raw, withInstantScroll, type Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
@@ -79,10 +79,6 @@ import {
 } from './icons';
 
 const log = createLogger('Settings');
-// Frames the pane must hold still before a scroll counts as done.
-const CATEGORY_SCROLL_STABLE_FRAMES = 4;
-const CATEGORY_SCROLL_IDLE_FRAMES = 8;
-const CATEGORY_SCROLL_MAX_FRAMES = 120;
 
 type EpgScopePlaylist = Pick<PlaylistEntry, 'id' | 'name' | 'url'>;
 
@@ -517,12 +513,8 @@ export class Settings {
     reviewed: XtreamLiveCategorySnapshot;
   }>();
   private watchlistAccount: PlaylistEntry | null = null;
-  private ignoreCategoryScroll = false;
-  private categoryScrollFrame: number | null = null;
-  private categorySyncFrame: number | null = null;
-  private categoryFocusFrame: number | null = null;
-  // The scroll hold keeps the focused control's category, not the pane's.
-  private categoryAimed = false;
+  // The category whose page the pane shows; kept across renders.
+  private category: SettingsCategory = 'general';
   private onManageReminders: () => void;
   private onManageParentalControls: () => void;
   private healthController: AbortController | null = null;
@@ -555,7 +547,7 @@ export class Settings {
       leaveFor: { up: 'tabbar' },
       defaultKey: () => this.defaultKey(),
       resolve: (key) => this.resolveKey(key),
-      reveal: (key) => this.revealLanded(key),
+      reveal: (key) => this.revealKey(key),
       // A caret left in a text field keeps the arrow keys from whatever owns
       // them. The control the pointer rests on is no longer picked as it goes:
       // Settings no longer owns the keys, and a swatch would preview its theme.
@@ -598,8 +590,10 @@ export class Settings {
       this.notedKey = null;
       this.via = 'key';
       if (e.key === 'Enter') {
-        // Commit and move to the next focusable element in DOM order.
-        const all = Array.from(this.container.querySelectorAll<HTMLElement>('[data-focusable]'));
+        // Commit and move to the next focusable element in DOM order, never
+        // onto a hidden category page.
+        const all = Array.from(this.container.querySelectorAll<HTMLElement>('[data-focusable]'))
+          .filter(el => !el.closest('.settings-category:not(.active)'));
         this.pick(all[all.indexOf(input) + 1] ?? input, 'key');
       } else if (back) {
         this.pick(input, 'key');
@@ -663,27 +657,6 @@ export class Settings {
       this.markRow(null);
       this.focusScope.conceal();
       Focus.flush();
-    });
-
-    this.container.addEventListener('scroll', (e: Event) => {
-      const target = e.target as HTMLElement;
-      if (!target.classList.contains('settings-scroll') || this.ignoreCategoryScroll) return;
-      if (this.categorySyncFrame !== null) return;
-      this.categorySyncFrame = window.requestAnimationFrame(() => {
-        this.categorySyncFrame = null;
-        this.syncCategoryFromScroll(target);
-      });
-    }, true);
-    // A wheel takes the pane over, so its scroll position picks the category.
-    this.container.addEventListener('nav:wheel', (e: Event) => {
-      const main = e.target instanceof Element ? e.target.closest<HTMLElement>('.settings-scroll') : null;
-      if (!main || !this.ignoreCategoryScroll) return;
-      this.endCategoryHold();
-      if (this.categorySyncFrame !== null) return;
-      this.categorySyncFrame = window.requestAnimationFrame(() => {
-        this.categorySyncFrame = null;
-        this.syncCategoryFromScroll(main);
-      });
     });
   }
 
@@ -774,7 +747,7 @@ export class Settings {
         <nav class="settings-sidebar" data-nav-container aria-label="${t('common.settings')}">
           <h2 class="settings-title">${t('common.settings')}</h2>
           <div class="settings-nav-list">
-            ${SETTINGS_CATEGORIES.map((category, index) => settingsNavItem(category, index === 0))}
+            ${SETTINGS_CATEGORIES.map(category => settingsNavItem(category, category.id === this.category))}
           </div>
           <div class="settings-nav-help">
             <div class="settings-nav-help-row">
@@ -790,7 +763,7 @@ export class Settings {
 
         <div class="settings-main">
           <div class="settings-scroll">
-            <div class="settings-category" id="settings-general" data-settings-category="general">
+            <div class="settings-category ${this.pageClass('general')}" id="settings-general" data-settings-category="general">
               <div class="settings-general-row">
                 <div class="settings-section settings-general-language">
                   <h3 class="settings-section-title">${languageHeading()}</h3>
@@ -824,7 +797,7 @@ export class Settings {
               </div>
             </div>
 
-            <div class="settings-category" id="settings-sources" data-settings-category="sources">
+            <div class="settings-category ${this.pageClass('sources')}" id="settings-sources" data-settings-category="sources">
               <div class="settings-section">
                 <h3 class="settings-section-title">${t('settings.xtreamAccount')}</h3>
                 <div class="xtream-entries" id="xtream-entries">
@@ -907,7 +880,7 @@ export class Settings {
               </div>
             </div>
 
-            <div class="settings-category" id="settings-guide" data-settings-category="guide">
+            <div class="settings-category ${this.pageClass('guide')}" id="settings-guide" data-settings-category="guide">
               <div class="settings-section">
                 <h3 class="settings-section-title">${t('settings.epg')}</h3>
                 <div class="settings-item">
@@ -955,12 +928,13 @@ export class Settings {
               </div>
             </div>
 
-            <div class="settings-category" id="settings-appearance" data-settings-category="appearance">
+            <div class="settings-category ${this.pageClass('appearance')}" id="settings-appearance" data-settings-category="appearance">
               <div class="settings-section">
                 <h3 class="settings-section-title">${t('settings.appearance')}</h3>
                 <div class="settings-item">
                   <div class="settings-item-title">${t('settings.theme')}</div>
-                  <div class="theme-swatch-grid">
+                  <div class="theme-swatch-rail" data-nav-container data-nav-enter="last-focused"
+                       data-edge-scroll>
                     ${THEMES.map(t => themeSwatch(t, theme))}
                   </div>
                 </div>
@@ -981,7 +955,7 @@ export class Settings {
               </div>
             </div>
 
-            <div class="settings-category" id="settings-playback" data-settings-category="playback">
+            <div class="settings-category ${this.pageClass('playback')}" id="settings-playback" data-settings-category="playback">
               <div class="settings-section">
                 <h3 class="settings-section-title">${t('settings.playback')}</h3>
                 <div class="settings-item">
@@ -1004,7 +978,7 @@ export class Settings {
               </div>
             </div>
 
-            <div class="settings-category" id="settings-subtitles" data-settings-category="subtitles">
+            <div class="settings-category ${this.pageClass('subtitles')}" id="settings-subtitles" data-settings-category="subtitles">
               <div class="settings-section">
                 <h3 class="settings-section-title">${t('settings.onlineSubtitles')}</h3>
                 <div class="settings-item">
@@ -1046,7 +1020,7 @@ export class Settings {
               </div>
             </div>
 
-            <div class="settings-category" id="settings-advanced"
+            <div class="settings-category ${this.pageClass('advanced')}" id="settings-advanced"
                  data-settings-category="advanced">
               <div class="settings-section">
                 <h3 class="settings-section-title">${t('settings.advanced')}</h3>
@@ -1171,7 +1145,7 @@ export class Settings {
               </div>
             </div>
 
-            <div class="settings-category" id="settings-data" data-settings-category="data">
+            <div class="settings-category ${this.pageClass('data')}" id="settings-data" data-settings-category="data">
               <div class="settings-section">
                 <h3 class="settings-section-title">${t('settings.dataManagement')}</h3>
                 <div class="settings-item settings-item--action">
@@ -1214,10 +1188,9 @@ export class Settings {
                   <div class="settings-item-hint">${t('settings.resetAppDescription')}</div>
                 </div>
               </div>
-            </div>
-
-            <div class="settings-about">
-              ${CONFIG.APP_NAME} v${CONFIG.VERSION}
+              <div class="settings-about">
+                ${CONFIG.APP_NAME} v${CONFIG.VERSION}
+              </div>
             </div>
           </div>
 
@@ -1387,16 +1360,58 @@ export class Settings {
   // after: the pane is re-morphed on every render, so a held element goes stale.
   // Up walks the category column on its own, so Up from the first
   // category leaves for the tab bar rather than the pane beside it.
+  // Up and Down on a page stay on it, so they never land on the sidebar beside
+  // it (and switch pages); Down past its end goes to the action bar. The theme
+  // rail is wider than anything above or below it, so Up and Down leave it for
+  // the page's neighboring control in reading order rather than whatever sits
+  // nearest the focused swatch, and Right stops at its end.
   private moveFocus(action: NavDirection): boolean {
     const open = this.container.querySelector<HTMLElement>('.dropdown.open');
+    const rail = open ? null : this.nav.focused?.closest<HTMLElement>('.theme-swatch-rail') ?? null;
+    this.via = 'key';
+    if (rail && action === 'right') {
+      this.nav.setRestrict(rail);
+      this.nav.move(action);
+      this.nav.setRestrict(null);
+      return true;
+    }
+    const page = open || (action !== 'up' && action !== 'down') ? null
+      : this.nav.focused?.closest<HTMLElement>('.settings-category') ?? null;
+    if (page) {
+      const next = rail ? this.pageNeighbor(rail, action === 'down') : null;
+      if (next) {
+        this.nav.focus(next);
+        return true;
+      }
+      let moved = false;
+      if (!rail) {
+        this.nav.setRestrict(page);
+        moved = this.nav.move(action);
+      }
+      if (!moved && action === 'down') {
+        this.nav.setRestrict(this.container.querySelector<HTMLElement>('.settings-actions'));
+        moved = this.nav.move(action);
+      }
+      this.nav.setRestrict(null);
+      return moved;
+    }
     const column = action === 'up'
       && this.nav.focused?.classList.contains('settings-nav-item')
       ? this.container.querySelector<HTMLElement>('.settings-sidebar') : null;
     this.nav.setRestrict(open?.querySelector<HTMLElement>('.dropdown-menu') ?? column);
-    this.via = 'key';
     const moved = this.nav.move(action);
     this.nav.setRestrict(null);
     return moved || !!open;
+  }
+
+  private pageNeighbor(group: HTMLElement, after: boolean): HTMLElement | null {
+    const page = group.closest<HTMLElement>('.settings-category');
+    if (!page) return null;
+    const side = after ? Node.DOCUMENT_POSITION_FOLLOWING : Node.DOCUMENT_POSITION_PRECEDING;
+    const peers = Array.from(page.querySelectorAll<HTMLElement>('[data-focusable]'))
+      .filter(el => !group.contains(el) && (group.compareDocumentPosition(el) & side) !== 0
+        && this.nav.navigable(el));
+    return (after ? peers[0] : peers[peers.length - 1]) ?? null;
   }
 
   private restoreOpenDropdownFocus(open: HTMLElement): void {
@@ -1472,12 +1487,13 @@ export class Settings {
     entry.textContent = t('settings.manageReminders', {
       count: ReminderService.listManageable().length,
     });
+    this.markCategoryOf(entry);
     this.nav.focus(entry);
   }
 
   private activate(el: HTMLElement): void {
     if (el.classList.contains('settings-nav-item')) {
-      this.scrollToCategory(el.dataset.settingsTarget as SettingsCategory);
+      this.showCategory(el.dataset.settingsTarget as SettingsCategory);
     } else if (el.id === 'add-playlist') {
       this.addPlaylistEntry();
     } else if (el.classList.contains('remove-playlist')) {
@@ -1880,6 +1896,13 @@ export class Settings {
     if (el?.dataset.themeId) previewTheme(el.dataset.themeId);
     else previewTheme(this.selectedTheme);
     if (!el) return;
+    // Focus reaching a control by any path shows the page it is on, and the
+    // keys highlighting a category show its page; the pointer's hover only
+    // lights it, and its click shows the page.
+    this.markCategoryOf(el);
+    if (this.via === 'key' && el.classList.contains('settings-nav-item')) {
+      this.showCategory(el.dataset.settingsTarget as SettingsCategory);
+    }
     const key = this.keyOf(el);
     if (key !== this.landedKey) this.landedKey = null;
     // Only the owner of the keys shows or reveals a key's focus; otherwise
@@ -1895,12 +1918,6 @@ export class Settings {
     this.markRow(el);
     if (!owner) return;
     Focus.flush();
-    // A key moving focus on while the pane settles takes the category along;
-    // the pointer takes the pane over, so its scroll position picks it.
-    if (this.categoryAimed && key !== this.landedKey) {
-      if (this.via === 'key' && el.closest('.settings-category')) this.markCategoryOf(el);
-      else this.endCategoryHold();
-    }
   }
 
   private pick(el: HTMLElement, via: Via): void {
@@ -1938,49 +1955,76 @@ export class Settings {
     this.markCategoryOf(el);
   }
 
-  // Scrolling the control Settings came back to into view must not let the
-  // pane's scroll position pick another category.
-  private revealLanded(key: string): false {
-    if (key !== this.landedKey) return false;
-    this.landedKey = null;
-    this.markCategoryOf(this.resolveKey(key));
-    return false;
+  // A swatch keeps a gutter beside it in its rail, and a category in its
+  // list, so the ring isn't cut; everything else takes the scope's own reveal.
+  private revealKey(key: string): boolean {
+    const el = this.resolveKey(key);
+    if (key === this.landedKey) {
+      this.landedKey = null;
+      this.markCategoryOf(el);
+    }
+    if (!el) return false;
+    if (el.classList.contains('settings-nav-item')) return this.revealNavItem(el);
+    return el.classList.contains('theme-swatch') && this.revealSwatch(el, false);
   }
 
-  // A smooth reveal scroll runs over many frames, so the category stays put
-  // until the pane holds still.
+  private revealNavItem(el: HTMLElement): boolean {
+    const list = el.parentElement;
+    if (!list || list.scrollHeight <= list.clientHeight) return false;
+    const gutter = parseFloat(getComputedStyle(list).paddingTop) || 0;
+    const start = el.getBoundingClientRect().top - list.getBoundingClientRect().top
+      - list.clientTop + list.scrollTop;
+    const end = start + el.offsetHeight;
+    const current = list.scrollTop;
+    let target = current;
+    if (start - gutter < current) target = Math.max(0, start - gutter);
+    else if (end + gutter > current + list.clientHeight) target = end + gutter - list.clientHeight;
+    if (Math.abs(target - current) < 1) return false;
+    withInstantScroll([list], () => { list.scrollTop = target; });
+    return true;
+  }
+
+  // True when it scrolled: the rail with the ring's gutter, and the pane just
+  // enough to show the swatch whole.
+  private revealSwatch(el: HTMLElement, instant: boolean): boolean {
+    const rail = el.parentElement;
+    if (!rail || !rail.classList.contains('theme-swatch-rail')) return false;
+    const gutter = parseFloat(getComputedStyle(rail).paddingLeft) || 0;
+    const start = el.getBoundingClientRect().left - rail.getBoundingClientRect().left
+      - rail.clientLeft + rail.scrollLeft;
+    const end = start + el.offsetWidth;
+    const current = rail.scrollLeft;
+    let target = current;
+    if (start - gutter < current) target = Math.max(0, start - gutter);
+    else if (end + gutter > current + rail.clientWidth) target = end + gutter - rail.clientWidth;
+    if (Math.abs(target - current) < 1) return false;
+    // A swatch already in view only needs an instant nudge.
+    if (instant || (start >= current && end <= current + rail.clientWidth)) {
+      withInstantScroll([rail], () => { rail.scrollLeft = target; });
+    } else {
+      rail.scrollLeft = target;
+    }
+    const pane = rail.closest<HTMLElement>('.settings-scroll');
+    if (pane) {
+      const r = el.getBoundingClientRect();
+      const top = pane.getBoundingClientRect().top + pane.clientTop;
+      const bottom = top + pane.clientHeight;
+      let delta = 0;
+      if (r.top - gutter < top) delta = r.top - gutter - top;
+      else if (r.bottom + gutter > bottom) delta = r.bottom + gutter - bottom;
+      if (Math.abs(delta) >= 1) pane.scrollTop += delta;
+    }
+    return true;
+  }
+
   private markCategoryOf(el: HTMLElement | null): void {
     const category = el?.closest<HTMLElement>('.settings-category')?.dataset.settingsCategory as
       SettingsCategory | undefined;
-    if (!el || !category) return;
-    this.setActiveCategory(category);
-    const main = el.closest<HTMLElement>('.settings-scroll');
-    if (!main) {
-      this.holdCategoryScroll();
-      return;
-    }
-    if (this.categorySyncFrame !== null) {
-      window.cancelAnimationFrame(this.categorySyncFrame);
-      this.categorySyncFrame = null;
-    }
-    if (this.categoryScrollFrame !== null) window.cancelAnimationFrame(this.categoryScrollFrame);
-    this.ignoreCategoryScroll = true;
-    this.watchCategoryScroll(main, category, null);
-    this.categoryAimed = true;
+    if (category) this.showCategory(category);
   }
 
-  // The user took the pane over: the scroll position picks the category again.
-  private endCategoryHold(): void {
-    if (this.categoryScrollFrame !== null) {
-      window.cancelAnimationFrame(this.categoryScrollFrame);
-      this.categoryScrollFrame = null;
-    }
-    if (this.categoryFocusFrame !== null) {
-      window.cancelAnimationFrame(this.categoryFocusFrame);
-      this.categoryFocusFrame = null;
-    }
-    this.ignoreCategoryScroll = false;
-    this.categoryAimed = false;
+  private pageClass(category: SettingsCategory): string {
+    return category === this.category ? 'active' : '';
   }
 
   private syncNav(): void {
@@ -2079,81 +2123,33 @@ export class Settings {
       .filter(el => !el.id && !el.dataset.key && this.kindOf(el) === kind && this.anchorOf(el) === anchor);
   }
 
-  private setActiveCategory(category: SettingsCategory): void {
-    this.container.querySelectorAll('.settings-nav-item').forEach((item) => {
-      item.classList.toggle(
-        'active',
-        (item as HTMLElement).dataset.settingsTarget === category,
-      );
+  // Each category is its own page: only the chosen one is laid out, the rest
+  // stay rendered (unsaved edits and all) but hidden. A new page starts at
+  // its top, with the selected theme in view on the theme rail.
+  private showCategory(category: SettingsCategory): void {
+    this.container.querySelectorAll<HTMLElement>('.settings-nav-item').forEach((item) => {
+      item.classList.toggle('active', item.dataset.settingsTarget === category);
     });
-  }
-
-  private scrollToCategory(category: SettingsCategory): void {
-    const target = this.container.querySelector<HTMLElement>(`#settings-${category}`);
-    if (!target) return;
-    const main = target.closest<HTMLElement>('.settings-scroll');
-    if (!main) return;
-    this.setActiveCategory(category);
-    this.ignoreCategoryScroll = true;
-    this.categoryAimed = false;
-    if (this.categoryScrollFrame !== null) {
-      window.cancelAnimationFrame(this.categoryScrollFrame);
-    }
-    const maxScrollTop = Math.max(0, main.scrollHeight - main.clientHeight);
-    const targetScrollTop = Math.max(
-      0,
-      Math.min(
-        main.scrollTop + target.getBoundingClientRect().top - main.getBoundingClientRect().top,
-        maxScrollTop,
-      ),
-    );
-    // The pane's scroll-behavior decides whether the jump animates.
-    main.scrollTop = targetScrollTop;
-    this.watchCategoryScroll(main, category, targetScrollTop);
-  }
-
-  // Without a target, the scroll may not have started yet, so the pane must
-  // hold still longer before the category is settled; a frame cap keeps
-  // the scroll-picked category from staying off for good.
-  private watchCategoryScroll(
-    main: HTMLElement,
-    category: SettingsCategory,
-    targetScrollTop: number | null,
-  ): void {
-    let lastScrollTop = main.scrollTop;
-    let moving = false;
-    let stableFrames = 0;
-    let frames = 0;
-    const settled = targetScrollTop === null ? CATEGORY_SCROLL_IDLE_FRAMES : CATEGORY_SCROLL_STABLE_FRAMES;
-    const watch = () => {
-      const current = main.scrollTop;
-      const delta = Math.abs(current - lastScrollTop);
-      const reachedTarget = targetScrollTop !== null && Math.abs(current - targetScrollTop) <= 1;
-      if (delta > 0.5) {
-        moving = true;
-        stableFrames = 0;
-      } else if (moving || targetScrollTop === null) {
-        stableFrames++;
-      }
-      lastScrollTop = current;
-
-      if (reachedTarget || stableFrames >= settled || ++frames >= CATEGORY_SCROLL_MAX_FRAMES) {
-        this.ignoreCategoryScroll = false;
-        this.categoryScrollFrame = null;
-        this.categoryAimed = false;
-        if (reachedTarget || targetScrollTop === null) this.setActiveCategory(category);
-        else this.syncCategoryFromScroll(main);
-        return;
-      }
-      this.categoryScrollFrame = window.requestAnimationFrame(watch);
-    };
-    this.categoryScrollFrame = window.requestAnimationFrame(watch);
+    const changed = category !== this.category;
+    this.category = category;
+    let shown: HTMLElement | null = null;
+    this.container.querySelectorAll<HTMLElement>('.settings-category').forEach((page) => {
+      const active = page.dataset.settingsCategory === category;
+      if (active) shown = page;
+      if (page.classList.contains('active') === active) return;
+      page.classList.toggle('active', active);
+    });
+    if (!changed || !shown) return;
+    const pane = this.container.querySelector<HTMLElement>('.settings-scroll');
+    if (pane) withInstantScroll([pane], () => { pane.scrollTop = 0; });
+    const swatch = (shown as HTMLElement).querySelector<HTMLElement>('.theme-swatch.active');
+    if (swatch) this.revealSwatch(swatch, true);
   }
 
   private leftPeer(el: HTMLElement | null): HTMLElement | null {
     if (!el) return null;
     const group = el.closest<HTMLElement>(
-      '.toggle-group, .theme-swatch-grid, .settings-row, .xtream-fields, .xtream-card-foot, .settings-actions, .epg-offset-controls',
+      '.toggle-group, .theme-swatch-rail, .settings-row, .xtream-fields, .xtream-card-foot, .settings-actions, .epg-offset-controls',
     );
     if (!group) return null;
     const rect = el.getBoundingClientRect();
@@ -2180,47 +2176,28 @@ export class Settings {
     if (active) this.nav.focus(active);
   }
 
-  // Entry takes the pane's first focusable in DOM order, with no geometry to
+  // Entry takes the page's first focusable in DOM order, with no geometry to
   // fall back on, so measurement is what keeps focus off an invisible control —
-  // a closed menu's options stay focusable.
+  // a closed menu's options stay focusable. The theme rail is entered at the
+  // swatch it was left on, or the selected theme.
   private focusCategoryFirst(category: SettingsCategory): void {
     const pane = this.container.querySelector<HTMLElement>(`#settings-${category}`);
     if (!pane) return;
+    this.showCategory(category);
     this.nav.setRestrict(pane);
-    const focused = this.nav.focusFirst();
+    const first = this.nav.first();
     this.nav.setRestrict(null);
-    if (focused) this.markCategoryOf(this.nav.focused);
+    if (!first) return;
+    const rail = first.closest<HTMLElement>('.theme-swatch-rail');
+    const swatch = rail ? this.railEntry(rail) : null;
+    this.nav.focus(swatch ?? first);
   }
 
-  // The scroll that brings focus into view must not re-pick the category.
-  private holdCategoryScroll(): void {
-    if (this.categorySyncFrame !== null) {
-      window.cancelAnimationFrame(this.categorySyncFrame);
-      this.categorySyncFrame = null;
-    }
-    if (this.categoryFocusFrame !== null) {
-      window.cancelAnimationFrame(this.categoryFocusFrame);
-    }
-    this.ignoreCategoryScroll = true;
-    this.categoryFocusFrame = window.requestAnimationFrame(() => {
-      this.categoryFocusFrame = null;
-      if (this.categoryScrollFrame === null) this.ignoreCategoryScroll = false;
-    });
-  }
-
-  private syncCategoryFromScroll(main: HTMLElement): void {
-    if (main.scrollTop + main.clientHeight >= main.scrollHeight - 2) {
-      this.setActiveCategory(SETTINGS_CATEGORIES[SETTINGS_CATEGORIES.length - 1].id);
-      return;
-    }
-    const threshold = main.getBoundingClientRect().top + 48;
-    let active: SettingsCategory = 'general';
-    for (const category of SETTINGS_CATEGORIES) {
-      const section = this.container.querySelector<HTMLElement>(`#settings-${category.id}`);
-      if (!section || section.getBoundingClientRect().top > threshold) break;
-      active = category.id;
-    }
-    this.setActiveCategory(active);
+  private railEntry(rail: HTMLElement): HTMLElement | null {
+    const last = this.focusScope.focusKey !== null ? this.resolveKey(this.focusScope.focusKey) : null;
+    const active = rail.querySelector<HTMLElement>('.theme-swatch.active');
+    return [last, active].find((el): el is HTMLElement =>
+      !!el && rail.contains(el) && this.nav.navigable(el)) ?? null;
   }
 
   // OK on a swatch: mark it the pending selection (persisted on Save & Apply;
@@ -2544,7 +2521,7 @@ export class Settings {
       entries.appendChild(e);
     }
     this.refreshManualEpgScopes();
-    this.nav.focusFirst();
+    this.focusActiveCategory();
   }
 
   private addXtreamEntry(): void {
@@ -2580,7 +2557,7 @@ export class Settings {
       entries.appendChild(e);
     }
     this.refreshManualEpgScopes();
-    this.nav.focusFirst();
+    this.focusActiveCategory();
   }
 
   private toggleSource(button: HTMLElement): void {

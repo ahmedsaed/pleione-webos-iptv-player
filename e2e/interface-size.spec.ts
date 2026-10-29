@@ -167,3 +167,78 @@ test('the interface size previews live, reverts on Cancel, and persists on Save'
   await expect(page.locator('#view-channels')).toBeVisible();
   await expect(root).toHaveAttribute('data-interface-size', '120');
 });
+
+// The Settings sidebar is a fixed box: whatever it holds, text included, must
+// stay inside it and on screen; its category list scrolls when it can't fit.
+// Text is measured on its own, since a line can overflow the element it sits in.
+async function sidebarSpill(page: Page): Promise<string[]> {
+  return page.locator('#view-settings .settings-sidebar').evaluate((sidebar) => {
+    const box = sidebar.getBoundingClientRect();
+    const out: string[] = [];
+    const nodes: Node[] = Array.from(sidebar.querySelectorAll('*'));
+    const walker = document.createTreeWalker(sidebar, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if ((n.textContent ?? '').trim()) nodes.push(n);
+    }
+    for (const node of nodes) {
+      const owner = node instanceof Element ? node : node.parentElement!;
+      let rect: DOMRect;
+      if (node instanceof Element) {
+        rect = node.getBoundingClientRect();
+      } else {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        rect = range.getBoundingClientRect();
+      }
+      if (!rect.width || !rect.height || getComputedStyle(owner).visibility === 'hidden') continue;
+      let left = rect.left;
+      let top = rect.top;
+      let right = rect.right;
+      let bottom = rect.bottom;
+      const first = node instanceof Element ? node.parentElement : owner;
+      for (let a = first; a && a !== sidebar; a = a.parentElement) {
+        const cs = getComputedStyle(a);
+        if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+        const clip = a.getBoundingClientRect();
+        left = Math.max(left, clip.left);
+        top = Math.max(top, clip.top);
+        right = Math.min(right, clip.right);
+        bottom = Math.min(bottom, clip.bottom);
+      }
+      if (right <= left || bottom <= top) continue;
+      if (left < Math.max(box.left, 0) - 1 || top < Math.max(box.top, 0) - 1
+          || right > Math.min(box.right, 1920) + 1 || bottom > Math.min(box.bottom, 1080) + 1) {
+        const label = (node.textContent ?? '').trim().slice(0, 24) || (owner.getAttribute('class') ?? owner.tagName);
+        out.push(`${label} [${Math.round(left)},${Math.round(top)} → ${Math.round(right)},${Math.round(bottom)}]`);
+      }
+    }
+    return out;
+  });
+}
+
+for (const textSize of ['100', '150']) {
+  test(`at text size ${textSize} the Settings sidebar keeps everything inside its box at every size`, async ({ page }) => {
+    test.slow();
+    for (const locale of ['en', 'de', 'ru', 'uk', 'pt-BR', 'ar']) {
+      for (const size of ['90', '100', '110', '120', '130']) {
+        await page.addInitScript(([s, t, l]) => {
+          localStorage.setItem('iptv_interface_size', JSON.stringify(s));
+          localStorage.setItem('iptv_text_size', JSON.stringify(t));
+          localStorage.setItem('iptv_locale', JSON.stringify(l));
+        }, [size, textSize, locale]);
+        await page.goto('/');
+        await expect(page.locator('#view-settings')).toBeVisible();
+        expect(await sidebarSpill(page), `${locale} at ${size}%`).toEqual([]);
+
+        // The last category scrolls into the list rather than out of the box.
+        const last = page.locator('[data-settings-target="data"]');
+        for (let i = 0; i < 8 && !(await last.evaluate(el => el.classList.contains('focused'))); i++) {
+          await page.keyboard.press('ArrowDown');
+        }
+        await expect(last).toHaveClass(/focused/);
+        expect(await sidebarSpill(page), `${locale} at ${size}%, last category`).toEqual([]);
+        await expect(last).toBeInViewport({ ratio: 0.99 });
+      }
+    }
+  });
+}

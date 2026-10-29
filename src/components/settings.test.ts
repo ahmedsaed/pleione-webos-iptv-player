@@ -1951,9 +1951,8 @@ describe('Settings.handleAction', () => {
       .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     settings.handleAction('right');
     expect(container.querySelector('.theme-swatch.focused')).not.toBeNull();
-    container.querySelector('.settings-scroll')!
-      .dispatchEvent(new Event('scroll', { bubbles: true }));
     expect(appearance.classList.contains('active')).toBe(true);
+    expect(container.querySelector('#settings-appearance')?.classList.contains('active')).toBe(true);
   });
 
   it('moves left from a content boundary back to the active category', () => {
@@ -1966,38 +1965,96 @@ describe('Settings.handleAction', () => {
       .toBe(true);
   });
 
-  it('brings a picked category to the top of the pane and marks it', () => {
+  it('shows only the picked category page and starts it at the top', () => {
     settings.render();
     const main = container.querySelector<HTMLElement>('.settings-scroll')!;
-    const target = container.querySelector<HTMLElement>('#settings-subtitles')!;
-    let scrolled = 0;
-    Object.defineProperty(main, 'scrollTop', {
-      configurable: true, get: () => scrolled, set: (v: number) => { scrolled = v; },
-    });
-    Object.defineProperty(main, 'scrollHeight', { value: 2000, configurable: true });
-    Object.defineProperty(main, 'clientHeight', { value: 800, configurable: true });
-    main.getBoundingClientRect = () => ({ top: 0 } as DOMRect);
-    target.getBoundingClientRect = () => ({ top: 300 - scrolled } as DOMRect);
+    const pages = () => Array.from(container.querySelectorAll<HTMLElement>('.settings-category.active'))
+      .map(page => page.dataset.settingsCategory);
+    expect(pages()).toEqual(['general']);
+    main.scrollTop = 300;
 
     click('[data-settings-target="subtitles"]');
 
-    expect(target.getBoundingClientRect().top).toBe(main.getBoundingClientRect().top);
+    expect(pages()).toEqual(['subtitles']);
+    expect(main.scrollTop).toBe(0);
     expect(container.querySelector('.settings-nav-item.active')?.getAttribute('data-settings-target'))
       .toBe('subtitles');
+    // Every page stays rendered, so its controls keep their state.
+    expect(container.querySelectorAll('.settings-category')).toHaveLength(8);
   });
 
-  it('updates the weak active category when content scrolling reaches the bottom', async () => {
+  it('keeps unsaved edits across category pages and saves them all', () => {
+    state.autoPlay = false;
     settings.render();
-    const main = container.querySelector<HTMLElement>('.settings-scroll')!;
-    Object.defineProperties(main, {
-      scrollTop: { value: 900, configurable: true },
-      clientHeight: { value: 100, configurable: true },
-      scrollHeight: { value: 1000, configurable: true },
-    });
-    main.dispatchEvent(new Event('scroll'));
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    click('[data-settings-target="playback"]');
+    click('#auto-play [data-value="on"]');
+    click('[data-settings-target="appearance"]');
+    click('.theme-swatch[data-theme-id="arctic"]');
+    click('[data-settings-target="playback"]');
+
+    expect(container.querySelector('#auto-play .toggle-option.active')?.getAttribute('data-value'))
+      .toBe('on');
+    click('#save-settings');
+    expect(storageMock.setAutoPlay).toHaveBeenCalledWith(true);
+    expect(storageMock.setTheme).toHaveBeenCalledWith('arctic');
+  });
+
+  it('keeps the shown page when Settings renders again', () => {
+    settings.render();
+    click('[data-settings-target="advanced"]');
+    settings.render();
+    expect(Array.from(container.querySelectorAll<HTMLElement>('.settings-category.active'))
+      .map(page => page.dataset.settingsCategory)).toEqual(['advanced']);
+  });
+
+  it('opens the reminder entry on its own page', () => {
+    settings.render();
+    settings.focusReminderEntry();
+    const entry = container.querySelector('#manage-reminders')!;
+    expect(entry.closest('.settings-category')?.classList.contains('active')).toBe(true);
     expect(container.querySelector('.settings-nav-item.active')?.getAttribute('data-settings-target'))
-      .toBe('data');
+      .toBe('guide');
+  });
+
+  it('enters the theme rail at the selected theme', () => {
+    state.theme = 'arctic';
+    settings.render();
+    container.querySelector<HTMLElement>('[data-settings-target="appearance"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    // jsdom lays nothing out; give every control a box so it counts as shown.
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = () =>
+      ({ width: 100, height: 100, top: 0, left: 0, bottom: 100, right: 100 } as DOMRect);
+    try {
+      settings.handleAction('right');
+    } finally {
+      Element.prototype.getBoundingClientRect = original;
+    }
+    expect(Array.from(container.querySelectorAll<HTMLElement>('.theme-swatch.focused'))
+      .map(el => el.dataset.themeId)).toEqual(['arctic']);
+  });
+
+  it('shows the page of a category the keys highlight, keeping focus in the sidebar', () => {
+    settings.render();
+    const items = Array.from(container.querySelectorAll<HTMLElement>('.settings-nav-item'));
+    // jsdom lays nothing out: stack the categories in a column, the rest off-box.
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function stub(this: Element): DOMRect {
+      const index = items.indexOf(this as HTMLElement);
+      if (index < 0) return { width: 0, height: 0, top: 0, left: 0, bottom: 0, right: 0 } as DOMRect;
+      const top = 60 * index;
+      return { width: 200, height: 50, top, left: 0, bottom: top + 50, right: 200 } as DOMRect;
+    };
+    try {
+      settings.handleAction('down');
+      settings.handleAction('down');
+    } finally {
+      Element.prototype.getBoundingClientRect = original;
+    }
+    expect(Array.from(container.querySelectorAll<HTMLElement>('.settings-nav-item.focused'))
+      .map(item => item.dataset.settingsTarget)).toEqual(['guide']);
+    expect(Array.from(container.querySelectorAll<HTMLElement>('.settings-category.active'))
+      .map(page => page.dataset.settingsCategory)).toEqual(['guide']);
   });
 
   it('keeps the active category while Magic Remote hover moves elsewhere', () => {

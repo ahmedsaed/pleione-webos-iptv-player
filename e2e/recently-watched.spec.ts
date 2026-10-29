@@ -162,6 +162,7 @@ test('clears Recently Watched without clearing VOD resume', async ({ page }) => 
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
   await enterTab(page, 'settings');
+  await page.locator('[data-settings-target="data"]').click();
 
   await page.locator('#clear-recently-watched').click();
   await expect(page.locator('.confirmation-prompt')).toBeVisible();

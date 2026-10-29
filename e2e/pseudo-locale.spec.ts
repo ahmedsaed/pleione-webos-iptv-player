@@ -48,15 +48,21 @@ test('keeps pseudo-localized Settings controls within their boxes', async ({ pag
   await enterTab(page, 'settings');
   await expect(page.locator('#view-settings')).toBeVisible();
 
-  expect(await textOverflow(page, [
-    '#view-settings h2',
-    '#view-settings h3',
-    '#view-settings label',
-    '#view-settings .btn',
-    '#view-settings .toggle-option',
-    '#view-settings .dropdown-trigger',
-  ].join(','))).toEqual([]);
+  // Each category is its own page, and a hidden one measures nothing.
+  for (const category of ['general', 'sources', 'guide', 'appearance', 'playback', 'subtitles', 'advanced', 'data']) {
+    await page.locator(`[data-settings-target="${category}"]`).click();
+    await expect(page.locator(`#settings-${category}`)).toBeVisible();
+    expect(await textOverflow(page, [
+      '#view-settings h2',
+      '#view-settings h3',
+      '#view-settings label',
+      '#view-settings .btn',
+      '#view-settings .toggle-option',
+      '#view-settings .dropdown-trigger',
+    ].join(',')), category).toEqual([]);
+  }
 
+  await page.locator('[data-settings-target="general"]').click();
   await page.locator('#app-language [data-dropdown-trigger]').click();
   await expect(page.locator('#app-language [data-dropdown-value="en"]')).toBeVisible();
   await expect(page.locator('#app-language [data-dropdown-value="en-XA"]')).toHaveCount(0);

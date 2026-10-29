@@ -169,6 +169,7 @@ test('a source added after turning on stays locked until the manager opens it', 
   }));
 
   await enterTab(page, 'settings');
+  await page.locator('[data-settings-target="sources"]').click();
   await page.locator('#add-playlist').click();
   await page.locator('.playlist-name').last().fill('Second');
   await page.locator('.playlist-url').last().fill('http://host.example.com/second.m3u');
@@ -192,6 +193,7 @@ test('a source added after turning on stays locked until the manager opens it', 
   await page.keyboard.press('Escape');
 
   await enterTab(page, 'settings');
+  await page.locator('[data-settings-target="general"]').click();
   await page.locator('#manage-parental-controls').click();
   await prompt.locator('.parental-pin-input').fill('1234');
   const view = page.locator('#view-parental-controls');
@@ -259,6 +261,7 @@ test('pointing a reviewed source at a new address locks it again', async ({ page
   }));
 
   await enterTab(page, 'settings');
+  await page.locator('[data-settings-target="sources"]').click();
   await page.locator('.playlist-url').first().fill('http://host.example.com/second.m3u');
   await page.locator('.playlist-url').first().blur();
   await page.evaluate(() => {
@@ -603,6 +606,7 @@ test('removing a source with locks asks for the PIN', async ({ page }) => {
   await leaveLocked(page);
 
   await enterTab(page, 'settings');
+  await page.locator('[data-settings-target="sources"]').click();
   const rows = page.locator('#playlist-entries [data-source-entry]');
   await expect(rows).toHaveCount(1);
   await rows.first().locator('.remove-playlist').click();
@@ -1045,6 +1049,7 @@ test('Reset App clears a forgotten PIN', async ({ page }) => {
   await expect(page.locator('#manage-parental-controls')).toHaveText('Manage');
   expect(await readUserDataStore(page, 'parental-control')).toHaveLength(1);
 
+  await page.locator('[data-settings-target="data"]').click();
   await page.locator('#reset-app').click();
   await page.locator('[data-confirm-action="confirm"]').click();
   await page.waitForEvent('load');
@@ -1195,6 +1200,7 @@ test('channel editing and Reset Customization ask for the PIN while live locks a
   await page.keyboard.press('Escape');
 
   await enterTab(page, 'settings');
+  await page.locator('[data-settings-target="sources"]').click();
   await page.locator('#reset-customization').click();
   await expect(prompt).toBeVisible();
   await expect(prompt.locator('h2')).toContainText('Reset Customization');

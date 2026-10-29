@@ -18,6 +18,7 @@ test('disabling every M3U source hides channels until the source is enabled agai
   await expect(page.locator('.channel-main .channel-item')).toHaveCount(2);
 
   await enterTab(page, 'settings');
+  await page.locator('[data-settings-target="sources"]').click();
   const sourceToggle = page.locator('#playlist-entries .source-toggle');
   await sourceToggle.hover();
   await expect(sourceToggle).toHaveClass(/focused/);
@@ -114,6 +115,7 @@ test('disabling the only Xtream account hides its sections until re-enabled', as
   await expect(page.locator('.account-avatar')).toBeVisible();
 
   await enterTab(page, 'settings');
+  await page.locator('[data-settings-target="sources"]').click();
   await page.locator('#xtream-entries .source-toggle').click();
   await page.locator('#save-settings').click();
 
