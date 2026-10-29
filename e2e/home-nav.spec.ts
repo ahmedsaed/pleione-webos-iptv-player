@@ -258,11 +258,38 @@ test('the Magic Remote reveals the menu at the left edge, and a click switches',
   await expect(page.locator('#view-series')).toBeVisible();
   await expect(menu(page)).not.toHaveClass(/\bopen\b/);
 
-  // Away from the panel the pointer closes it again.
+});
+
+// Regression: Magic Remote drift far from the panel closed the menu.
+test('the pointer moving over the content leaves the menu open; a scrim click closes it', async ({ page }) => {
+  await seedHome(page);
+  await goHome(page);
+  await press(page, 'Enter');
+  await page.locator('.channel-item').first().waitFor();
   await openSideMenu(page);
-  await page.mouse.move(1200, 500);
+  for (const [x, y] of [[700, 300], [1200, 500], [1800, 900], [1500, 200], [1900, 1060]]) {
+    await page.mouse.move(x, y, { steps: 3 });
+    await page.waitForTimeout(250);
+    await expect(menu(page)).toHaveClass(/\bopen\b/);
+  }
+  await expect(menuFocus(page)).toHaveCount(1);
+  await page.mouse.click(1200, 500);
   await expect(menu(page)).not.toHaveClass(/\bopen\b/);
-  await expect(page.locator('#view-series')).toBeVisible();
+  await expect(page.locator('#view-channels')).toBeVisible();
+});
+
+// The reveal fires once per visit to the edge: closed there, it stays closed.
+test('a menu closed with the pointer still at the edge does not reopen until it leaves and returns', async ({ page }) => {
+  await seedHome(page);
+  await goHome(page);
+  await openSideMenu(page);
+  await back(page);
+  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
+  await page.mouse.move(0, 4);
+  await page.waitForTimeout(800);
+  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
+  await openSideMenu(page);
+  await expect(menu(page)).toHaveClass(/\bopen\b/);
 });
 
 test('the account switcher is reachable from the menu and from Home', async ({ page }) => {
@@ -372,4 +399,79 @@ test('a light theme keeps the cards and darkens the header text', async ({ page 
   }));
   expect(colors.label).toBe('rgb(255, 255, 255)');
   expect(colors.title).not.toBe('rgb(255, 255, 255)');
+});
+
+test('in pointer mode each section offers a Home button; keys hide it', async ({ page }) => {
+  await seedHome(page, { guide: true });
+  await goHome(page);
+  const button = page.locator('.home-button');
+  // Home itself needs none.
+  await page.mouse.move(900, 1000);
+  await page.mouse.move(960, 1040);
+  await expect(button).toBeHidden();
+  for (const [section, view] of [
+    ['live', 'channels'], ['epg', 'epg'], ['movies', 'movies'], ['series', 'series'],
+    ['search', 'search'], ['settings', 'settings'],
+  ] as const) {
+    await enterTab(page, section);
+    await expect(page.locator(`#view-${view}`)).toBeVisible();
+    await expect(button).toBeVisible();
+    await expect(button).toHaveAttribute('aria-label', 'Home');
+    // Clear of the screen's edges, inside the canvas.
+    const box = (await button.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(1920);
+    expect(box.y + box.height).toBeLessThanOrEqual(1080);
+    await button.click();
+    await expect(page.locator('#view-home')).toBeVisible();
+    await expect(button).toBeHidden();
+    // It never takes a ring.
+    await expect(page.locator('.home-button.focused')).toHaveCount(0);
+  }
+
+  // A key hands the screen back to the remote: the button goes.
+  await enterTab(page, 'movies');
+  await expect(button).toBeVisible();
+  await press(page, 'ArrowDown');
+  await expect(button).toBeHidden();
+  // OK after the click does not press the button again.
+  await expect(page.locator('#view-movies')).toBeVisible();
+});
+
+// The Movies hero follows the lit tile, by pointer and by key, through the
+// re-renders that wheel steps and arriving rail data cause.
+test('the Movies hero follows the lit tile through re-renders, by pointer and by key', async ({ page }) => {
+  await seedXtream(page, { catalog: 'large' });
+  await showHome(page);
+  await hideGuideTab(page);
+  await goHome(page);
+  await enterTab(page, 'movies');
+  const view = page.locator('#view-movies .catalog-layer-browse');
+  await expect(view.locator('[data-rail-key="cat:3"] .catalog-tile').first()).toBeVisible();
+  const heroTitle = view.locator('.catalog-hero-title');
+  const lit = view.locator('.catalog-tile.focused:not(.catalog-see-all) .catalog-tile-name');
+  const hover = async (rail: string, index: number): Promise<void> => {
+    const tile = view.locator(`[data-rail-key="${rail}"] .catalog-tile:not(.catalog-see-all)`).nth(index);
+    const box = (await tile.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2 + 4, box.y + 60);
+    await page.mouse.move(box.x + box.width / 2, box.y + 60);
+    await expect(lit).toHaveCount(1);
+    await expect(heroTitle).toHaveText((await lit.textContent())!);
+  };
+  await hover('cat:1', 2);
+  await hover('cat:1', 4);
+  // The wheel steps the rails, re-rendering them under the resting pointer.
+  await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(600);
+  await hover('cat:2', 1);
+  await hover('cat:2', 3);
+  await page.waitForTimeout(800);
+  await expect(heroTitle).toHaveText((await lit.textContent())!);
+
+  // Keys move the same focus, and the hero with it.
+  for (const key of ['ArrowRight', 'ArrowRight', 'ArrowDown', 'ArrowLeft']) {
+    await press(page, key);
+    await expect(lit).toHaveCount(1);
+    await expect(heroTitle).toHaveText((await lit.textContent())!);
+  }
 });

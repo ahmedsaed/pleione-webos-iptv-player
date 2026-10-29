@@ -4,7 +4,6 @@ import { morph } from '../utils/morph';
 import { t } from '../i18n';
 import { createLogger } from '../utils/logger';
 import { Focus, Tier, type FocusScope } from '../navigation/focus-scope';
-import { uiPx } from '../utils/ui-scale';
 import { InputMode } from '../navigation/input-mode';
 import { AccountSwitcher } from './account-switcher';
 import { navSections, type Section, type SectionDef } from './sections';
@@ -26,8 +25,6 @@ export const NAV_MENU_REVEAL_EDGE = 8;
 // The pointer must come to the edge and rest there this long, so a sweep
 // past it, or a cursor parked in a corner, opens nothing.
 export const NAV_MENU_REVEAL_DWELL_MS = 400;
-// How far past the panel the pointer may stray before the menu closes.
-const POINTER_MARGIN = 80;
 
 export const SECTION_ICONS: Record<Section, string> = {
   home: HOME_ICON,
@@ -131,6 +128,7 @@ export class NavMenu {
   open(via: 'key' | 'pointer'): void {
     if (this._open) return;
     this._open = true;
+    this.cancelReveal();
     this.current = this.handlers.current();
     log.debug('Side menu opened', 'event=nav.menu.opened', `via=${via}`,
       `section=${this.current ?? 'none'}`);
@@ -231,14 +229,11 @@ export class NavMenu {
   private onPointer(x: number): void {
     const from = this.lastPointerX;
     this.lastPointerX = x;
-    if (!this._open) {
-      if (x > NAV_MENU_REVEAL_EDGE) this.cancelReveal();
-      else if (from !== null && from > NAV_MENU_REVEAL_EDGE && this.revealTimer === null) this.armReveal();
-      return;
-    }
-    if (this.switcher?.menuOpen) return;
-    const panel = this.root.querySelector<HTMLElement>('.nav-menu-panel');
-    if (panel && x > panel.getBoundingClientRect().right + uiPx(POINTER_MARGIN)) this.close('pointer');
+    // The pointer only opens the menu, once per entry into the edge zone;
+    // a Magic Remote drifts, so moving never closes it (a click does).
+    if (this._open) return;
+    if (x > NAV_MENU_REVEAL_EDGE) this.cancelReveal();
+    else if (from !== null && from > NAV_MENU_REVEAL_EDGE && this.revealTimer === null) this.armReveal();
   }
 
   private armReveal(): void {

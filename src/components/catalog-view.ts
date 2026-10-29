@@ -9,7 +9,7 @@ import type {
 } from '../types';
 import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
-import { FocusRing, ringShown } from '../navigation/focus-ring';
+import { FocusRing, isHovered, ringShown } from '../navigation/focus-ring';
 import { InputMode } from '../navigation/input-mode';
 import type { NavWheelDetail } from '../navigation/key-handler';
 import { html, raw, Safe, withInstantScroll } from '../utils/dom';
@@ -1239,11 +1239,14 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     return fallback ? this.itemSubject(fallback) : null;
   }
 
-  // The hero follows the focused title while the rails own the keys; a
-  // focused See all or category tile leaves it as it was.
+  // The hero follows the lit title: the focused one while the rails own the
+  // keys, else the one the pointer lights under the owner. With nothing lit
+  // in the rails it shows the first title. A lit See all or category tile
+  // leaves it as it was.
   private syncHero(): void {
     if (this.mode !== 'browse' || !this.layers.browse.querySelector('.catalog-hero')) return;
-    const el = Focus.owner() === this.focusScope ? this.current() : null;
+    const focused = this.current();
+    const el = focused && (Focus.owner() === this.focusScope || isHovered(focused)) ? focused : null;
     let subject = el ? this.heroSubjectFor(el) : null;
     if (!subject && el && this.hero) subject = this.hero;
     subject = subject ?? this.defaultHeroSubject();

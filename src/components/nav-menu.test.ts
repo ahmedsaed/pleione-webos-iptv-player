@@ -167,6 +167,26 @@ describe('NavMenu', () => {
       expect(root().querySelector('.nav-menu-item.current')?.getAttribute('data-section')).toBe('movies');
     });
 
+    it('stays open wherever the pointer drifts, and reveals once per visit to the edge', () => {
+      Focus.pointer(300, 500);
+      Focus.pointer(0, 500);
+      vi.advanceTimersByTime(NAV_MENU_REVEAL_DWELL_MS);
+      expect(menu.isOpen).toBe(true);
+      for (const x of [600, 1400, 1919, 900]) Focus.pointer(x, 300);
+      expect(menu.isOpen).toBe(true);
+
+      // Closed with the pointer back at the edge, it waits for a new visit.
+      Focus.pointer(0, 500);
+      menu.close('key');
+      Focus.pointer(2, 600);
+      vi.advanceTimersByTime(NAV_MENU_REVEAL_DWELL_MS * 2);
+      expect(menu.isOpen).toBe(false);
+      Focus.pointer(300, 600);
+      Focus.pointer(0, 600);
+      vi.advanceTimersByTime(NAV_MENU_REVEAL_DWELL_MS);
+      expect(menu.isOpen).toBe(true);
+    });
+
     it('waits while a rail under it still edge-scrolls back', () => {
       const track = document.createElement('div');
       track.setAttribute('data-edge-scroll', '');

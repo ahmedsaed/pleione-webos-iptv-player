@@ -168,14 +168,15 @@ export async function enterTab(
   }).toBe(true);
 }
 
-/** End a PIN session from the side menu's Lock now, then point away to close it. */
+/** End a PIN session from the side menu's Lock now, then close it with a scrim click. */
 export async function lockNow(page: Page): Promise<void> {
   await openSideMenu(page);
   const lock = page.locator('.nav-menu.open [data-lock-now]');
   await expect(lock).toHaveText('Lock now');
   await lock.click();
   await expect(page.locator('[data-lock-now]')).toHaveCount(0);
-  await page.mouse.move(1200, 540);
+  // A click on the scrim closes it; the pointer moving away does not.
+  await page.mouse.click(1200, 540);
   await expect(page.locator('.nav-menu')).not.toHaveClass(/\bopen\b/);
 }
 
