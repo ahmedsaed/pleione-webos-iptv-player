@@ -2,7 +2,7 @@ import { CONFIG } from '../config';
 import { StorageService } from '../services/storage-service';
 import { createLogger } from '../utils/logger';
 import { Focus, type FocusScope } from './focus-scope';
-import { InputMode, setCursorHidden, setInputMode } from './input-mode';
+import { InputMode, setCursorHidden, setInputMode, setKeyRepeat } from './input-mode';
 import { edgeScrollTrackAt, installEdgeScroll } from './edge-scroll';
 import type { Action, NumberEvent } from '../types';
 
@@ -164,7 +164,12 @@ export const KeyHandler = {
       cancelNumber();
       if (action) {
         e.preventDefault();
-        if (activeHandler) activeHandler(action);
+        setKeyRepeat(e.repeat);
+        try {
+          if (activeHandler) activeHandler(action);
+        } finally {
+          setKeyRepeat(false);
+        }
       }
     });
 

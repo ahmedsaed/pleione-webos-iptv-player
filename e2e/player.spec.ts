@@ -12,7 +12,7 @@ import {
   pressStepsAndReadPlayer,
 } from './helpers';
 
-// The player view: playback start, sidebar, action menu, OSD, and live DVR.
+// The player view: playback start, sidebar, controls, track pickers, OSD, and live DVR.
 
 async function gotoGroupedPlayer(page: Page): Promise<void> {
   await routePlaylist(page, SEARCH_M3U);
@@ -527,47 +527,7 @@ test('the group panel lights the group it slides in under a pointer moved mid-sl
   await expect(page.locator('.focused')).toHaveCount(1);
 });
 
-test('the right-edge player menu opens and lists its color actions', async ({ page }) => {
-  // Smoke-exercises player-menu.ts at runtime (it has no other e2e coverage).
-  await routePlaylist(page);
-  await seedPlaylist(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-
-  // Enter the list and start playback, then ArrowRight opens the action menu.
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('Enter');
-  await expect(page.locator('#view-player')).toBeVisible();
-  await page.keyboard.press('ArrowRight');
-
-  const menu = page.locator('#player-menu');
-  await expect(menu).toBeVisible();
-  await expect(menu.locator('.menu-item')).toHaveCount(4);
-  await expect(menu).toContainText('Program Guide');
-  await expect(menu).toContainText('Settings');
-
-  // The first item is focused on open; Down moves focus to the second.
-  const focused = menu.locator('.menu-item.focused');
-  await expect(focused).toHaveCount(1);
-  const gutter = await focused.evaluate((element) => {
-    const list = element.parentElement;
-    if (!list) throw new Error('Player menu item has no list');
-    const listRect = list.getBoundingClientRect();
-    const itemRect = element.getBoundingClientRect();
-    return {
-      left: itemRect.left - listRect.left,
-      right: listRect.right - itemRect.right,
-      top: itemRect.top - listRect.top,
-    };
-  });
-  expect(gutter.left).toBeGreaterThanOrEqual(20);
-  expect(gutter.right).toBeGreaterThanOrEqual(20);
-  expect(gutter.top).toBeGreaterThanOrEqual(20);
-  await page.keyboard.press('ArrowDown');
-  await expect(menu.locator('.menu-item').nth(1)).toHaveClass(/focused/);
-});
-
-async function gotoLivePlayer(page: Page): Promise<void> {
+test('live Right opens nothing; OK hands the controls the keys, with Favorite and Channel Info', async ({ page }) => {
   await routePlaylist(page);
   await routeLiveManifest(page);
   await neuterVideo(page);
@@ -576,7 +536,60 @@ async function gotoLivePlayer(page: Page): Promise<void> {
   await expect(page.locator('#view-channels')).toBeVisible();
   await page.keyboard.press('Enter');
   await expect(page.locator('#view-player')).toBeVisible();
-}
+  const osd = page.locator('#player-osd');
+  await expect(osd).toBeVisible();
+
+  // The info a zap shows has no ring: Up/Down still change channels under it.
+  await expect(page.locator('.focused')).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(300);
+  expect(await page.locator('#player-menu.visible, #player-sidebar.visible').count()).toBe(0);
+  await expect(osd.locator('[data-dock-action]')).toHaveCount(2);
+
+  await page.keyboard.press('Enter');
+  const owner = page.locator('[data-ring-owner]');
+  await expect(owner).toHaveAttribute('data-focus-scope', 'player.dock');
+  const favorite = osd.locator('[data-dock-action="favorite"]');
+  await expect(favorite).toHaveClass(/focused/);
+  await expect(osd.locator('.osd-control-caption')).toHaveText('Toggle Favorite');
+  await page.keyboard.press('Enter');
+  await expect(favorite).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.toast')).toContainText('Channel One');
+
+  await page.keyboard.press('ArrowRight');
+  const info = osd.locator('[data-dock-action="info"]');
+  await expect(info).toHaveClass(/focused/);
+  await page.keyboard.press('Enter');
+  await expect(info).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.focused')).toHaveCount(1);
+
+  // Up/Down stay in the controls; Back hides them, and a second Back leaves.
+  await page.keyboard.press('ArrowDown');
+  await expect(osd.locator('.osd-channel-number')).toHaveText('1');
+  await pressRemoteBack(page);
+  await expect(osd).toBeHidden();
+  await expect(page.locator('#view-player')).toBeVisible();
+  await pressRemoteBack(page);
+  await expect(page.locator('#view-channels')).toBeVisible();
+});
+
+test('live Up/Down change channels with the info showing, and Left opens the channel list', async ({ page }) => {
+  await routePlaylist(page);
+  await routeLiveManifest(page);
+  await neuterVideo(page);
+  await seedPlaylist(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await page.keyboard.press('Enter');
+  const number = page.locator('#player-osd .osd-channel-number');
+  await expect(number).toHaveText('1');
+  await page.keyboard.press('ArrowDown');
+  await expect(number).toHaveText('2');
+  await page.keyboard.press('ArrowUp');
+  await expect(number).toHaveText('1');
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#player-sidebar')).toBeVisible();
+});
 
 async function moveOnto(page: Page, row: ReturnType<Page['locator']>, dx = 0): Promise<void> {
   const box = await row.boundingBox();
@@ -584,39 +597,88 @@ async function moveOnto(page: Page, row: ReturnType<Page['locator']>, dx = 0): P
   await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2);
 }
 
-test('the player menu reopens with one ring, on its first row', async ({ page }) => {
-  await gotoLivePlayer(page);
+// The webOS native path self-renders a manifest subtitle: a live channel with a
+// subtitle track, so its controls offer Subtitles (and, once one is on, Subtitle Sync).
+async function gotoLiveWithSubtitles(page: Page, path = '/'): Promise<void> {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Web0S Chrome/53.0' });
+    // Native Chromium cannot decode the synthetic stream; keep it from zapping.
+    document.addEventListener('error', (event) => {
+      if (event.isTrusted && event.target instanceof HTMLMediaElement) event.stopImmediatePropagation();
+    }, true);
+  });
+  await routePlaylist(page);
+  await routeLiveManifest(page);
+  await page.route('**/one.m3u8', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/vnd.apple.mpegurl',
+    body: [
+      '#EXTM3U',
+      '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="s",NAME="Track 1",LANGUAGE="l1",URI="http://host/s1.m3u8"',
+      '#EXT-X-STREAM-INF:BANDWIDTH=1,SUBTITLES="s"',
+      'http://host/v.m3u8',
+    ].join('\n'),
+  }));
+  await neuterVideo(page);
+  await seedPlaylist(page);
+  await page.goto(path);
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-player')).toBeVisible();
+  await expect(page.locator('#player-osd [data-dock-action="subtitles"]')).toBeVisible();
+}
+
+test('the subtitle picker opens above its button with one ring, and closes back to it', async ({ page }) => {
+  await gotoLiveWithSubtitles(page);
   const menu = page.locator('#player-menu');
   const rows = menu.locator('.menu-item');
+  const subtitles = page.locator('#player-osd [data-dock-action="subtitles"]');
+  await page.keyboard.press('Enter'); // the controls take the keys, on Favorite
   await page.keyboard.press('ArrowRight');
-  await expect(menu).toHaveClass(/visible/);
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
-  await expect(rows.nth(2)).toHaveClass(/focused/);
-  await pressRemoteBack(page);
-  await expect(menu).not.toHaveClass(/visible/);
-  await expect(page.locator('[data-ring-owner]')).toHaveAttribute('data-focus-scope', 'view.player');
-
   await page.keyboard.press('ArrowRight');
+  await expect(subtitles).toHaveClass(/focused/);
+  await page.keyboard.press('Enter');
   await expect(menu).toHaveClass(/visible/);
   await expect(page.locator('[data-ring-owner]')).toHaveAttribute('data-focus-scope', 'player.menu');
-  await expect(rows.nth(0)).toHaveClass(/focused/);
+  await expect(rows.nth(0)).toHaveClass(/focused/); // Off, the active choice
   await expect(page.locator('.focused')).toHaveCount(1);
+  // Above the controls, right-aligned with the button it opened from.
+  const [panel, button, dock] = await Promise.all([menu, subtitles, page.locator('#player-osd')]
+    .map(async (el) => (await el.boundingBox())!));
+  expect(panel.y + panel.height).toBeLessThanOrEqual(dock.y);
+  expect(Math.abs((panel.x + panel.width) - (button.x + button.width))).toBeLessThanOrEqual(1);
+
+  await page.keyboard.press('ArrowDown');
+  await expect(rows.nth(1)).toHaveClass(/focused/);
+  await pressRemoteBack(page);
+  await expect(menu).not.toHaveClass(/visible/);
+  await expect(page.locator('[data-ring-owner]')).toHaveAttribute('data-focus-scope', 'player.dock');
+  await expect(subtitles).toHaveClass(/focused/);
+  await expect(page.locator('.focused')).toHaveCount(1);
+
+  // Picking a track closes the picker; it reopens on the active row.
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(menu).not.toHaveClass(/visible/);
+  await page.keyboard.press('Enter');
+  await expect(menu).toHaveClass(/visible/);
+  await expect(rows.nth(1)).toHaveClass(/focused/);
+  await expect(menu).toContainText('Subtitle Sync');
 });
 
-test('the player menu ring follows the pointer and the D-pad, and returns to the row it rests on', async ({ page }) => {
-  await gotoLivePlayer(page);
-  await page.mouse.move(1900, 540);
+test('the picker ring follows the pointer and the D-pad, and returns to the row it rests on', async ({ page }) => {
+  await gotoLiveWithSubtitles(page);
   const menu = page.locator('#player-menu');
   const rows = menu.locator('.menu-item');
+  await page.locator('#player-osd [data-dock-action="subtitles"]').click();
   await expect(menu).toHaveClass(/visible/);
-  // Let the panel finish sliding in before aiming at a row.
-  await expect.poll(() => menu.evaluate((el) => el.getBoundingClientRect().right)).toBe(1920);
+  await expect.poll(() => menu.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
 
   await moveOnto(page, rows.nth(1));
   await expect(rows.nth(1)).toHaveClass(/focused/);
-  await page.keyboard.press('ArrowDown');
-  await expect(rows.nth(2)).toHaveClass(/focused/);
+  await page.keyboard.press('ArrowUp');
+  await expect(rows.nth(0)).toHaveClass(/focused/);
   await expect(page.locator('.focused')).toHaveCount(1);
   // A small move that stays on the same row takes the ring back to it.
   await moveOnto(page, rows.nth(1), 2);
@@ -641,31 +703,6 @@ async function panelSettled(panel: ReturnType<Page['locator']>): Promise<void> {
     return still;
   }, { intervals: [100] }).toBe(true);
 }
-
-test('the player menu lights the row it slides out under', async ({ page }) => {
-  await gotoLivePlayer(page);
-  const menu = page.locator('#player-menu');
-  const rows = menu.locator('.menu-item');
-  await page.mouse.move(960, 300);
-  await page.keyboard.press('ArrowRight');
-  await expect.poll(() => menu.evaluate((el) => el.getBoundingClientRect().right)).toBe(1920);
-  const box = await rows.nth(2).boundingBox();
-  if (!box) throw new Error('row has no bounding box');
-  await page.keyboard.press('Escape');
-  await expect(menu).not.toHaveClass(/visible/);
-  // Let it finish sliding out, or the pointer lands on a row still on screen.
-  await expect.poll(() => menu.evaluate((el) => {
-    const rect = el.getBoundingClientRect();
-    return rect.width === 0 || rect.left >= 1920;
-  })).toBe(true);
-
-  // From the D-pad, the pointer stops at the edge and the panel slides in beneath it.
-  await noHoverWithoutMove(page);
-  await page.mouse.move(1860, box.y + box.height / 2);
-  await expect(menu).toHaveClass(/visible/);
-  await expect(rows.nth(2)).toHaveClass(/focused/);
-  await expect(page.locator('.focused')).toHaveCount(1);
-});
 
 test('the channel panel lights the channel it slides out under', async ({ page }) => {
   const lines = ['#EXTM3U'];
@@ -760,41 +797,13 @@ test('the channel panel search box lights when clicked under a still pointer aft
 });
 
 test('the live subtitle sync adjuster keeps the channel panel shut at the screen edge', async ({ page }) => {
-  // The webOS native path self-renders a manifest subtitle, which is what makes
-  // Subtitle Sync available on a live channel.
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Web0S Chrome/53.0' });
-    // Native Chromium cannot decode the synthetic stream; keep it from zapping.
-    document.addEventListener('error', (event) => {
-      if (event.isTrusted && event.target instanceof HTMLMediaElement) event.stopImmediatePropagation();
-    }, true);
-  });
-  await routePlaylist(page);
-  await routeLiveManifest(page);
-  await page.route('**/one.m3u8', (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/vnd.apple.mpegurl',
-    body: [
-      '#EXTM3U',
-      '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="s",NAME="Track 1",LANGUAGE="l1",URI="http://host/s1.m3u8"',
-      '#EXT-X-STREAM-INF:BANDWIDTH=1,SUBTITLES="s"',
-      'http://host/v.m3u8',
-    ].join('\n'),
-  }));
-  await neuterVideo(page);
-  await seedPlaylist(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await page.keyboard.press('Enter');
-  await expect(page.locator('#view-player')).toBeVisible();
+  await gotoLiveWithSubtitles(page);
   const menu = page.locator('#player-menu');
   const sidebar = page.locator('#player-sidebar');
-  await page.mouse.move(1900, 540);
-  await expect(menu).toHaveClass(/visible/);
-  await expect.poll(() => menu.evaluate((el) => el.getBoundingClientRect().right)).toBe(1920);
-  await menu.locator('[data-menu-action="__subs_open__"]').click();
+  const subtitles = page.locator('#player-osd [data-dock-action="subtitles"]');
+  await subtitles.click();
   await menu.locator('[data-menu-action="__subs_track__"][data-track-index="0"]').click();
-  await menu.locator('[data-menu-action="__subs_open__"]').click();
+  await subtitles.click();
   await menu.locator('[data-menu-action="__subs_offset__"]').click();
   await expect(page.locator('#subtitle-offset:not(.hidden)')).toBeVisible();
   const owner = page.locator('[data-ring-owner]');
@@ -825,12 +834,9 @@ test('the OSD band keeps its edge controls ahead of pointer-triggered panels', a
 
   await page.mouse.move(2, box.y + box.height / 2);
   await expect(page.locator('#player-sidebar')).not.toBeVisible();
-
-  await page.mouse.move(1918, 1078);
-  await expect(page.locator('#player-menu')).not.toBeVisible();
 });
 
-test('pointer-opened player panels do not reveal or hide the OSD', async ({ page }) => {
+test('a pointer-opened channel panel does not reveal or hide the OSD', async ({ page }) => {
   await routePlaylist(page);
   await routeLiveManifest(page);
   await neuterVideo(page);
@@ -841,23 +847,10 @@ test('pointer-opened player panels do not reveal or hide the OSD', async ({ page
 
   const osd = page.locator('#player-osd');
   await expect(osd).toBeVisible();
-  await page.mouse.move(1890, 1000);
-  await page.keyboard.press('Enter');
-  await expect(osd).not.toBeVisible();
-
-  await page.mouse.move(1891, 1000);
-  const menu = page.locator('#player-menu');
-  await expect(menu).toBeVisible();
-  await expect(osd).not.toBeVisible();
-
-  await page.evaluate(() =>
-    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 405, bubbles: true })));
-  await expect(menu).toBeVisible();
-  await expect(osd).toBeVisible();
-  await page.keyboard.press('ArrowRight');
-
+  // OK hands the controls the keys; Back then hides them.
   await page.mouse.move(30, 1000);
   await page.keyboard.press('Enter');
+  await pressRemoteBack(page);
   await expect(osd).not.toBeVisible();
   await page.mouse.move(29, 1000);
   const sidebar = page.locator('#player-sidebar');
@@ -870,33 +863,24 @@ test('pointer-opened player panels do not reveal or hide the OSD', async ({ page
   await expect(osd).toBeVisible();
 });
 
-test('keeps pseudo-localized player menu labels within the panel', async ({ page }) => {
-  await routePlaylist(page);
-  await routeLiveManifest(page);
-  await neuterVideo(page);
-  await seedPlaylist(page);
-  await page.goto('/?pseudo=1');
-
-  await expect(page.locator('#view-channels')).toBeVisible();
+test('keeps pseudo-localized control and picker labels within their panels', async ({ page }) => {
+  await gotoLiveWithSubtitles(page, '/?pseudo=1');
+  const osd = page.locator('#player-osd');
   await page.keyboard.press('Enter');
-  await expect(page.locator('#view-player')).toBeVisible();
-  await page.keyboard.press('ArrowLeft');
-
-  const search = page.locator('.sidebar-search-input');
-  await expect(search).toBeVisible();
-  await expect(search).toHaveAttribute('placeholder', /^\[!! /);
-  await expect(search).toHaveCSS('text-overflow', 'ellipsis');
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight'); // Channel info
+  const caption = osd.locator('.osd-control-caption');
+  await expect(caption).toContainText('[!!');
+  expect(await caption.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await page.keyboard.press('ArrowRight'); // Subtitles
+  await page.keyboard.press('Enter');
 
   const menu = page.locator('#player-menu');
   await expect(menu).toBeVisible();
-  await expect(menu.locator('.menu-item')).toHaveCount(4);
   await expect(menu.locator('.menu-item').first()).toContainText('[!!');
   const menuWidth = await menu.evaluate(element => element.getBoundingClientRect().width);
-  expect(menuWidth).toBeGreaterThan(340);
-  expect(menuWidth).toBeLessThanOrEqual(440);
-  const overflow = await menu.locator('.menu-header h2, .menu-subtitle, .menu-item')
+  expect(menuWidth).toBeGreaterThanOrEqual(360);
+  expect(menuWidth).toBeLessThanOrEqual(560);
+  const overflow = await menu.locator('.menu-header h2, .menu-item')
     .evaluateAll((elements) => elements
       .filter((element) => element.scrollWidth > element.clientWidth + 1
         || element.scrollHeight > element.clientHeight + 1)
@@ -904,24 +888,14 @@ test('keeps pseudo-localized player menu labels within the panel', async ({ page
   expect(overflow).toEqual([]);
 });
 
-test('a long player-menu list scrolls with the Magic-Remote wheel, not the channel', async ({ page }) => {
-  // The subtitle/audio submenus share `.menu-items`; with many tracks the list must
-  // scroll (overflow-y:auto) and the wheel handler must let it scroll natively instead
-  // of zapping the channel. A fake stream can't supply many tracks, so we stub a long
-  // list into the same container and drive a real wheel over it.
-  await routePlaylist(page);
-  // Minimal live manifest so hls.js doesn't fatal → no auto-zap to the next channel.
-  await routeLiveManifest(page);
-  await neuterVideo(page);
-  await seedPlaylist(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-
-  await page.keyboard.press('Enter');
-  await expect(page.locator('#view-player')).toBeVisible();
+test('a long picker list scrolls with the Magic-Remote wheel, not the channel', async ({ page }) => {
+  // With many tracks the list must scroll (overflow-y:auto) and the wheel
+  // handler must let it scroll natively instead of zapping the channel. A fake
+  // stream can't supply many tracks, so we stub a long list into the same
+  // container and drive a real wheel over it.
+  await gotoLiveWithSubtitles(page);
   await expect(page.locator('.osd-channel-number')).toHaveText('1');
-
-  await page.keyboard.press('ArrowRight');
+  await page.locator('#player-osd [data-dock-action="subtitles"]').click();
   const menu = page.locator('#player-menu');
   await expect(menu).toBeVisible();
 
@@ -1036,9 +1010,9 @@ test.describe('DVR', () => {
 
   test('pause control pauses on a Magic-Remote pointer click', async ({ page }) => {
     await gotoDvrPlayer(page);
-    await expect(page.locator('[data-playpause]')).toBeVisible();
+    await expect(page.locator('[data-dock-action="playpause"]')).toBeVisible();
 
-    const state = await okAndReadVideo(page, '[data-playpause]');
+    const state = await okAndReadVideo(page, '[data-dock-action="playpause"]');
 
     expect(state.paused).toBe(true);
   });
@@ -1066,17 +1040,36 @@ test.describe('DVR', () => {
     await expect(page.locator('#view-channels')).toBeVisible();
   });
 
-  test('Back hides a paused DVR OSD, so Right reaches the menu, then leaves', async ({ page }) => {
+  test('Back hides a paused DVR OSD, Right then opens nothing, and Back leaves', async ({ page }) => {
     await gotoDvrPlayer(page);
-    const [paused, hidden, menu, closed, left] = await pressStepsAndReadPlayer(page, [
-      [YELLOW, ENTER], [BACK], [RIGHT], [BACK], [BACK],
+    const [paused, hidden, right, left] = await pressStepsAndReadPlayer(page, [
+      [YELLOW, ENTER], [BACK], [RIGHT], [BACK],
     ]);
     expect(paused).toMatchObject({ osd: true, message: false, paused: true });
     expect(hidden).toMatchObject({ osdBefore: true, osd: false, player: true, paused: true });
-    expect(menu).toMatchObject({ osd: false, menu: true, paused: true, currentTime: paused.currentTime });
-    expect(closed).toMatchObject({ menu: false, player: true });
+    expect(right).toMatchObject({ osd: false, menu: false, paused: true, currentTime: paused.currentTime });
     expect(left.player).toBe(false);
     await expect(page.locator('#view-channels')).toBeVisible();
+  });
+
+  test('Left/Right skip 10s with the controls up; hidden, Left opens the channel list', async ({ page }) => {
+    await gotoDvrPlayer(page);
+    // fakeLiveDvrOsd starts at 0 in a 0–60 window; the oldest edge keeps 3s.
+    const [shown, forward, back] = await pressStepsAndReadPlayer(page, [[YELLOW], [RIGHT, RIGHT, RIGHT], [37]]);
+    expect(shown.osd).toBe(true);
+    expect(forward).toMatchObject({ osd: true, menu: false, currentTime: 30 });
+    expect(back).toMatchObject({ osd: true, currentTime: 20 });
+    await expect(page.locator('#player-osd .osd-seek-bubble')).toBeVisible();
+    await pressRemoteBack(page); // the info a zap or skip shows: Back leaves
+    await expect(page.locator('#view-channels')).toBeVisible();
+  });
+
+  test('with the OSD hidden, Left opens the channel list rather than skipping', async ({ page }) => {
+    await gotoDvrPlayer(page);
+    await expect(page.locator('#player-osd')).toBeHidden({ timeout: 10_000 });
+    const [left] = await pressStepsAndReadPlayer(page, [[37]]);
+    expect(left).toMatchObject({ osd: false, currentTime: 0 });
+    await expect(page.locator('#player-sidebar')).toBeVisible();
   });
 });
 

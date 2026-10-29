@@ -1,4 +1,4 @@
-import { test, expect, enterTab, openSideMenu, readUserDataStore, type Page } from './helpers';
+import { test, expect, enterTab, leaveVod, openSideMenu, readUserDataStore, type Page } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 import { THEMES } from '../src/config/themes';
 import type { ResumeEntry, WatchlistEntry } from '../src/types';
@@ -138,7 +138,7 @@ for (const section of ['movies', 'series'] as const) {
       Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
       Object.defineProperty(video, 'currentTime', { configurable: true, get: () => 200 });
     });
-    await page.keyboard.press('Escape');
+    await leaveVod(page);
     if (section === 'movies') await page.keyboard.press('Escape');
     await expect(grid.locator('.catalog-tile').first()).toHaveAttribute('data-key', key!);
     await expect(grid.locator('.catalog-tile.focused')).toHaveAttribute('data-key', key!);
@@ -156,7 +156,7 @@ test('returns to a neighboring browse episode after completing direct playback',
     Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
     Object.defineProperty(video, 'currentTime', { configurable: true, get: () => 599 });
   });
-  await page.keyboard.press('Escape');
+  await leaveVod(page);
   await expect(rail.locator('[data-resume-episode="episode2"]')).toHaveCount(0);
   await expect(rail.locator('.focused')).toHaveAttribute('data-key', 'r:episode3');
 });
@@ -196,7 +196,7 @@ test('leaves an emptied collection after completing its final episode', async ({
     Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
     Object.defineProperty(video, 'currentTime', { configurable: true, get: () => 599 });
   });
-  await page.keyboard.press('Escape');
+  await leaveVod(page);
   await expect(grid).toBeEmpty();
   await expect(page.locator('#view-series [data-rail-key="continue"]')).toHaveCount(0);
   await expect(page.locator('#view-series .catalog-layer-browse .focused')).toHaveCount(1);

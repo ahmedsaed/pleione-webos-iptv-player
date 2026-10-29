@@ -48,6 +48,17 @@ describe('KeyHandler', () => {
     vi.useRealTimers();
   });
 
+  it('marks a held key\'s repeat only while its action is handled', () => {
+    const seen: boolean[] = [];
+    handler.mockImplementation(() => { seen.push(InputMode.keyRepeat); });
+    press(K.RIGHT);
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      keyCode: K.RIGHT, repeat: true, bubbles: true, cancelable: true,
+    } as KeyboardEventInit));
+    expect(seen).toEqual([false, true]);
+    expect(InputMode.keyRepeat).toBe(false);
+  });
+
   // Must run before any other test moves the pointer: module state persists.
   describe('keyboard-nav root class', () => {
     const root = document.documentElement;

@@ -51,7 +51,7 @@ vi.mock('../services/subtitle-search/subtitle-search-service', () => ({
 
 import { Player } from './player';
 import { Focus } from '../navigation/focus-scope';
-import { setCursorHidden, setInputMode } from '../navigation/input-mode';
+import { setCursorHidden, setInputMode, setKeyRepeat } from '../navigation/input-mode';
 import {
   containerMime,
   diagnosticStreamUrl,
@@ -267,6 +267,7 @@ beforeEach(() => {
 afterEach(() => {
   Focus.uninstall();
   setInputMode('pointer');
+  setKeyRepeat(false);
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -369,17 +370,19 @@ describe('Player catch-up seeking', () => {
   });
 
   it('Right seeks forward by the step, Left back; the bar + label follow', () => {
+    expect(CONFIG.PLAYER.SEEK_STEP).toBe(10);
+    player.handleAction('right');
+    expect(video.currentTime).toBe(10);
+    expect(bar().style.width).toBe(`${(10 / 120) * 100}%`);
+    expect(elapsed()).toBe('0:10');
+
+    player.handleAction('right');
     player.handleAction('right');
     expect(video.currentTime).toBe(30);
     expect(bar().style.width).toBe('25%');
-    expect(elapsed()).toBe('0:30');
-
-    player.handleAction('right');
-    expect(video.currentTime).toBe(60);
-    expect(bar().style.width).toBe('50%');
 
     player.handleAction('left');
-    expect(video.currentTime).toBe(30);
+    expect(video.currentTime).toBe(20);
   });
 
   it('accumulates repeated seeks while the native position is still stale', () => {
@@ -389,31 +392,30 @@ describe('Player catch-up seeking', () => {
     player.play(0, CATCHUP);
 
     player.handleAction('right');
-    expect(asyncVideo.requestedTime()).toBe(30);
-    expect(elapsed()).toBe('0:30');
+    expect(asyncVideo.requestedTime()).toBe(10);
+    expect(elapsed()).toBe('0:10');
 
     video.dispatchEvent(new Event('timeupdate'));
-    expect(elapsed()).toBe('0:30');
+    expect(elapsed()).toBe('0:10');
 
     player.handleAction('right');
-    expect(asyncVideo.requestedTime()).toBe(60);
-    expect(bar().style.width).toBe('50%');
-    expect(elapsed()).toBe('1:00');
+    expect(asyncVideo.requestedTime()).toBe(20);
+    expect(elapsed()).toBe('0:20');
 
     video.dispatchEvent(new Event('timeupdate'));
-    expect(elapsed()).toBe('1:00');
-    asyncVideo.settleSeek(30);
-    expect(asyncVideo.requestedTimes).toEqual([30, 60, 60]);
-    expect(elapsed()).toBe('1:00');
+    expect(elapsed()).toBe('0:20');
+    asyncVideo.settleSeek(10);
+    expect(asyncVideo.requestedTimes).toEqual([10, 20, 20]);
+    expect(elapsed()).toBe('0:20');
 
-    asyncVideo.settleSeek(60);
-    expect(elapsed()).toBe('1:00');
+    asyncVideo.settleSeek(20);
+    expect(elapsed()).toBe('0:20');
   });
 
   it('clamps seeks to [0, duration]', () => {
-    player.handleAction('left'); // 0 - 30 → 0
+    player.handleAction('left'); // 0 - 10 → 0
     expect(video.currentTime).toBe(0);
-    for (let i = 0; i < 5; i++) player.handleAction('right'); // 150 → clamp 120
+    for (let i = 0; i < 13; i++) player.handleAction('right'); // 130 → clamp 120
     expect(video.currentTime).toBe(120);
   });
 
@@ -447,7 +449,7 @@ describe('Player catch-up seeking', () => {
     stubBar();
     container.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 250, clientY: 18 }));
     player.handleAction('right'); // d-pad seek clears the tracked cursor
-    expect(video.currentTime).toBe(30);
+    expect(video.currentTime).toBe(10);
     player.handleAction('select');
     expect(video.paused).toBe(true); // paused (cursor cleared), not seeked to the stale pointer
   });
@@ -457,9 +459,10 @@ describe('Player catch-up seeking', () => {
     player.handleAction('pause');
     container.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 250, clientY: 18 }));
     remoteKeys();
-    expect(player.hideOsdForBack()).toBe(true);
-    player.handleAction('select'); // shows the OSD
+    expect(player.handleBack()).toBe(true);
+    player.handleAction('select'); // shows the controls on Play/Pause
     expect(player.canSeek()).toBe(true);
+    expect(video.paused).toBe(true);
     player.handleAction('select');
     expect(video.paused).toBe(false); // resumed
     expect(video.currentTime).toBe(0); // not seeked to the stale cursor
@@ -474,17 +477,18 @@ describe('Player catch-up seeking', () => {
 describe('Player catch-up pause/play', () => {
   beforeEach(() => player.play(0, CATCHUP)); // catch-up → OSD shown, finite duration
 
-  it('does not offer playback speed for native HLS catch-up', () => {
-    expect(player.getPlaybackRateState()).toEqual({ available: false, rate: 1 });
-  });
-
   it('renders a play/pause control', () => {
-    expect(container.querySelector('[data-playpause]')).not.toBeNull();
+    expect(container.querySelector('[data-dock-action="playpause"]')).not.toBeNull();
   });
 
-  it('OK (OSD up, cursor off the bar) pauses then resumes playback', () => {
+  it('OK (OSD up, cursor off the bar) pauses on the seek bar, where Right skips and OK resumes', () => {
     expect(video.paused).toBe(false);
     player.handleAction('select'); // OSD up + catch-up → pause
+    expect(video.paused).toBe(true);
+    Focus.flush();
+    expect(container.querySelector('[data-seekbar]')!.classList.contains('focused')).toBe(true);
+    player.handleAction('right');
+    expect(video.currentTime).toBe(10);
     expect(video.paused).toBe(true);
     player.handleAction('select'); // resume
     expect(video.paused).toBe(false);
@@ -499,12 +503,12 @@ describe('Player catch-up pause/play', () => {
 
   it('lets Back hide the OSD only while paused', () => {
     remoteKeys();
-    expect(player.hideOsdForBack()).toBe(false); // playing: Back stops
-    player.handleAction('select'); // pauses
+    expect(player.handleBack()).toBe(false); // playing: Back stops
+    player.handleAction('pause');
     expect(video.paused).toBe(true);
-    expect(player.hideOsdForBack()).toBe(true);
+    expect(player.handleBack()).toBe(true);
     expect(video.paused).toBe(true);
-    expect(player.canSeek()).toBe(false); // Right opens the menu
+    expect(player.canSeek()).toBe(false); // Left opens the channel list
     vi.advanceTimersByTime(60_000);
     expect(container.querySelector('#player-osd')!.classList.contains('hidden')).toBe(true);
   });
@@ -517,7 +521,7 @@ describe('Player catch-up pause/play', () => {
     video.pause();
     video.dispatchEvent(new Event('pause'));
     expect(container.querySelector('#player-osd')!.classList.contains('hidden')).toBe(false);
-    expect(player.hideOsdForBack()).toBe(false);
+    expect(player.handleBack()).toBe(false);
   });
 
   it('keeps a user re-pause when the resume\'s `play` event arrives after it', () => {
@@ -526,57 +530,18 @@ describe('Player catch-up pause/play', () => {
     player.handleAction('play');
     player.handleAction('pause');
     video.dispatchEvent(new Event('play'));
-    expect(player.hideOsdForBack()).toBe(true);
+    expect(player.handleBack()).toBe(true);
   });
 
   // The control is driven from click by coordinates — mirror the live DVR
   // play/pause test.
   it('a pointer click on the play/pause control pauses playback', () => {
-    const btn = container.querySelector('[data-playpause]') as HTMLElement;
+    const btn = container.querySelector('[data-dock-action="playpause"]') as HTMLElement;
     btn.getBoundingClientRect = () => ({ left: 10, right: 42, width: 32, top: 0, bottom: 32 }) as DOMRect;
     container.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 26, clientY: 16 }));
     expect(video.paused).toBe(true);
   });
 
-  it('resyncAV seeks backward by RESYNC_SEEK_BACK to force a pipeline re-lock', () => {
-    player.handleAction('right'); // → 30
-    player.handleAction('right'); // → 60
-    player.resyncAV();
-    expect(video.currentTime).toBe(60 - CONFIG.PLAYER.RESYNC_SEEK_BACK);
-  });
-
-  it('resyncAV clamps the seek target at 0', () => {
-    video.currentTime = 0.3;
-    player.resyncAV();
-    expect(video.currentTime).toBe(0);
-  });
-
-  it('resyncAV debounces while a resync is already in flight', () => {
-    player.handleAction('right'); // → 30
-    player.handleAction('right'); // → 60
-    player.resyncAV();            // → 59.5, now resyncing
-    expect(video.currentTime).toBe(60 - CONFIG.PLAYER.RESYNC_SEEK_BACK);
-    video.currentTime = 100;      // pretend playback advanced
-    player.resyncAV();            // no-op while resyncing
-    expect(video.currentTime).toBe(100);
-  });
-
-  it('shows a Resyncing… message and clears it once playback resumes', () => {
-    const osd = container.querySelector('#player-osd')!;
-    player.resyncAV();
-    expect(osd.textContent).toContain('Resyncing');
-    video.dispatchEvent(new Event('playing'));
-    expect(osd.textContent).not.toContain('Resyncing');
-  });
-
-  it('a pointer click on the resync control seeks backward', () => {
-    player.handleAction('right'); // → 30
-    player.handleAction('right'); // → 60
-    const btn = container.querySelector('[data-resync]') as HTMLElement;
-    btn.getBoundingClientRect = () => ({ left: 900, right: 932, width: 32, top: 0, bottom: 32 }) as DOMRect;
-    container.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 916, clientY: 16 }));
-    expect(video.currentTime).toBe(60 - CONFIG.PLAYER.RESYNC_SEEK_BACK);
-  });
 });
 
 describe('Player catch-up completion', () => {
@@ -711,7 +676,7 @@ describe('Player live playback', () => {
     player.play(0);
     remoteKeys();
     expect(container.querySelector('#player-osd')!.classList.contains('hidden')).toBe(false);
-    expect(player.hideOsdForBack()).toBe(false);
+    expect(player.handleBack()).toBe(false);
   });
 
   it('has no seek bar and is not seekable', () => {
@@ -1001,21 +966,6 @@ describe('Player native subtitle retry', () => {
   });
 });
 
-describe('Player native playback-rate retry', () => {
-  it('re-applies the selected speed as the native pipeline becomes playable', () => {
-    const reapply = vi.fn();
-    const internals = player as unknown as {
-      playbackRate: { reapply: () => void };
-    };
-    internals.playbackRate.reapply = reapply;
-
-    video.dispatchEvent(new Event('canplay'));
-    video.dispatchEvent(new Event('playing'));
-
-    expect(reapply).toHaveBeenCalledTimes(2);
-  });
-});
-
 describe('Player live DVR', () => {
   let live: HTMLVideoElement;
   let setWindow: (s: number, e: number) => void;
@@ -1033,17 +983,11 @@ describe('Player live DVR', () => {
     expect(container.querySelector('[data-seekbar]')).not.toBeNull();
   });
 
-  it('resyncAV is a no-op on live (no finite decode to re-lock)', () => {
-    expect(live.currentTime).toBe(60);
-    player.resyncAV();
-    expect(live.currentTime).toBe(60);
-    expect(container.querySelector('[data-resync]')).toBeNull();
-  });
-
   it('Left rewinds by the step, moving the bar', () => {
-    player.handleAction('left'); // 60 - 30 = 30
-    expect(live.currentTime).toBe(30);
-    expect((container.querySelector('.osd-progress-bar') as HTMLElement).style.width).toBe('50%');
+    player.handleAction('left'); // 60 - 10 = 50
+    expect(live.currentTime).toBe(50);
+    expect((container.querySelector('.osd-progress-bar') as HTMLElement).style.width)
+      .toBe(`${(50 / 60) * 100}%`);
   });
 
   it('Right near the live edge snaps to the edge (end - pad)', () => {
@@ -1065,12 +1009,14 @@ describe('Player live DVR', () => {
     expect(live.paused).toBe(false);
     player.handleAction('select'); // OSD up + live DVR → pause
     expect(live.paused).toBe(true);
+    player.handleAction('select'); // the controls now own OK: Play/Pause resumes
+    expect(live.paused).toBe(false);
   });
 
   it('keeps a paused OSD current after Back hid it and OK showed it again', () => {
     remoteKeys();
     player.handleAction('pause');
-    expect(player.hideOsdForBack()).toBe(true);
+    expect(player.handleBack()).toBe(true);
     vi.advanceTimersByTime(1000);
     player.handleAction('select'); // hidden OSD: OK shows it, still paused
     expect(live.paused).toBe(true);
@@ -1103,7 +1049,7 @@ describe('Player live DVR', () => {
 
   // The OSD controls are driven from click by coordinates, like the seek bar.
   it('a pointer click on the pause control pauses playback', () => {
-    const btn = container.querySelector('[data-playpause]') as HTMLElement;
+    const btn = container.querySelector('[data-dock-action="playpause"]') as HTMLElement;
     btn.getBoundingClientRect = () => ({ left: 10, right: 42, width: 32, top: 0, bottom: 32 }) as DOMRect;
     container.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 26, clientY: 16 }));
     expect(live.paused).toBe(true);
@@ -1131,7 +1077,7 @@ describe('Player live DVR', () => {
     v2.dispatchEvent(new Event('timeupdate'));
 
     expect(container.querySelector('[data-seekbar]')).not.toBeNull();
-    expect(container.querySelector('[data-playpause]')).not.toBeNull();
+    expect(container.querySelector('[data-dock-action="playpause"]')).not.toBeNull();
   });
 });
 
@@ -1206,13 +1152,13 @@ describe('Player stall reconnect OSD', () => {
     await flush();
     remoteKeys();
     expect(v.paused).toBe(true); // the mocked play() never starts it
-    expect(player.hideOsdForBack()).toBe(false);
+    expect(player.handleBack()).toBe(false);
     container.querySelector('video')!.dispatchEvent(new Event('loadedmetadata'));
     expect(container.querySelector('#player-osd')!.classList.contains('hidden')).toBe(false);
-    expect(player.hideOsdForBack()).toBe(false); // recovered metadata, not yet playing
+    expect(player.handleBack()).toBe(false); // recovered metadata, not yet playing
   });
 
-  it('lets Back stop a stream still starting with the OSD up', async () => {
+  it('lets Back stop a live stream still starting with the OSD up, but hide a VOD\'s controls', async () => {
     HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined);
     HTMLMediaElement.prototype.pause = vi.fn();
     HTMLMediaElement.prototype.load = vi.fn();
@@ -1224,14 +1170,16 @@ describe('Player stall reconnect OSD', () => {
     remoteKeys();
     expect(v.paused).toBe(true); // the mocked play() never starts it
     expect(container.querySelector('#player-osd')!.classList.contains('hidden')).toBe(false);
-    expect(player.hideOsdForBack()).toBe(false);
+    expect(player.handleBack()).toBe(false);
     player.playVod({
       url: 'http://host/a.mp4', title: 'Movie One', poster: '', accountId: 'x1', itemId: '10',
       kind: 'vod', resumeSecs: 0, subtitles: [], onBack: vi.fn(),
     });
     await flush();
     expect(container.querySelector('video')!.paused).toBe(true);
-    expect(player.hideOsdForBack()).toBe(false);
+    expect(player.handleBack()).toBe(true);
+    expect(container.querySelector('#player-osd')!.classList.contains('hidden')).toBe(true);
+    expect(player.handleBack()).toBe(false);
   });
 });
 
@@ -1430,32 +1378,6 @@ describe('Player VOD mode', () => {
     ]);
   });
 
-  it('lets Right open the menu only over bare video', () => {
-    const video = fakeVideo(3600);
-    player.init(video);
-    player.playVod(req());
-    const internals = player as unknown as {
-      osd: { hide(): void };
-      tracks: { subsOverlay: { visible: boolean } | null };
-    };
-    expect(player.vodRightOpensMenu()).toBe(false); // the OSD shows
-    internals.osd.hide();
-    expect(player.vodRightOpensMenu()).toBe(true);
-    internals.tracks.subsOverlay = { visible: true };
-    expect(player.vodRightOpensMenu()).toBe(false);
-  });
-
-  it('lets Right open the menu over the OSD until the duration is usable', () => {
-    const video = fakeVideo(NaN);
-    player.init(video);
-    player.playVod(req()); // the OSD shows before loadedmetadata
-    expect(player.vodRightOpensMenu()).toBe(true);
-    (video as { duration: number }).duration = Infinity;
-    expect(player.vodRightOpensMenu()).toBe(true);
-    (video as { duration: number }).duration = 3600;
-    expect(player.vodRightOpensMenu()).toBe(false);
-  });
-
   it('is seekable while the OSD is up (finite duration)', () => {
     const video = fakeVideo(3600);
     player.init(video);
@@ -1463,106 +1385,54 @@ describe('Player VOD mode', () => {
     expect(player.canSeek()).toBe(true); // playVod shows the OSD
   });
 
-  it('lets Back hide the OSD unless the subtitle search or up-next owns it', () => {
+  it('lets Back hide the controls, playing or paused, unless the subtitle search or up-next owns them', () => {
     const video = fakeVideo(3600);
     player.init(video);
     player.playVod(req());
     remoteKeys();
-    expect(player.hideOsdForBack()).toBe(false); // playing: Back stops
-    player.handleAction('select'); // pause
-    expect(player.vodRightOpensMenu()).toBe(false);
     const internals = player as unknown as {
       tracks: { subsOverlay: { visible: boolean } | null };
       upNextTimer: ReturnType<typeof setInterval> | null;
     };
     internals.tracks.subsOverlay = { visible: true };
-    expect(player.hideOsdForBack()).toBe(false);
+    expect(player.handleBack()).toBe(false);
     internals.tracks.subsOverlay = null;
     internals.upNextTimer = 1 as unknown as ReturnType<typeof setInterval>;
-    expect(player.hideOsdForBack()).toBe(false);
+    expect(player.handleBack()).toBe(false);
     internals.upNextTimer = null;
-    expect(player.hideOsdForBack()).toBe(true);
+    expect(player.handleBack()).toBe(true); // playing: the controls hide first
+    expect(player.handleBack()).toBe(false); // hidden: Back stops
+    player.handleAction('select'); // pause, showing the controls
     expect(video.paused).toBe(true);
-    expect(player.vodRightOpensMenu()).toBe(true);
+    expect(player.handleBack()).toBe(true);
+    expect(video.paused).toBe(true);
   });
 
-  // A cursor on screen re-reveals the OSD, so hiding it would trap Back.
-  it('lets Back stop a paused VOD when the pointer drove it last, unless webOS hid the cursor', () => {
+  it('lets Back hide a paused VOD\'s controls when the pointer drove it last', () => {
     const video = fakeVideo(3600);
     player.init(video);
     player.playVod(req());
     player.handleAction('select'); // pause
     setInputMode('pointer');
     setInputMode('keys'); // Back is the first key after the pointer
-    expect(player.hideOsdForBack()).toBe(false);
+    expect(player.handleBack()).toBe(true);
+  });
+
+  it('keeps live controls up for Back only while paused with the cursor gone, or once OK gave them the keys', () => {
+    const live = fakeLiveVideo(0, 60, 60).video;
+    player.init(live);
+    player.play(0);
+    player.handleAction('pause');
+    setInputMode('pointer');
+    setInputMode('keys');
+    expect(player.handleBack()).toBe(false); // a cursor on screen re-reveals it
     setInputMode('pointer');
     setCursorHidden(true);
     setInputMode('keys');
-    expect(player.hideOsdForBack()).toBe(true);
-  });
-
-  it('offers and applies playback speed for VOD in the desktop preview', async () => {
-    const video = fakeVideo(3600);
-    player.init(video);
-    player.playVod(req());
-
-    expect(player.getPlaybackRateState()).toEqual({ available: true, rate: 1 });
-    await expect(player.setPlaybackRate(1.5)).resolves.toBe(true);
-    expect(video.playbackRate).toBe(1.5);
-    expect(player.getPlaybackRateState()).toEqual({ available: true, rate: 1.5 });
-  });
-
-  it('logs why a playback speed change failed', async () => {
-    const video = fakeVideo(3600);
-    Object.defineProperty(video, 'playbackRate', { get: () => 1, set: () => {} });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    player.init(video);
-    player.playVod(req());
-
-    await expect(player.setPlaybackRate(2)).resolves.toBe(false);
-
-    const line = warn.mock.calls
-      .map(args => args.join(' '))
-      .find(text => text.includes('event=playback.rate.failed'));
-    expect(line).toMatch(/session=\d+ load=\d+ engine=html rate=2 stage=html attempt=0/);
-    expect(line).toContain('errorText="playbackRate=1"');
-    warn.mockRestore();
-  });
-
-  it('does not offer playback speed for HLS or DASH VOD', () => {
-    player.init(fakeVideo(3600));
-    player.playVod(req({ url: 'http://host:8080/movie/u/p/10.m3u8' }));
-    expect(player.getPlaybackRateState().available).toBe(false);
-
-    player.playVod(req({ url: 'http://host:8080/movie/u/p/10.mpd?t=1' }));
-    expect(player.getPlaybackRateState().available).toBe(false);
-
-    player.playVod(req({ url: 'http://host:8080/movie/u/p/10?output=m3u8' }));
-    expect(player.getPlaybackRateState().available).toBe(false);
-
-    player.playVod(req({ url: 'http://host:8080/movie/u/p/10?output_format=mpd' }));
-    expect(player.getPlaybackRateState().available).toBe(false);
-  });
-
-  it('resets playback speed when starting another VOD item', async () => {
-    const video = fakeVideo(3600);
-    player.init(video);
-    player.playVod(req());
-    await player.setPlaybackRate(2);
-
-    player.playVod(req({ itemId: '11', title: 'Movie Two' }));
-
-    expect(video.playbackRate).toBe(1);
-    expect(player.getPlaybackRateState()).toEqual({ available: true, rate: 1 });
-  });
-
-  it('resyncAV seeks backward by RESYNC_SEEK_BACK on VOD', () => {
-    const video = fakeVideo(3600);
-    player.init(video);
-    player.playVod(req());
-    video.currentTime = 900;
-    player.resyncAV();
-    expect(video.currentTime).toBe(900 - CONFIG.PLAYER.RESYNC_SEEK_BACK);
+    expect(player.handleBack()).toBe(true);
+    player.handleAction('play');
+    player.handleAction('select'); // shows the controls with the keys
+    expect(player.handleBack()).toBe(true);
   });
 
   it('renders the VOD OSD through the Live markup (title + stream info, no .osd-vod)', () => {
@@ -1639,26 +1509,6 @@ describe('Player VOD mode', () => {
     expect(StorageService.clearResume).toHaveBeenCalledWith('x1', 'vod', '10');
     expect(StorageService.removeWatchlist).toHaveBeenCalledWith('x1', 'vod', '10');
     expect(r.onBack).toHaveBeenCalled();
-  });
-
-  it('keeps Right from opening the menu during the up-next countdown', () => {
-    HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined);
-    HTMLMediaElement.prototype.pause = vi.fn();
-    HTMLMediaElement.prototype.load = vi.fn();
-    const video = document.createElement('video');
-    Object.defineProperty(video, 'duration', { value: 1800, configurable: true });
-    container.appendChild(video);
-    player.init(video);
-    player.playVod(req({ watchlistQueue: [{
-      url: 'http://host:8080/movie/u/p/11.mp4', title: 'Movie Two',
-      poster: '', accountId: 'x1', itemId: '11', kind: 'vod' as const, subtitles: [],
-    }] }));
-
-    video.dispatchEvent(new Event('ended'));
-    expect(container.textContent).toContain('Starts in 10 seconds');
-    (player as unknown as { osd: { hide(): void } }).osd.hide();
-    expect(player.vodRightOpensMenu()).toBe(false);
-    player.stop();
   });
 
   it('counts down and starts the next movie from a Watchlist queue', async () => {
@@ -1750,27 +1600,6 @@ describe('Player VOD mode', () => {
 
     expect(authorize).not.toHaveBeenCalled();
     expect(player.isVod()).toBe(true);
-  });
-
-  it('offers playback speed only once the queued item starts playing', async () => {
-    HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined);
-    HTMLMediaElement.prototype.pause = vi.fn();
-    HTMLMediaElement.prototype.load = vi.fn();
-    const video = document.createElement('video');
-    Object.defineProperty(video, 'duration', { value: 1800, configurable: true });
-    container.appendChild(video);
-    player.init(video);
-    const next = {
-      url: 'http://host:8080/movie/u/p/11.mp4', title: 'Movie Two',
-      poster: '', accountId: 'x1', itemId: '11', kind: 'vod' as const, subtitles: [],
-    };
-    player.playVod(req({ watchlistQueue: [next] }));
-
-    video.dispatchEvent(new Event('ended'));
-    expect(player.getPlaybackRateState().available).toBe(false);
-
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(player.getPlaybackRateState().available).toBe(true);
   });
 
   it('counts down and automatically starts the next episode', async () => {
@@ -2547,5 +2376,340 @@ describe('Player channel_up/channel_down view scope', () => {
     player.play(0, undefined, { group: 'builtin:favorites' }); // FAV_A, scope tracked either way
     player.channelUp();
     expect(player.getCurrentChannel()).toBe(OTHER); // full-list neighbor, not FAV_B
+  });
+});
+
+describe('Player controls', () => {
+  type QueueItem = {
+    url: string; title: string; poster: string; accountId: string; itemId: string;
+    kind: 'episode'; subtitles: never[]; categoryId: string; parentalItemId: string;
+  };
+  const episode = (n: number): QueueItem => ({
+    url: `http://host/series/e${n}.mp4`, title: `Series One — S1E${n}`, poster: '',
+    accountId: 'x1', itemId: `e${n}`, kind: 'episode', subtitles: [],
+    categoryId: 'c1', parentalItemId: 's1',
+  });
+  const movie = (over = {}) => ({
+    url: 'http://host/movie/10.mp4', title: 'Movie One', poster: '', accountId: 'x1', itemId: '10',
+    kind: 'vod' as const, resumeSecs: 0, subtitles: [], onBack: vi.fn(), ...over,
+  });
+  const controls = () => Array.from(container.querySelectorAll('[data-dock-action]'))
+    .map(el => `${el.getAttribute('data-dock-action')}${el.hasAttribute('disabled') ? ':disabled' : ''}`);
+  const osdHidden = () => container.querySelector('#player-osd')!.classList.contains('hidden');
+  const internals = () => player as unknown as {
+    osd: { hide(): void; focused(): string | null; isActive(): boolean };
+    tracks: { getAudioTracks: () => unknown[]; getSubtitleTracks: () => unknown[] };
+  };
+
+  // A real <video> whose element can be swapped (episode switches recreate it),
+  // with a settable position.
+  function realVideo(duration = 1800): HTMLVideoElement {
+    HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+    HTMLMediaElement.prototype.pause = vi.fn();
+    HTMLMediaElement.prototype.load = vi.fn();
+    const el = document.createElement('video');
+    let time = 0;
+    Object.defineProperty(el, 'duration', { value: duration, configurable: true });
+    Object.defineProperty(el, 'currentTime', {
+      configurable: true, get: () => time, set: (t: number) => { time = t; },
+    });
+    container.appendChild(el);
+    return el;
+  }
+
+  describe('VOD keys', () => {
+    beforeEach(() => {
+      player.playVod(movie({ url: 'http://host/movie/10.mp4' }));
+      remoteKeys();
+    });
+
+    it('skips with Left/Right while the controls are hidden, showing them on the seek bar', () => {
+      internals().osd.hide();
+      expect(osdHidden()).toBe(true);
+      player.handleAction('right');
+      expect(video.currentTime).toBe(10);
+      expect(osdHidden()).toBe(false);
+      expect(internals().osd.focused()).toBe('seek');
+      expect(container.querySelector('.osd-seek-delta')!.textContent).toBe('+0:10');
+      player.handleAction('left');
+      player.handleAction('left');
+      expect(video.currentTime).toBe(0);
+      expect(video.paused).toBe(false);
+      vi.advanceTimersByTime(CONFIG.PLAYER.SEEK_BUBBLE_MS);
+      expect(container.querySelector('.osd-seek-bubble')).toBeNull();
+    });
+
+    it('speeds a held key up: 10s steps, then 30s after a second, 60s after three', () => {
+      (video as { duration: number }).duration = 100_000;
+      const seeks: number[] = [];
+      let last = 0;
+      const step = () => { seeks.push(video.currentTime - last); last = video.currentTime; };
+      player.handleAction('right');
+      step();
+      setKeyRepeat(true);
+      for (let t = 50; t <= 4000; t += 50) {
+        vi.advanceTimersByTime(50);
+        player.handleAction('right');
+        if (video.currentTime !== last) step();
+      }
+      setKeyRepeat(false);
+      const repeat = CONFIG.PLAYER.SEEK_HOLD_REPEAT_MS;
+      expect(seeks[0]).toBe(10);
+      // At most one step per repeat interval, sped up as the hold goes on.
+      expect(seeks.length).toBe(1 + Math.floor(4000 / repeat));
+      expect(seeks.slice(0, 1000 / repeat)).toEqual(Array(1000 / repeat).fill(10));
+      expect(seeks[1000 / repeat]).toBe(30);
+      expect(seeks[3000 / repeat - 1]).toBe(30);
+      expect(seeks[3000 / repeat]).toBe(60);
+      expect(seeks[seeks.length - 1]).toBe(60);
+      expect(video.paused).toBe(false);
+
+      // A fresh press starts over at the base step.
+      const before = video.currentTime;
+      player.handleAction('right');
+      expect(video.currentTime - before).toBe(10);
+    });
+
+    it('turns a held key around at the base step', () => {
+      player.handleAction('right');
+      setKeyRepeat(true);
+      vi.advanceTimersByTime(2000);
+      player.handleAction('left');
+      expect(video.currentTime).toBe(0);
+    });
+
+    it('shows the controls with Up/Down without pausing; Down steps into the buttons', () => {
+      internals().osd.hide();
+      player.handleAction('down');
+      expect(osdHidden()).toBe(false);
+      expect(video.paused).toBe(false);
+      expect(internals().osd.focused()).toBe('seek');
+      player.handleAction('down');
+      expect(internals().osd.focused()).toBe('playpause');
+      // On the buttons, Left/Right move between them and never skip.
+      player.handleAction('right');
+      expect(video.currentTime).toBe(0);
+      player.handleAction('up');
+      expect(internals().osd.focused()).toBe('seek');
+      internals().osd.hide();
+      player.handleAction('up');
+      expect(osdHidden()).toBe(false);
+      expect(video.paused).toBe(false);
+    });
+
+    it('pauses and resumes with OK, showing the controls', () => {
+      internals().osd.hide();
+      player.handleAction('select');
+      expect(video.paused).toBe(true);
+      expect(osdHidden()).toBe(false);
+      player.handleAction('select');
+      expect(video.paused).toBe(false);
+    });
+
+    it('presses the focused button with OK', () => {
+      player.handleAction('down');
+      player.handleAction('select');
+      expect(video.paused).toBe(true);
+    });
+
+    // Regression: a panel the picker opens (online search, sync adjuster)
+    // takes the keys; the controls behind it must not keep a parked ring.
+    it.each(['openSubtitleSearch', 'openSubtitleOffset'] as const)(
+      'gives up the controls\' keys when the picker runs %s', (open) => {
+        expect(internals().osd.isActive()).toBe(true);
+        (player as unknown as { picker: { options: Record<typeof open, () => void> } })
+          .picker.options[open]();
+        expect(internals().osd.isActive()).toBe(false);
+        // Up brings the keys back to the controls.
+        player.handleAction('up');
+        expect(internals().osd.focused()).toBe('seek');
+      });
+
+    it('offers Audio and Subtitles only for a real choice', () => {
+      expect(controls()).toEqual(['playpause']);
+      internals().tracks.getAudioTracks = () => [{ index: 0 }, { index: 1 }];
+      internals().tracks.getSubtitleTracks = () => [{ index: 0 }];
+      player.showOSD();
+      expect(controls()).toEqual(['playpause', 'audio', 'subtitles']);
+      internals().tracks.getAudioTracks = () => [{ index: 0 }];
+      internals().tracks.getSubtitleTracks = () => [];
+      player.showOSD();
+      expect(controls()).toEqual(['playpause']);
+    });
+  });
+
+  describe('episodes', () => {
+    let onBack: ReturnType<typeof vi.fn>;
+    const play = (index: number, all = [1, 2, 3]) => {
+      onBack = vi.fn();
+      video = realVideo();
+      player.init(video);
+      player.playVod({
+        ...episode(all[index]), resumeSecs: 0, onBack,
+        previousEpisodes: all.slice(0, index).map(episode),
+        episodeQueue: all.slice(index + 1).map(episode),
+      });
+    };
+    const playing = () => (player as unknown as { vod: { itemId: string; previousEpisodes?: QueueItem[];
+      episodeQueue?: QueueItem[] } | null }).vod;
+
+    it('disables Previous on the first episode and Next on the last; movies have neither', () => {
+      play(0);
+      expect(controls()).toEqual(['previous:disabled', 'playpause', 'next']);
+      play(2);
+      expect(controls()).toEqual(['previous', 'playpause', 'next:disabled']);
+      player.playVod(movie());
+      expect(controls()).toEqual(['playpause']);
+    });
+
+    it('plays the previous episode within the first minute, keeping the queue in order', () => {
+      play(1);
+      video.currentTime = CONFIG.PLAYER.PREVIOUS_EPISODE_WINDOW - 1;
+      vi.mocked(StorageService.setResume).mockClear();
+      (player as unknown as { onDockControl(c: string): void }).onDockControl('previous');
+      expect(playing()?.itemId).toBe('e1');
+      expect(playing()?.previousEpisodes).toEqual([]);
+      expect(playing()?.episodeQueue?.map(e => e.itemId)).toEqual(['e2', 'e3']);
+      expect(onBack).not.toHaveBeenCalled();
+    });
+
+    it('restarts the episode once past the first minute', () => {
+      play(1);
+      video.currentTime = CONFIG.PLAYER.PREVIOUS_EPISODE_WINDOW;
+      (player as unknown as { onDockControl(c: string): void }).onDockControl('previous');
+      expect(playing()?.itemId).toBe('e2');
+      expect(video.currentTime).toBe(0);
+    });
+
+    it('plays the next episode at once, saving where this one was left', () => {
+      play(1);
+      video.currentTime = 300;
+      vi.mocked(StorageService.setResume).mockClear();
+      (player as unknown as { onDockControl(c: string): void }).onDockControl('next');
+      expect(StorageService.setResume).toHaveBeenCalledWith(expect.objectContaining({
+        itemId: 'e2', position: 300,
+      }));
+      expect(playing()?.itemId).toBe('e3');
+      expect(playing()?.previousEpisodes?.map(e => e.itemId)).toEqual(['e1', 'e2']);
+      expect(playing()?.episodeQueue).toEqual([]);
+      expect(controls()).toEqual(['previous', 'playpause', 'next:disabled']);
+    });
+
+    it('asks for the PIN before switching to an episode another rule locks', () => {
+      const authorize = vi.fn(() => false);
+      player = new Player(
+        container, () => {}, undefined, undefined, undefined, undefined, undefined, undefined, authorize,
+      );
+      onBack = vi.fn();
+      video = realVideo();
+      player.init(video);
+      const next = { ...episode(2), parentalItemId: 's2' };
+      authorize.mockImplementationOnce(((_item: unknown, action: () => void) => { action(); return true; }) as never);
+      player.playVod({ ...episode(1), resumeSecs: 0, onBack, episodeQueue: [next] });
+      (player as unknown as { onDockControl(c: string): void }).onDockControl('next');
+      expect(authorize).toHaveBeenCalledTimes(2);
+      expect(onBack).toHaveBeenCalledOnce();
+    });
+
+    it('carries the episodes before into the resume point and the up-next item', async () => {
+      play(1);
+      video.currentTime = 300;
+      vi.mocked(StorageService.setResume).mockClear();
+      player.handleAction('back');
+      expect(StorageService.setResume).toHaveBeenCalledWith(expect.objectContaining({
+        itemId: 'e2',
+        previousEpisodes: [episode(1)],
+        episodeQueue: [episode(3)],
+      }));
+
+      play(1);
+      video.dispatchEvent(new Event('ended'));
+      await vi.advanceTimersByTimeAsync(CONFIG.PLAYER.UP_NEXT_COUNTDOWN * 1000);
+      expect(playing()?.itemId).toBe('e3');
+      expect(playing()?.previousEpisodes?.map(e => e.itemId)).toEqual(['e1', 'e2']);
+    });
+  });
+
+  describe('live keys', () => {
+    let isFavorite: boolean;
+    let toggleFavorite: ReturnType<typeof vi.fn>;
+    beforeEach(() => {
+      isFavorite = false;
+      toggleFavorite = vi.fn(() => { isFavorite = !isFavorite; });
+      player = new Player(
+        container, vi.fn(), undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        { isFavorite: () => isFavorite, toggleFavorite },
+      );
+      player.init(video);
+      playlistMock.channels = [CHANNEL, CHANNEL_NO_CATCHUP];
+      playlistMock.getByIndex.mockImplementation((i: number) => playlistMock.channels[i]);
+      player.play(0);
+      remoteKeys();
+    });
+    afterEach(() => {
+      playlistMock.channels = [];
+      playlistMock.getByIndex.mockReset();
+    });
+
+    it('changes channel with Up/Down under the info a zap shows, and leaves Right alone', () => {
+      expect(osdHidden()).toBe(false);
+      expect(internals().osd.isActive()).toBe(false);
+      expect(player.claimsLeft()).toBe(false);
+      player.handleAction('down');
+      expect(player.getCurrentChannel()).not.toBe(CHANNEL);
+      player.handleAction('up');
+      expect(player.getCurrentChannel()).toBe(CHANNEL);
+      internals().osd.hide();
+      player.handleAction('right');
+      expect(osdHidden()).toBe(true);
+      expect(player.getCurrentChannel()).toBe(CHANNEL);
+    });
+
+    it('hands OK the controls: Favorite, Channel info, and Up/Down stay in them', () => {
+      player.handleAction('select');
+      expect(internals().osd.isActive()).toBe(true);
+      expect(controls()).toEqual(['favorite', 'info']);
+      expect(internals().osd.focused()).toBe('favorite');
+      expect(player.claimsLeft()).toBe(true);
+      player.handleAction('down');
+      expect(player.getCurrentChannel()).toBe(CHANNEL);
+      player.handleAction('select');
+      expect(toggleFavorite).toHaveBeenCalledWith(CHANNEL);
+      expect(container.querySelector('[data-dock-action="favorite"]')!.getAttribute('aria-pressed'))
+        .toBe('true');
+      player.handleAction('right');
+      expect(internals().osd.focused()).toBe('info');
+      expect(player.handleBack()).toBe(true);
+      expect(osdHidden()).toBe(true);
+    });
+
+    it('gives the keys back on a channel change', () => {
+      player.handleAction('select');
+      player.handleAction('channel_up');
+      expect(internals().osd.isActive()).toBe(false);
+      expect(osdHidden()).toBe(false);
+    });
+
+    // Regression: the native path learns its tracks from the manifest after
+    // the controls first render; they must gain Subtitles then, not on the
+    // next unrelated re-render.
+    it('adds Subtitles to showing controls once the manifest names a track', () => {
+      const tracks = internals().tracks as unknown as {
+        applyManifest: () => void; getSubtitleTracks: () => unknown[];
+      };
+      tracks.applyManifest = () => {};
+      expect(controls()).toEqual(['favorite', 'info']);
+      tracks.getSubtitleTracks = () => [{ index: 0 }];
+      (player as unknown as { applyPipelineManifest(m: unknown): void })
+        .applyPipelineManifest({ variants: [] });
+      expect(controls()).toEqual(['favorite', 'info', 'subtitles']);
+    });
+
+    it('offers Audio on live only with two tracks', () => {
+      expect(controls()).toEqual(['favorite', 'info']);
+      internals().tracks.getAudioTracks = () => [{ index: 0 }, { index: 1 }];
+      player.showOSD();
+      expect(controls()).toEqual(['favorite', 'info', 'audio']);
+    });
   });
 });

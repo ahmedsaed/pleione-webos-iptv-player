@@ -3,7 +3,12 @@ import { seedXtream } from './fixtures/xtream';
 
 // Seed one Xtream account (enables Movies and Series) and stub the player_api.php
 // series calls + the get.php/xmltv.php the live path uses.
-async function seedSeries(page: import('@playwright/test').Page): Promise<void> {
+async function seedSeries(
+  page: import('@playwright/test').Page,
+  episodes: Record<string, { id: number; title: string; episode_num: number }[]> = {
+    '1': [{ id: 10, title: 'Episode One', episode_num: 1 }],
+  },
+): Promise<void> {
   await page.route('**/get.php*', (route) =>
     route.fulfill({ status: 200, contentType: 'application/x-mpegurl', body: SAMPLE_M3U }));
   await page.route('**/xmltv.php*', (route) =>
@@ -14,10 +19,15 @@ async function seedSeries(page: import('@playwright/test').Page): Promise<void> 
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ category_id: '1', category_name: 'Cat A' }]) });
     }
     if (url.includes('get_series_info')) {
+      const bySeason: Record<string, unknown[]> = {};
+      for (const [season, list] of Object.entries(episodes)) {
+        bySeason[season] = list.map((ep) => ({
+          ...ep, season: Number(season), container_extension: 'mp4',
+          info: { plot: 'Ep plot.', duration_secs: 1500, movie_image: '' },
+        }));
+      }
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
-        episodes: { '1': [
-          { id: 10, title: 'Episode One', season: 1, episode_num: 1, container_extension: 'mp4', info: { plot: 'Ep plot.', duration_secs: 1500, movie_image: '' } },
-        ] },
+        episodes: bySeason,
       }) });
     }
     if (url.includes('get_series')) {
@@ -101,13 +111,17 @@ test('browse Series, open a detail, and play an episode', async ({ page }) => {
   await expect(page.locator('#view-series .series-season-btn[data-season="1"]')).toContainText('Season 1');
   await expect(page.locator('#view-series .episode-row[data-episode-id="10"]')).toContainText('Episode One');
 
-  // Play the episode, then Back returns to the Series view.
+  // Play the episode, then Back hides the controls and a second Back returns
+  // to the Series view.
   await page.locator('.episode-row[data-episode-id="10"]')
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
   await page.keyboard.press('Enter');
   await expect(page.locator('#view-player')).toBeVisible();
   // Back key (CONFIG.KEYS.BACK = 461; Backspace is unmapped); dispatch a raw
   // keydown like the other specs do.
+  await expect(page.locator('#player-osd')).toBeVisible();
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
+  await expect(page.locator('#player-osd')).toBeHidden();
   await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
   await expect(page.locator('#view-series')).toBeVisible();
   // The detail survives the player round-trip (Series isn't re-rendered on return).
@@ -142,17 +156,12 @@ test('Back walks Series detail -> browse -> side menu instead of ejecting', asyn
   await expect(page.locator('.nav-menu')).toHaveClass(/\bopen\b/);
 });
 
-test('episode playback suppresses the live channel sidebar and shows a VOD-only menu at the pointer edges', async ({ page }) => {
+test('episode playback suppresses the live channel sidebar and opens nothing at the right edge', async ({ page }) => {
   await seedSeries(page);
   await routeLiveManifest(page);
   // Keep VOD alive in the player: neuter the <video> so the empty mock episode
   // file doesn't fire `error` and eject back to Series before we probe the edges.
-  await page.addInitScript(() => {
-    const P = HTMLMediaElement.prototype;
-    P.load = function () { /* no-op */ };
-    P.play = function () { return Promise.resolve(); };
-    Object.defineProperty(P, 'src', { configurable: true, set() { /* no-op */ }, get() { return ''; } });
-  });
+  await neuterVideo(page);
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
 
@@ -165,28 +174,122 @@ test('episode playback suppresses the live channel sidebar and shows a VOD-only 
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
   await page.keyboard.press('Enter');
   await expect(page.locator('#view-player')).toBeVisible();
-  // Wait until VOD playback has fully settled (the VOD OSD shows the title and,
-  // being paused, stays up) so the pointer probe isn't racing the transition.
   await expect(page.locator('#player-osd .osd-channel-name')).toBeVisible();
 
-  // The left edge opens the channel switcher during live playback; an episode
-  // has no channels, so the pointer must not summon it. Check once (not a
-  // retrying wait) — the sidebar auto-hides, which would mask a wrong show.
+  // An episode has no channels, so the left edge must not summon the
+  // switcher. Check once — the sidebar auto-hides, which would mask a wrong show.
   await page.mouse.move(10, 540);
   await page.waitForTimeout(200);
   expect(await page.locator('#player-sidebar.visible').count()).toBe(0);
 
-  // The right edge opens the VOD menu for an episode too, including playback
-  // speed but never the live channel rows or the "Playing:" channel name.
   await page.mouse.move(1900, 540);
-  const menu = page.locator('#player-menu');
-  await expect(menu).toBeVisible();
-  await expect(menu).toContainText('Title Info');
-  await expect(menu).toContainText('Settings');
-  await expect(menu).toContainText('Playback Speed');
-  expect(await menu.textContent()).not.toContain('Program Guide');
-  expect(await menu.textContent()).not.toContain('Toggle Favorite');
-  expect(await menu.textContent()).not.toContain('Playing:');
+  await page.waitForTimeout(300);
+  expect(await page.locator('#player-menu.visible').count()).toBe(0);
+  // The only episode of the show: both episode buttons are disabled.
+  await expect(page.locator('#player-osd [data-dock-action="previous"]')).toBeDisabled();
+  await expect(page.locator('#player-osd [data-dock-action="next"]')).toBeDisabled();
+});
+
+// Three episodes across two seasons, with a settable position on every
+// <video> the player creates (an episode switch swaps the element).
+async function startEpisode(page: import('@playwright/test').Page, id: number): Promise<void> {
+  await seedSeries(page, {
+    '1': [{ id: 10, title: 'Episode One', episode_num: 1 }, { id: 11, title: 'Episode Two', episode_num: 2 }],
+    '2': [{ id: 20, title: 'Episode Three', episode_num: 1 }],
+  });
+  await routeLiveManifest(page);
+  await page.addInitScript(() => {
+    const P = HTMLMediaElement.prototype;
+    // The controls stay up through each step instead of hiding mid-test.
+    localStorage.setItem('iptv_player_osd_timeout_ms', '12000');
+    const times = new WeakMap<HTMLMediaElement, number>();
+    P.load = function () { /* no-op */ };
+    P.play = function () { return Promise.resolve(); };
+    Object.defineProperty(P, 'src', { configurable: true, set() { /* no-op */ }, get() { return ''; } });
+    Object.defineProperty(P, 'duration', { configurable: true, get: () => 1500 });
+    Object.defineProperty(P, 'paused', { configurable: true, get: () => false });
+    Object.defineProperty(P, 'currentTime', {
+      configurable: true,
+      get(this: HTMLMediaElement) { return times.get(this) ?? 0; },
+      set(this: HTMLMediaElement, t: number) { times.set(this, t); },
+    });
+  });
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'series');
+  await page.locator('.catalog-tile[data-item-id="1"]')
+    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  await page.keyboard.press('Enter');
+  if (id === 20) {
+    await page.locator('.series-season-btn[data-season="2"]')
+      .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+    await page.keyboard.press('Enter');
+  }
+  await page.locator(`.episode-row[data-episode-id="${id}"]`)
+    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-player')).toBeVisible();
+  await expect(page.locator('#player-osd .osd-channel-name')).toBeVisible();
+}
+
+const episodeTitle = (page: import('@playwright/test').Page) =>
+  page.locator('#player-osd .osd-channel-name');
+const setPosition = (page: import('@playwright/test').Page, seconds: number) =>
+  page.locator('#video-player').evaluate((v: HTMLVideoElement, t) => { v.currentTime = t; }, seconds);
+
+test('Previous restarts the episode, or within its first minute plays the one before', async ({ page }) => {
+  await startEpisode(page, 20);
+  await expect(episodeTitle(page)).toContainText('S2E1');
+  const previous = page.locator('#player-osd [data-dock-action="previous"]');
+  const next = page.locator('#player-osd [data-dock-action="next"]');
+  await expect(next).toBeDisabled(); // the last episode
+  await expect(previous).toBeEnabled();
+
+  // Past the first minute: Previous restarts this episode.
+  await setPosition(page, 300);
+  await page.keyboard.press('ArrowDown'); // seek bar -> buttons (Play/Pause)
+  await page.keyboard.press('ArrowLeft'); // -> Previous
+  await expect(previous).toHaveClass(/focused/);
+  await expect(page.locator('#player-osd .osd-control-caption')).toHaveText('Previous episode');
+  await page.keyboard.press('Enter');
+  await expect(episodeTitle(page)).toContainText('S2E1');
+  await expect.poll(() => page.locator('#video-player')
+    .evaluate((v: HTMLVideoElement) => v.currentTime)).toBe(0);
+
+  // Within the first minute: Previous plays the episode before, across seasons.
+  await setPosition(page, 30);
+  await page.keyboard.press('Enter');
+  await expect(episodeTitle(page)).toContainText('S1E2');
+  await expect(next).toBeEnabled();
+  await expect(previous).toBeEnabled();
+
+  // A pointer click works the same way; the first episode disables Previous.
+  await page.keyboard.press('ArrowUp');
+  await previous.click();
+  await expect(episodeTitle(page)).toContainText('S1E1');
+  await expect(previous).toBeDisabled();
+});
+
+test('Next plays the next episode at once and is disabled on the last', async ({ page }) => {
+  await startEpisode(page, 10);
+  const previous = page.locator('#player-osd [data-dock-action="previous"]');
+  const next = page.locator('#player-osd [data-dock-action="next"]');
+  await expect(previous).toBeDisabled(); // the first episode
+  await expect(next).toBeEnabled();
+
+  await setPosition(page, 300);
+  await page.keyboard.press('ArrowDown'); // -> Play/Pause
+  await page.keyboard.press('ArrowRight'); // -> Next
+  await expect(next).toHaveClass(/focused/);
+  await page.keyboard.press('Enter');
+  await expect(episodeTitle(page)).toContainText('S1E2');
+  await expect.poll(() => page.locator('#video-player')
+    .evaluate((v: HTMLVideoElement) => v.currentTime)).toBe(0);
+
+  await next.click();
+  await expect(episodeTitle(page)).toContainText('S2E1');
+  await expect(next).toBeDisabled();
+  await expect(previous).toBeEnabled();
 });
 
 test('Right out of the side menu resumes the Series detail it was opened over', async ({ page }) => {

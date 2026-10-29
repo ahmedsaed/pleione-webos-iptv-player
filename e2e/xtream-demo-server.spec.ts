@@ -59,17 +59,16 @@ async function expectPlaying(page: Page): Promise<void> {
     .toBeGreaterThan(before + 1);
 }
 
-async function openMenuRow(page: Page, action: string): Promise<void> {
-  const row = page.locator(`#player-menu .menu-item[data-menu-action="${action}"]`);
+// Open a track picker from its control, which appears once the stream offers
+// a choice; the controls show again on Yellow if they hid meanwhile.
+async function openPicker(page: Page, control: 'audio' | 'subtitles'): Promise<void> {
+  const button = page.locator(`#player-osd [data-dock-action="${control}"]`);
   await expect(async () => {
-    await page.keyboard.press('ArrowRight');
-    await expect(page.locator('#player-menu')).toBeVisible({ timeout: 1000 });
-    if (!(await row.count())) {
-      await page.keyboard.press('ArrowLeft');
-      throw new Error(`menu row ${action} not ready`);
-    }
+    await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 405, bubbles: true })));
+    await expect(button).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 20_000 });
-  await row.dispatchEvent('click');
+  await button.click();
+  await expect(page.locator('#player-menu')).toHaveClass(/visible/);
 }
 
 test('adds the demo server in Settings and loads live channels with a guide', async ({ page }) => {
@@ -133,13 +132,13 @@ test('plays a live channel with audio-track and subtitle options', async ({ page
   await expect(page.locator('#view-player')).toBeVisible();
   await expectPlaying(page);
 
-  await openMenuRow(page, '__audio_open__');
+  await openPicker(page, 'audio');
   const audio = page.locator('#player-menu .menu-item[data-menu-action="__audio_track__"]');
   await expect(audio).toHaveText([/Track 1/, /Track 2/]);
-  await page.locator('#player-menu .menu-item[data-menu-action="__menu_back__"]').dispatchEvent('click');
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
+  await expect(page.locator('#player-menu')).not.toHaveClass(/visible/);
 
-  await expect(page.locator('#player-menu .menu-item[data-menu-action="__subs_open__"]')).toBeVisible();
-  await page.locator('#player-menu .menu-item[data-menu-action="__subs_open__"]').dispatchEvent('click');
+  await openPicker(page, 'subtitles');
   await expect(page.locator('#player-menu .menu-item[data-menu-action="__subs_track__"][data-track-index="0"]'))
     .toContainText('Track 3');
 });

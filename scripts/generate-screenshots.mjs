@@ -16,7 +16,7 @@
 //   parental-controls.png  lock manager — Live groups on Xtream accounts, Suggested
 //                      adult groups, and a locked group with one channel set separately
 //   setup-page.png     authorized LAN setup page for a phone or laptop
-//   player.png         playback overlays: channel switcher + action menu
+//   player.png         playback overlays: channel switcher + subtitle picker
 //   channel-info.png   channel info bar (the OSD) — live DVR (timeshift) view
 //   subtitles.png      self-rendered WebVTT cues — ::cue colors + positioning
 //   subtitle-search.png  online subtitle search overlay — provider-labeled results
@@ -189,8 +189,8 @@ const M3U_PARENTAL = m3u([
 
 // Fake HLS master with alternate audio + subtitle renditions, served for the played
 // channel so hls.js (the desktop preview path) exposes real tracks to the player
-// menu — that's what makes renderMain emit the Audio Track / Subtitles rows. Only the
-// master is served; the media playlists it points to are aborted (the menu needs just
+// controls — that is what makes them offer Audio and Subtitles. Only the
+// master is served; the media playlists it points to are aborted (the pickers need just
 // the track lists, which come from these EXT-X-MEDIA tags). Labels are illustrative.
 const MASTER_HLS = [
   '#EXTM3U',
@@ -762,7 +762,7 @@ async function setupPage(page, {
     });
   }
   // By default abort the played channel's stream — the list/OSD shots don't need
-  // video and are captured before hls.js's error escalates. The menu collage opts in
+  // video and are captured before hls.js's error escalates. The picker collage opts in
   // (fakeStream) to a fake master with audio/subtitle renditions so hls.js surfaces
   // real tracks; the rest of its (empty) playlists keep it from erroring instantly.
   if (fakeStream) {
@@ -870,16 +870,19 @@ async function shoot(page, name) {
   }
 }
 
-async function openPlayerMenuWhenReady(page, selector) {
+// Open a track picker from the player controls once the stream offers it.
+async function openPlayerPicker(page, control) {
+  const button = page.locator(`#player-osd [data-dock-action="${control}"]`);
   for (let attempt = 0; attempt < 20; attempt++) {
-    await page.keyboard.press('ArrowRight');
-    await page.locator('#player-menu.visible').waitFor({ state: 'visible' });
-    if (await page.locator(selector).count()) return;
-    await page.keyboard.press('ArrowLeft');
-    await page.locator('#player-menu.visible').waitFor({ state: 'hidden' });
+    await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 405, bubbles: true })));
+    if (await button.count()) {
+      await button.dispatchEvent('click');
+      await page.locator('#player-menu.visible').waitFor({ state: 'visible' });
+      return;
+    }
     await page.waitForTimeout(100);
   }
-  throw new Error(`Player menu item did not become ready: ${selector}`);
+  throw new Error(`Player control did not become ready: ${control}`);
 }
 
 async function gotoChannels(page, base, { health = false } = {}) {
@@ -1190,30 +1193,24 @@ try {
     await context.close();
   }
 
-  // 4) Playback overlays — grouped channel switcher (left) + action menu (right), no OSD.
+  // 4) Playback overlays — grouped channel switcher (left) + subtitle picker (right), no OSD.
   {
     const { context, page } = await newPage({ fakeStream: true, recently: true });
     await gotoChannels(page, base, { health: true });
     await page.keyboard.press('Enter');
     await page.locator('#player-osd .osd-programme-title').waitFor({ state: 'visible' });
-    // The app shows these one at a time. Open the menu so it renders (with the real
-    // Audio Track / Subtitles rows), then explicitly select the intended subtitle.
-    const subtitlesSelector = '#player-menu .menu-item[data-menu-action="__subs_open__"]';
-    await openPlayerMenuWhenReady(page, subtitlesSelector);
-    const subtitlesRow = page.locator(subtitlesSelector);
-    await subtitlesRow.dispatchEvent('click');
+    // The app shows these one at a time. Pick the intended subtitle in the
+    // picker, then reopen it so it renders with that choice checked.
+    await openPlayerPicker(page, 'subtitles');
     const englishSubtitle = page.locator(
       '#player-menu .menu-item[data-menu-action="__subs_track__"][data-track-index="0"]',
       { hasText: 'English' },
     );
     await englishSubtitle.waitFor({ state: 'visible' });
     await englishSubtitle.dispatchEvent('click');
-    await page.locator(
-      '#player-menu .menu-item[data-menu-action="__subs_open__"] .menu-item-value',
-      { hasText: 'English' },
-    ).waitFor({ state: 'visible' });
-    // Then open the sidebar; the menu's content persists and is forced back on below.
-    await page.keyboard.press('ArrowLeft');  // hide menu...
+    await openPlayerPicker(page, 'subtitles');
+    // Then open the sidebar; the picker's content persists and is forced back on below.
+    await page.keyboard.press('Escape');     // close the picker...
     await page.keyboard.press('ArrowLeft');  // ...open the channel switcher
     await page.locator('#player-sidebar.visible').waitFor({ state: 'visible' });
     await page.keyboard.press('ArrowDown');  // highlight the playing channel
@@ -1236,7 +1233,10 @@ try {
         menu.classList.remove('hidden');
         menu.classList.add('visible');
         menu.style.setProperty('display', 'flex', 'important');
-        menu.style.setProperty('transform', 'translateX(0)', 'important');
+        menu.style.setProperty('visibility', 'visible', 'important');
+        menu.style.setProperty('opacity', '1', 'important');
+        menu.style.setProperty('transform', 'none', 'important');
+        menu.style.setProperty('bottom', '80px', 'important');
       }
       const vp = document.getElementById('view-player');
       if (vp) vp.style.background = bg;
@@ -1378,12 +1378,9 @@ try {
       v.pause();
       stream.getTracks().forEach((tr) => tr.stop());
     }, { inner: FRAME_INNER, outer: FRAME_OUTER });
-    // Open the VOD menu (pointer to the right edge), then select Subtitles →
-    // "Search online…" by dispatching real clicks (no mouse move, so the pointer
-    // handler doesn't dismiss the menu).
-    await page.mouse.move(1900, 540);
-    await page.locator('#player-menu.visible').waitFor({ state: 'visible' });
-    await page.locator('#player-menu .menu-item[data-menu-action="__subs_open__"]').dispatchEvent('click');
+    // Open the Subtitles picker from the controls, then select "Search online…"
+    // by dispatching a real click.
+    await openPlayerPicker(page, 'subtitles');
     await page.locator('#player-menu .menu-item[data-menu-action="__subs_search__"]').waitFor({ state: 'visible' });
     await page.locator('#player-menu .menu-item[data-menu-action="__subs_search__"]').dispatchEvent('click');
     // The real providers resolve and SubtitleSearchOverlay renders the ranked rows.

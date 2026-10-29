@@ -82,11 +82,10 @@ by lennylxx, licensed under Apache-2.0. See [NOTICE](NOTICE).
 - **MPEG-DASH playback** — play clear and PlayReady `.mpd` channels through the native webOS pipeline, or Widevine/ClearKey through an on-demand Shaka MSE/EME path, with MPD track metadata, live DVR, and subtitle support ([details](docs/mpeg-dash.md))
 - **Native PlayReady DRM** — play protected MPEG-DASH channels on compatible webOS TVs through LG's DRM service and native hardware media pipeline, with license settings supplied by Kodi-style M3U properties ([details](docs/mpeg-dash.md))
 - **Widevine / ClearKey DRM** — load Shaka DASH-only on demand, with Kodi-style license URLs and request headers or validated inline ClearKey keys ([details](docs/mpeg-dash.md))
-- **Audio & subtitle tracks** — pick from the player menu, remembered per channel or VOD item; subtitles cover in-manifest WebVTT and CEA-608/708 (live), in-container / sidecar SRT/WebVTT/ASS (VOD), and online search (SubDL, OpenSubtitles, and Assrt) with a manual title box; online search remains available when bundled tracks exist, and subtitle timing can be adjusted live
-- **Playback speed** — choose 0.5×–2× for movies and episodes in file formats such as MP4 and MKV; live TV, catch-up, and HLS/DASH streams play at normal speed because the webOS native pipeline ignores rate changes for them
+- **Audio & subtitle tracks** — pick from the player controls, remembered per channel or VOD item; subtitles cover in-manifest WebVTT and CEA-608/708 (live), in-container / sidecar SRT/WebVTT/ASS (VOD), and online search (SubDL, OpenSubtitles, and Assrt) with a manual title box; online search remains available when bundled tracks exist, and subtitle timing can be adjusted live
 - **On-screen display** — program title, progress, and a live stream-info readout (resolution, HDR, frame rate, codec, audio channels)
+- **TV-style player controls** — Left/Right skip 10 seconds (hold to speed up), previous/next episode, and Audio and Subtitles buttons that appear only when the stream offers a choice; live TV adds Favorite and Channel info
 - **Automatic playback recovery** — detect streams that fail to start or stall, reload transient failures, and advance to the next live channel when recovery is exhausted
-- **Resync A/V** (🔄) — one tap on the playback bar re-locks audio and video that drift apart during a long catch-up or on-demand stream
 
 **Navigation**
 
@@ -295,15 +294,15 @@ Open with the **Blue** key or the **Settings** tab in the top bar. Sections:
 
 | Key | Player | Channel List | EPG |
 |-----|--------|-------------|-----|
-| Up/Down | Channel +/- | Navigate | Navigate within pane |
-| Left | Open sidebar, then groups; seek −30s when available | Move toward groups | Previous pane or day |
-| Right | Open menu; seek +30s when available | Move toward channels | Next pane, day, or Reminder Manager |
-| OK/Enter | Toggle OSD; pause/resume; activate overlay | Select channel | Play channel/program or open Reminder Manager |
-| Back | Back out of sidebar/menu; stop & return | Exit app (press twice) | Close guide |
+| Up/Down | Channel +/- (live); show the controls (movies, episodes); move between rows in the controls | Navigate | Navigate within pane |
+| Left | Skip −10s (movies, episodes; catch-up and live DVR with the controls up); otherwise open sidebar, then groups | Move toward groups | Previous pane or day |
+| Right | Skip +10s (movies, episodes; catch-up and live DVR with the controls up); hold either to skip faster | Move toward channels | Next pane, day, or Reminder Manager |
+| OK/Enter | Pause/resume and show the controls (movies, episodes); open the controls (live); press the focused control | Select channel | Play channel/program or open Reminder Manager |
+| Back | Close the sidebar, a picker, or the controls; stop & return | Exit app (press twice) | Close guide |
 | Red | Open EPG | Open EPG | — |
 | Blue | Open settings | Open settings | Open settings |
 | Yellow | Show OSD | Edit channel list | Search guide |
-| Green | Toggle favorite (in sidebar/menu) | Toggle favorite (on focused channel) | Jump to today |
+| Green | Toggle favorite (with the sidebar or live controls up) | Toggle favorite (on focused channel) | Jump to today |
 | Play/Pause | Pause/resume playback | — | — |
 | Rewind/Fast-Forward | To oldest / Go to live (live DVR) | — | — |
 | Ch +/- | Channel +/- | Previous/next channel | Jump 10 channels/programs |

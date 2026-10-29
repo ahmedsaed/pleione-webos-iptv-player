@@ -1,4 +1,4 @@
-import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab, openSideMenu, type Page, pressStepsAndReadPlayer } from './helpers';
+import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab, leaveVod, openSideMenu, type Page, pressStepsAndReadPlayer } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 
 // A minimal ASS body with one dialogue active from t=0, so assjs renders it as
@@ -233,9 +233,8 @@ test('browse Movies, open a detail, and start playback', async ({ page }) => {
     .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
   await page.keyboard.press('Enter');
   await expect(page.locator('#view-player')).toBeVisible();
-  // Back key (CONFIG.KEYS.BACK = 461). press('Escape') is swallowed by Chromium
-  // in this combo, so dispatch a raw keydown like the other specs do.
-  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
+  // Back hides the controls, and a second Back leaves.
+  await leaveVod(page);
   await expect(page.locator('#view-movies')).toBeVisible();
   // The detail screen survives the player round-trip (Movies isn't re-rendered on return).
   await expect(page.locator('#view-movies .detail-plot')).toContainText('A plot.');
@@ -305,7 +304,7 @@ test('Back from a detail finds browse scrolled and focused as it was left', asyn
   expect(back).toEqual({ focused: true, scrollLeft: left });
 });
 
-test('VOD playback suppresses the live channel sidebar and shows a VOD-only menu at the pointer edges', async ({ page }) => {
+test('VOD playback suppresses the live channel sidebar and opens nothing at the right edge', async ({ page }) => {
   await seedMovies(page);
   await routeLiveManifest(page);
   // Keep VOD alive in the player: neuter the <video> so the empty mock movie
@@ -335,76 +334,13 @@ test('VOD playback suppresses the live channel sidebar and shows a VOD-only menu
   await page.waitForTimeout(200);
   expect(await page.locator('#player-sidebar.visible').count()).toBe(0);
 
-  // The right edge opens the VOD menu with playback speed, but never the live
-  // channel rows or the "Playing:" channel name.
+  // Nor does the right edge open a menu: the controls hold every action.
   await page.mouse.move(1900, 540);
-  const menu = page.locator('#player-menu');
-  await expect(menu).toBeVisible();
-  await expect(menu).toContainText('Title Info');
-  await expect(menu).toContainText('Settings');
-  await expect(menu).toContainText('Playback Speed');
-  expect(await menu.textContent()).not.toContain('Program Guide');
-  expect(await menu.textContent()).not.toContain('Toggle Favorite');
-  expect(await menu.textContent()).not.toContain('Playing:');
-
-  await menu.locator('[data-menu-action="__speed_open__"]').click();
-  await menu.locator('[data-playback-rate="1.5"]').click();
-  await expect.poll(() => page.locator('#video-player')
-    .evaluate((video: HTMLVideoElement) => video.playbackRate)).toBe(1.5);
-});
-
-test('VOD Right opens the menu while the OSD is hidden and seeks while it shows', async ({ page }) => {
-  await seedMovies(page);
-  await routeLiveManifest(page);
-  await neuterVideo(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-
-  await enterTab(page, 'movies');
-  await page.locator('.catalog-tile[data-item-id="10"]')
-    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
-  await page.keyboard.press('Enter');
-  await expect(page.locator('#view-movies .detail-plot')).toContainText('A plot.');
-  await page.locator('[data-action="play"]')
-    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
-  await page.keyboard.press('Enter');
-  await expect(page.locator('#view-player')).toBeVisible();
-  const osd = page.locator('#player-osd');
-  await expect(osd.locator('.osd-channel-name')).toBeVisible();
-
-  // With no duration yet canSeek() is false, so OK toggles the (paused, so
-  // persistent) OSD off instead of pausing.
-  await page.keyboard.press('Enter');
-  await expect(osd).toHaveClass(/hidden/);
-  await page.locator('#video-player').evaluate((video) => {
-    const seeks: number[] = [];
-    (window as unknown as { seeks: number[] }).seeks = seeks;
-    Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
-    Object.defineProperty(video, 'currentTime', {
-      configurable: true, get: () => 0, set: (t: number) => { seeks.push(t); },
-    });
-  });
-  const seeks = () => page.evaluate(() => (window as unknown as { seeks: number[] }).seeks);
-
-  const menu = page.locator('#player-menu');
-  await page.keyboard.press('ArrowRight');
-  await expect(menu).toBeVisible();
-  await expect(menu).toContainText('Title Info');
-  expect(await seeks()).toEqual([]);
-
-  // Right closes the open menu, as during live playback.
-  await page.keyboard.press('ArrowRight');
-  await expect(menu).toBeHidden();
-  expect(await seeks()).toEqual([]);
-
-  // OK with the OSD hidden reveals it: canSeek() is false while the OSD is
-  // hidden, so OK runs osd.toggle() rather than pausing. With the OSD up,
-  // Right seeks forward and leaves the menu shut.
-  await page.keyboard.press('Enter');
-  await expect(osd).not.toHaveClass(/hidden/);
-  await page.keyboard.press('ArrowRight');
-  await expect.poll(seeks).toEqual([30]);
-  await expect(menu).toBeHidden();
+  await page.waitForTimeout(300);
+  expect(await page.locator('#player-menu.visible').count()).toBe(0);
+  await expect(page.locator('#player-osd [data-dock-action="playpause"]')).toBeVisible();
+  // One audio track: no Audio picker to open.
+  await expect(page.locator('#player-osd [data-dock-action="audio"]')).toHaveCount(0);
 });
 
 async function startFakeVod(page: Page): Promise<void> {
@@ -436,27 +372,113 @@ async function startFakeVod(page: Page): Promise<void> {
   });
 }
 
-const [ENTER, RIGHT, BACK, YELLOW] = [13, 39, 461, 405];
+const [ENTER, LEFT, UP, RIGHT, DOWN, BACK, YELLOW] = [13, 37, 38, 39, 40, 461, 405];
 
-test('VOD Back leaves playback even with the OSD up', async ({ page }) => {
+// Which dock control holds the ring, and the skip target over the bar.
+const dockState = (page: Page) => page.evaluate(() => {
+  const osd = document.getElementById('player-osd')!;
+  const focused = osd.querySelector('.focused');
+  return {
+    focused: focused?.getAttribute('data-key') ?? null,
+    bubble: osd.querySelector('.osd-seek-time')?.textContent ?? null,
+    delta: osd.querySelector('.osd-seek-delta')?.textContent ?? null,
+    rings: document.querySelectorAll('.focused').length,
+  };
+});
+
+test('VOD Back hides the controls, playing or paused, then leaves', async ({ page }) => {
   await startFakeVod(page);
-  const [shown, left] = await pressStepsAndReadPlayer(page, [[YELLOW], [BACK]]);
+  const [shown, hidden, left] = await pressStepsAndReadPlayer(page, [[YELLOW], [BACK], [BACK]]);
   expect(shown).toMatchObject({ osd: true, paused: false });
-  expect(left).toMatchObject({ osdBefore: true, player: false });
+  expect(hidden).toMatchObject({ osdBefore: true, osd: false, player: true, paused: false });
+  expect(left).toMatchObject({ osdBefore: false, player: false });
   await expect(page.locator('#view-movies')).toBeVisible();
 });
 
-test('VOD Back hides a paused OSD, so Right reaches the menu, then leaves', async ({ page }) => {
+test('VOD Back hides paused controls, Right skips and never opens a menu, then Back leaves', async ({ page }) => {
   await startFakeVod(page);
-  const [paused, hidden, menu, closed, left] = await pressStepsAndReadPlayer(page, [
+  const [paused, hidden, skipped, closed, left] = await pressStepsAndReadPlayer(page, [
     [YELLOW, ENTER], [BACK], [RIGHT], [BACK], [BACK],
   ]);
   expect(paused).toMatchObject({ osd: true, paused: true, currentTime: 0 });
   expect(hidden).toMatchObject({ osdBefore: true, osd: false, player: true, paused: true });
-  expect(menu).toMatchObject({ osd: false, menu: true, paused: true, currentTime: 0 });
-  expect(closed).toMatchObject({ menu: false, player: true });
+  expect(skipped).toMatchObject({ osd: true, menu: false, paused: true, currentTime: 10 });
+  expect(closed).toMatchObject({ osd: false, menu: false, player: true });
   expect(left.player).toBe(false);
   await expect(page.locator('#view-movies')).toBeVisible();
+});
+
+test('VOD keys: Left/Right skip 10s shown or hidden, Up/Down show the controls, OK pauses', async ({ page }) => {
+  await startFakeVod(page);
+  // Hidden controls: Right skips and shows them on the seek bar with the target.
+  let [state] = await pressStepsAndReadPlayer(page, [[BACK]]);
+  expect(state).toMatchObject({ osd: false, player: true });
+  [state] = await pressStepsAndReadPlayer(page, [[RIGHT]]);
+  expect(state).toMatchObject({ osd: true, menu: false, paused: false, currentTime: 10 });
+  await expect.poll(() => dockState(page)).toEqual({
+    focused: 'dock:seek', bubble: '0:10', delta: '+0:10', rings: 1,
+  });
+  // Shown controls: Right and Left keep skipping by 10s; the delta adds up.
+  const [right, left] = await pressStepsAndReadPlayer(page, [[RIGHT], [LEFT, LEFT, LEFT]]);
+  expect(right).toMatchObject({ osdBefore: true, currentTime: 20, paused: false });
+  expect(left).toMatchObject({ currentTime: 0, paused: false, menu: false });
+  await expect.poll(async () => (await dockState(page)).delta).toBe(null); // -0:00 shows no delta
+
+  // Up/Down show the controls without pausing; Down steps into the buttons.
+  const [up, down] = await pressStepsAndReadPlayer(page, [[BACK, UP], [DOWN]]);
+  expect(up).toMatchObject({ osd: true, paused: false });
+  expect(down).toMatchObject({ osd: true, paused: false });
+  await expect.poll(async () => (await dockState(page)).focused).toBe('dock:playpause');
+  // On the buttons Left/Right move, never skip; Up goes back to the bar.
+  const [onButtons] = await pressStepsAndReadPlayer(page, [[RIGHT, LEFT]]);
+  expect(onButtons).toMatchObject({ currentTime: 0, menu: false });
+  [state] = await pressStepsAndReadPlayer(page, [[UP]]);
+  await expect.poll(async () => (await dockState(page)).focused).toBe('dock:seek');
+
+  // OK pauses and resumes, keeping the controls up.
+  const [pausedState, resumed] = await pressStepsAndReadPlayer(page, [[ENTER], [ENTER]]);
+  expect(pausedState).toMatchObject({ osd: true, paused: true });
+  expect(resumed).toMatchObject({ osd: true, paused: false });
+  expect((await dockState(page)).rings).toBe(1);
+});
+
+test('VOD holding Right speeds the skip up from 10s to 30s to 60s', async ({ page }) => {
+  await startFakeVod(page);
+  await page.locator('#video-player').evaluate((video: HTMLVideoElement) => {
+    const seeks: number[] = [];
+    (window as unknown as { seeks: number[] }).seeks = seeks;
+    let time = 0;
+    Object.defineProperty(video, 'duration', { configurable: true, get: () => 100_000 });
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true, get: () => time, set: (t: number) => { seeks.push(t - time); time = t; },
+    });
+  });
+  // A held key: the first keydown, then auto-repeats (Playwright marks them repeat).
+  const started = Date.now();
+  while (Date.now() - started < 3600) {
+    await page.keyboard.down('ArrowRight');
+    await page.waitForTimeout(40);
+  }
+  await page.keyboard.up('ArrowRight');
+  const steps = await page.evaluate(() => (window as unknown as { seeks: number[] }).seeks);
+  expect(steps[0]).toBe(10);
+  // Never faster than one step per repeat interval, and only ever speeding up.
+  expect(steps.length).toBeLessThanOrEqual(Math.ceil(3600 / 250) + 1);
+  expect(steps.every((step, i) => i === 0 || step >= steps[i - 1])).toBe(true);
+  expect(steps).toContain(30);
+  expect(steps[steps.length - 1]).toBe(60);
+  await expect(page.locator('#player-osd .osd-seek-bubble')).toBeVisible();
+  expect(await page.locator('#video-player').evaluate((v: HTMLVideoElement) => v.paused)).toBe(false);
+});
+
+test('VOD controls answer the pointer: a click on Play/Pause pauses', async ({ page }) => {
+  await startFakeVod(page);
+  await page.keyboard.press('ArrowUp');
+  const button = page.locator('#player-osd [data-dock-action="playpause"]');
+  await button.hover();
+  await expect(button).toHaveClass(/focused/);
+  await button.click();
+  expect(await page.locator('#video-player').evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
 });
 
 test('a VOD sidecar subtitle creates its application track when selected', async ({ page }) => {
@@ -486,14 +508,12 @@ test('a VOD sidecar subtitle creates its application track when selected', async
   });
   expect(initialTrackCount).toBe(0);
 
-  // Open the right-edge menu into the Subtitles sub-menu; the sidecar is listed.
-  await page.mouse.move(1900, 540);
+  // Open the Subtitles picker from the controls; the sidecar is listed.
   const menu = page.locator('#player-menu');
+  await page.keyboard.press('ArrowDown'); // seek bar -> Play/Pause
+  await page.keyboard.press('ArrowRight'); // -> Subtitles
+  await page.keyboard.press('Enter');     // open the Subtitles picker
   await expect(menu).toBeVisible();
-  await page.keyboard.press('ArrowDown'); // Title Info -> Settings
-  await page.keyboard.press('ArrowDown'); // Settings -> Playback Speed
-  await page.keyboard.press('ArrowDown'); // Playback Speed -> Subtitles
-  await page.keyboard.press('Enter');     // open the Subtitles sub-menu
   await expect(menu).toContainText('Track 1');
 
   // Select the sidecar; it starts showing and its cues load from the routed SRT.
@@ -531,15 +551,13 @@ test('a VOD ASS sidecar renders through the assjs overlay when selected', async 
   await expect(page.locator('#view-player')).toBeVisible();
   await expect(page.locator('#player-osd .osd-channel-name')).toBeVisible();
 
-  // Open the right-edge menu into the Subtitles sub-menu; the ASS sidecar is listed
-  // (it never becomes a native <track>, so this proves the synthetic-option path).
-  await page.mouse.move(1900, 540);
+  // Open the Subtitles picker from the controls; the ASS sidecar is listed (it
+  // never becomes a native <track>, so this proves the synthetic-option path).
   const menu = page.locator('#player-menu');
+  await page.keyboard.press('ArrowDown'); // seek bar -> Play/Pause
+  await page.keyboard.press('ArrowRight'); // -> Subtitles
+  await page.keyboard.press('Enter');     // open the Subtitles picker
   await expect(menu).toBeVisible();
-  await page.keyboard.press('ArrowDown'); // Title Info -> Settings
-  await page.keyboard.press('ArrowDown'); // Settings -> Playback Speed
-  await page.keyboard.press('ArrowDown'); // Playback Speed -> Subtitles
-  await page.keyboard.press('Enter');     // open the Subtitles sub-menu
   await expect(menu).toContainText('ASS 1');
 
   // Select the ASS sidecar; assjs lazily loads and draws its cue into #ass-overlay.

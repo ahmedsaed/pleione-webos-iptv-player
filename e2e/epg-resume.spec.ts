@@ -242,17 +242,15 @@ test('catch-up Back leaves playback even with the OSD up', async ({ page }) => {
   await expect(page.locator('#view-channels')).toBeVisible();
 });
 
-test('catch-up Back hides a paused OSD, so Right reaches the menu, then leaves', async ({ page }) => {
+test('catch-up OK pauses on the seek bar, Right skips 10s, Back hides, Right opens nothing, then Back leaves', async ({ page }) => {
   await startFakeCatchup(page);
-  const [paused, seeked, hidden, menu, closed, left] = await pressStepsAndReadPlayer(page, [
-    [YELLOW, ENTER], [RIGHT], [BACK], [RIGHT], [BACK], [BACK],
+  const [paused, seeked, hidden, right, left] = await pressStepsAndReadPlayer(page, [
+    [YELLOW, ENTER], [RIGHT], [BACK], [RIGHT], [BACK],
   ]);
   expect(paused).toMatchObject({ osd: true, message: false, paused: true, currentTime: 0 });
-  expect(seeked).toMatchObject({ osd: true, menu: false, paused: true });
-  expect(seeked.currentTime).toBeGreaterThan(0);
+  expect(seeked).toMatchObject({ osd: true, menu: false, paused: true, currentTime: 10 });
   expect(hidden).toMatchObject({ osdBefore: true, osd: false, player: true, paused: true });
-  expect(menu).toMatchObject({ osd: false, menu: true, paused: true, currentTime: seeked.currentTime });
-  expect(closed).toMatchObject({ osd: false, menu: false, player: true });
+  expect(right).toMatchObject({ osd: false, menu: false, paused: true, currentTime: 10 });
   expect(left.player).toBe(false);
   await expect(page.locator('#view-channels')).toBeVisible();
 });

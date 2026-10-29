@@ -1,11 +1,21 @@
 import type { CatchupInfo, Channel, Programme } from '../types';
 import { StorageService } from '../services/storage-service';
-import { $, hide, html, raw, type Safe, show } from '../utils/dom';
+import { $, hide, html, inShownView, raw, type Safe, show } from '../utils/dom';
 import { type DvrState } from '../utils/dvr';
 import { morph } from '../utils/morph';
 import { formatDuration, formatPosition, formatTime, getProgress } from '../utils/time';
 import { t, tp } from '../i18n';
-import { PAUSE_ICON, PLAY_ICON, RESYNC_ICON } from './icons';
+import { Focus, Tier, type FocusScope, type Via } from '../navigation/focus-scope';
+import {
+  AUDIO_ICON,
+  favoriteIcon,
+  INFO_ICON,
+  NEXT_ICON,
+  PAUSE_ICON,
+  PLAY_ICON,
+  PREVIOUS_ICON,
+  SUBTITLE_ICON,
+} from './icons';
 
 export interface PlayerOsdSnapshot {
   playback: {
@@ -20,8 +30,24 @@ export interface PlayerOsdSnapshot {
   upNextSeconds: number;
   dvr: DvrState | null;
   nowPlaying: Programme | null;
-  upcoming: Programme | null;
+  /** The programmes after the current one, soonest first. */
+  upcoming: Programme[];
   streamInfo: PlayerOsdStreamInfo | null;
+  controls: PlayerOsdControls;
+  /** The skip in progress: how far the held or repeated Left/Right moved. */
+  seek: { delta: number } | null;
+}
+
+/** Which controls the dock offers. */
+export interface PlayerOsdControls {
+  /** Episode navigation; null for a movie and for live TV. */
+  episodes: { previous: boolean; next: boolean } | null;
+  /** The channel's favorite state; null outside live TV. */
+  favorite: boolean | null;
+  pausable: boolean;
+  /** Whether the stream offers a choice worth a picker. */
+  audio: boolean;
+  subtitles: boolean;
 }
 
 export interface PlayerOsdStreamInfo {
@@ -38,21 +64,35 @@ export interface PlayerOsdStreamInfo {
   subtitle: string;
 }
 
+export type DockControl =
+  | 'seek' | 'previous' | 'playpause' | 'next' | 'favorite' | 'info' | 'audio' | 'subtitles';
+
 export interface PlayerOsdOptions {
   getSnapshot: () => PlayerOsdSnapshot;
   canAutoReveal: () => boolean;
   canSeek: () => boolean;
+  /** Whether the controls take the keys whenever they show (VOD) or only once OK asks (live). */
+  activeWhenShown: () => boolean;
+  /** Whether something opened from the dock (a track picker) keeps it up. */
+  heldOpen: () => boolean;
   onSeekFraction: (fraction: number) => void;
-  onPauseToggle: () => void;
+  onControl: (control: Exclude<DockControl, 'seek' | 'info'>) => void;
   onGoLive: () => void;
-  onResync: () => void;
   onPlayNext: () => void;
   onCancelNext: () => void;
 }
 
+const KEY_PREFIX = 'dock:';
+// Only a channel's details expand; the list stays short enough for the panel.
+const EXPANDED_UPCOMING = 3;
+
 function audioTrackText(name: string): string {
   const label = t('player.audioTrack');
   return name === label || name.startsWith(`${label} `) ? name : `${label}: ${name}`;
+}
+
+function controlOf(key: string | null): DockControl | null {
+  return key && key.startsWith(KEY_PREFIX) ? key.slice(KEY_PREFIX.length) as DockControl : null;
 }
 
 export class PlayerOsd {
@@ -64,6 +104,14 @@ export class PlayerOsd {
   // Programme-icon URLs that failed to load, so a re-render omits them instead of
   // re-requesting a broken image (which would thrash the OSD layout).
   private failedIcons = new Set<string>();
+  // Whether the controls own the keys; their scope sits on the Focus stack meanwhile.
+  private active = false;
+  private focusKey: DockControl = 'seek';
+  // Live channel info shows the full description and more of the schedule.
+  private expanded = false;
+  // The control the pointer rests on while the controls don't own the keys.
+  private hoverKey: DockControl | null = null;
+  private scope: FocusScope | null = null;
 
   constructor(private container: HTMLElement, private callbacks: PlayerOsdOptions) {
     // Activate OSD controls on click by coordinate hit-test (vs e.target) since
@@ -80,6 +128,27 @@ export class PlayerOsd {
       else if (this.callbacks.canAutoReveal()) this.show();
     });
     container.addEventListener('click', (e: MouseEvent) => this.onPointerRelease(e.clientX, e.clientY));
+    // The pointer on a control lights it and names it in the caption; while
+    // the controls own the keys, it moves their focus too.
+    container.addEventListener('nav:hover', (e: Event) => {
+      const target = (e.target as HTMLElement).closest<HTMLElement>('#player-osd [data-key]');
+      const control = controlOf(target?.getAttribute('data-key') ?? null);
+      if (!control || !this.visible) return;
+      this.resetTimer();
+      if (this.active) {
+        this.focus(control, 'pointer');
+        return;
+      }
+      this.hoverKey = control;
+      this.render();
+      this.ensureScope()?.focus(`${KEY_PREFIX}${control}`, 'pointer');
+    });
+    container.addEventListener('nav:unhover', (e: Event) => {
+      const target = (e.target as HTMLElement).closest<HTMLElement>('#player-osd [data-key]');
+      if (!target || this.hoverKey === null || !this.visible) return;
+      this.hoverKey = null;
+      this.render();
+    });
     // A broken programme icon: record its URL (capture — `error` doesn't bubble)
     // and re-render so morph drops it and never re-requests it.
     container.addEventListener('error', (e: Event) => {
@@ -96,6 +165,16 @@ export class PlayerOsd {
 
   isVisible(): boolean {
     return this.visible;
+  }
+
+  /** Whether the controls own the keys (the D-pad moves among them). */
+  isActive(): boolean {
+    return this.active;
+  }
+
+  /** The control the keys act on while the dock is active. */
+  focused(): DockControl | null {
+    return this.active ? this.focusKey : null;
   }
 
   // A status message (reconnecting, stream error) rather than playback info.
@@ -118,7 +197,8 @@ export class PlayerOsd {
 
   show(): void {
     this.visible = true;
-    this.render();
+    if (!this.active && this.callbacks.activeWhenShown()) this.setActive(true, 'seek');
+    else this.render();
     const osd = $('#player-osd', this.container);
     if (osd) show(osd);
     this.resetTimer();
@@ -126,21 +206,71 @@ export class PlayerOsd {
 
   hide(): void {
     this.visible = false;
+    this.expanded = false;
+    this.hoverKey = null;
+    this.setActive(false);
     const osd = $('#player-osd', this.container);
     if (osd) hide(osd);
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
   }
 
-  toggle(): void {
-    if (this.visible) this.hide(); else this.show();
+  /** Show the controls and hand them the keys, on `control` or the first one. */
+  activate(control?: DockControl): void {
+    if (!this.visible) {
+      this.visible = true;
+      const osd = $('#player-osd', this.container);
+      if (osd) show(osd);
+    }
+    this.setActive(true, control);
+    this.resetTimer();
+  }
+
+  /** Leave the controls on screen but give the keys back (a channel change). */
+  deactivate(): void {
+    if (!this.active) return;
+    this.setActive(false);
+    if (this.visible) this.render();
+  }
+
+  /** Move focus among the controls; false when there is nowhere to go. */
+  move(direction: 'up' | 'down' | 'left' | 'right'): boolean {
+    if (!this.active) return false;
+    this.resetTimer();
+    const rows = this.rows();
+    const row = rows.findIndex(keys => keys.indexOf(this.focusKey) >= 0);
+    if (row < 0) return false;
+    const keys = rows[row];
+    const at = keys.indexOf(this.focusKey);
+    let target: DockControl | undefined;
+    if (direction === 'left') target = keys[at - 1];
+    else if (direction === 'right') target = keys[at + 1];
+    else {
+      const next = rows[row + (direction === 'down' ? 1 : -1)];
+      target = next && (next.indexOf('playpause') >= 0 ? 'playpause' : next[0]);
+    }
+    if (!target) return false;
+    this.focus(target, 'key');
+    return true;
+  }
+
+  /** OK on the focused control. */
+  activateFocused(): void {
+    if (!this.active) return;
+    this.resetTimer();
+    this.trigger(this.focusKey);
+  }
+
+  /** The element of a control, for a panel that opens from it. */
+  controlElement(control: DockControl): HTMLElement | null {
+    return $(`#player-osd [data-key="${KEY_PREFIX}${control}"]`, this.container) as HTMLElement | null;
   }
 
   resetTimer(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     // Keep the OSD up while paused (live DVR or catch-up): nothing to fall behind.
-    if (this.callbacks.getSnapshot().playback?.paused) return;
+    if (this.callbacks.getSnapshot().playback?.paused || this.callbacks.heldOpen()) return;
     this.timer = setTimeout(() => this.hide(), StorageService.getPlayerOsdTimeoutMs());
   }
 
@@ -167,7 +297,6 @@ export class PlayerOsd {
         ? playback.duration
         : catchup.end - catchup.start;
       const pos = playback ? Math.min(playback.position, dur) : 0;
-      const progress = dur > 0 ? pos / dur : 0;
       programmeHtml = html`
         <div class="osd-programme">
           <div class="osd-now-label">${t('common.catchup')}</div>
@@ -181,28 +310,25 @@ export class PlayerOsd {
               </div>
             </div>
           </div>
-          <div class="osd-progress-row">
-            ${this.playPauseButton(state.playback?.paused ?? false)}
-            <span class="osd-time-current">${formatPosition(pos)}</span>
-            <div class="osd-progress" data-seekbar>
-              <div class="osd-progress-bar" style="width: ${progress * 100}%"></div>
-            </div>
-            <span class="osd-time-end">${formatPosition(dur)}</span>
-            ${this.resyncButton()}
-          </div>
-          ${catchup.description ? html`<div class="osd-description">${catchup.description}</div>` : ''}
+          ${this.seekRow(pos, dur, state.seek)}
+          ${this.description(catchup.description)}
         </div>
       `;
     } else if (state.nowPlaying || state.dvr) {
       // Live playback. Show EPG programme info, and a DVR timeshift bar when the
       // stream exposes a usable seekable window.
       const nowPlaying = state.nowPlaying;
-      const next = state.upcoming ? html`
-        <div class="osd-next">
-          <span class="osd-next-label">${t('player.next')}</span>
-          <span class="osd-next-title">${state.upcoming.title}
-            <span class="osd-next-time">${formatTime(state.upcoming.start)}</span>
-          </span>
+      const upcoming = state.upcoming.slice(0, this.expanded ? EXPANDED_UPCOMING : 1);
+      const next = upcoming.length ? html`
+        <div class="osd-next-list">
+          ${upcoming.map((programme) => html`
+            <div class="osd-next">
+              <span class="osd-next-label">${t('player.next')}</span>
+              <span class="osd-next-title">${programme.title}
+                <span class="osd-next-time">${formatTime(programme.start)}</span>
+              </span>
+            </div>
+          `)}
         </div>
       ` : '';
       const detail = nowPlaying ? html`
@@ -220,7 +346,7 @@ export class PlayerOsd {
         </div>
       ` : '';
       const progressRow = state.dvr
-        ? this.dvrProgressRow(state.dvr, state.playback?.paused ?? false)
+        ? this.dvrProgressRow(state.dvr, state.seek)
         : nowPlaying ? html`
           <div class="osd-progress-row">
             <span class="osd-time-current">${formatTime(new Date())}</span>
@@ -238,9 +364,7 @@ export class PlayerOsd {
             : 'player.now')}</div>
           ${detail}
           ${progressRow}
-          ${nowPlaying?.description
-            ? html`<div class="osd-description">${nowPlaying.description}</div>`
-            : ''}
+          ${this.description(nowPlaying?.description ?? '')}
         </div>
         ${next}
       `;
@@ -256,12 +380,14 @@ export class PlayerOsd {
         ${this.renderStreamInfo(state.streamInfo)}
       </div>
       ${programmeHtml}
+      ${this.controlsRow(state)}
     `);
   }
 
   updateMessage(message: string): void {
     const osd = $('#player-osd', this.container);
     if (!osd) return;
+    this.setActive(false);
     morph(osd, html`<div class="osd-message">${message}</div>`);
     this.message = true;
     // Keep the OSD visible so metadata can repaint over this once the stream
@@ -272,15 +398,14 @@ export class PlayerOsd {
   }
 
   refreshProgress(): void {
-    if (!this.visible) return;
+    if (!this.visible || this.message) return;
     const state = this.callbacks.getSnapshot();
     const playback = state.playback;
     if (!playback) return;
     if (state.vodTitle !== null) {
+      if (state.upNextSeconds > 0) return;
       const dur = Number.isFinite(playback.duration) ? playback.duration : 0;
-      this.setProgress(dur > 0 ? Math.min(playback.position, dur) / dur : 0);
-      const current = $('.osd-time-current', this.container);
-      if (current) current.textContent = formatPosition(playback.position);
+      this.setProgress(dur > 0 ? Math.min(playback.position, dur) / dur : 0, playback.position);
       return;
     }
     const hasDvrBar = !!$('[data-golive]', this.container);
@@ -292,21 +417,21 @@ export class PlayerOsd {
       return;
     }
     if (state.dvr) {
-      this.setProgress(state.dvr.fraction);
+      this.setProgress(state.dvr.fraction, null);
       const behind = $('.osd-dvr-behind', this.container);
       if (behind) {
         behind.textContent = state.dvr.atLiveEdge
           ? t('common.live')
           : `-${formatPosition(state.dvr.behindLive)}`;
       }
+      const bubble = $('.osd-seek-time', this.container);
+      if (bubble) bubble.textContent = this.dvrBubbleText(state.dvr);
       const live = $('.osd-dvr-live', this.container) as HTMLElement | null;
       if (live) live.classList.toggle('is-live', state.dvr.atLiveEdge);
       return;
     }
     if (!state.catchup || !Number.isFinite(playback.duration) || playback.duration <= 0) return;
-    this.setProgress(Math.min(playback.position, playback.duration) / playback.duration);
-    const current = $('.osd-time-current', this.container);
-    if (current) current.textContent = formatPosition(playback.position);
+    this.setProgress(Math.min(playback.position, playback.duration) / playback.duration, playback.position);
   }
 
   /** Seek to the bar position under (x, y) when it's over the seek bar; returns
@@ -322,6 +447,80 @@ export class PlayerOsd {
     if (!hit) return false;
     this.callbacks.onSeekFraction((x - rect.left) / rect.width);
     return true;
+  }
+
+  // Registered on first use: the dock's own ring, painted by key.
+  private ensureScope(): FocusScope | null {
+    const osd = $('#player-osd', this.container);
+    if (!this.scope && osd) {
+      this.scope = Focus.register({
+        id: 'player.dock',
+        root: osd,
+        tier: Tier.dock,
+        when: () => this.active && inShownView(osd),
+        defaultKey: () => {
+          const keys = this.rows().reduce<DockControl[]>((all, row) => all.concat(row), []);
+          const key = keys.indexOf(this.focusKey) >= 0 ? this.focusKey : keys[0];
+          return key ? `${KEY_PREFIX}${key}` : null;
+        },
+      });
+    }
+    return this.scope;
+  }
+
+  private setActive(on: boolean, control?: DockControl): void {
+    const scope = this.ensureScope();
+    this.active = on;
+    if (!on) {
+      if (scope) Focus.pop(scope);
+      return;
+    }
+    this.hoverKey = null;
+    this.render();
+    this.focusKey = this.landing(control);
+    this.render();
+    if (scope) {
+      Focus.push(scope);
+      scope.focus(`${KEY_PREFIX}${this.focusKey}`, 'key');
+    }
+  }
+
+  // Where the keys land: the asked-for control if it's there, else the seek
+  // bar, else play/pause, else the first control.
+  private landing(control?: DockControl): DockControl {
+    const keys = this.rows().reduce<DockControl[]>((all, row) => all.concat(row), []);
+    if (control && keys.indexOf(control) >= 0) return control;
+    if (keys.indexOf('seek') >= 0) return 'seek';
+    if (keys.indexOf('playpause') >= 0) return 'playpause';
+    return keys[0] ?? 'seek';
+  }
+
+  private focus(control: DockControl, via: Via): void {
+    this.focusKey = control;
+    this.render();
+    this.scope?.focus(`${KEY_PREFIX}${control}`, via);
+    Focus.flush();
+  }
+
+  // The rows of focusable controls, top to bottom, as the dock shows them.
+  private rows(): DockControl[][] {
+    const osd = $('#player-osd', this.container);
+    if (!osd) return [];
+    return Array.from(osd.querySelectorAll<HTMLElement>('[data-dock-row]'))
+      .map(row => Array.from(row.querySelectorAll<HTMLElement>('[data-focusable][data-key]'))
+        .map(el => controlOf(el.getAttribute('data-key')))
+        .filter((key): key is DockControl => key !== null))
+      .filter(keys => keys.length > 0);
+  }
+
+  private trigger(control: DockControl): void {
+    if (control === 'seek') return;
+    if (control === 'info') {
+      this.expanded = !this.expanded;
+      this.render();
+      return;
+    }
+    this.callbacks.onControl(control);
   }
 
   // The VOD OSD reuses the Live markup: an `.osd-channel` header (movie/episode
@@ -349,16 +548,14 @@ export class PlayerOsd {
         <div class="osd-channel-name">${state.vodTitle ?? ''}</div>
         ${this.renderStreamInfo(state.streamInfo)}
       </div>
-      <div class="osd-progress-row">
-        ${this.playPauseButton(playback?.paused ?? false)}
-        <span class="osd-time-current">${formatPosition(pos)}</span>
-        <div class="osd-progress" data-seekbar>
-          <div class="osd-progress-bar" style="width: ${dur > 0 ? (pos / dur) * 100 : 0}%"></div>
-        </div>
-        <span class="osd-time-end">${dur > 0 ? formatPosition(dur) : ''}</span>
-        ${this.resyncButton()}
-      </div>
+      ${this.seekRow(pos, dur, state.seek)}
+      ${this.controlsRow(state)}
     `);
+  }
+
+  private description(text: string): Safe | string {
+    if (!text) return '';
+    return html`<div class="osd-description ${this.expanded ? 'osd-description--full' : ''}">${text}</div>`;
   }
 
   /** The programme icon `<img>`, or nothing if it has no URL or that URL already
@@ -369,40 +566,103 @@ export class PlayerOsd {
     return html`<img class="osd-programme-icon" data-key="prog-icon:${url}" src="${url}" alt="">`;
   }
 
-  /** The shared OSD play/pause button (live DVR and catch-up). Pointer-hit-tested
-   *  by onPointerRelease and toggled by OK from Player.handleAction. */
-  private playPauseButton(paused: boolean): Safe {
+  // A seekable position bar (VOD, catch-up): time, bar, duration.
+  private seekRow(pos: number, dur: number, seek: PlayerOsdSnapshot['seek']): Safe {
+    const fraction = dur > 0 ? pos / dur : 0;
     return html`
-      <button class="osd-dvr-btn" data-playpause
-        aria-label="${t(paused ? 'player.play' : 'player.pause')}">
-        ${paused ? raw(PLAY_ICON) : raw(PAUSE_ICON)}
-      </button>
+      <div class="osd-progress-row" data-dock-row>
+        <span class="osd-time-current">${formatPosition(pos)}</span>
+        ${this.seekBar(fraction, seek ? formatPosition(pos) : '', seek)}
+        <span class="osd-time-end">${dur > 0 ? formatPosition(dur) : ''}</span>
+      </div>
     `;
   }
 
-  /** The OSD "Resync A/V" button (catch-up + VOD only). Pointer-hit-tested by
-   *  onPointerRelease; invokes Player.resyncAV() through the callback. */
-  private resyncButton(): Safe {
+  private seekBar(fraction: number, time: string, seek: PlayerOsdSnapshot['seek']): Safe {
+    const percent = Math.max(0, Math.min(1, fraction)) * 100;
+    const delta = seek && seek.delta !== 0
+      ? `${seek.delta > 0 ? '+' : '-'}${formatPosition(Math.abs(seek.delta))}`
+      : '';
     return html`
-      <button class="osd-resync-btn" data-resync aria-label="${t('player.resync')}">
-        ${raw(RESYNC_ICON)}
-      </button>
+      <div class="osd-progress" data-seekbar data-focusable data-key="${KEY_PREFIX}seek">
+        <div class="osd-progress-bar" style="width: ${percent}%"></div>
+        ${seek ? html`
+          <div class="osd-seek-bubble" style="left: ${percent}%">
+            <span class="osd-seek-time">${time}</span>
+            ${delta ? html`<span class="osd-seek-delta">${delta}</span>` : ''}
+          </div>
+        ` : ''}
+      </div>
     `;
   }
 
-  private dvrProgressRow(state: DvrState, paused: boolean): Safe {
+  private dvrBubbleText(state: DvrState): string {
+    return state.atLiveEdge ? t('common.live') : `-${formatPosition(state.behindLive)}`;
+  }
+
+  private dvrProgressRow(state: DvrState, seek: PlayerOsdSnapshot['seek']): Safe {
     return html`
-      <div class="osd-progress-row osd-dvr-row">
-        ${this.playPauseButton(paused)}
-        <span class="osd-time-current osd-dvr-behind">${state.atLiveEdge
-          ? t('common.live')
-          : `-${formatPosition(state.behindLive)}`}</span>
-        <div class="osd-progress" data-seekbar>
-          <div class="osd-progress-bar" style="width: ${state.fraction * 100}%"></div>
-        </div>
+      <div class="osd-progress-row osd-dvr-row" data-dock-row>
+        <span class="osd-time-current osd-dvr-behind">${this.dvrBubbleText(state)}</span>
+        ${this.seekBar(state.fraction, this.dvrBubbleText(state), seek)}
         <button class="osd-time-end osd-dvr-live ${state.atLiveEdge ? 'is-live' : ''}"
           data-golive aria-label="${t('player.goLive')}">${t('common.live')}</button>
       </div>
+    `;
+  }
+
+  // The dock's buttons: playback on the left (with the focused control's name
+  // beside it), stream choices on the right.
+  private controlsRow(state: PlayerOsdSnapshot): Safe {
+    const c = state.controls;
+    const paused = state.playback?.paused ?? false;
+    const start: Safe[] = [];
+    if (c.episodes) {
+      start.push(this.control('previous', PREVIOUS_ICON, t('player.previousEpisode'), !c.episodes.previous));
+    }
+    if (c.pausable) {
+      start.push(this.control('playpause', paused ? PLAY_ICON : PAUSE_ICON,
+        t(paused ? 'player.play' : 'player.pause')));
+    }
+    if (c.episodes) {
+      start.push(this.control('next', NEXT_ICON, t('player.nextEpisode'), !c.episodes.next));
+    }
+    if (c.favorite !== null) {
+      start.push(this.control('favorite', favoriteIcon(c.favorite), t('player.toggleFavorite'), false,
+        c.favorite));
+      start.push(this.control('info', INFO_ICON, t('player.channelInfo'), false, this.expanded));
+    }
+    const end: Safe[] = [];
+    if (c.audio) end.push(this.control('audio', AUDIO_ICON, t('player.audioTrack')));
+    if (c.subtitles) end.push(this.control('subtitles', SUBTITLE_ICON, t('player.subtitles')));
+    const labels: Partial<Record<DockControl, string>> = {
+      previous: t('player.previousEpisode'),
+      playpause: t(paused ? 'player.play' : 'player.pause'),
+      next: t('player.nextEpisode'),
+      favorite: t('player.toggleFavorite'),
+      info: t('player.channelInfo'),
+      audio: t('player.audioTrack'),
+      subtitles: t('player.subtitles'),
+    };
+    const named = this.active ? this.focusKey : this.hoverKey;
+    const caption = named ? labels[named] ?? '' : '';
+    const endFocused = named === 'audio' || named === 'subtitles';
+    return html`
+      <div class="osd-controls" data-dock-row>
+        <div class="osd-controls-group">${start}</div>
+        <div class="osd-control-caption ${endFocused ? 'osd-control-caption--end' : ''}">${caption}</div>
+        <div class="osd-controls-group">${end}</div>
+      </div>
+    `;
+  }
+
+  private control(name: DockControl, icon: string, label: string, disabled = false,
+    pressed: boolean | null = null): Safe {
+    return html`
+      <button class="osd-control" data-key="${KEY_PREFIX}${name}" data-dock-action="${name}"
+        ${raw(disabled ? 'disabled' : 'data-focusable')}
+        ${raw(pressed === null ? '' : `aria-pressed="${String(pressed)}"`)}
+        aria-label="${label}">${raw(icon)}</button>
     `;
   }
 
@@ -428,14 +688,24 @@ export class PlayerOsd {
     `;
   }
 
-  private setProgress(fraction: number): void {
+  // Move the bar (and the seek target over it) without a re-render. `position`
+  // is null on live DVR, whose labels read time behind live.
+  private setProgress(fraction: number, position: number | null): void {
+    const percent = `${Math.max(0, Math.min(1, fraction)) * 100}%`;
     const bar = $('.osd-progress-bar', this.container) as HTMLElement | null;
-    if (bar) bar.style.width = `${fraction * 100}%`;
+    if (bar) bar.style.width = percent;
+    const bubble = $('.osd-seek-bubble', this.container) as HTMLElement | null;
+    if (bubble) bubble.style.left = percent;
+    if (position === null) return;
+    const current = $('.osd-time-current', this.container);
+    if (current) current.textContent = formatPosition(position);
+    const time = $('.osd-seek-time', this.container);
+    if (time) time.textContent = formatPosition(position);
   }
 
-  /** A pointer release: seek if it landed on the bar, else activate the play/pause,
-   *  Go-to-Live, or resync control under it. Coordinates are used because the OSD
-   *  controls sit over the video plane. */
+  /** A pointer release: seek if it landed on the bar, else activate the control
+   *  under it. Coordinates are used because the OSD controls sit over the video
+   *  plane. */
   private onPointerRelease(x: number, y: number): void {
     const state = this.callbacks.getSnapshot();
     if (state.upNextSeconds > 0) {
@@ -444,14 +714,26 @@ export class PlayerOsd {
       return;
     }
     if (this.seekAtPointer(x, y)) return;
-    if (this.hitsControl('[data-playpause]', x, y)) this.callbacks.onPauseToggle();
-    else if (this.hitsControl('[data-golive]', x, y)) this.callbacks.onGoLive();
-    else if (this.hitsControl('[data-resync]', x, y)) this.callbacks.onResync();
+    if (this.hitsControl('[data-golive]', x, y)) {
+      this.callbacks.onGoLive();
+      return;
+    }
+    const buttons = Array.from(this.container.querySelectorAll<HTMLElement>('#player-osd [data-dock-action]'));
+    const hit = buttons.find(el => !el.hasAttribute('disabled') && this.hits(el, x, y));
+    const control = hit ? controlOf(hit.getAttribute('data-key')) : null;
+    if (!control) return;
+    if (this.active) this.focus(control, 'pointer');
+    else this.focusKey = control;
+    this.resetTimer();
+    this.trigger(control);
   }
 
   private hitsControl(selector: string, x: number, y: number): boolean {
     const element = $(selector, this.container) as HTMLElement | null;
-    if (!element) return false;
+    return !!element && this.hits(element, x, y);
+  }
+
+  private hits(element: HTMLElement, x: number, y: number): boolean {
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && x >= rect.left && x <= rect.right &&
       y >= rect.top && y <= rect.bottom;

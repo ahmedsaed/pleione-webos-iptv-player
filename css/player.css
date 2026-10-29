@@ -249,6 +249,7 @@
 }
 
 .osd-progress[data-seekbar] {
+  position: relative;
   cursor: pointer;
   height: 36px;
   padding: 15px 0;
@@ -275,45 +276,121 @@
   box-shadow: 0 0 8px var(--accent-glow);
 }
 
-/* Live DVR (timeshift) row: play/pause + "behind live" offset + Go-to-Live. The
-   play/pause button (.osd-dvr-btn) is also used in the catch-up progress row. */
-.osd-dvr-btn {
-  display: inline-flex;
+/* The focused seek bar grows its track and rings its thumb, the bar's own
+   visual target, instead of boxing the whole bar. */
+.osd-progress[data-seekbar].focused {
+  padding: 14px 0;
+  box-shadow: none;
+}
+
+.osd-progress[data-seekbar].focused .osd-progress-bar::after {
+  width: 26px;
+  height: 26px;
+  right: -13px;
+  border: 3px solid var(--text-primary);
+  box-shadow: 0 0 0 4px rgb(var(--accent-rgb) / 0.35), 0 0 18px var(--accent-glow);
+}
+
+/* The target of a skip, over the thumb while Left/Right step. */
+.osd-seek-bubble {
+  position: absolute;
+  bottom: 100%;
+  margin-bottom: -4px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.osd-seek-delta {
+  font-size: 18px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* The controls: playback on the left, then the focused control's name, then
+   the stream's track choices on the right. */
+.osd-controls {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.osd-controls-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.osd-control {
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: none;
+  width: 84px;
+  height: 84px;
+  padding: 18px;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
   background: none;
   color: var(--text-primary);
   cursor: pointer;
 }
 
-.osd-dvr-btn svg {
-  width: 28px;
-  height: 28px;
+.osd-control svg {
   display: block;
+  width: 44px;
+  height: 44px;
 }
 
-/* Resync A/V button — reuses the play/pause icon-button sizing. */
-.osd-resync-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--text-primary);
-  cursor: pointer;
+.osd-control.focused {
+  background: var(--overlay-chip);
 }
 
-.osd-resync-btn svg {
-  width: 24px;
-  height: 24px;
-  display: block;
+.osd-control:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.osd-control[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.osd-control .favorite-glyph {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linejoin: round;
+}
+
+.osd-control .favorite-glyph.set {
+  fill: currentColor;
+}
+
+.osd-control-caption {
+  flex: 1;
+  min-width: 0;
+  padding: 0 20px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 24px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  /* Next to the focused group, in every script: Arabic keeps the LTR layout. */
+  text-align: left;
+}
+
+.osd-control-caption--end {
+  text-align: right;
 }
 
 .osd-dvr-behind {
@@ -357,6 +434,11 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* Channel info shows the whole description. */
+.osd-description--full {
+  -webkit-line-clamp: 8;
 }
 
 .osd-next {
@@ -850,112 +932,77 @@
   85%, 100% { transform: translateX(0); }
 }
 
-/* Player right menu (Magic Remote / right key) */
+/* Audio and subtitle pickers: a compact list above the controls they open
+   from. The player sets its right, bottom, and max-height from the dock. */
 .player-menu {
   position: absolute;
-  top: 0;
-  right: 0;
-  width: fit-content;
-  min-width: 340px;
-  max-width: 440px;
-  height: var(--canvas-height);
-  background: rgba(10, 10, 15, 0.92);
-  backdrop-filter: blur(12px);
-  z-index: 70;
+  right: 40px;
+  bottom: 240px;
   display: flex;
   flex-direction: column;
-  padding: 24px;
-  transform: translateX(100%);
-  transition: transform 0.25s ease;
-  border-left: 1px solid var(--border);
+  width: fit-content;
+  min-width: 360px;
+  max-width: 560px;
+  padding: 20px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(30, 30, 50, 0.9);
+  backdrop-filter: blur(16px);
+  z-index: 70;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(12px);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s linear 0.2s;
 }
 
 .player-menu.visible {
-  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .player-menu .menu-header {
-  margin-bottom: 32px;
+  margin-bottom: 12px;
 }
 
 .player-menu .menu-header h2 {
-  font-size: 28px;
-  color: var(--accent);
-}
-
-.player-menu .menu-header .menu-subtitle {
-  font-size: 18px;
-  color: var(--text-muted);
-  margin-top: 4px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .player-menu .menu-items {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  flex: 1;            /* fill the remaining height of the fixed-height panel */
+  gap: 4px;
+  flex: 1 1 auto;
   min-height: 0;      /* allow the flex child to shrink so overflow-y can scroll */
   overflow-y: auto;   /* long track lists scroll instead of running off-screen */
-  margin: -20px;
-  padding: 20px;
+  margin: -12px;      /* a gutter so the ring's glow isn't clipped */
+  padding: 12px;
 }
 
 .player-menu .menu-item {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 16px 18px;
+  padding: 12px 16px;
   border-radius: var(--radius);
   border: 2px solid transparent;
-  font-size: 22px;
+  font-size: 24px;
   color: var(--text-primary);
   cursor: pointer;
   transition: var(--transition);
   white-space: nowrap; /* keep a row's label on one line; the value chip ellipsizes instead */
 }
 
-.player-menu .menu-item.focused {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: var(--text-primary);
-}
-
+.player-menu .menu-item.focused,
 .player-menu .menu-item:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--text-muted);
+  background: var(--overlay-chip);
 }
 
-.menu-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.menu-dot.red { background: var(--remote-key-red); }
-.menu-dot.green { background: var(--remote-key-green); }
-.menu-dot.yellow { background: var(--remote-key-yellow); }
-.menu-dot.blue { background: var(--remote-key-blue); }
-
-/* Icon in the color-dot slot */
-/* Icons are wider than the 14px dot; negative margins keep labels aligned. */
-.menu-icon {
-  width: 22px;
-  margin: 0 -4px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.menu-icon.audio { color: #9b59b6; }
-.menu-icon.subtitle { color: #1abc9c; }
-.menu-icon.speed { color: #f5b041; }
-.menu-icon svg { display: block; width: 22px; height: 22px; }
-/* Deeper shades for the light Frosted panel; the row label carries the meaning. */
-[data-overlay="frosted"] .menu-icon.audio { color: #8e44ad; }
-[data-overlay="frosted"] .menu-icon.subtitle { color: #00897b; }
-[data-overlay="frosted"] .menu-icon.speed { color: #d35400; }
-
-/* Current audio track shown on the "Audio Track" row */
+/* The current subtitle offset, on the Subtitle Sync row */
 .player-menu .menu-item-value {
   margin-left: auto;
   padding-left: 12px;
@@ -968,19 +1015,13 @@
   max-width: 140px;
 }
 
-/* Fixed check / chevron column in the audio sub-menu so labels align */
+/* Fixed check column so labels align */
 .player-menu .menu-check {
   width: 18px;
   flex-shrink: 0;
   text-align: center;
   color: #2ecc71;
   font-weight: 700;
-}
-
-.player-menu .menu-check.menu-back {
-  color: var(--text-primary);
-  font-size: 26px;
-  line-height: 1;
 }
 
 .player-menu .menu-track-label {

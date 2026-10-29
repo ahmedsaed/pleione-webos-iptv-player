@@ -297,18 +297,16 @@ test('no flex-gap container separates an element from loose text', async ({ page
   await page.keyboard.press('Escape');
   await page.locator('[data-group="builtin:all"]').click();
 
-  // The playback overlays sit outside every section: OSD, right-hand menu and
-  // the channel sidebar.
+  // The playback overlays sit outside every section: OSD with its controls,
+  // and the channel sidebar.
   await page.locator('.channel-item').first().click();
   await expect(page.locator('#view-player')).toBeVisible();
   await expect(page.locator('#player-osd')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#player-osd .osd-control.focused')).toBeVisible();
   await collect();
 
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator('#player-menu')).toBeVisible();
-  await collect();
-
-  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Escape');
   await page.keyboard.press('ArrowLeft');
   await expect(page.locator('#player-sidebar')).toBeVisible();
   await collect();
@@ -355,9 +353,8 @@ test('no flex-gap container separates an element from loose text in the catalog'
   await expect(page.locator('#view-player')).toBeVisible();
   await expect(page.locator('#player-osd')).toBeVisible();
 
-  await page.mouse.move(1900, 540);
+  await page.locator('#player-osd [data-dock-action="subtitles"]').click();
   await expect(page.locator('#player-menu')).toBeVisible();
-  await page.locator('[data-menu-action="__subs_open__"]').click();
   const search = page.locator('[data-menu-action="__subs_search__"]');
   await expect(search).toBeVisible();
   await collect();
