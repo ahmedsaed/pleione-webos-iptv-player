@@ -1879,7 +1879,8 @@ class App {
       this.search.invalidateCatalog();
       await Promise.all([clearCachedPlaylist(), clearCachedCatalog()]);
       this.showView('channels');
-      await this.loadData(true);
+      // 'launch' lands on the start screen (Home), as Settings was opened from it.
+      await this.loadData(true, 'launch');
       return;
     }
     // 'apply': only display settings changed — re-apply + re-render, no re-fetch.
@@ -1891,7 +1892,8 @@ class App {
       this.schedulePlaylistRefresh();
     }
     this.channelList.render();
-    this.showView('channels');
+    if (StorageService.getStartOnLive()) this.showView('channels');
+    else this.goHome();
   }
 }
 

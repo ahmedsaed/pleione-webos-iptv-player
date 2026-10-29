@@ -123,7 +123,7 @@
 
 .catalog-rail { margin-bottom: 28px; }
 .catalog-rail-title { margin: 0 0 12px; font-size: 30px; font-weight: 600; color: var(--text-primary); }
-.catalog-rail-track { display: flex; gap: 20px; overflow-x: auto; padding: 12px 12px 20px; margin: 0 -12px; }
+.catalog-rail-track { display: flex; gap: 20px; overflow-x: auto; padding: 24px 12px 32px; margin: -12px -12px; }
 .catalog-rails-body .catalog-rail-track { margin-left: -80px; padding-left: 80px; }
 .catalog-category-rail { height: 152px; display: block; overflow-anchor: none; }
 .catalog-category-rail-spacer { position: relative; height: 120px; }
@@ -183,6 +183,9 @@
   box-shadow: none;
   border-color: transparent !important;
 }
+.catalog-tile.focused { transform: scale(1.05); }
+html[data-animation="full"] .catalog-tile,
+html[data-animation="reduced"] .catalog-tile { transition: transform var(--transition); }
 .catalog-tile.focused .catalog-poster-wrap {
   outline: 3px solid var(--catalog-focus);
   outline-offset: 2px;
