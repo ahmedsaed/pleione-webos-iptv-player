@@ -18,6 +18,8 @@ export async function newLegacyPage(browser: Browser): Promise<{ page: Page; clo
   const page = await context.newPage();
   await page.addInitScript(removeApis, POST_TARGET_APIS);
   await stubUploadService(page);
+  // Mirror the main fixture, which shows Pleione's hidden Guide tab.
+  await page.addInitScript(() => localStorage.setItem('iptv_show_guide_tab', 'true'));
   return { page, close: () => context.close() };
 }
 

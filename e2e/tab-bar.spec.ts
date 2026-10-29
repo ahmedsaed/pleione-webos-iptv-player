@@ -1,4 +1,4 @@
-import { test, expect, routeLiveManifest, SAMPLE_M3U, enterTab } from './helpers';
+import { test, expect, routeLiveManifest, SAMPLE_M3U, enterTab, hideGuideTab } from './helpers';
 
 // Seed one Xtream account so the tab bar is enabled; its get.php serves the
 // sample M3U so the channels view loads normally.
@@ -28,6 +28,34 @@ test('the tab bar is docked (always visible) and offsets the content below it', 
   await expect(page.locator('.tab-bar-item[data-section="search"] svg')).toBeVisible();
   // Docked → the view sits below the bar (top offset applied via the body class).
   await expect(page.locator('body.tabbar-docked')).toHaveCount(1);
+});
+
+test('Pleione shows its logo by the name and hides the Guide tab; Red still opens the guide', async ({ page }) => {
+  await hideGuideTab(page);
+  await seedXtream(page);
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+
+  const logo = page.locator('.tab-bar-title .tab-bar-logo');
+  await expect(logo).toBeVisible();
+  expect(await logo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+  const [logoBox, nameBox] = await Promise.all([logo.boundingBox(), page.locator('.tab-bar-title-text').boundingBox()]);
+  expect(logoBox!.x + logoBox!.width).toBeLessThan(nameBox!.x);
+
+  await expect(page.locator('.tab-bar-item')).toHaveText(['Live', 'Movies', 'Series', 'Settings', '']);
+
+  // Red from the channel list still opens the guide below the docked bar.
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
+  await expect(page.locator('#view-epg')).toBeVisible();
+  await expect(page.locator('.tab-bar')).toBeVisible();
+
+  // Right from Live on the bar skips straight to Movies.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.tab-bar-item[data-section="movies"].focused')).toHaveCount(1);
 });
 
 test('clicking the Movies tab enters the Movies view', async ({ page }) => {
