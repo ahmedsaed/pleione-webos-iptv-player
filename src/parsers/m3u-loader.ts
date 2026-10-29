@@ -8,6 +8,7 @@ import {
   createXtreamLiveMatcher,
 } from '../utils/xtream-live-match';
 import { createLogger } from '../utils/logger';
+import { loaderTransientFailure, parseRetryAfterMs, retryTransient } from '../utils/retry';
 import { createGroupNameMatcher, type XtreamGroupNameFilter } from '../utils/xtream-category-filter';
 import { runAppWorkerTask } from '../workers/app-worker-client';
 import type {
@@ -87,9 +88,19 @@ export async function fetchAndParseM3U(
   };
   let result: M3UWorkerResponse;
   try {
-    result = typeof Worker === 'undefined'
-      ? await fetchAndParseM3UInWorker(request, handleChunk)
-      : await runAppWorkerTask('m3u.load', request, handleChunk);
+    result = await retryTransient(() => {
+      // A retried load starts over, so drop the failed attempt's channels.
+      channelBatches.length = 0;
+      return typeof Worker === 'undefined'
+        ? fetchAndParseM3UInWorker(request, handleChunk)
+        : runAppWorkerTask('m3u.load', request, handleChunk);
+    }, {
+      kind: 'playlist',
+      classify: error => {
+        const details = m3uWorkerFailureDetails(error);
+        return details ? loaderTransientFailure(details) : null;
+      },
+    });
   } catch (error) {
     const details = m3uWorkerFailureDetails(error);
     log.error(
@@ -129,6 +140,8 @@ interface M3UWorkerFailureDetails {
   inputBytes: number;
   chunks: number;
   elapsedMs: number;
+  status?: number;
+  retryAfterMs?: number | null;
 }
 
 class M3UWorkerError extends Error {
@@ -161,6 +174,8 @@ function m3uWorkerFailureDetails(error: unknown): M3UWorkerFailureDetails | null
         inputBytes: value.inputBytes,
         chunks: value.chunks,
         elapsedMs: value.elapsedMs,
+        ...(typeof value.status === 'number' ? { status: value.status } : {}),
+        ...(typeof value.retryAfterMs === 'number' ? { retryAfterMs: value.retryAfterMs } : {}),
       }
     : null;
 }
@@ -214,9 +229,15 @@ export async function fetchAndParseM3UInWorker(
   let complete = false;
   let transport: M3UWorkerResponse['metrics']['transport'] = 'stream';
   let stage = 'fetch';
+  let status: number | undefined;
+  let retryAfterMs: number | null = null;
   try {
     const response = await fetch(request.url, { signal: controller.signal });
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    if (!response.ok) {
+      status = response.status;
+      retryAfterMs = parseRetryAfterMs(response.headers?.get('retry-after'));
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
     stage = 'read';
     reader = typeof response.body?.getReader === 'function'
       ? response.body.getReader()
@@ -279,6 +300,7 @@ export async function fetchAndParseM3UInWorker(
       inputBytes,
       chunks,
       elapsedMs: Date.now() - started,
+      ...(status !== undefined ? { status, retryAfterMs } : {}),
     });
   } finally {
     if (reader && !complete) void reader.cancel().catch(() => {});

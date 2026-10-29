@@ -1,3 +1,5 @@
+import { httpRetryReason, parseRetryAfterMs, type TransientFailure } from './retry';
+
 export type FetchTextErrorCode =
   | 'aborted'
   | 'timeout'
@@ -9,10 +11,24 @@ export class FetchTextError extends Error {
   constructor(
     public readonly code: FetchTextErrorCode,
     message: string,
+    public readonly status?: number,
+    public readonly retryAfterMs: number | null = null,
   ) {
     super(message);
     this.name = 'FetchTextError';
   }
+}
+
+// Timeouts, network errors, 408, 429, and 5xx retry; a caller abort, a
+// final HTTP status, an oversized body, or bad content does not.
+export function fetchTextTransientFailure(error: unknown): TransientFailure | null {
+  if (error instanceof FetchTextError) {
+    if (error.code === 'timeout') return { reason: 'timeout' };
+    if (error.code !== 'http') return null;
+    const reason = httpRetryReason(error.status);
+    return reason ? { reason, retryAfterMs: error.retryAfterMs } : null;
+  }
+  return error instanceof TypeError ? { reason: 'network' } : null;
 }
 
 export type FetchPrefixVerdict = 'match' | 'mismatch' | 'undecided';
@@ -124,7 +140,12 @@ export async function fetchLimitedText(
   try {
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) {
-      throw new FetchTextError('http', `HTTP ${response.status}: ${response.statusText}`);
+      throw new FetchTextError(
+        'http',
+        `HTTP ${response.status}: ${response.statusText}`,
+        response.status,
+        parseRetryAfterMs(response.headers?.get('retry-after')),
+      );
     }
     const declaredLength = Number(response.headers?.get('content-length') || 0);
     if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {

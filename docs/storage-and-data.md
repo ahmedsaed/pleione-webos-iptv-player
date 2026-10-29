@@ -245,6 +245,16 @@ queued or in flight. A channel-list refresh records the source configuration
 and cache state it started with; if either changes before it finishes, its
 result is not written to the cache.
 
+Every request to the provider (a channel-list or guide download, or an Xtream
+API call) retries a transient failure up to three times, after 1, 2, then 4
+seconds: a timeout, a network error, or HTTP 408, 429, or 5xx. A numeric
+`Retry-After` replaces the step, up to 10 seconds. Other failures, such as a
+rejected login, a missing list, or an unreadable response, surface at once,
+and canceling the request stops a pending retry. The sign-in check in
+Settings does not retry a timeout, so an unresponsive portal reports quickly. A retried download starts
+over, so a failed attempt never adds partial data. Stream playback and
+online subtitle searches do not use these retries.
+
 An incomplete automatic channel-list refresh keeps the previous complete list
 instead of publishing partial data. **Refresh All Data** remains available in
 Off mode; it reloads enabled channel sources, forces the configured guide

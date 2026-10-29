@@ -2586,7 +2586,9 @@ export class Settings {
     }
 
     this.setXtreamStatus(id, html`${t('settings.checking')}`, '');
-    const info = await createXtreamClient({ baseUrl: url, username, password }).getAccountInfo();
+    // A sign-in check reports a timing-out portal after one timeout.
+    const info = await createXtreamClient({ baseUrl: url, username, password })
+      .getAccountInfo(undefined, { retryTimeouts: false });
     if (!info) {
       log.warn(
         'Xtream verify failed — server unreachable or non-JSON',

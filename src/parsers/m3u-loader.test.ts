@@ -496,3 +496,106 @@ describe('Xtream Live category name-match fallback', () => {
     expect(result.metrics).toMatchObject({ filter: 'unavailable', channelsDropped: 0 });
   });
 });
+
+describe('fetchAndParseM3U transient failure retries', () => {
+  const playlist = (count: number): Uint8Array => {
+    const lines = ['#EXTM3U'];
+    for (let index = 0; index < count; index++) {
+      lines.push(`#EXTINF:-1,Channel ${String(index)}`, `http://host/${String(index)}`);
+    }
+    return new TextEncoder().encode(lines.join('\n'));
+  };
+  const failedResponse = (status: number, retryAfter?: string): Response => ({
+    ok: false,
+    status,
+    statusText: 'Failed',
+    headers: new Headers(retryAfter ? { 'retry-after': retryAfter } : {}),
+  }) as unknown as Response;
+  const droppedMidBody = (bytes: Uint8Array): Response => {
+    let sent = false;
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (sent) throw new TypeError('network error');
+            sent = true;
+            return { done: false, value: bytes };
+          },
+          cancel: async () => {},
+        }),
+      },
+    } as unknown as Response;
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('recovers after a server error and a dropped body without duplicating channels', async () => {
+    vi.useFakeTimers();
+    const info = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(failedResponse(503, '2'))
+      .mockResolvedValueOnce(droppedMidBody(playlist(3000)))
+      .mockResolvedValueOnce(streamResponse([playlist(3000)]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = fetchAndParseM3U('http://host/list.m3u', 5000);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const loaded = await result;
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(loaded.data.channels).toHaveLength(3000);
+    expect(info).toHaveBeenCalledWith(
+      '[Network]',
+      'Provider request recovered after retry',
+      'event=network.retry.recovered',
+      'kind=playlist',
+      'attempts=3',
+    );
+  });
+
+  it('fails after 3 retries and logs the exhaustion once', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchMock = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = fetchAndParseM3U('http://host/list.m3u', 5000);
+    const settled = expect(result).rejects.toThrow('Failed to fetch');
+    await vi.advanceTimersByTimeAsync(7000);
+    await settled;
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      '[Network]',
+      'Provider request failed after retries',
+      'event=network.retry.exhausted',
+      'kind=playlist',
+      'attempts=4',
+      'reason=network',
+    );
+  });
+
+  it('does not retry a missing playlist', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchMock = vi.fn(async () => failedResponse(404));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchAndParseM3U('http://host/list.m3u', 5000)).rejects.toThrow('HTTP 404');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

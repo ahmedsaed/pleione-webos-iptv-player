@@ -24,6 +24,14 @@ export const CONFIG = {
   PLAYLIST_CACHE_WRITE_DELAY_MS: 1200,
   DEFAULT_EPG_REFRESH_INTERVAL_MS: 6 * 60 * 60 * 1000,
   REMINDER_SCAN_INTERVAL: 30 * 1000,
+  // Provider requests (Xtream API, playlist, XMLTV) retry transient failures
+  // after 1 s, 2 s, then 4 s; a numeric Retry-After replaces the step, capped.
+  NETWORK: {
+    RETRIES: 3,
+    RETRY_BASE_DELAY_MS: 1000,
+    RETRY_BACKOFF_FACTOR: 2,
+    RETRY_AFTER_MAX_MS: 10 * 1000,
+  },
   NAVIGATION: {
     // Treat fast successive focus changes as held-key navigation. The repeat
     // interval measured on LG remotes is around 80 ms; leave room for load.
