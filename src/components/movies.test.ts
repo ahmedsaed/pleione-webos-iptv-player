@@ -1275,7 +1275,7 @@ describe('Movies browse + grid', () => {
 
   describe('rail edge gutter', () => {
     // A 1000px scrollport scrolled to 500, holding 220px tiles.
-    const stubRail = (tileStart: number) => {
+    const stubRail = (tileStart: number, drawnWidth = 220) => {
       const track = container.querySelector<HTMLElement>('[data-rail-key="cat:1"] .catalog-rail-track')!;
       const tile = track.querySelector<HTMLElement>('.catalog-tile[data-item-id="1-3"]')!;
       let scrollLeft = 500;
@@ -1288,7 +1288,11 @@ describe('Movies browse + grid', () => {
       Object.defineProperty(track, 'clientWidth', { configurable: true, value: 1000 });
       Object.defineProperty(tile, 'offsetWidth', { configurable: true, value: 220 });
       track.getBoundingClientRect = () => ({ left: 0 } as DOMRect);
-      tile.getBoundingClientRect = () => ({ left: tileStart - scrollLeft } as DOMRect);
+      // A lifted tile draws scaled about its center.
+      tile.getBoundingClientRect = () => ({
+        left: tileStart - scrollLeft - (drawnWidth - 220) / 2,
+        width: drawnWidth,
+      } as DOMRect);
       track.style.scrollBehavior = 'smooth';
       return { track, tile, writes };
     };
@@ -1317,6 +1321,13 @@ describe('Movies browse + grid', () => {
       const { tile, writes } = stubRail(1400);
       keyOnto(view, tile);
       expect(writes).toEqual([{ value: 1632 - 1000, behavior: 'smooth' }]);
+    });
+
+    it('reveals a lifted tile where it would at rest', async () => {
+      const view = await eightFullCategories();
+      const { tile, writes } = stubRail(1280, 231); // scaled 1.05
+      keyOnto(view, tile);
+      expect(writes).toEqual([{ value: 1512 - 1000, behavior: 'auto' }]);
     });
 
     it('leaves the rail alone when a pointer focuses an edge tile', async () => {
