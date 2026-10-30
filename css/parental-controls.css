@@ -310,15 +310,11 @@
   font-size: 22px;
 }
 
-.home-lock svg,
-.nav-menu-lock svg {
+.home-lock svg {
   fill: none;
   stroke: currentColor;
   stroke-width: 2.2;
   stroke-linecap: round;
-}
-
-.home-lock svg {
   width: 26px;
   height: 26px;
   margin-right: 10px;
@@ -327,10 +323,6 @@
 .home-lock.focused {
   background: var(--warning);
   color: var(--bg-primary);
-}
-
-.nav-menu-item.nav-menu-lock {
-  color: var(--warning);
 }
 
 .parental-row .lock-badge {

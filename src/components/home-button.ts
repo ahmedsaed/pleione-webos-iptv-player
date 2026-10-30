@@ -3,7 +3,7 @@ import { HOME_ICON } from './icons';
 
 // A Home button for the Magic Remote, over a section's corner. CSS shows it
 // only with the pointer in charge (`html:not(.keyboard-nav)`); the remote's
-// keys use Back and the side menu, so it takes no focus and draws no ring.
+// keys use Back, so it takes no focus and draws no ring.
 export class HomeButton {
   private readonly el: HTMLButtonElement;
 

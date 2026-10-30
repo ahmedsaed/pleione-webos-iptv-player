@@ -1470,7 +1470,7 @@ export class Settings {
         break;
 
       case 'left':
-        // Nothing left of the categories: the host opens the side menu.
+        // The categories are the left edge: nothing lies past them.
         if (this.nav.focused?.classList.contains('settings-nav-item')) return this.nav.move(action);
         {
           const openDropdown = this.container.querySelector<HTMLElement>('.dropdown.open');
@@ -1967,12 +1967,6 @@ export class Settings {
     this.notedKey = null;
     this.land();
     if (Focus.owner() === this.focusScope) Focus.flush();
-  }
-
-  /** Back onto Settings: the last control, brought into view. */
-  resumeFocus(): void {
-    this.land();
-    Focus.flush();
   }
 
   // The remembered control, under the key of what stands in for it now, with

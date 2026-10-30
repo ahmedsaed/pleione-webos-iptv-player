@@ -505,7 +505,6 @@ export const IT_MESSAGES = {
     other: '{count} canali caricati',
   },
   'app.loadFailed': 'Impossibile caricare la playlist. Verifica l’URL e riprova.',
-  'app.exitHint': 'Premi di nuovo Indietro per uscire',
   'app.saveFailed': 'Impossibile salvare le modifiche. Riprova.',
   'settings.storageLimited': 'Questa TV limita lo spazio per le app. I tuoi progressi e i preferiti restano salvati, ma la cache non viene conservata tra un avvio e l’altro.',
   'weekday.0': 'Dom',

@@ -1,5 +1,5 @@
 import { appendFileSync } from 'node:fs';
-import { test as base, expect, type Page, type Route } from '@playwright/test';
+import { test as base, expect, type Locator, type Page, type Route } from '@playwright/test';
 import { postTargetApis, removeApis } from '../scripts/chromium-53-simulation.mjs';
 
 export { expect, type Page };
@@ -163,57 +163,51 @@ export async function seedPlaylist(page: Page, url = PLAYLIST_URL): Promise<void
   }, url);
 }
 
-/** Enter a section the Magic Remote way: the pointer at the screen's left
- *  edge reveals the side menu, and a click on the section opens it. */
+/** Enter a section the Magic Remote way: the Home button over the section,
+ *  then a click on the section's card. */
 export async function enterTab(
   page: Page,
   section: 'home' | 'live' | 'movies' | 'series' | 'settings' | 'search',
 ): Promise<void> {
-  await openSideMenu(page);
-  const item = page.locator(`.nav-menu.open .nav-menu-item[data-section="${section}"]`);
-  await expect(item).toBeVisible();
-  // The panel slides in; click where it settles.
-  await expect.poll(() => item.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
-  const box = await item.boundingBox();
-  if (!box) throw new Error(`menu item ${section} has no bounding box`);
-  // The pointer rests on the panel's empty top edge, as it rested on the old
-  // tab bar, so it lights nothing in the section the menu closes over; the
-  // click carries the item's coordinates for the menu's hit-test.
-  await page.mouse.move(box.x + box.width / 2, 2);
-  await item.evaluate((el) => {
+  const home = page.locator('#view-home');
+  if (!await home.isVisible()) await clickHomeButton(page);
+  if (section === 'home') return;
+  const card = home.locator(`[data-key="section:${section}"]`).first();
+  await expect(card).toBeVisible();
+  await clickAt(card);
+  await expect(home).toBeHidden();
+}
+
+/** The Magic Remote's Home button, shown over a section with the pointer in charge. */
+export async function clickHomeButton(page: Page): Promise<void> {
+  // Along the top edge, so the pointer hovers no content on its way. The
+  // first move only seeds the position; the second hands over to the pointer.
+  await page.mouse.move(900, 2);
+  await page.mouse.move(960, 2);
+  const button = page.locator('.home-button');
+  await expect(button).toBeVisible();
+  await clickAt(button);
+  await expect(page.locator('#view-home')).toBeVisible();
+}
+
+// A click carrying the target's coordinates while the pointer rests on the
+// empty top edge, so it lights nothing in the page the click opens.
+async function clickAt(target: Locator): Promise<void> {
+  await target.evaluate((el) => {
     const r = el.getBoundingClientRect();
     el.dispatchEvent(new MouseEvent('click', {
       bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
     }));
   });
-  // The panel slides back out before the section is looked at.
-  await expect(page.locator('.nav-menu')).not.toHaveClass(/\bopen\b/);
-  await expect.poll(async () => {
-    const panel = await page.locator('.nav-menu-panel').boundingBox();
-    return !panel || panel.x + panel.width <= 0;
-  }).toBe(true);
 }
 
-/** End a PIN session from the side menu's Lock now, then close it with a scrim click. */
+/** End a PIN session from Home's Lock now. */
 export async function lockNow(page: Page): Promise<void> {
-  await openSideMenu(page);
-  const lock = page.locator('.nav-menu.open [data-lock-now]');
+  await enterTab(page, 'home');
+  const lock = page.locator('#view-home [data-lock-now]');
   await expect(lock).toHaveText('Lock now');
-  await lock.click();
+  await clickAt(lock);
   await expect(page.locator('[data-lock-now]')).toHaveCount(0);
-  // A click on the scrim closes it; the pointer moving away does not.
-  await page.mouse.click(1200, 540);
-  await expect(page.locator('.nav-menu')).not.toHaveClass(/\bopen\b/);
-}
-
-/** Reveal the side menu with the pointer at the screen's left edge. */
-export async function openSideMenu(page: Page): Promise<void> {
-  const menu = page.locator('.nav-menu');
-  if (await menu.evaluate((el) => el.classList.contains('open'))) return;
-  // Along the top edge, so the pointer hovers no content on its way.
-  await page.mouse.move(40, 2);
-  await page.mouse.move(0, 2);
-  await expect(menu).toHaveClass(/\bopen\b/);
 }
 
 // Both channel rows have a fixed height because their lists are virtualized, so
@@ -306,7 +300,7 @@ function installRingAudit(recordNone: boolean): void {
     return getComputedStyle(el).visibility !== 'hidden';
   };
   const describe = (el: Element): string => {
-    const view = el.closest('[id^="view-"], #tab-bar, .tab-bar, [id]');
+    const view = el.closest('[id^="view-"], [id]');
     const key = el.getAttribute('data-key') ?? el.getAttribute('data-action') ?? '';
     return `${view ? `#${view.id || view.className}` : '?'} ${el.tagName.toLowerCase()}.${
       Array.from(el.classList).join('.')}${key ? `[${key}]` : ''}`;

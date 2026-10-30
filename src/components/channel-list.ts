@@ -650,7 +650,6 @@ export class ChannelList {
       if (action === 'left' || action === 'right') {
         const next = index + (action === 'left' ? -1 : 1);
         if (tabs[next]) this.nav.focus(tabs[next]);
-        // Left of the first tab: the host opens the side menu.
         return !!tabs[next] || action === 'right';
       }
       // Above the tabs sits the host's header.

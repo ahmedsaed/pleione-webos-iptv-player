@@ -172,7 +172,6 @@ beforeEach(() => {
 function mkHandlers() {
   return {
     onFocusBox: vi.fn(),
-    onLeaveLeft: vi.fn(),
     onReleaseBox: vi.fn(),
     onBack: vi.fn(),
     onPlayChannel: vi.fn(),

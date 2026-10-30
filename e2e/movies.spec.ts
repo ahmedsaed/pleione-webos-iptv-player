@@ -1,4 +1,4 @@
-import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab, leaveVod, openSideMenu, type Page, pressStepsAndReadPlayer, openGuide } from './helpers';
+import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab, leaveVod, type Page, pressStepsAndReadPlayer, openGuide } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 
 // A minimal ASS body with one dialogue active from t=0, so assjs renders it as
@@ -239,7 +239,7 @@ test('browse Movies, open a detail, and start playback', async ({ page }) => {
   await expect(page.locator('#view-movies .detail-plot')).toContainText('A plot.');
 });
 
-test('Back walks Movies detail -> browse -> side menu instead of ejecting', async ({ page }) => {
+test('Back walks Movies detail -> browse -> Home instead of ejecting', async ({ page }) => {
   await seedMovies(page);
   await routeLiveManifest(page);
   await page.goto('/');
@@ -262,9 +262,11 @@ test('Back walks Movies detail -> browse -> side menu instead of ejecting', asyn
   await expect(page.locator('#view-movies .catalog-browse')).toBeVisible();
   await expect(page.locator('#view-channels')).toBeHidden();
 
-  // Second Back from the browse top level opens the side menu over it.
+  // Second Back from the browse top level goes Home, on the Movies card.
   await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
-  await expect(page.locator('.nav-menu')).toHaveClass(/\bopen\b/);
+  await expect(page.locator('#view-home')).toBeVisible();
+  await expect(page.locator('#view-movies')).toBeHidden();
+  await expect(page.locator('#view-home .focused')).toHaveAttribute('data-section', 'movies');
 });
 
 test('Back from a detail finds browse scrolled and focused as it was left', async ({ page }) => {
@@ -674,45 +676,6 @@ test('a revealed grid tile keeps its ring after the reveal scrolls the grid', as
   await expect(tile).toHaveClass(/\bfocused\b/);
 });
 
-test('the side menu takes the ring off the catalog tile', async ({ page }) => {
-  await seedMovies(page, { streams: 30 });
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await enterTab(page, 'movies');
-  const tile = page.locator('#view-movies .catalog-tile[data-item-id="100"]');
-  await tile.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
-  await expect(tile).toHaveClass(/\bfocused\b/);
-
-  await toSideMenu(page);
-  await expect(page.locator('.nav-menu .focused')).toHaveCount(1);
-  await expect(page.locator('#view-movies .focused')).toHaveCount(0);
-});
-
-test('Right out of the side menu rings the remembered tile', async ({ page }) => {
-  await seedMovies(page, { streams: 30 });
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await enterTab(page, 'movies');
-  const tile = page.locator('#view-movies .catalog-tile[data-item-id="100"]');
-  await tile.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
-  await toSideMenu(page);
-  await expect(page.locator('#view-movies .focused')).toHaveCount(0);
-
-  await page.keyboard.press('ArrowRight');
-  const focused = page.locator('#view-movies .focused');
-  await expect(focused).toHaveCount(1);
-  await expect(focused).toHaveAttribute('data-item-id', '100');
-  // The only rail has nothing below it, so Down stays on the tile.
-  await page.keyboard.press('ArrowDown');
-  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveAttribute('data-item-id', '100');
-});
-
-// Back at the top level opens the menu; the pointer reveals it from a grid.
-async function toSideMenu(page: Page): Promise<void> {
-  await openSideMenu(page);
-  await expect(page.locator('.nav-menu .nav-menu-item.current')).toHaveAttribute('data-section', 'movies');
-}
-
 async function openCategoryGrid(page: Page): Promise<void> {
   await seedMovies(page, { streams: 30 });
   await page.goto('/');
@@ -729,46 +692,33 @@ async function openCategoryGrid(page: Page): Promise<void> {
 
 const gridFocus = (page: Page) => page.locator('#view-movies .catalog-grid .catalog-tile.focused');
 
-test.describe('Right out of the side menu resumes Movies as it was left', () => {
-  test('in a category grid', async ({ page }) => {
-    await openCategoryGrid(page);
-    await toSideMenu(page);
-    await page.keyboard.press('ArrowRight');
-    await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
-    await expect(gridFocus(page)).toHaveAttribute('data-item-id', '101');
-  });
+test('Back walks a Movies detail -> its category grid -> browse -> Home', async ({ page }) => {
+  await openCategoryGrid(page);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-movies .catalog-detail')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#view-movies .catalog-grid-title')).toHaveText('Cat A');
+  await expect(gridFocus(page)).toHaveAttribute('data-item-id', '101');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#view-movies .catalog-grid-title')).toHaveCount(0);
+  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#view-home')).toBeVisible();
+  await expect(page.locator('#view-home .focused')).toHaveAttribute('data-section', 'movies');
+});
 
-  test('with the tile it left scrolled half out of view', async ({ page }) => {
-    await seedXtream(page, { catalog: 'large' });
-    await page.goto('/');
-    await expect(page.locator('#view-channels')).toBeVisible();
-    await enterTab(page, 'movies');
-    const tile = page.locator('#view-movies .catalog-tile').first();
-    await tile.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
-    await expect(tile).toHaveClass(/\bfocused\b/);
-    await toSideMenu(page);
-    // Scroll the parked tile half under the top edge of the catalog.
-    const left = page.locator('#view-movies .focused-parked');
-    await expect(left).toHaveCount(1);
-    const clipped = await left.evaluate((el) => {
-      let scroller = el.parentElement;
-      while (scroller && scroller.scrollHeight <= scroller.clientHeight) scroller = scroller.parentElement;
-      if (!scroller) return false;
-      const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-      scroller.scrollTop += top + el.getBoundingClientRect().height / 2;
-      return el.getBoundingClientRect().top < scroller.getBoundingClientRect().top;
-    });
-    expect(clipped).toBe(true);
-
-    await page.keyboard.press('ArrowRight');
-    const focused = page.locator('#view-movies .focused');
-    await expect(focused).toHaveCount(1);
-    await expect.poll(() => focused.evaluate((el) => {
-      let scroller = el.parentElement;
-      while (scroller && scroller.scrollHeight <= scroller.clientHeight) scroller = scroller.parentElement;
-      return el.getBoundingClientRect().top >= (scroller?.getBoundingClientRect().top ?? 0) - 1;
-    })).toBe(true);
-  });
-
+test('Left at the left edge of a Movies rail stays on its first tile', async ({ page }) => {
+  await seedMovies(page, { streams: 30 });
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'movies');
+  const tile = page.locator('#view-movies .catalog-tile[data-item-id="100"]');
+  await tile.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  await expect(tile).toHaveClass(/\bfocused\b/);
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#view-movies .focused')).toHaveCount(1);
+  await expect(tile).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('#view-movies')).toBeVisible();
 });
 

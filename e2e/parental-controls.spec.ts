@@ -436,8 +436,8 @@ test('lists live playlists in a column and switches the Xtream account from the 
 
   // Picking an account in Live selects its playlist.
   await view.locator('.account-avatar').click();
-  // Only the manager's own switcher answers, not Home's or the side menu's.
-  await expect(page.locator('.home-account .account-menu, .nav-menu .account-menu')).toHaveCount(0);
+  // Only the manager's own switcher answers, not Home's.
+  await expect(page.locator('.home-account .account-menu')).toHaveCount(0);
   await view.locator('.account-menu-item[data-account-id="x2"]').click();
   await expect(view.locator('.account-menu')).toHaveCount(0);
   await expect(view.locator('.parental-account-name')).toHaveText('Y Account');
@@ -749,6 +749,7 @@ test('marks locked content with a lock that opens during an unlock session', asy
   await expect(groups.filter({ hasText: 'News' }).locator('.lock-badge.is-unlocked')).toBeVisible();
 
   await lockNow(page);
+  await enterTab(page, 'live');
   await expect(groups.filter({ hasText: 'News' }).locator('.lock-badge.is-locked')).toBeVisible();
 });
 
@@ -1088,6 +1089,17 @@ test('backgrounding closes an open Change PIN prompt', async ({ page }) => {
   await expect(page.locator('#view-settings')).toBeVisible();
 });
 
+// Lock now sits on Home, so a relock over an open page comes from the TV:
+// backgrounding the app ends the session.
+async function relockInBackground(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+}
+
 test('relocking drops hidden channels from open search results', async ({ page }) => {
   await openManagerWithNewPin(page);
   const news = page.locator('[data-parental-group]').filter({ hasText: 'News' });
@@ -1103,7 +1115,8 @@ test('relocking drops hidden channels from open search results', async ({ page }
   await expect(rows.filter({ hasText: 'Channel One' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'Channel Two' })).toHaveCount(1);
 
-  await lockNow(page);
+  await relockInBackground(page);
+  await expect(page.locator('#view-search')).toBeVisible();
   await expect(rows.filter({ hasText: 'Channel One' })).toHaveCount(0);
   await expect(rows.filter({ hasText: 'Channel Two' })).toHaveCount(1);
 });
@@ -1122,10 +1135,8 @@ test('relocking while recent searches are open keeps movies in the next search',
   await enterTab(page, 'search');
   const tile = page.locator('#view-search .search-recent-chip');
   await expect(tile).toHaveText(['Movie']);
-  await lockNow(page);
-
-  // The remote gets the box back once the menu closes.
-  await expect(page.locator('.search-box-input')).toBeFocused();
+  await relockInBackground(page);
+  await expect(page.locator('#view-search')).toBeVisible();
 
   await page.locator('.search-box-input').fill('Movie');
   await expect(page.locator('#view-search .catalog-tile[data-stream-id="20"]')).toContainText('Movie Two');
@@ -1344,7 +1355,7 @@ test('the remove-all prompt owns the remote ring, not the manager behind it', as
   await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
 
-test('Lock now from the side menu resumes Live on a row still shown', async ({ page }) => {
+test('Lock now on Home, after Back from Live, reopens Live on a row still shown', async ({ page }) => {
   await openManagerWithNewPin(page);
   const view = page.locator('#view-parental-controls');
   const news = view.locator('[data-parental-group]').filter({ hasText: 'News' });
@@ -1362,17 +1373,22 @@ test('Lock now from the side menu resumes Live on a row still shown', async ({ p
   await expect(rows.first()).toHaveClass(/\bfocused\b/);
   await expect(rows.first()).toHaveText(/Channel One/);
 
-  // Back opens the side menu; Lock now is its last item.
+  // Back goes Home, where Lock now sits in the header beside the avatar.
   await page.keyboard.press('Escape');
-  const lock = page.locator('.nav-menu [data-lock-now]');
-  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#view-home')).toBeVisible();
+  const lock = page.locator('#view-home [data-lock-now]');
+  await page.keyboard.press('ArrowUp');
+  for (let i = 0; i < 3 && !(await lock.evaluate((el) => el.classList.contains('focused'))); i++) {
+    await page.keyboard.press('ArrowLeft');
+  }
   await expect(lock).toHaveClass(/\bfocused\b/);
   await page.keyboard.press('Enter');
   await expect(lock).toHaveCount(0);
-  await expect(one).toHaveCount(0);
+  await expect(page.locator('#view-home .focused')).toHaveCount(1);
 
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator('.nav-menu .focused')).toHaveCount(0);
+  await enterTab(page, 'live');
+  await page.keyboard.press('ArrowDown');
+  await expect(one).toHaveCount(0);
   await expect(page.locator('#view-channels .focused')).toHaveCount(1);
   await expect(page.locator('#view-channels .focused')).toBeInViewport();
 });

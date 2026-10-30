@@ -533,7 +533,6 @@ export const PL_MESSAGES = {
     other: 'Wczytano {count} kanału',
   },
   'app.loadFailed': 'Nie udało się wczytać playlisty. Sprawdź URL i spróbuj ponownie.',
-  'app.exitHint': 'Naciśnij Wstecz ponownie, aby wyjść',
   'app.saveFailed': 'Nie udało się zapisać zmian. Spróbuj ponownie.',
   'settings.storageLimited': 'Ten telewizor ogranicza miejsce na dane aplikacji. Postęp oglądania i ulubione są nadal zapisywane, ale pamięć podręczna nie jest zachowywana między uruchomieniami.',
   'weekday.0': 'niedz.',

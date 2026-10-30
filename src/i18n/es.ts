@@ -507,7 +507,6 @@ export const ES_MESSAGES = {
     other: '{count} canales cargados',
   },
   'app.loadFailed': 'No se pudo cargar la lista. Revisa la URL e inténtalo de nuevo.',
-  'app.exitHint': 'Pulsa Volver de nuevo para salir',
   'app.saveFailed': 'No se pudieron guardar los cambios. Inténtalo de nuevo.',
   'settings.storageLimited': 'Este TV limita el almacenamiento de las apps. Tu progreso y tus favoritos se siguen guardando, pero la caché no se conserva entre sesiones.',
   'weekday.0': 'Dom',

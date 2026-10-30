@@ -1,4 +1,4 @@
-import { enterTab, openGuide, openSideMenu, pressKeys, test, expect, isChromium53, neuterVideo, routeLiveManifest, routePlaylist, type Page } from './helpers';
+import { enterTab, openGuide, pressKeys, test, expect, isChromium53, neuterVideo, routeLiveManifest, routePlaylist, type Page } from './helpers';
 import { type Browser } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { findGappedLooseText, measureLooseText, newLegacyPage, pixelDiff } from './pixel-parity';
@@ -167,7 +167,7 @@ interface Screen {
   go: (page: Page) => Promise<void>;
 }
 
-// Back out of the player and its panels to Live, where the side menu opens.
+// Back out of the player and its panels to Live.
 async function backToLive(p: Page): Promise<void> {
   for (let i = 0; i < 4 && !(await p.locator('#view-channels').isVisible()); i++) {
     await p.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
@@ -209,7 +209,15 @@ async function leaveParentalLocked(p: Page): Promise<void> {
 }
 
 const M3U_SCREENS: Screen[] = [
-  { name: 'live', budget: 0, go: async () => { /* the landing view */ } },
+  {
+    // The landing view, once the preview has followed the focused row: its
+    // dwell would otherwise land between the two engines' shots.
+    name: 'live',
+    budget: 0,
+    go: async (p) => {
+      await expect(p.locator('#live-preview .live-preview-channel')).toHaveText('Channel One');
+    },
+  },
   { name: 'guide', budget: 0, go: (p) => openGuide(p) },
   {
     // Back hands the Guide's keys to the groups column; Red then returns to the list.
@@ -373,7 +381,7 @@ const M3U_SCREENS: Screen[] = [
     budget: 0,
     go: async (p) => {
       // A key abandons the typed digits, unless they already tuned a channel
-      // full screen, where the side menu stays shut.
+      // full screen.
       await p.keyboard.press('ArrowUp');
       await backToLive(p);
       await enterTab(p, 'search');
@@ -549,14 +557,6 @@ const XTREAM_SCREENS: Screen[] = [
       await expect(p.locator('.home-account .account-menu-item').first()).toBeVisible();
       await avatar.click();
       await expect(p.locator('.account-menu-item')).toHaveCount(0);
-    },
-  },
-  {
-    name: 'side-menu',
-    budget: 0.001, // the backdrop-filter fallback's opaque panel, as on the player menu
-    go: async (p) => {
-      await openSideMenu(p);
-      await expect.poll(async () => (await p.locator('.nav-menu-panel').boundingBox())!.x).toBe(0);
     },
   },
   {
@@ -918,16 +918,14 @@ async function walk(
 
 test('the webOS 4 fallbacks lay out where the modern engine does, with an M3U playlist only', async ({ page, browser }) => {
   test.skip(isChromium53(), 'this test drives both engines itself, so it runs once');
-  // Each section is opened from the side menu, which waits out its reveal.
   test.setTimeout(180_000);
   await walk(page, browser, prepareM3U, M3U_SCREENS);
 });
 
 // An Xtream account adds the Movies/Series sections and the account avatar on
-// Home and in the side menu.
+// Home.
 test('the webOS 4 fallbacks lay out where the modern engine does, with an Xtream account', async ({ page, browser }) => {
   test.skip(isChromium53(), 'this test drives both engines itself, so it runs once');
-  // Each section is opened from the side menu, which waits out its reveal.
   test.setTimeout(180_000);
   await walk(page, browser, prepareXtream, XTREAM_SCREENS);
 });

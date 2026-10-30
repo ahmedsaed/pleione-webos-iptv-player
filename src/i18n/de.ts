@@ -507,7 +507,6 @@ export const DE_MESSAGES = {
     other: '{count} Sender geladen',
   },
   'app.loadFailed': 'Die Wiedergabeliste konnte nicht geladen werden. URL überprüfen und erneut versuchen.',
-  'app.exitHint': 'Zum Beenden erneut Zurück drücken',
   'app.saveFailed': 'Änderungen konnten nicht gespeichert werden. Bitte erneut versuchen.',
   'settings.storageLimited': 'Dieser Fernseher begrenzt den Speicher für Apps. Ihr Fortschritt und Ihre Favoriten werden weiterhin gespeichert, der Cache bleibt aber nicht bis zum nächsten Start erhalten.',
   'weekday.0': 'So.',

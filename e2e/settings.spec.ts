@@ -1,6 +1,6 @@
 import {
   test, expect, type Page, routePlaylist, routeLiveManifest, seedPlaylist, PLAYLIST_URL, enterTab, readUserDataStore,
-  isChromium53,
+  isChromium53, pressKeys,
 } from './helpers';
 import type { Locator } from '@playwright/test';
 import { seedXtream } from './fixtures/xtream';
@@ -421,13 +421,13 @@ test.describe('Settings navigation', () => {
     expect(scrolled!.y).toBeCloseTo(actionBox!.y, 0);
   });
 
-  test('clicking Cancel in settings (opened from the side menu) returns to the channel list, not the player', async ({ page }) => {
+  test('clicking Cancel in settings (opened from Home) returns to the channel list, not the player', async ({ page }) => {
     await routePlaylist(page);
     await seedPlaylist(page);
     await page.goto('/');
     await expect(page.locator('#view-channels')).toBeVisible();
 
-    // Open settings from the side menu, then dismiss with Cancel.
+    // Open settings from Home, then dismiss with Cancel.
     await enterTab(page, 'settings');
     await expect(page.locator('#view-settings')).toBeVisible();
     await page.locator('#cancel-settings').click();
@@ -738,8 +738,8 @@ const rings = (page: Page) => page.evaluate(() => {
   return lit.map(el => el.id || el.className);
 });
 
-test.describe('Settings under the side menu', () => {
-  test('the menu takes the ring, and Right gives it back where it was', async ({ page }) => {
+test.describe('Settings at its left edge', () => {
+  test('Left of the categories keeps the ring on the category', async ({ page }) => {
     await seedXtream(page);
     await page.goto('/');
     await enterTab(page, 'settings');
@@ -748,12 +748,10 @@ test.describe('Settings under the side menu', () => {
     const ring = page.locator('#view-settings .focused');
     await expect(ring).toHaveCount(1);
     const key = await ring.getAttribute('data-settings-target');
-    // Left of the categories is the menu.
     await page.keyboard.press('ArrowLeft');
-    await expect(page.locator('.nav-menu')).toHaveClass(/\bopen\b/);
-    await expect(page.locator('#view-settings .focused')).toHaveCount(0);
-    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowLeft');
     await expect(ring).toHaveAttribute('data-settings-target', key!);
+    await expect(page.locator('#view-settings')).toBeVisible();
   });
 });
 
@@ -1069,16 +1067,20 @@ test.describe('Settings playlists', () => {
     await expect(page.locator('.toast.visible'))
       .toContainText('Welcome! Add a playlist URL to get started.');
 
-    // Back opens the side menu; Live from it must NOT show the previous
-    // playlist's channels (the bug: PlaylistService kept stale in-memory state).
+    // Back goes Home, now the first run; Live (the Red key flips the Guide
+    // to the list) must NOT show the previous playlist's channels (the bug:
+    // PlaylistService kept stale in-memory state).
     await page.evaluate(() => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
     });
-    await expect(page.locator('.nav-menu')).toHaveClass(/\bopen\b/);
-    await enterTab(page, 'live');
+    await expect(page.locator('#view-home [data-key="add:xtream"]')).toBeVisible();
+    await pressKeys(page, 403);
+    await expect(page.locator('#view-channels.live-guide-mode')).toBeVisible();
+    await pressKeys(page, 403);
     await expect(page.locator('#view-channels')).toBeVisible();
+    await expect(page.locator('#view-channels')).not.toHaveClass(/live-guide-mode/);
     await expect(page.locator('.channel-main .channel-item')).toHaveCount(0);
-    await expect(page.locator('.empty-state')).toContainText('No channels found');
+    await expect(page.locator('#channel-browser .empty-state')).toContainText('No channels found');
   });
 
   // Regression: a global document click handler fired a deferred "select" after
@@ -1639,7 +1641,7 @@ test.describe('Settings upload', () => {
     // Boots into channels from the seeded URL playlist.
     await expect(page.locator('#view-channels')).toBeVisible();
 
-    // Open settings from the side menu; the upload list starts empty.
+    // Open settings from Home; the upload list starts empty.
     await enterTab(page, 'settings');
     await expect(page.locator('#view-settings')).toBeVisible();
     await page.locator('[data-settings-target="sources"]').click();
