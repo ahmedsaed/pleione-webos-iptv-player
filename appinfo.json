@@ -11,5 +11,10 @@
   "iconColor": "#0b0d2e",
   "resolution": "1920x1080",
   "disableBackHistoryAPI": true,
-  "transparent": false
+  "transparent": false,
+  "requiredACG": [
+    "activity.operation",
+    "application.launcher",
+    "drm.query"
+  ]
 }
