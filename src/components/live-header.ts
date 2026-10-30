@@ -1,5 +1,6 @@
 import type { Action } from '../types';
 import { Focus, Tier, type FocusScope } from '../navigation/focus-scope';
+import { FocusRing } from '../navigation/focus-ring';
 import { html, raw } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { formatTime } from '../utils/time';
@@ -131,6 +132,7 @@ export class LiveHeader {
     if (key === EDIT_KEY) {
       this.leave(false);
       this.handlers.onEdit();
+      this.deferContent(via);
       return;
     }
     const mode = key === MODE_KEYS.guide ? 'guide' : key === MODE_KEYS.list ? 'list' : null;
@@ -142,6 +144,13 @@ export class LiveHeader {
     }
     this.leave(false);
     this.handlers.onMode(mode);
+    this.deferContent(via);
+  }
+
+  // A click leaves the pointer on the header, which stays lit, so the
+  // content's ring waits for a key, as after a pointer tab click.
+  private deferContent(via: 'key' | 'pointer'): void {
+    if (via === 'pointer') FocusRing.defer('channels');
   }
 
   private render(): void {

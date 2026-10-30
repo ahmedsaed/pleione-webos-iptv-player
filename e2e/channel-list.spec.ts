@@ -45,8 +45,8 @@ test('the sidebar has no inline search magnifier or settings gear (they live in 
   await expect(page.locator('#view-channels .channel-search')).toHaveCount(0);
   await expect(page.locator('#view-channels .settings-btn')).toHaveCount(0);
   await expect(page.locator('.sidebar-title')).toHaveCount(0);
-  // The channel count remains in the sidebar.
-  await expect(page.locator('.channel-count')).toBeVisible();
+  // The channel count sits in Live's header.
+  await expect(page.locator('#view-channels .live-header-count')).toBeVisible();
 });
 
 test('selecting a group filters the channel list', async ({ page }) => {
@@ -156,7 +156,7 @@ test('the list follows the playing channel however it was tuned', async ({ page 
   // And so does the list — not the row it was parked on before.
   const focused = page.locator('.channel-main .channel-item.focused');
   await expect(focused).toContainText('Channel 4');
-  await expect(focused).toHaveClass(/playing/);
+  await expect(focused).toHaveClass(/watching/);
 
   const list = page.locator('.channel-main');
   const [row, viewport] = await Promise.all([focused.boundingBox(), list.boundingBox()]);
@@ -287,7 +287,7 @@ test('direct channel entry scrolls the list to the tuned channel and keeps it on
 
   const focused = page.locator('.channel-main .channel-item.focused');
   await expect(focused).toContainText('Channel 215');
-  await expect(focused).toHaveClass(/playing/);
+  await expect(focused).toHaveClass(/watching/);
 
   const list = page.locator('.channel-main');
   const [row, viewport] = await Promise.all([focused.boundingBox(), list.boundingBox()]);
@@ -451,7 +451,12 @@ test('rapid D-pad under full animation moves one row per key press', async ({ pa
   await expect(page.locator('html')).toHaveAttribute('data-animation', 'full');
   await focusFirstChannelRow(page);
   const main = page.locator('#view-channels .channel-main');
-  for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowDown');
+  // At remote pace: the simulation smooth-scrolls a plain scrollTop, which
+  // Chromium 53 cannot, so a burst of presses outruns it there alone.
+  for (let i = 0; i < 10; i++) {
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(100);
+  }
   await expect(main.locator('[data-list-position="10"]')).toHaveClass(/\bfocused\b/);
 
   // Each press lands while the previous smooth scroll is still running.
@@ -468,7 +473,7 @@ test('rapid D-pad under full animation moves one row per key press', async ({ pa
   expect(events.filter((text) => text.includes('event=nav.focus.repaired'))).toEqual([]);
 });
 
-test('Up at the top of the sidebar stays there, and Left opens the side menu, not the scrolled list', async ({ page }) => {
+test('Up at the top of the sidebar reaches the header, and Left opens the side menu, not the scrolled list', async ({ page }) => {
   await routePlaylist(page, longPlaylist(300));
   await seedPlaylist(page);
   await page.goto('/');
@@ -480,13 +485,16 @@ test('Up at the top of the sidebar stays there, and Left opens the side menu, no
   await page.keyboard.press('ArrowLeft');
   const group = page.locator('#view-channels .sidebar [data-group-position].focused');
   await expect(group).toHaveCount(1);
-  for (let i = 0; i < 10 && !(await page.locator('[data-edit-channels].focused').count()); i++) {
+  const toggle = page.locator('.live-header [data-live-mode="list"]');
+  for (let i = 0; i < 10 && !(await toggle.evaluate((el) => el.classList.contains('focused'))); i++) {
     await page.keyboard.press('ArrowUp');
   }
-  await expect(page.locator('[data-edit-channels]')).toHaveClass(/\bfocused\b/);
+  await expect(toggle).toHaveClass(/\bfocused\b/);
   await page.keyboard.press('ArrowUp');
-  await expect(page.locator('[data-edit-channels]')).toHaveClass(/\bfocused\b/);
-  // Left from there reaches a group, then the side menu.
+  await expect(toggle).toHaveClass(/\bfocused\b/);
+  // Down from there returns to the top group, and Left then opens the side menu.
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#view-channels .sidebar [data-group-position="0"]')).toHaveClass(/\bfocused\b/);
   const menuItem = page.locator('.nav-menu-item[data-section="live"].focused');
   for (let i = 0; i < 3 && !(await menuItem.count()); i++) await page.keyboard.press('ArrowLeft');
   await expect(menuItem).toHaveCount(1);
@@ -494,7 +502,7 @@ test('Up at the top of the sidebar stays there, and Left opens the side menu, no
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('#view-channels .sidebar .focused')).toHaveCount(1);
 
-  // Edit mode has no edit button: Up stays on the top group.
+  // In edit mode Up stays on the top group: the header waits.
   await page.keyboard.press('ArrowDown');
   await enterEditMode(page);
   const sidebarRing = page.locator('#view-channels .sidebar .focused');
@@ -992,8 +1000,11 @@ test('the Live tab clicked from another section shows the far channel that is pl
   await enterTab(page, 'live');
   await expect(page.locator('#view-channels')).toBeVisible();
 
-  const playing = page.locator('.channel-main .channel-item.playing');
+  // Leaving Live stopped the preview; the watched channel is the entry, and
+  // after the menu click the first key shows its ring.
+  const playing = page.locator('.channel-main .channel-item.watching');
   await expect(playing).toContainText('Channel 150');
+  await page.keyboard.press('ArrowRight');
   await expect(playing).toHaveClass(/focused/);
   const list = page.locator('.channel-main');
   await expect.poll(async () => {
@@ -1002,7 +1013,7 @@ test('the Live tab clicked from another section shows the far channel that is pl
   }).toBe(true);
 });
 
-test('Back from the Guide resumes the row you left, brought into view', async ({ page }) => {
+test('the list from the Guide resumes the row you left, brought into view', async ({ page }) => {
   await routePlaylist(page, longPlaylist(300));
   await seedPlaylist(page);
   await page.goto('/');
@@ -1024,10 +1035,10 @@ test('Back from the Guide resumes the row you left, brought into view', async ({
 
   await page.evaluate(() =>
     document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
-  await expect(page.locator('#view-epg')).toBeVisible();
+  await expect(page.locator('#view-channels.live-guide-mode')).toBeVisible();
   await page.evaluate(() =>
-    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
-  await expect(page.locator('#view-channels')).toBeVisible();
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
+  await expect(page.locator('#view-channels:not(.live-guide-mode)')).toBeVisible();
 
   const focused = main.locator('.focused');
   await expect(focused).toHaveCount(1);
@@ -1039,7 +1050,7 @@ test('Back from the Guide resumes the row you left, brought into view', async ({
   }).toBe(true);
 });
 
-test('Back from the Guide resumes a group scrolled out of view, brought into view', async ({ page }) => {
+test('the list from the Guide resumes a group scrolled out of view, brought into view', async ({ page }) => {
   const lines = ['#EXTM3U'];
   for (let i = 1; i <= 200; i++) {
     lines.push(`#EXTINF:-1 group-title="Group ${String(i)}",Ch ${String(i)}`, `http://host/${String(i)}.m3u8`);
@@ -1062,10 +1073,10 @@ test('Back from the Guide resumes a group scrolled out of view, brought into vie
 
   await page.evaluate(() =>
     document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
-  await expect(page.locator('#view-epg')).toBeVisible();
+  await expect(page.locator('#view-channels.live-guide-mode')).toBeVisible();
   await page.evaluate(() =>
-    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
-  await expect(page.locator('#view-channels')).toBeVisible();
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
+  await expect(page.locator('#view-channels:not(.live-guide-mode)')).toBeVisible();
 
   const focused = page.locator('#view-channels .focused');
   await expect(focused).toHaveCount(1);
@@ -1077,29 +1088,27 @@ test('Back from the Guide resumes a group scrolled out of view, brought into vie
   }).toBe(true);
 });
 
-test('Right out of the side menu resumes the row you left after a preview was stopped and retuned', async ({ page }) => {
+test('Right out of the side menu resumes the row you left after the preview was stopped and retuned', async ({ page }) => {
   await routePlaylist(page, longPlaylist(300));
   await routeLiveManifest(page);
   await seedPlaylist(page);
-  await page.addInitScript(() => localStorage.setItem('iptv_live_preview', 'true'));
   await page.goto('/');
   await focusFirstChannelRow(page);
   const main = page.locator('#view-channels .channel-main');
   const preview = page.locator('#view-channels #live-preview');
 
+  // The preview follows the row focus rests on.
   for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('Enter');
   await expect(preview.locator('.live-preview-channel')).toHaveText('Ch 3');
   await page.evaluate(() =>
     document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 413, bubbles: true })));
   await expect(preview).toBeHidden();
   await expect(main.locator('[data-list-position="2"]')).toHaveClass(/\bfocused\b/);
   for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('Enter');
   await expect(preview.locator('.live-preview-channel')).toHaveText('Ch 5');
   await expect(page.locator('#view-player')).toBeHidden();
 
-  // The list tuned Ch 5 itself, so the row you leave it from is the one to resume.
+  // The row you leave the list from is the one to resume, and the preview follows it.
   for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowUp');
   await expect(main.locator('[data-list-position="0"]')).toHaveClass(/\bfocused\b/);
   await openSideMenu(page);
@@ -1109,10 +1118,10 @@ test('Right out of the side menu resumes the row you left after a preview was st
   const focused = main.locator('.focused');
   await expect(focused).toHaveCount(1);
   await expect(focused).toHaveAttribute('data-key', 'ch:0');
-  await expect(preview.locator('.live-preview-channel')).toHaveText('Ch 5');
+  await expect(preview.locator('.live-preview-channel')).toHaveText('Ch 1');
 });
 
-test('Back from the Guide lands on a channel tuned elsewhere, not the row you left', async ({ page }) => {
+test('the list from the Guide lands on a channel tuned elsewhere, not the row you left', async ({ page }) => {
   await routePlaylist(page, longPlaylist(300));
   await routeLiveManifest(page);
   await seedPlaylist(page);
@@ -1131,14 +1140,14 @@ test('Back from the Guide lands on a channel tuned elsewhere, not the row you le
   await expect(page.locator('.osd-channel-number')).toHaveText('40');
   await page.evaluate(() =>
     document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
-  await expect(page.locator('#view-epg')).toBeVisible();
+  await expect(page.locator('#view-channels.live-guide-mode')).toBeVisible();
   await page.evaluate(() =>
-    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
-  await expect(page.locator('#view-channels')).toBeVisible();
+    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
+  await expect(page.locator('#view-channels:not(.live-guide-mode)')).toBeVisible();
 
   const focused = main.locator('.focused');
   await expect(focused).toHaveCount(1);
-  await expect(focused).toHaveClass(/\bplaying\b/);
+  await expect(focused).toHaveClass(/\bwatching\b/);
   await expect(focused).toHaveAttribute('data-key', 'ch:39');
   await settleVirtualScroll(page);
   await expect.poll(async () => {

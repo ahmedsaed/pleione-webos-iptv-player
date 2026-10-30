@@ -1,4 +1,4 @@
-import { enterTab, openSideMenu, test, expect, isChromium53, neuterVideo, routeLiveManifest, routePlaylist, type Page } from './helpers';
+import { enterTab, openGuide, openSideMenu, pressKeys, test, expect, isChromium53, neuterVideo, routeLiveManifest, routePlaylist, type Page } from './helpers';
 import { type Browser } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { findGappedLooseText, measureLooseText, newLegacyPage, pixelDiff } from './pixel-parity';
@@ -210,15 +210,14 @@ async function leaveParentalLocked(p: Page): Promise<void> {
 
 const M3U_SCREENS: Screen[] = [
   { name: 'live', budget: 0, go: async () => { /* the landing view */ } },
-  { name: 'guide', budget: 0, go: (p) => enterTab(p, 'epg') },
+  { name: 'guide', budget: 0, go: (p) => openGuide(p) },
   {
+    // Back hands the Guide's keys to the groups column; Red then returns to the list.
     name: 'guide-groups',
     budget: 0,
     go: async (p) => {
-      await p.locator('[data-epg-group-toggle]').click();
-      await expect(p.locator('.epg-group-menu')).toBeVisible();
-      await p.locator('[data-epg-group-toggle]').click();
-      await expect(p.locator('.epg-group-menu')).toHaveCount(0);
+      await pressKeys(p, 461);
+      await expect(p.locator('#channel-browser .group-item.focused')).toHaveCount(1);
     },
   },
   ...(['general', 'sources', 'guide', 'appearance', 'playback', 'subtitles', 'advanced', 'data']
@@ -278,6 +277,7 @@ const M3U_SCREENS: Screen[] = [
     budget: 0,
     go: async (p) => {
       await enterTab(p, 'live');
+      if (await p.locator('#view-channels.live-guide-mode').count()) await pressKeys(p, 403);
       await p.locator('[data-group="builtin:favorites"]').click();
       await p.locator('[data-favorite-manage]').click();
       await expect(p.locator('.edit-hints.favorite-hints')).toBeVisible();
@@ -402,32 +402,29 @@ const M3U_SCREENS: Screen[] = [
   },
   {
     // A past program only offers to resume when a checkpoint exists for it;
-    // prepareM3U seeds one. After the pointer entry the first RIGHT only
-    // shows the focus; the next enters the program column on program 0,
-    // which is the past show, and ENTER activates it.
+    // prepareM3U seeds one. The Guide opens on the current show; LEFT steps
+    // back to the past one, and ENTER activates it.
     name: 'catchup-resume',
     budget: 0,
     go: async (p) => {
       await p.keyboard.press('Escape');
       await p.keyboard.press('Escape');
-      await enterTab(p, 'epg');
-      await expect(p.locator('#epg-programmes .epg-programme-item').first()).toBeVisible();
-      await p.keyboard.press('ArrowRight');
-      await p.keyboard.press('ArrowRight');
-      await p.keyboard.press('Enter');
+      await enterTab(p, 'live');
+      await openGuide(p);
+      await pressKeys(p, 37, 13);
       await expect(p.locator('.catchup-resume-prompt')).toBeVisible();
     },
   },
   {
-    // Reload with the setting enabled, then advance the neutered video to a
-    // stable playing frame so the expanded layout stays visible in the shot.
+    // Reload onto the list, wait for the preview to follow the focused row,
+    // then advance the neutered video to a stable playing frame so the
+    // layout stays put in the shot.
     name: 'live-preview',
     budget: 0,
     go: async (p) => {
-      await p.evaluate(() => localStorage.setItem('iptv_live_preview', 'true'));
       await p.reload();
       await expect(p.locator('.channel-item')).toHaveCount(2);
-      await p.locator('.channel-item').first().click();
+      await expect(p.locator('#live-preview .live-preview-channel')).toHaveText('Channel One');
       await p.locator('#video-player').evaluate((video) => {
         video.dispatchEvent(new Event('loadedmetadata'));
         video.dispatchEvent(new Event('playing'));

@@ -167,7 +167,7 @@ export async function seedPlaylist(page: Page, url = PLAYLIST_URL): Promise<void
  *  edge reveals the side menu, and a click on the section opens it. */
 export async function enterTab(
   page: Page,
-  section: 'home' | 'live' | 'epg' | 'movies' | 'series' | 'settings' | 'search',
+  section: 'home' | 'live' | 'movies' | 'series' | 'settings' | 'search',
 ): Promise<void> {
   await openSideMenu(page);
   const item = page.locator(`.nav-menu.open .nav-menu-item[data-section="${section}"]`);
@@ -263,14 +263,8 @@ export const test = base.extend({
       await page.addInitScript(removeApis, POST_TARGET_APIS);
     }
     await stubUploadService(page);
-    // Pleione hides the Guide tab; the suite keeps the upstream Guide flows by
-    // showing it. hideGuideTab() opts a test back into Pleione's default.
-    await page.addInitScript(() => localStorage.setItem('iptv_show_guide_tab', 'true'));
-    // Upstream flows start on Live; showHome() opts a test into Pleione's Home.
+    // Most flows start on Live; showHome() opts a test into Pleione's Home.
     await page.addInitScript(() => localStorage.setItem('iptv_start_on_live', 'true'));
-    // Upstream flows drive the classic Live list; showLivePanes() opts a test
-    // into Pleione's three panes with the Guide inside Live.
-    await page.addInitScript(() => localStorage.setItem('iptv_classic_live', 'true'));
     await stubProviderApi(page);
     const ringFailures = await auditRings(page, process.env.RING_AUDIT,
       `${testInfo.project.name} › ${testInfo.titlePath.slice(1).join(' › ')}`);
@@ -336,7 +330,7 @@ function installRingAudit(recordNone: boolean): void {
     const prompts = Array.from(document.querySelectorAll(PROMPTS))
       .filter((el) => !el.classList.contains('hidden') && visible(el));
     const shown = ['view-channels', 'view-player', 'player-sidebar', 'player-menu', 'subtitle-search',
-      'subtitle-offset', 'view-epg', 'view-settings', 'view-parental-controls', 'view-reminders',
+      'subtitle-offset', 'view-settings', 'view-parental-controls', 'view-reminders',
       'view-movies', 'view-series', 'view-search'].filter((id) => {
       const el = document.getElementById(id);
       return !!el && visible(el);
@@ -400,14 +394,26 @@ export async function showHome(page: Page): Promise<void> {
   await page.addInitScript(() => localStorage.removeItem('iptv_start_on_live'));
 }
 
-/** Pleione's default: Live in three panes, the Guide inside it. Call before `page.goto`. */
-export async function showLivePanes(page: Page): Promise<void> {
-  await page.addInitScript(() => localStorage.removeItem('iptv_classic_live'));
+/** Back from full-screen live playback, then out of Live. Back keeps the
+ *  stream playing in Live's preview; leaving Live stops it. */
+export async function leaveLive(page: Page): Promise<void> {
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterTab(page, 'settings');
 }
 
-/** Pleione's default: no Guide tab. Call before `page.goto`. */
-export async function hideGuideTab(page: Page): Promise<void> {
-  await page.addInitScript(() => localStorage.removeItem('iptv_show_guide_tab'));
+/** Dispatch remote keys by keyCode, in order. */
+export async function pressKeys(page: Page, ...keyCodes: number[]): Promise<void> {
+  for (const keyCode of keyCodes) {
+    await page.evaluate((code) => document.dispatchEvent(
+      new KeyboardEvent('keydown', { keyCode: code, bubbles: true })), keyCode);
+  }
+}
+
+/** Open the Guide inside Live with the Red key, from wherever the app is. */
+export async function openGuide(page: Page): Promise<void> {
+  await pressKeys(page, 403);
+  await expect(page.locator('#view-channels.live-guide-mode #live-guide .guide-cell').first()).toBeVisible();
 }
 
 export const isChromium53 = (): boolean => test.info().project.name === 'chromium-53-simulation';

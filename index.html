@@ -18,8 +18,8 @@
   <link rel="stylesheet" href="css/channel-list.css">
   <link rel="stylesheet" href="css/live-preview.css">
   <link rel="stylesheet" href="css/live-panes.css">
+  <link rel="stylesheet" href="css/live-guide.css">
   <link rel="stylesheet" href="css/player.css">
-  <link rel="stylesheet" href="css/epg.css">
   <link rel="stylesheet" href="css/settings.css">
   <link rel="stylesheet" href="css/reminder-manager.css">
   <link rel="stylesheet" href="css/home.css">
@@ -48,7 +48,7 @@
 <body>
   <video id="video-player" autoplay></video>
 
-  <div id="view-loading" class="view loading-splash">
+  <div id="view-loading" class="view loading-splash" data-backdrop="home">
     <div class="loading-container">
       <div class="loading-mark">
         <div class="loading-spinner"></div>
@@ -61,9 +61,10 @@
 
   <div id="view-home" class="view hidden" data-backdrop="home"></div>
 
-  <div id="view-channels" class="view hidden">
+  <div id="view-channels" class="view hidden live-panes" data-backdrop="live">
     <div id="channel-browser"></div>
     <aside id="live-preview" class="hidden"></aside>
+    <section id="live-guide" class="hidden"></section>
   </div>
 
   <div id="view-player" class="view hidden">
@@ -73,8 +74,6 @@
     <div id="subtitle-search" class="hidden"></div>
     <div id="subtitle-offset" class="hidden"></div>
   </div>
-
-  <div id="view-epg" class="view hidden" data-backdrop="epg"><div id="epg-body"></div></div>
 
   <div id="view-settings" class="view hidden" data-backdrop="settings"></div>
   <div id="view-parental-controls" class="view hidden" data-backdrop="settings"></div>

@@ -80,8 +80,9 @@ test('the parental PIN paints above a reminder that comes due under it', async (
 
 test('watching a reminder that comes due over the Clear all confirmation closes it', async ({ page }) => {
   await setup(page);
-  await enterTab(page, 'epg');
-  await page.locator('.epg-reminder-entry').click();
+  await enterTab(page, 'settings');
+  await page.locator('[data-settings-target="guide"]').click();
+  await page.locator('#manage-reminders').click();
   await expect(page.locator('#view-reminders')).toBeVisible();
   await page.locator('.reminder-manager-clear').click();
   await expect(page.locator('.confirmation-prompt:not(.hidden)')).toBeVisible();

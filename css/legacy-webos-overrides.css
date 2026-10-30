@@ -32,20 +32,16 @@
  * rule is both more specific and linked later — so on a gap-less engine it
  * replaces the gap instead of adding to it. Restate the sums.
  */
-html.q-no-flex-gap .epg-prog-title > .epg-bell-glyph { margin-left: 18px; }
 html.q-no-flex-gap .settings-field > .settings-item-hint { margin-top: 14px; }
-html.q-no-flex-gap .live-preview-favorite { margin-right: 20px; }
 
 /*
  * The quirk class makes each generated margin more specific than the
  * component rule that pushes a child to the end with `margin-left: auto`.
  * Restate those so the push still wins.
  */
-html.q-no-flex-gap .epg-page-info,
 html.q-no-flex-gap .catalog-collection-actions > .catalog-collection-clear,
 html.q-no-flex-gap .live-category-account,
 html.q-no-flex-gap .live-category-row strong,
-html.q-no-flex-gap .live-preview-clock,
 html.q-no-flex-gap .parental-header .parental-account,
 html.q-no-flex-gap .parental-row strong,
 html.q-no-flex-gap .player-sidebar .sidebar-picker-arrow,

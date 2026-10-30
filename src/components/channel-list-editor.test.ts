@@ -44,6 +44,7 @@ const { data, customization, playlistMock, epgMock, storageMock, recentMock, toa
       findChannelId: vi.fn(() => null as string | null),
       getSourceOffsetMinutes: vi.fn(() => 0),
       getNowPlaying: () => null,
+      getUpcoming: () => [],
       getLocalMappingCandidates: vi.fn(() => [] as Array<{
         id: string;
         channelId: string;
@@ -253,8 +254,6 @@ describe('ChannelList edit mode', () => {
     enterEdit();
     expect(list.isEditing).toBe(true);
     expect(container.querySelector('.edit-hints')).not.toBeNull();
-    expect(container.querySelector('.channel-edit-btn')).toBeNull();
-    expect(container.querySelector('.channel-edit-btn-spacer')).not.toBeNull();
     list.handleAction('yellow');
     expect(list.isEditing).toBe(false);
     expect(container.querySelector('.favorite-hints')).toBeNull();
@@ -293,7 +292,7 @@ describe('ChannelList edit mode', () => {
       );
     });
 
-    it('asks the edit guard before the pencil opens editing from favorites management', () => {
+    it('asks the edit guard before the header edit button opens editing from favorites management', () => {
       const authorizeEdit = vi.fn();
       list = new ChannelList(container, {
         onChannelSelect: onSelect,
@@ -303,8 +302,8 @@ describe('ChannelList edit mode', () => {
         authorizeEdit,
       });
       manageFavorites();
-      hover(container.querySelector<HTMLElement>('[data-edit-channels]')!);
-      list.handleAction('select');
+      // The Live header's edit button calls enterEditMode.
+      list.enterEditMode();
 
       expect(authorizeEdit).toHaveBeenCalledTimes(1);
       expect(container.querySelector('.channel-view.editing')).toBeNull();
@@ -413,12 +412,9 @@ describe('ChannelList edit mode', () => {
       }
     });
 
-    it('keeps the pencil for channel editing', () => {
+    it('opens channel editing from the header in Favorites', () => {
       openFavorites();
-      const pencil = container.querySelector<HTMLElement>('.channel-edit-btn');
-      expect(pencil).not.toBeNull();
-      hover(pencil!);
-      list.handleAction('select');
+      list.enterEditMode();
       expect(container.querySelector('.favorite-hints')).toBeNull();
       expect(container.querySelector('.edit-hints')).not.toBeNull();
     });

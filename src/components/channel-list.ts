@@ -21,39 +21,32 @@ import { EpgService } from '../services/epg-service';
 import { StorageService } from '../services/storage-service';
 import { RecentlyWatchedService, type RecentlyWatchedItem } from '../services/recently-watched';
 import { ChannelHealthService } from '../services/channel-health';
-import { groupIcon } from './group-icon';
 import {
   CLOCK_ICON,
   FOLDER_ICON,
   GRID_ICON,
-  NAV_HORIZONTAL_ICON,
   NOW_PLAYING_ICON,
   REPLAY_ICON,
   STAR_OUTLINE_ICON,
   favoriteIcon,
 } from './icons';
-import { backKey, okHint } from './key-hints';
+import { okHint } from './key-hints';
 import { liveRowSchedule } from './live-row';
 import { channelLockBadge, liveGroupLockBadge } from './parental-badge';
 import { showToast } from './toast';
-import { getLocale, t, tp, type SupportedLocale } from '../i18n';
+import { getLocale, t, type SupportedLocale } from '../i18n';
 import { ChannelListEditor } from './channel-list-editor';
 import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard } from '../utils/virtual-scroll';
-import { uiPx, uiTextPx } from '../utils/ui-scale';
+import { uiTextPx } from '../utils/ui-scale';
 
-// Row strides mirror the fixed row geometry in css/channel-list.css:
-// .channel-item is 88px, .group-item is 60px plus its 8px vertical margin.
-const CHANNEL_ROW_STRIDE = 88;
-const GROUP_ROW_STRIDE = 68;
-// Pleione's three panes: .live-panes .channel-item is 116px plus a 6px gap,
-// and .group-item 64px plus 6px; both grow with the text size.
-const PANE_CHANNEL_ROW_STRIDE = 122;
-const PANE_GROUP_ROW_STRIDE = 70;
+// Row strides mirror css/live-panes.css: .channel-item is 116px plus a 6px
+// gap, and .group-item 64px plus 6px; both grow with the text size.
+const CHANNEL_ROW_STRIDE = 122;
+const GROUP_ROW_STRIDE = 70;
 const CHANNEL_OVERSCAN = 12;
 const CHANNEL_VIEWPORT_FALLBACK = 900;
 
-type PreviewHintState = 'off' | 'ready' | 'active';
 type RowList = 'group' | 'channel';
 // 'render': a re-render that requests no focus of its own.
 type SyncVia = Via | 'render';
@@ -71,13 +64,9 @@ export interface ChannelListOptions {
   onChannelsChanged?: () => void;
   onEpgMappingChanged?: () => void;
   onEpgOffsetChanged?: () => void;
-  onEnterPreview?: () => boolean;
-  onListFocus?: () => void;
-  getPreviewHintState?: () => PreviewHintState;
   onEnterManagement?: () => void;
-  // Pleione's three panes (rich rows, line-icon groups, the key legend); the
-  // header with the count and the List | Guide switch belongs to the host.
-  paneMode?: () => boolean;
+  // The Guide mode shows the groups alone; the host draws the time grid.
+  guideMode?: () => boolean;
   // A channel row took focus (null: something else did).
   onRowFocus?: (index: number | null) => void;
   onCount?: (count: number) => void;
@@ -93,30 +82,27 @@ export class ChannelList {
     mode?: ChannelSelectionMode,
   ) => void;
   private onChannelsChanged: () => void;
-  private onEnterPreview: () => boolean;
-  private onListFocus: () => void;
-  private getPreviewHintState: () => PreviewHintState;
-  private readonly paneMode: () => boolean;
+  private readonly guideMode: () => boolean;
   private readonly onRowFocus: (index: number | null) => void;
   private readonly onCount: (count: number) => void;
   // Pleione: the channel the player shows full screen, where OK returns to.
-  private watchingIndex = -1;
+  // By key: a reorder or a catalog rebuild moves the index, not the channel.
+  private watchingKey: string | null = null;
   private nav: SpatialNav;
   private editor: ChannelListEditor;
   private currentGroup: ChannelGroupId = 'builtin:all';
   private currentPlaylist = '';  // '' = All playlists
   private playingIndex = -1;
-  private previewFocused = false;
   private playingCatchupStart: number | null = null;
   private recentItems: RecentlyWatchedItem[] = [];
   private failedLogos = new Set<string>();
   private readonly channelVirtualizer = new VirtualList({
-    itemSize: () => (this.paneMode() ? uiTextPx(PANE_CHANNEL_ROW_STRIDE) : uiPx(CHANNEL_ROW_STRIDE)),
+    itemSize: () => uiTextPx(CHANNEL_ROW_STRIDE),
     overscan: CHANNEL_OVERSCAN,
     fallbackViewportSize: CHANNEL_VIEWPORT_FALLBACK,
   });
   private readonly groupVirtualizer = new VirtualList({
-    itemSize: () => (this.paneMode() ? uiTextPx(PANE_GROUP_ROW_STRIDE) : uiPx(GROUP_ROW_STRIDE)),
+    itemSize: () => uiTextPx(GROUP_ROW_STRIDE),
     overscan: CHANNEL_OVERSCAN,
     fallbackViewportSize: CHANNEL_VIEWPORT_FALLBACK,
   });
@@ -124,11 +110,9 @@ export class ChannelList {
   private groupScrollFrame: number | null = null;
   // A channel tuned from outside the list since it was last entered.
   private playingMoved = false;
-  // The list's own key while a live-preview control holds the scope's.
-  private listKey: string | null = null;
   // The focusable the pointer rests on, from the last hover.
   private hovered: HTMLElement | null = null;
-  // The pointer left the focused row, or the preview took the ring.
+  // The pointer left the focused row.
   private ringHidden = false;
   // How the nav's last focus was asked for, so only a hover reaches the scope as one.
   private navVia: 'key' | 'pointer' = 'key';
@@ -152,25 +136,19 @@ export class ChannelList {
       onChannelsChanged = () => {},
       onEpgMappingChanged = () => {},
       onEpgOffsetChanged = () => {},
-      onEnterPreview = () => false,
-      onListFocus = () => {},
-      getPreviewHintState = () => 'off',
       onEnterManagement = () => {},
       authorizeEdit = proceed => proceed(),
-      paneMode = () => false,
+      guideMode = () => false,
       onRowFocus = () => {},
       onCount = () => {},
     } = options;
-    this.paneMode = paneMode;
+    this.guideMode = guideMode;
     this.onRowFocus = onRowFocus;
     this.onCount = onCount;
     this.authorizeEdit = authorizeEdit;
     this.container = container;
     this.onChannelSelect = onChannelSelect;
     this.onChannelsChanged = onChannelsChanged;
-    this.onEnterPreview = onEnterPreview;
-    this.onListFocus = onListFocus;
-    this.getPreviewHintState = getPreviewHintState;
     // One list per app; a new instance takes the id over.
     liveList?.dispose();
     liveList = this;
@@ -195,7 +173,6 @@ export class ChannelList {
     });
     this.nav = new SpatialNav(container, (el) => {
       this.editor?.trackFocus(el);
-      if (el) this.onListFocus();
       const row = el?.closest('.channel-main') ? el.dataset.channelIndex : undefined;
       this.onRowFocus(row === undefined ? null : parseInt(row, 10));
       const via = this.navVia;
@@ -210,7 +187,6 @@ export class ChannelList {
     this.container.addEventListener('nav:hover', (e: Event) => {
       const target = e.target as HTMLElement;
       this.hovered = target.hasAttribute('data-focusable') ? target : null;
-      this.onListFocus();
     });
     // The pointer leaving the focused row hides its ring until the next key.
     this.container.addEventListener('nav:unhover', (e: Event) => {
@@ -218,7 +194,6 @@ export class ChannelList {
       if (e.target === this.nav.focused) this.ringHidden = true;
       this.syncScope('pointer');
     });
-    this.container.addEventListener('click', () => this.onListFocus(), true);
     this.editor = new ChannelListEditor(container, this.nav, {
       render: () => this.render(),
       moveListFocus: (delta) => this.moveVirtualFocus(delta),
@@ -325,7 +300,7 @@ export class ChannelList {
     const editing = this.editor.isChannelEditing;
     const managingFavorites = this.editor.isManagingFavorites;
     const allSourcesDisabled = PlaylistService.allSourcesDisabled;
-    const panes = this.paneMode();
+    const guide = this.guideMode();
     this.onCount(totalChannels);
 
     // Capture the focus key before morph so focus lands on the same item
@@ -373,25 +348,13 @@ export class ChannelList {
     const groupRange = this.groupVirtualizer.getRange(groups.length, groupViewportHeight);
 
     morph(this.container, html`
-      <div class="channel-view ${panes ? 'live-panes-list' : ''} ${editing && !managingFavorites ? 'editing' : ''} ${
+      <div class="channel-view ${guide ? 'live-guide-groups' : ''} ${editing && !managingFavorites ? 'editing' : ''} ${
         managingFavorites ? 'favorite-managing' : ''} ${
         !editing && this.currentGroup === 'builtin:favorites'
           && (managingFavorites || filteredChannels.length)
           ? 'has-channel-hints'
           : ''}">
         <div class="sidebar" data-nav-container>
-          ${panes ? '' : html`<div class="sidebar-header">
-            <div class="channel-count">${tp('channel.count', totalChannels)}</div>
-            ${editing || showingRecent
-              ? html`<div class="channel-edit-btn-spacer" aria-hidden="true"></div>`
-              : html`
-                <button class="channel-edit-btn"
-                        data-key="edit-channels"
-                        data-focusable data-edit-channels
-                        aria-label="${t('settings.editChannelList')}"
-                        title="${t('settings.editChannelList')}"><img src="assets/icons/pencil.svg" alt=""></button>
-              `}
-          </div>`}
           ${showTabs ? html`
             <div class="playlist-tabs" data-edge-scroll>
               <div class="playlist-tab ${!this.currentPlaylist ? 'active' : ''}"
@@ -416,7 +379,7 @@ export class ChannelList {
             </div>
           </div>
         </div>
-        <div class="channel-main" data-nav-container data-nav-enter="last-focused">
+        ${guide ? '' : html`<div class="channel-main" data-nav-container data-nav-enter="last-focused">
           <div class="channel-list-scroll ${showingRecent ? 'recent-list' : ''}">
             ${showingRecent
               ? (this.recentItems.length
@@ -440,10 +403,10 @@ export class ChannelList {
                     t(allSourcesDisabled ? 'channel.noEnabledSources' : 'channel.empty')
                   }</div>`)}
           </div>
-        </div>
+        </div>`}
         ${this.editor.renderFooter(
           this.currentGroup === 'builtin:favorites' && filteredChannels.length > 0,
-        ) || (panes ? this.renderPaneLegend() : this.renderPreviewHints())}
+        ) || (guide ? '' : this.renderLegend())}
         ${this.editor.renderGroupPicker()}
       </div>
     `);
@@ -467,7 +430,7 @@ export class ChannelList {
       // first focusable — a group or playlist tab — below).
       const target0 = this.container.querySelector<HTMLElement>('.channel-main [data-channel-index]');
       target = playingChannel ?? target0;
-      if (!target) this.nav.focusFirst();
+      if (!target && !this.focusActiveGroup()) this.nav.focusFirst();
     }
     if (target) this.nav.focus(target);
     const main = this.container.querySelector<HTMLElement>('.channel-main');
@@ -481,21 +444,18 @@ export class ChannelList {
 
     // An inline rename / new-group field owns the keyboard while it is open.
     if (Focus.owner() === this.focusScope) this.editor.focusTextInput();
-    if (this.previewFocused) this.ringHidden = true;
     if (ensureFocus && showingRecent) this.recentToReveal = this.nav.focused?.dataset.key ?? null;
     this.syncScope(ensureFocus ? 'key' : 'render');
   }
 
-  // `key` names the preview control that takes the ring.
-  setPreviewFocused(focused: boolean, key?: string): void {
-    this.previewFocused = focused;
-    if (focused) this.ringHidden = true;
-    if (focused && key) this.setScopeKey(key, 'pointer');
-    else this.syncScope();
+  /** The Guide hands the keys back: focus the selected group. */
+  focusGroups(): void {
+    this.ringHidden = false;
+    if (!this.focusActiveGroup()) this.nav.focusFirst();
+    this.syncScope('key');
   }
 
   restoreFocus(): void {
-    this.previewFocused = false;
     if (this.resumeScrolledAway()) return;
     if (this.nav.focused && this.container.contains(this.nav.focused)) {
       this.nav.focus(this.nav.focused);
@@ -507,10 +467,8 @@ export class ChannelList {
 
   // Mirror SpatialNav's focus into the scope, which paints and gates the ring.
   private syncScope(via: SyncVia = 'key'): void {
-    if (this.previewFocused) return;
     const el = this.nav.focused;
     const key = el && this.container.contains(el) ? el.dataset.key ?? null : null;
-    if (key) this.listKey = key;
     if (this.ringHidden) {
       if (key) this.focusScope.track(key);
       this.focusScope.conceal();
@@ -557,28 +515,6 @@ export class ChannelList {
     return this.editor.isEditing;
   }
 
-  private renderPreviewHints(): Safe | string {
-    const state = this.getPreviewHintState();
-    if (state === 'off') return '';
-    return html`
-      <div class="edit-hints preview-list-hints">
-        <div class="preview-list-context">
-          ${okHint(t('preview.open'), { 'data-preview-list-open': '' })}
-          ${state === 'active' ? html`
-            <span class="edit-hint" data-preview-list-controls>
-              ${raw(NAV_HORIZONTAL_ICON)}
-              <span>${t('preview.controls')}</span>
-            </span>` : ''}
-        </div>
-        ${state === 'active' ? html`
-          <span class="edit-hint preview-list-close" data-preview-list-close>
-            ${backKey()}
-            <span>${t('common.close')}</span>
-          </span>` : ''}
-      </div>
-    `;
-  }
-
   enterEditMode(group: ChannelGroupId = this.currentGroup): void {
     this.authorizeEdit(() => this.editor.enterEditMode(group));
   }
@@ -609,10 +545,9 @@ export class ChannelList {
       return true;
     }
     if (isFocusMove(action, true) && !this.editor.ownsInput) {
-      // The preview controls hold the ring, and a wheel step scrolls: both move
-      // the list directly.
-      if (this.previewFocused || KeyHandler.isWheelAction()) this.ringHidden = false;
-      if (!this.previewFocused && (this.resumeScrolledAway() || this.revealRing())) {
+      // A wheel step scrolls: it moves the list directly.
+      if (KeyHandler.isWheelAction()) this.ringHidden = false;
+      if (this.resumeScrolledAway() || this.revealRing()) {
         // A row scrolled away resumes in view instead of being scrolled back to.
         return true;
       }
@@ -625,18 +560,14 @@ export class ChannelList {
       case 'up':
       case 'down':
         if (this.moveVirtualFocus(action === 'up' ? -1 : 1)) return true;
-        // Above the sidebar's top sits nothing, never the channel list.
-        if (action === 'up' && this.nav.focused?.closest('.sidebar')) {
-          const edit = this.container.querySelector<HTMLElement>('[data-edit-channels]');
-          if (!edit || edit === this.nav.focused) return false;
-          this.nav.focus(edit);
-          return true;
-        }
+        // Above the sidebar's top sits the host's header, never the channel list.
+        if (action === 'up' && this.nav.focused?.closest('.sidebar')) return false;
         return this.nav.move(action);
       case 'left':
         return this.nav.move(action);
       case 'right':
-        if (this.nav.focused?.closest('.channel-main') && this.onEnterPreview()) return true;
+        // Nothing to the right of the rows takes focus: the preview has no controls.
+        if (this.nav.focused?.closest('.channel-main')) return true;
         return this.nav.move(action);
 
       case 'channel_up':
@@ -652,9 +583,7 @@ export class ChannelList {
         // A row a re-render removed is no longer what the list shows.
         if (!focused || !this.container.contains(focused)) break;
 
-        if (focused.dataset.editChannels !== undefined) {
-          this.enterEditMode();
-        } else if (focused.dataset.favoriteManage !== undefined) {
+        if (focused.dataset.favoriteManage !== undefined) {
           this.editor.enterFavoriteManagement();
         } else if (focused.dataset.playlist !== undefined) {
           this.currentPlaylist = focused.dataset.playlist;
@@ -724,17 +653,10 @@ export class ChannelList {
         // Left of the first tab: the host opens the side menu.
         return !!tabs[next] || action === 'right';
       }
-      if (action === 'up') {
-        const edit = this.container.querySelector<HTMLElement>('[data-edit-channels]');
-        if (edit) this.nav.focus(edit);
-        return !!edit;
-      }
+      // Above the tabs sits the host's header.
+      if (action === 'up') return false;
       if (action === 'down') return this.focusActiveGroup();
       return false;
-    }
-
-    if (action === 'down' && focused.dataset.editChannels !== undefined) {
-      return this.focusActivePlaylist() || this.focusFirstChannel();
     }
 
     if (action === 'left' && focused.closest('.channel-main')) {
@@ -742,7 +664,8 @@ export class ChannelList {
     }
 
     if (action === 'right' && focused.dataset.group !== undefined) {
-      return this.nav.focusContainerEntry('.channel-main');
+      // In the Guide the host takes Right into the time grid.
+      return !this.guideMode() && this.nav.focusContainerEntry('.channel-main');
     }
 
     if (action !== 'up' || !this.hasPlaylistTabs()) return false;
@@ -786,15 +709,6 @@ export class ChannelList {
     return true;
   }
 
-  private focusFirstChannel(): boolean {
-    const first = this.container.querySelector<HTMLElement>(
-      '.channel-main [data-list-position="0"]',
-    );
-    if (!first) return false;
-    this.nav.focus(first);
-    return true;
-  }
-
   private renderGroup(
     g: { id: ChannelGroupId; label: string; builtin?: BuiltinChannelGroup },
     position: number,
@@ -816,7 +730,7 @@ export class ChannelList {
            data-key="g:${g.id}"
            data-focusable data-group="${g.id}" data-group-position="${position}"
            style="top:${top}px">
-        <span class="group-icon">${raw(this.paneMode() ? paneGroupIcon(g.builtin) : groupIcon(g.label, g.builtin))}</span>
+        <span class="group-icon">${raw(groupLineIcon(g.builtin))}</span>
         ${renaming
           ? html`<input class="edit-text-input" type="text" value="${this.editor.renameValue(g.label)}">`
           : html`<span class="group-name">${
@@ -887,7 +801,8 @@ export class ChannelList {
     const moved = this.playingMoved;
     this.playingMoved = false;
     const resume = via === 'back' || via === 'resume';
-    const playing = this.playingIndex;
+    // With the preview stopped (Live was left), the watched channel stands in.
+    const playing = this.playingIndex >= 0 ? this.playingIndex : this.watching;
     if ((!resume || moved) && playing >= 0 && this.revealChannel(playing)) return;
     const key = this.focusScope.focusKey;
     if (resume && key !== null && this.revealKey(key)) return;
@@ -967,47 +882,16 @@ export class ChannelList {
   private renderChannel(ch: Channel, favs: string[], position: number, top: number): Safe {
     const globalIdx = PlaylistService.indexOf(ch);
     const epgId = EpgService.findChannelId(ch);
-    const nowPlaying = epgId ? EpgService.getNowPlaying(epgId) : null;
-    const isPlaying = globalIdx === this.playingIndex && this.playingCatchupStart === null;
     const isFav = favs.includes(channelKey(ch));
-    const showFavoriteStar = isFav && this.currentGroup !== 'builtin:favorites';
     const selectedFavorite = this.editor.isFavoriteSelected(ch);
     const hidden = this.editor.isChannelHidden(ch);
     const grabbed = this.editor.isChannelGrabbed(ch);
     const renaming = this.editor.isChannelRenaming(ch);
-    if (this.paneMode()) {
-      return this.renderPaneChannel(ch, { globalIdx, position, top, isFav, hidden, grabbed, renaming,
-        selectedFavorite, epgId });
-    }
-
-    return html`
-      <div class="channel-item ${isPlaying ? 'playing' : ''} ${hidden ? 'hidden-entry' : ''} ${
-        grabbed ? 'grabbed' : ''} ${selectedFavorite ? 'favorite-selected' : ''}"
-           data-key="ch:${String(globalIdx)}"
-           data-focusable data-channel-index="${globalIdx}"
-           data-list-position="${position}" style="top:${top}px">
-        <div class="channel-number">${globalIdx + 1}</div>
-        ${this.renderLogo(ch)}
-        <div class="channel-info">
-          ${renaming
-            ? html`<input class="edit-text-input" type="text" value="${this.editor.renameValue(ch.name)}">`
-            : html`<div class="channel-name">${raw(channelLockBadge(ch))}${
-                showFavoriteStar ? raw(favoriteIcon(true)) : ''
-              }${ch.name}</div>`}
-          ${this.editor.isChannelEditing && ch.sourceName
-            ? html`<div class="channel-now channel-source-name">${ch.sourceName}</div>`
-            : (nowPlaying
-                ? html`<div class="channel-now">${nowPlaying.title}</div>`
-                : '')}
-        </div>
-        ${this.editor.renderChannelEditStatus(ch)}
-        ${this.renderHealth(ch)}
-        ${isPlaying ? raw('<div class="playing-indicator">&#9654;</div>') : ''}
-      </div>
-    `;
+    return this.renderRichChannel(ch, { globalIdx, position, top, isFav, hidden, grabbed, renaming,
+      selectedFavorite, epgId });
   }
 
-  private renderPaneChannel(ch: Channel, row: {
+  private renderRichChannel(ch: Channel, row: {
     globalIdx: number; position: number; top: number; isFav: boolean; hidden: boolean;
     grabbed: boolean; renaming: boolean; selectedFavorite: boolean; epgId: string | null;
   }): Safe {
@@ -1016,7 +900,7 @@ export class ChannelList {
       row.epgId ? EpgService.getUpcoming(row.epgId, 3) : [],
       Date.now(),
     );
-    const watching = row.globalIdx === this.watchingIndex;
+    const watching = row.globalIdx === this.watching;
     const editingSource = this.editor.isChannelEditing && ch.sourceName;
     return html`
       <div class="channel-item live-row ${watching ? 'watching' : ''} ${row.hidden ? 'hidden-entry' : ''} ${
@@ -1055,20 +939,33 @@ export class ChannelList {
     `;
   }
 
-  private renderPaneLegend(): Safe {
+  private renderLegend(): Safe {
     return html`
-      <div class="edit-hints live-legend">
+      <div class="live-legend">
         ${okHint(t('live.watch'))}
-        <span class="edit-hint">${raw(NAV_HORIZONTAL_ICON)}<span>${t('preview.controls')}</span></span>
         <span class="edit-hint"><span class="edit-key key-green"></span><span>${t('live.favorite')}</span></span>
         <span class="edit-hint"><span class="edit-key key-red"></span><span>${t('nav.epg')}</span></span>
       </div>
     `;
   }
 
-  /** Pleione: mark the channel the player shows full screen. */
+  /** The channel row holding focus, or null. */
+  get focusedChannel(): number | null {
+    const el = this.nav.focused;
+    const index = el && this.container.contains(el) && el.closest('.channel-main')
+      ? el.dataset.channelIndex : undefined;
+    return index === undefined ? null : parseInt(index, 10);
+  }
+
+  get watching(): number {
+    return this.watchingKey === null ? -1
+      : PlaylistService.resolveChannelKey(this.watchingKey)?.channelIndex ?? -1;
+  }
+
+  /** Mark the channel the player shows full screen. */
   setWatching(idx: number): void {
-    this.watchingIndex = idx;
+    const channel = idx >= 0 ? PlaylistService.getByIndex(idx) : null;
+    this.watchingKey = channel ? channelKey(channel) : null;
   }
 
   get group(): ChannelGroupId {
@@ -1188,8 +1085,7 @@ export class ChannelList {
   private detachedKey(): string | null {
     const focused = this.nav.focused;
     if (focused && this.container.contains(focused)) return null;
-    let key = this.focusScope.focusKey;
-    if (key !== null && key.indexOf('preview-') === 0) key = this.listKey;
+    const key = this.focusScope.focusKey;
     return key !== null && this.rowPosition(key) ? key : null;
   }
 
@@ -1347,9 +1243,9 @@ export class ChannelList {
 
 }
 
-// Pleione's line icons for the groups: built-in groups get their own, and
-// every provider group the same folder.
-function paneGroupIcon(builtin?: BuiltinChannelGroup): string {
+// Line icons for the groups: built-in groups get their own, and every
+// provider group the same folder.
+function groupLineIcon(builtin?: BuiltinChannelGroup): string {
   if (builtin === 'all') return GRID_ICON;
   if (builtin === 'favorites') return STAR_OUTLINE_ICON;
   if (builtin === 'recently-watched') return CLOCK_ICON;

@@ -1,21 +1,9 @@
-/* Pleione's Live: a header (title, count, List | Guide, clock) over three
-   panes (groups | rich channel rows | the preview) or over the Guide. Every
-   rule is scoped to .live-panes, which the app sets unless the hidden
-   classic-Live preference asks for the upstream list. */
-
-.view.live-panes {
-  background:
-    radial-gradient(1200px 700px at 15% 10%, rgba(91, 79, 230, 0.2), transparent 60%),
-    radial-gradient(1000px 650px at 90% 95%, rgba(194, 24, 91, 0.1), transparent 60%),
-    var(--bg-primary);
-}
+/* Live: a header (title, count, List | Guide, clock) over three panes
+   (groups | rich channel rows | the preview) or over the Guide, on the
+   shared backdrop (#view-channels[data-backdrop]). */
 
 #view-channels.live-panes {
   padding: 136px 0 64px;
-}
-
-#view-epg.live-panes {
-  padding-top: 136px;
 }
 
 /* Header */
@@ -348,17 +336,22 @@
 }
 
 /* The key legend spans the screen under the panes. */
-.live-panes .edit-hints {
+.live-panes .edit-hints,
+.live-legend {
   position: fixed;
   right: 0;
   bottom: 0;
   left: 0;
+  z-index: 10;
   height: 64px;
   padding: 0 80px;
+  border-top: 1px solid var(--border);
   background: rgb(var(--catalog-hero-scrim-rgb) / 0.7);
 }
 
 .live-legend {
+  display: flex;
+  align-items: center;
   gap: 36px;
 }
 
@@ -381,6 +374,20 @@
   border-radius: 6px;
   font-size: 15px;
   font-weight: 700;
+}
+
+.live-legend .edit-key.key-back {
+  display: inline-flex;
+  width: 34px;
+  height: 26px;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.live-legend .edit-key.key-back svg {
+  width: 100%;
+  height: 100%;
+  transform: none;
 }
 
 .live-legend svg {
@@ -422,10 +429,6 @@
   background: transparent;
 }
 
-.live-panes .live-preview-clock {
-  display: none;
-}
-
 .live-panes .live-preview-details {
   padding-top: 4px;
   background: transparent;
@@ -446,9 +449,3 @@
   margin-top: 20px;
 }
 
-/* The Guide inside Live, under the same header. */
-.live-panes .epg-view {
-  height: calc(var(--canvas-height) - 136px);
-  padding-top: 0;
-  background: transparent;
-}

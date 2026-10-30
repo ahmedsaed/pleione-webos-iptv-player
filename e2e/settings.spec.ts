@@ -246,7 +246,6 @@ test.describe('Settings navigation', () => {
       motionFixtures.innerHTML = `
         <div class="channel-item"></div>
         <span class="playing-indicator"></span>
-        <div class="epg-programme-item state-live"></div>
         <div class="player-sidebar visible channels-only">
           <div class="sidebar-picker-arrow"><svg></svg></div>
           <div class="sidebar-ch-item">
@@ -268,10 +267,6 @@ test.describe('Settings navigation', () => {
         liveBadge: getComputedStyle(liveBadge).animationName,
         playingIndicator: getComputedStyle(
           motionFixtures.querySelector('.playing-indicator')!,
-        ).animationName,
-        epgLiveRail: getComputedStyle(
-          motionFixtures.querySelector('.epg-programme-item')!,
-          '::before',
         ).animationName,
         groupPicker: getComputedStyle(
           motionFixtures.querySelector('.sidebar-picker-arrow svg')!,
@@ -295,7 +290,6 @@ test.describe('Settings navigation', () => {
     expect(durations.sidebarRow.every(value => value <= 0.000001)).toBe(true);
     expect(durations.liveBadge).toBe('liveBadgeDotPulse');
     expect(durations.playingIndicator).toBe('none');
-    expect(durations.epgLiveRail).toBe('epgRailPulse');
     expect(durations.groupPicker).toBe('group-picker-nudge');
     expect(durations.channelMarquee).toBe('marquee-bounce');
     expect(durations.programmeMarquee).toBe('marquee-bounce');
@@ -724,7 +718,9 @@ test.describe('Settings navigation', () => {
     await expect(page.locator('#view-channels')).toBeVisible();
     const unscaled = await metrics();
     expect(scaled.font).toBeCloseTo(unscaled.font * 1.3, 1);
-    for (const key of ['height', 'padding', 'logo'] as const)
+    // Live's rows hold three text lines, so their height follows the text.
+    expect(scaled.height).toBeCloseTo(unscaled.height * 1.3, 0);
+    for (const key of ['padding', 'logo'] as const)
       expect(scaled[key], key).toBeCloseTo(unscaled[key], 1);
   });
 });
@@ -870,7 +866,7 @@ test.describe('Settings re-entry', () => {
     await expect(dropdown.locator('.dropdown-option.focused')).toHaveCount(1);
 
     await remoteKey(page, RED);
-    await expect(page.locator('#view-epg')).toBeVisible();
+    await expect(page.locator('#view-channels.live-guide-mode')).toBeVisible();
     await remoteKey(page, BLUE);
     await expect(page.locator('#view-settings')).toBeVisible();
 

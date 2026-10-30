@@ -1,4 +1,6 @@
-import { test, expect, enterTab, routePlaylist, seedPlaylist, type Page } from './helpers';
+import {
+  test, expect, enterTab, openGuide, pressKeys, routePlaylist, seedPlaylist, type Page,
+} from './helpers';
 import { seedXtream } from './fixtures/xtream';
 
 const SIZES = ['90', '110', '120', '130'] as const;
@@ -52,10 +54,13 @@ for (const size of SIZES) {
     await expect(page.locator('#view-channels')).toBeVisible();
 
     expect(await offscreenTargets(page), 'Live').toEqual([]);
+    await openGuide(page);
+    expect(await offscreenTargets(page), 'Guide').toEqual([]);
+    await pressKeys(page, 403);
+    await expect(page.locator('#view-channels:not(.live-guide-mode)')).toBeVisible();
 
     for (const [section, view] of [
       ['home', '#view-home'],
-      ['epg', '#view-epg'],
       ['movies', '#view-movies'],
       ['series', '#view-series'],
     ] as const) {
@@ -106,8 +111,8 @@ test('at 130% the virtualized channel list keeps rows, D-pad, and pointer aligne
   // The virtualizer's stride matches the CSS row height at this scale.
   const tops = await page.locator('#view-channels .channel-item').evaluateAll((rows) =>
     rows.slice(0, 3).map((row) => row.getBoundingClientRect().top));
-  expect(tops[1] - tops[0]).toBeCloseTo(88 * 1.3, 0);
-  expect(tops[2] - tops[1]).toBeCloseTo(88 * 1.3, 0);
+  expect(tops[1] - tops[0]).toBeCloseTo(122 * 1.3, 0);
+  expect(tops[2] - tops[1]).toBeCloseTo(122 * 1.3, 0);
 
   // Scroll far down the list with the D-pad; the focused row stays inside it.
   const focusedName = () => page.locator('#view-channels .channel-item.focused .channel-name').innerText();

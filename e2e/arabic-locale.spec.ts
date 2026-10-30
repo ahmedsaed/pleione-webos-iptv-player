@@ -3,6 +3,7 @@ import {
   test,
   expect,
   enterTab,
+  openGuide,
   neuterVideo,
   routeLiveManifest,
   routePlaylist,
@@ -29,19 +30,18 @@ const ARABIC_INDIC_DIGITS = /[٠-٩۰-۹]/;
 
 test.use({ timezoneId: 'UTC' });
 
-async function setup(page: Page, options: { preview?: boolean; offset?: number } = {}): Promise<void> {
+async function setup(page: Page, options: { offset?: number } = {}): Promise<void> {
   await page.clock.setFixedTime(new Date('2026-09-15T12:00:00Z'));
   await routePlaylist(page, CHANNELS);
   await routeLiveManifest(page);
   await page.route(GUIDE_URL, route => route.fulfill({ contentType: 'application/xml', body: EPG }));
-  await page.addInitScript(({ playlist, guide, preview, offset }) => {
+  await page.addInitScript(({ playlist, guide, offset }) => {
     localStorage.setItem('iptv_playlists', JSON.stringify([{ id: 'p1', name: 'P1', url: playlist }]));
     localStorage.setItem('iptv_epg_url', JSON.stringify(guide));
     localStorage.setItem('iptv_tz_mode', JSON.stringify('device'));
     localStorage.setItem('iptv_locale', JSON.stringify('ar'));
-    localStorage.setItem('iptv_live_preview', JSON.stringify(preview));
     if (offset) localStorage.setItem('iptv_epg_offsets', JSON.stringify({ [guide]: offset }));
-  }, { playlist: PLAYLIST_URL, guide: GUIDE_URL, preview: !!options.preview, offset: options.offset ?? 0 });
+  }, { playlist: PLAYLIST_URL, guide: GUIDE_URL, offset: options.offset ?? 0 });
 }
 
 // Left edge of the first visible glyph of each substring inside the element, so a
@@ -71,7 +71,7 @@ async function expectLeftToRight(page: Page, selector: string, parts: string[]):
 }
 
 test('Arabic keeps the LTR layout with Arabic labels and Western digits', async ({ page }) => {
-  await setup(page, { preview: true });
+  await setup(page);
   await page.goto('/');
 
   await expect(page.locator('html')).toHaveAttribute('lang', 'ar');
@@ -82,16 +82,16 @@ test('Arabic keeps the LTR layout with Arabic labels and Western digits', async 
 
   const item = (section: string) => page.locator(`.nav-menu-item[data-section="${section}"] .nav-menu-label`);
   await expect(item('live')).toHaveText('مباشر');
-  await expect(item('epg')).toHaveText('دليل البرامج');
+  await expect(item('search')).toHaveText('بحث');
   await expect(item('settings')).toHaveText('إعدادات');
   // The menu keeps its LTR order: icon on the left of each label.
   const order = await page.locator('.nav-menu-item[data-section]').evaluateAll(items =>
     items.map(el => [el.querySelector('.nav-menu-icon')!.getBoundingClientRect().left,
       el.querySelector('.nav-menu-label')!.getBoundingClientRect().left]));
   for (const [icon, label] of order) expect(icon).toBeLessThan(label);
-  await expect(page.locator('.channel-count')).toHaveText('2 قناة');
+  await expect(page.locator('#view-channels .live-header-count')).toHaveText('2 قناة');
 
-  await page.locator('#channel-browser .channel-main .channel-item').first().click();
+  // The preview follows the first row once focus rests on it.
   const range = '#live-preview .live-preview-time-range';
   await expect(page.locator(range)).toHaveText('11:00–13:00');
   await expectLeftToRight(page, range, ['11', '–', '13']);
@@ -137,16 +137,15 @@ test('Arabic channel info keeps time ranges and positions in order', async ({ pa
   })).toBe(true);
 });
 
-test('Arabic guide keeps start times and durations in reading order', async ({ page }) => {
+test('Arabic guide keeps its times in reading order', async ({ page }) => {
   await setup(page);
   await page.goto('/');
-  await enterTab(page, 'epg');
-  const programme = '#view-epg .epg-programme-item';
-  await expect(page.locator(`${programme} .epg-prog-time`).first()).toHaveText('11:00');
-  const duration = `${programme} .epg-prog-dur span`;
-  await expect(page.locator(duration).first()).toHaveText('2 س 0 د');
-  const [minutes, hours] = await glyphLefts(page, duration, ['0', '2']);
-  expect(minutes).toBeLessThan(hours);
+  await expect(page.locator('#channel-browser .channel-main .channel-item').first())
+    .toContainText('Program 1');
+  await openGuide(page);
+  const time = '#live-guide .guide-cell.live .guide-cell-time';
+  await expect(page.locator(time).first()).toHaveText('11:00–13:00');
+  await expectLeftToRight(page, time, ['11', '–', '13']);
   expect(await page.locator('body').innerText()).not.toMatch(ARABIC_INDIC_DIGITS);
 });
 

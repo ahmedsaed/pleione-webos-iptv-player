@@ -1,4 +1,4 @@
-import { test, expect, showHome, hideGuideTab, enterTab, openSideMenu, type Page } from './helpers';
+import { test, expect, showHome, enterTab, openSideMenu, type Page } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 
 // Pleione's TV navigation: Home first, sections full screen, and a hidden
@@ -12,11 +12,10 @@ const menuFocus = (page: Page) => page.locator('.nav-menu .nav-menu-item.focused
 const homeFocus = (page: Page) => page.locator('#view-home .focused');
 const card = (page: Page, section: string) => page.locator(`.home-card[data-section="${section}"]`);
 
-// One Xtream account, on Pleione's Home, with the Guide card unless asked.
-async function seedHome(page: Page, opts: { guide?: boolean } = {}): Promise<void> {
+// One Xtream account, on Pleione's Home.
+async function seedHome(page: Page): Promise<void> {
   await seedXtream(page);
   await showHome(page);
-  if (!opts.guide) await hideGuideTab(page);
 }
 
 // Home is up and Live has the keys.
@@ -267,19 +266,6 @@ test('the D-pad moves across the bento, Up reaches the account, and the glow fol
   expect(focused).not.toBe('none');
 });
 
-test('the Guide opens full screen, and Back returns to Live as after Red', async ({ page }) => {
-  await seedHome(page, { guide: true });
-  await goHome(page);
-  await press(page, 'ArrowRight');
-  await expect(homeFocus(page)).toHaveAttribute('data-section', 'epg');
-  await press(page, 'Enter');
-  await expect(page.locator('#view-epg')).toBeVisible();
-  await expectFullScreen(page, 'epg');
-  await back(page);
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
-});
-
 for (const [section, view] of [
   ['live', 'channels'], ['movies', 'movies'], ['series', 'series'],
   ['search', 'search'], ['settings', 'settings'],
@@ -379,7 +365,6 @@ test('Back on Home asks for a second Back to exit', async ({ page }) => {
 
 test('first run shows the welcome, phone setup, and the two Add cards, Add Xtream focused', async ({ page }) => {
   await showHome(page);
-  await hideGuideTab(page);
   await page.goto('/');
   await expect(page.locator('#view-home')).toBeVisible();
   await expect(page.locator('.home-welcome-title')).toHaveText('Welcome to Pleione');
@@ -400,7 +385,6 @@ test('first run shows the welcome, phone setup, and the two Add cards, Add Xtrea
 
 test('the first-run cards open the Add flows by D-pad and pointer', async ({ page }) => {
   await showHome(page);
-  await hideGuideTab(page);
   await page.goto('/');
   await expect(homeFocus(page)).toHaveAttribute('data-key', 'add:xtream');
   await press(page, 'Enter');
@@ -633,7 +617,7 @@ test('Save and Cancel in Settings return to Home, where Settings was opened', as
 });
 
 test('in pointer mode each section offers a Home button; keys hide it', async ({ page }) => {
-  await seedHome(page, { guide: true });
+  await seedHome(page);
   await goHome(page);
   const button = page.locator('.home-button');
   // Home itself needs none.
@@ -641,7 +625,7 @@ test('in pointer mode each section offers a Home button; keys hide it', async ({
   await page.mouse.move(960, 1040);
   await expect(button).toBeHidden();
   for (const [section, view] of [
-    ['live', 'channels'], ['epg', 'epg'], ['movies', 'movies'], ['series', 'series'],
+    ['live', 'channels'], ['movies', 'movies'], ['series', 'series'],
     ['search', 'search'], ['settings', 'settings'],
   ] as const) {
     await enterTab(page, section);
@@ -674,7 +658,6 @@ test('in pointer mode each section offers a Home button; keys hide it', async ({
 test('the Movies hero follows the lit tile through re-renders, by pointer and by key', async ({ page }) => {
   await seedXtream(page, { catalog: 'large' });
   await showHome(page);
-  await hideGuideTab(page);
   await goHome(page);
   await enterTab(page, 'movies');
   const view = page.locator('#view-movies .catalog-layer-browse');

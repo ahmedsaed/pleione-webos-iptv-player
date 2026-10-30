@@ -35,9 +35,6 @@ const LAYOUT_EPG = `<tv>
 </tv>`;
 const PANEL = '#view-channels #live-preview';
 const ROW = '#channel-browser .channel-main .channel-item';
-const FAVORITE = `${PANEL} [data-preview-action="favorite"]`;
-const MUTE = `${PANEL} [data-preview-action="mute"]`;
-const FULLSCREEN = `${PANEL} [data-preview-action="fullscreen"]`;
 
 interface MediaProbe {
   video: HTMLMediaElement | null;
@@ -51,23 +48,27 @@ test.use({ timezoneId: 'UTC' });
 
 async function setup(
   page: Page,
-  options: { enabled?: boolean; stub?: boolean; epg?: boolean | string; now?: string; playlist?: string } = {},
+  options: {
+    stub?: boolean; epg?: boolean | string; now?: string; playlist?: string;
+    // Routes that take precedence over the default manifest route.
+    routes?: () => Promise<void>;
+  } = {},
 ): Promise<void> {
   await page.clock.setFixedTime(new Date(options.now || '2026-09-15T12:00:00Z'));
   await routePlaylist(page, options.playlist ?? CHANNELS);
   await routeLiveManifest(page);
+  await options.routes?.();
   await page.route('http://host/guide.xml', route => route.fulfill({
     contentType: 'application/xml',
     body: typeof options.epg === 'string' ? options.epg : options.epg ? EPG : '<tv></tv>',
   }));
-  await page.addInitScript(({ enabled, stub }) => {
+  await page.addInitScript(({ stub }) => {
     if (!sessionStorage.getItem('preview-seeded')) {
       localStorage.setItem('iptv_playlists', JSON.stringify([
         { id: 'p1', name: 'P1', url: 'http://host/playlist.m3u' },
       ]));
       localStorage.setItem('iptv_epg_url', JSON.stringify('http://host/guide.xml'));
       localStorage.setItem('iptv_tz_mode', JSON.stringify('device'));
-      if (enabled !== undefined) localStorage.setItem('iptv_live_preview', JSON.stringify(enabled));
       sessionStorage.setItem('preview-seeded', 'true');
     }
     const probe: MediaProbe = { video: null, loads: 0, pauses: 0, plays: 0 };
@@ -107,14 +108,14 @@ async function setup(
     document.addEventListener('error', event => {
       if (event.isTrusted && event.target instanceof HTMLMediaElement) event.stopImmediatePropagation();
     }, true);
-  }, { enabled: options.enabled, stub: options.stub !== false });
+  }, { stub: options.stub !== false });
   await page.goto('/');
   if (options.playlist) await expect(page.locator(ROW).first()).toBeVisible();
   else await expect(page.locator(ROW)).toHaveCount(2);
 }
 
+// Live previews the row focus rests on: the first row after launch.
 async function selectFirst(page: Page): Promise<void> {
-  await page.locator(ROW).first().click();
   await expect(page.locator(PANEL)).toBeVisible();
   await expect(page.locator(`${PANEL} .live-preview-channel`)).toHaveText('ch1');
   await expect(page.locator('#view-player')).toBeHidden();
@@ -156,15 +157,6 @@ async function expectPreviewGeometry(page: Page): Promise<void> {
   expect(geometry.rowRight).toBeLessThanOrEqual(geometry.left);
   expect(geometry.width).toBeGreaterThan(200);
   expect(Math.abs(geometry.width / geometry.height - 16 / 9)).toBeLessThan(0.05);
-  const controlsInside = await page.locator(`${PANEL} .live-preview-button`).evaluateAll(buttons => {
-    return buttons.every(button => {
-      const slot = button.closest('.live-preview-slot')!.getBoundingClientRect();
-      const box = button.getBoundingClientRect();
-      return box.left >= slot.left && box.right <= slot.right
-        && box.top >= slot.top && box.bottom <= slot.bottom;
-    });
-  });
-  expect(controlsInside).toBe(true);
 }
 
 async function stop(page: Page): Promise<void> {
@@ -183,71 +175,35 @@ async function setHidden(page: Page, hidden: boolean): Promise<void> {
   }, hidden);
 }
 
-test('default Off retains full-screen playback and stop-on-Back', async ({ page }) => {
+test('the preview follows the focused row on the same video node', async ({ page }) => {
   await setup(page);
-  await expect(page.locator(PANEL)).toBeHidden();
-  expect(await page.evaluate(() => localStorage.getItem('iptv_live_preview'))).toBeNull();
-  await page.locator(ROW).first().click();
-  await expect(page.locator('#view-player')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await expect(page.locator(PANEL)).toBeHidden();
-  expect((await snapshot(page)).pauses).toBeGreaterThan(0);
-});
-
-test('Settings saves On across reload and Cancel discards Off', async ({ page }) => {
-  await setup(page);
-  await enterTab(page, 'settings');
-  const toggle = '#view-settings #live-preview-setting';
-  await page.locator('[data-settings-target="playback"]').click();
-  await expect(page.locator('#live-preview')).toHaveCount(1);
-  await expect(page.locator(`${toggle} .active`)).toHaveAttribute('data-value', 'off');
-  await page.locator(`${toggle} [data-value="on"]`).click();
-  expect(await page.evaluate(() => localStorage.getItem('iptv_live_preview'))).toBeNull();
-  await page.locator('#save-settings').click();
-  expect(await page.evaluate(() => localStorage.getItem('iptv_live_preview'))).toBe('true');
-  await page.reload();
-  await expect(page.locator(ROW)).toHaveCount(2);
-  await selectFirst(page);
-  await enterTab(page, 'settings');
-  await page.locator('[data-settings-target="playback"]').click();
-  await page.locator(`${toggle} [data-value="off"]`).click();
-  await page.locator('#cancel-settings').click();
-  expect(await page.evaluate(() => localStorage.getItem('iptv_live_preview'))).toBe('true');
-  await selectFirst(page);
-});
-
-test('row clicks tune preview and retain mute across channel changes', async ({ page }) => {
-  await setup(page, { enabled: true });
   await selectFirst(page);
   const first = await snapshot(page);
-  await page.locator(MUTE).click();
-  await expect(page.locator(MUTE)).toHaveAttribute('aria-pressed', 'true');
-  await page.locator(ROW).nth(1).click();
+  await page.keyboard.press('ArrowDown');
   await expect(page.locator(`${PANEL} .live-preview-channel`)).toHaveText('ch2');
   await expect(page.locator('#view-player')).toBeHidden();
-  await expect(page.locator(MUTE)).toHaveAttribute('aria-pressed', 'true');
   const second = await snapshot(page);
   expect(second.sameNode).toBe(true);
   expect(second.source).toBe('http://host/ch2.m3u8');
   expect(second.loads - first.loads).toBe(1);
-  expect(second.muted).toBe(true);
+  // The preview keeps the player's audio: it plays with sound.
+  expect(second.muted).toBe(false);
 });
 
-test('selecting the current preview channel again opens full screen', async ({ page }) => {
-  await setup(page, { enabled: true });
+test('OK on the previewed channel opens it full screen', async ({ page }) => {
+  await setup(page);
   await selectFirst(page);
-
-  await page.locator(ROW).first().click();
-
+  const before = await snapshot(page);
+  await page.keyboard.press('Enter');
   await expect(page.locator('#view-player')).toBeVisible();
   await expect(page.locator(PANEL)).toBeHidden();
+  expect((await snapshot(page)).loads).toBe(before.loads);
 });
 
 test('Back from full screen focuses the channel changed in the player', async ({ page }) => {
-  await setup(page, { enabled: true });
+  await setup(page);
   await selectFirst(page);
-  await page.locator(ROW).first().click();
+  await page.keyboard.press('Enter');
   await expect(page.locator('#view-player')).toBeVisible();
   await page.evaluate(() => document.documentElement.dispatchEvent(
     new MouseEvent('mouseleave', { bubbles: true }),
@@ -265,19 +221,6 @@ test('Back from full screen focuses the channel changed in the player', async ({
   await expect(page.locator(`${ROW}.focused`)).toContainText('ch2');
 });
 
-test('a second remote OK on the previewed channel opens full screen', async ({ page }) => {
-  await setup(page, { enabled: true });
-
-  await page.keyboard.press('Enter');
-  await expect(page.locator(PANEL)).toBeVisible();
-  await expect(page.locator(`${PANEL} .live-preview-channel`)).toHaveText('ch1');
-  await expect(page.locator('#view-player')).toBeHidden();
-
-  await page.keyboard.press('Enter');
-  await expect(page.locator('#view-player')).toBeVisible();
-  await expect(page.locator(PANEL)).toBeHidden();
-});
-
 test('late manifest results from an old selection cannot replace the active preview', async ({ page }) => {
   const epg = `<tv>
     <channel id="ch1"><display-name>ch1</display-name></channel>
@@ -287,36 +230,28 @@ test('late manifest results from an old selection cannot replace the active prev
     <programme channel="ch2" start="20260915110000 +0000" stop="20260915130000 +0000">
       <title>Program B</title></programme>
   </tv>`;
-  await setup(page, { enabled: true, epg });
-
   let releaseCh1!: () => Promise<void>;
   let releaseCh2!: () => Promise<void>;
-  await page.route('http://host/ch1.m3u8', route => new Promise<void>(resolve => {
-    releaseCh1 = async () => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/vnd.apple.mpegurl',
-        body: LIVE_MANIFEST,
+  const hold = (url: string, set: (release: () => Promise<void>) => void) => page.route(url, route =>
+    new Promise<void>(resolve => {
+      set(async () => {
+        await route.fulfill({ status: 200, contentType: 'application/vnd.apple.mpegurl', body: LIVE_MANIFEST });
+        resolve();
       });
-      resolve();
-    };
-  }));
-  await page.route('http://host/ch2.m3u8', route => new Promise<void>(resolve => {
-    releaseCh2 = async () => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/vnd.apple.mpegurl',
-        body: LIVE_MANIFEST,
-      });
-      resolve();
-    };
-  }));
-
+    }));
   const ch1Response = page.waitForResponse('http://host/ch1.m3u8');
-  await page.locator(ROW).first().click();
-  await expect.poll(() => typeof releaseCh1).toBe('function');
   const ch2Response = page.waitForResponse('http://host/ch2.m3u8');
-  await page.locator(ROW).nth(1).click();
+  await setup(page, {
+    epg,
+    routes: async () => {
+      await hold('http://host/ch1.m3u8', release => { releaseCh1 = release; });
+      await hold('http://host/ch2.m3u8', release => { releaseCh2 = release; });
+    },
+  });
+
+  // The preview tunes ch1 once focus rests on it, then ch2.
+  await expect.poll(() => typeof releaseCh1).toBe('function');
+  await page.keyboard.press('ArrowDown');
   await expect.poll(() => typeof releaseCh2).toBe('function');
 
   await releaseCh2();
@@ -329,50 +264,17 @@ test('late manifest results from an old selection cannot replace the active prev
   await expect(page.locator('#video-player source')).toHaveAttribute('src', 'http://host/ch2.m3u8');
 });
 
-test('Back stops the active preview from the list and preview controls', async ({ page }) => {
-  await setup(page, { enabled: true });
+test('Back keeps the preview and opens the side menu', async ({ page }) => {
+  await setup(page);
   await selectFirst(page);
-  await expect(page.locator('[data-preview-list-close] .key-back svg')).toBeVisible();
-  await expect(page.locator('[data-preview-list-close]')).toContainText('Close');
   await page.keyboard.press('Escape');
-  await expect(page.locator(PANEL)).toBeHidden();
-  await expect(page.locator('#view-channels')).not.toHaveClass(/has-live-preview/);
-
-  await selectFirst(page);
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator(MUTE)).toHaveClass(/focused/);
-  await expect(page.locator('[data-preview-list-close]')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.locator(PANEL)).toBeHidden();
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await expect(page.locator('#view-channels')).not.toHaveClass(/has-live-preview/);
-});
-
-test('mute preserves a cross-day date group and its following program', async ({ page }) => {
-  await setup(page, { enabled: true, epg: LAYOUT_EPG, now: '2026-09-15T23:30:00Z' });
-  await selectFirst(page);
-  const separator = page.locator(`${PANEL} .live-preview-day-separator`);
-  const rows = page.locator(`${PANEL} .live-preview-program`);
-  const visibleRows = page.locator(`${PANEL} .live-preview-program:visible`);
-  await expect(separator).toContainText('09/16');
-  await expect(rows).toHaveCount(4);
-  await expect(visibleRows).toHaveCount(4);
-  await expect(visibleRows.last()).toContainText('Program 5');
-  await expect(visibleRows.last()).toHaveClass(/last-visible/);
-
-  await page.locator(MUTE).click();
-
-  await expect(page.locator(MUTE)).toHaveAttribute('aria-pressed', 'true');
-  await expect(separator).toBeVisible();
-  await expect(separator).toContainText('09/16');
-  await expect(rows).toHaveCount(4);
-  await expect(visibleRows).toHaveCount(4);
-  await expect(visibleRows.last()).toContainText('Program 5');
-  await expect(visibleRows.last()).toHaveClass(/last-visible/);
+  await expect(page.locator('.nav-menu')).toHaveClass(/\bopen\b/);
+  await expect(page.locator(PANEL)).toBeVisible();
+  await expect(page.locator('#view-channels')).toHaveClass(/has-live-preview/);
 });
 
 test('committed numeric channel entry opens full screen directly', async ({ page }) => {
-  await setup(page, { enabled: true });
+  await setup(page);
   await page.keyboard.press('2');
   await expect(page.locator('.number-entry')).not.toHaveClass(/visible/);
   await expect(page.locator('#view-player')).toBeVisible();
@@ -384,7 +286,7 @@ test('committed numeric channel entry opens full screen directly', async ({ page
 });
 
 test('numeric channel entry during a preview opens full screen', async ({ page }) => {
-  await setup(page, { enabled: true });
+  await setup(page);
   await selectFirst(page);
   await page.keyboard.press('2');
   await expect(page.locator('#view-player')).toBeVisible();
@@ -395,128 +297,22 @@ test('numeric channel entry during a preview opens full screen', async ({ page }
   );
 });
 
-test('D-pad enters controls and returns to the selected row without stopping', async ({ page }) => {
-  await setup(page, { enabled: true });
+test('the preview takes no focus: Right from a row stays in the list', async ({ page }) => {
+  await setup(page);
   await selectFirst(page);
   await page.mouse.move(0, 0);
   // The pointer left the list, so the first key only shows the focused row.
   await page.keyboard.press('ArrowRight');
   await expect(page.locator(`${ROW}.focused`)).toContainText('ch1');
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator(MUTE)).toHaveClass(/focused/);
-  await expect(page.locator(`${PANEL} .live-preview-legend`)).toContainText('Mute');
-  await expect(page.locator('[data-preview-list-open]')).toBeVisible();
-  await expect(page.locator('[data-preview-list-controls]')).toBeVisible();
-  await expect(page.locator('[data-preview-list-close]')).toBeVisible();
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator(FULLSCREEN)).toHaveClass(/focused/);
-  await page.locator(FAVORITE).hover();
-  await expect(page.locator(FAVORITE)).toHaveClass(/focused/);
-  await expect(page.locator(`${PANEL} .live-preview-legend`)).toHaveCount(0);
-  await page.keyboard.press('ArrowUp');
-  await expect(page.locator(FAVORITE)).toHaveClass(/focused/);
-  await expect(page.locator(FAVORITE)).toHaveAttribute('aria-pressed', 'false');
-  await page.keyboard.press('Enter');
-  await expect(page.locator(FAVORITE)).toHaveAttribute('aria-pressed', 'true');
-  await page.keyboard.press('ArrowDown');
-  await expect(page.locator(FULLSCREEN)).toHaveClass(/focused/);
-  await page.keyboard.press('ArrowLeft');
-  await expect(page.locator(MUTE)).toHaveClass(/focused/);
   const before = await snapshot(page);
-  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowRight');
   await expect(page.locator(`${ROW}.focused`)).toContainText('ch1');
-  await expect(page.locator('[data-preview-list-open]')).toBeVisible();
-  await expect(page.locator('[data-preview-list-controls]')).toBeVisible();
-  await expect(page.locator('[data-preview-list-close]')).toBeVisible();
+  await expect(page.locator(`${PANEL} .focused, ${PANEL} [data-focusable], ${PANEL} button`)).toHaveCount(0);
   expect(await snapshot(page)).toEqual(before);
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowLeft');
-  await expect(page.locator(`${ROW}.focused`)).toContainText('ch1');
-});
-
-test('CH- from the controls after the pointer left moves the list, not just the ring', async ({ page }) => {
-  await setup(page, { enabled: true });
-  await selectFirst(page);
-  await page.mouse.move(0, 0);
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator(MUTE)).toHaveClass(/focused/);
-
-  await page.keyboard.press('PageDown');
-  await expect(page.locator(MUTE)).not.toHaveClass(/focused/);
-  await expect(page.locator(`${ROW}.focused`)).toHaveCount(1);
-});
-
-function stableChannelKey(url: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < url.length; i++) {
-    hash ^= url.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0');
-}
-
-// Recently Watched has no virtual step, so CH- falls back to a spatial move.
-test('CH- from the controls in Recently Watched moves the list', async ({ page }) => {
-  await page.addInitScript((keys) => {
-    localStorage.setItem('iptv_recently_watched_live', JSON.stringify(
-      keys.map((channelKey, i) => ({ channelKey, updatedAt: Date.now() - i * 1000 })),
-    ));
-  }, ['http://host/ch1.m3u8', 'http://host/ch2.m3u8'].map(stableChannelKey));
-  await setup(page, { enabled: true });
-  await page.locator('[data-group="builtin:recently-watched"]').click();
-  const rows = page.locator('#channel-browser .channel-main .recent-item');
-  await expect(rows).toHaveCount(2);
-  await rows.first().click();
-  await expect(page.locator(`${PANEL} .live-preview-channel`)).toHaveText('ch1');
-  await page.mouse.move(0, 0);
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator(MUTE)).toHaveClass(/focused/);
-
-  await page.keyboard.press('PageDown');
-  await expect(page.locator(MUTE)).not.toHaveClass(/focused/);
-  await expect(rows.nth(1)).toHaveClass(/\bfocused\b/);
-  await expect(rows.first()).not.toHaveClass(/\bfocused\b/);
-});
-
-test('Left from the controls after the list scrolls resumes at a row in view', async ({ page }) => {
-  const events: string[] = [];
-  page.on('console', (msg) => events.push(msg.text()));
-  const lines = ['#EXTM3U'];
-  for (let i = 1; i <= 300; i++) {
-    lines.push(`#EXTINF:-1 tvg-id="ch${String(i)}" group-title="Group 1",ch${String(i)}`,
-      `http://host/ch${String(i)}.m3u8`);
-  }
-  await setup(page, { enabled: true, playlist: lines.join('\n') });
-  await selectFirst(page);
-  await page.mouse.move(0, 0);
-  // The pointer left the list, so the first key only shows the focused row.
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator(`${ROW}.focused`)).toContainText('ch1');
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator(MUTE)).toHaveClass(/focused/);
-
-  // The wheel scrolls the list under the pointer while the controls keep focus.
-  const main = page.locator('#channel-browser .channel-main');
-  await main.evaluate((el) => { el.scrollTop = 3000; });
-  await expect(main.locator('[data-list-position="0"]')).toHaveCount(0);
-
-  await page.keyboard.press('ArrowLeft');
-  const focused = page.locator(`${ROW}.focused`);
-  await expect(focused).toHaveCount(1);
-  const view = await main.boundingBox();
-  const row = await focused.boundingBox();
-  if (!view || !row) throw new Error('no layout');
-  expect(row.y).toBeGreaterThanOrEqual(view.y - 1);
-  expect(row.y + row.height).toBeLessThanOrEqual(view.y + view.height + 1);
-  expect(await main.evaluate((el) => el.scrollTop)).toBeGreaterThan(2000);
-  expect(events.some((text) => /event=nav\.focus\.repaired reason=detached scope=live\.channels/.test(text)
-    && /\blist=channel target=nearest\b/.test(text))).toBe(true);
 });
 
 test('entering channel edit mode closes the active preview', async ({ page }) => {
-  await setup(page, { enabled: true });
+  await setup(page);
   await selectFirst(page);
   await page.evaluate(() => document.dispatchEvent(
     new KeyboardEvent('keydown', { keyCode: 405, bubbles: true }),
@@ -524,11 +320,10 @@ test('entering channel edit mode closes the active preview', async ({ page }) =>
   await expect(page.locator(PANEL)).toBeHidden();
   await expect(page.locator('#view-channels')).not.toHaveClass(/has-live-preview/);
   await expect(page.locator('.channel-view')).toHaveClass(/editing/);
-  await expect(page.locator('.preview-list-hints')).toHaveCount(0);
 });
 
 test('entering favorite management closes the active preview', async ({ page }) => {
-  await setup(page, { enabled: true });
+  await setup(page);
   await selectFirst(page);
   await page.evaluate(() => document.dispatchEvent(
     new KeyboardEvent('keydown', { keyCode: 404, bubbles: true }),
@@ -538,85 +333,11 @@ test('entering favorite management closes the active preview', async ({ page }) 
   await expect(page.locator(PANEL)).toBeHidden();
   await expect(page.locator('#view-channels')).not.toHaveClass(/has-live-preview/);
   await expect(page.locator('.favorite-hints')).toBeVisible();
-  await expect(page.locator('.preview-list-hints')).toHaveCount(0);
 });
 
-test('preview controls stay transparent until focused and reuse focus tokens', async ({ page }) => {
-  await setup(page, { enabled: true });
+test('expand keeps the video identity, source, time, audio and loading counters', async ({ page }) => {
+  await setup(page);
   await selectFirst(page);
-  await page.mouse.move(0, 0);
-  // The pointer left the list, so the first key only shows the focused row.
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator(`${ROW}.focused`)).toContainText('ch1');
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator(MUTE)).toHaveClass(/focused/);
-  await expect.poll(() => page.locator(MUTE).evaluate(element =>
-    getComputedStyle(element).backgroundColor,
-  )).not.toBe('rgba(0, 0, 0, 0)');
-  await expect.poll(() => page.locator(MUTE).evaluate(element => {
-    const probe = document.createElement('span');
-    probe.style.border = '1px solid var(--focus-ring)';
-    document.body.appendChild(probe);
-    const settled = getComputedStyle(element).borderColor
-      === getComputedStyle(probe).borderColor;
-    probe.remove();
-    return settled;
-  })).toBe(true);
-  const styles = async () => page.locator(PANEL).evaluate(panel => {
-    const focusProbe = document.createElement('span');
-    focusProbe.style.border = '1px solid var(--focus-ring)';
-    document.body.appendChild(focusProbe);
-    const focusRing = getComputedStyle(focusProbe).borderColor;
-    focusProbe.remove();
-    const controls = getComputedStyle(panel.querySelector('.live-preview-controls')!);
-    const badge = getComputedStyle(panel.querySelector('.live-preview-badge')!);
-    const buttonElement = panel.querySelector('.live-preview-button.focused')!;
-    const button = getComputedStyle(buttonElement);
-    const idleButton = getComputedStyle(
-      panel.querySelector('.live-preview-button:not(.focused)')!,
-    );
-    const icon = getComputedStyle(buttonElement.querySelector('svg')!);
-    return {
-      controlsBackground: controls.backgroundColor,
-      buttonBackground: button.backgroundColor,
-      buttonBorder: button.borderColor,
-      focusRing,
-      idleButtonBackground: idleButton.backgroundColor,
-      badgeRadius: badge.borderRadius,
-      buttonRadius: button.borderRadius,
-      // --radius holds a calc() the build scales, so resolve it on a probe.
-      appRadius: (() => {
-        const probe = document.createElement('div');
-        probe.style.borderRadius = 'var(--radius)';
-        document.body.appendChild(probe);
-        const value = getComputedStyle(probe).borderTopLeftRadius;
-        probe.remove();
-        return value;
-      })(),
-      iconFilter: icon.filter,
-    };
-  });
-  const dark = await styles();
-  expect(dark.controlsBackground).toBe('rgba(0, 0, 0, 0)');
-  expect(dark.buttonBackground).not.toBe('rgba(0, 0, 0, 0)');
-  expect(dark.idleButtonBackground).toBe('rgba(0, 0, 0, 0)');
-  expect(dark.buttonBackground).not.toBe(dark.idleButtonBackground);
-  expect(dark.buttonBorder).toBe(dark.focusRing);
-  expect(parseFloat(dark.badgeRadius)).toBeGreaterThan(parseFloat(dark.buttonRadius));
-  expect(dark.buttonRadius).toBe(dark.appRadius);
-  expect(dark.iconFilter).not.toBe('none');
-
-  await page.evaluate(() => { document.documentElement.dataset.overlay = 'frosted'; });
-  const frosted = await styles();
-  expect(frosted.controlsBackground).toBe('rgba(0, 0, 0, 0)');
-  expect(frosted.buttonBackground).toBe(dark.buttonBackground);
-  expect(frosted.idleButtonBackground).toBe(dark.idleButtonBackground);
-});
-
-test('expand restores audio while preserving video identity, source, time and loading counters', async ({ page }) => {
-  await setup(page, { enabled: true });
-  await selectFirst(page);
-  await page.locator(MUTE).click();
   await expectPreviewGeometry(page);
   await page.locator('#video-player').evaluate(video => {
     let position = 37;
@@ -625,14 +346,13 @@ test('expand restores audio while preserving video identity, source, time and lo
     });
   });
   const before = await snapshot(page);
-  expect(before.muted).toBe(true);
-  await page.locator(FULLSCREEN).click();
+  await page.keyboard.press('Enter');
   await expect(page.locator('#view-player')).toBeVisible();
   await expect.poll(() => page.locator('#video-player').evaluate(
     video => video.getBoundingClientRect().width,
   )).toBe(1920);
   const expanded = await snapshot(page);
-  expect(expanded).toEqual({ ...before, muted: false });
+  expect(expanded).toEqual(before);
   await page.keyboard.press('ArrowLeft');
   await expect(page.locator('#player-sidebar')).toBeVisible();
   await page.keyboard.press('Escape');
@@ -644,13 +364,14 @@ test('expand restores audio while preserving video identity, source, time and lo
   await expectPreviewGeometry(page);
   expect(await snapshot(page)).toEqual(expanded);
 
+  // The pointer's click on the video watches it full screen too.
   await page.locator('.live-preview-slot').click({ position: { x: 30, y: 80 } });
   await expect(page.locator('#view-player')).toBeVisible();
   expect(await snapshot(page)).toEqual(expanded);
 });
 
 test('selecting the active Live tab keeps an existing preview session', async ({ page }) => {
-  await setup(page, { enabled: true });
+  await setup(page);
   await selectFirst(page);
   const before = await snapshot(page);
   await enterTab(page, 'live');
@@ -660,12 +381,12 @@ test('selecting the active Live tab keeps an existing preview session', async ({
 });
 
 test('real desktop MSE attachment survives expand and minimize without reload', async ({ page }) => {
-  await setup(page, { enabled: true, stub: false });
+  await setup(page, { stub: false });
   await selectFirst(page);
   await expect.poll(() => page.locator('#video-player').getAttribute('src')).toMatch(/^blob:/);
   await expect.poll(async () => (await snapshot(page)).plays).toBeGreaterThan(0);
   const before = await snapshot(page);
-  await page.locator(FULLSCREEN).click();
+  await page.keyboard.press('Enter');
   await expect(page.locator('#view-player')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator(PANEL)).toBeVisible();
@@ -673,9 +394,14 @@ test('real desktop MSE attachment survives expand and minimize without reload', 
   expect(await snapshot(page)).toEqual(before);
 });
 
+// A layout change (as a theme or text size makes) refits the upcoming rows.
+async function relayout(page: Page): Promise<void> {
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+}
+
 test('complete future rows fit every theme and text scale without touching the footer', async ({ page }) => {
   test.setTimeout(120_000);
-  await setup(page, { enabled: true, epg: LAYOUT_EPG, now: '2026-09-15T23:30:00Z' });
+  await setup(page, { epg: LAYOUT_EPG, now: '2026-09-15T23:30:00Z' });
   await selectFirst(page);
   await expect(page.locator(`${PANEL} .live-preview-title`)).toHaveText(LONG_TITLE);
   await expect(page.locator(`${PANEL} .live-preview-time-range`))
@@ -687,12 +413,11 @@ test('complete future rows fit every theme and text scale without touching the f
   for (const theme of THEMES) {
     for (const size of sizes) {
       await test.step(`${theme.id} at ${size}%`, async () => {
-        // ThemeService applies these same root attributes; clicking mute rerenders and refits the panel.
         await page.evaluate(({ themeId, textSize }) => {
           document.documentElement.dataset.theme = themeId;
           document.documentElement.dataset.textSize = textSize;
         }, { themeId: theme.id, textSize: size });
-        await page.locator(MUTE).click();
+        await relayout(page);
         await expectPreviewGeometry(page);
         const layout = await page.locator(PANEL).evaluate(panel => {
           const details = panel.querySelector('.live-preview-details')!.getBoundingClientRect();
@@ -717,7 +442,7 @@ test('complete future rows fit every theme and text scale without touching the f
             }),
           };
         });
-        expect(layout.titleLines).toBeGreaterThanOrEqual(1.9);
+        expect(layout.titleLines).toBeGreaterThanOrEqual(0.9);
         expect(layout.titleLines).toBeLessThanOrEqual(2.1);
         expect(layout.count).toBeLessThanOrEqual(4);
         if (size === '100') expect(layout.count).toBeGreaterThan(0);
@@ -737,11 +462,7 @@ test('complete future rows fit every theme and text scale without touching the f
 });
 
 test('keeps long cross-midnight EPG aligned at default and large text sizes', async ({ page }) => {
-  await setup(page, {
-    enabled: true,
-    epg: LAYOUT_EPG,
-    now: '2026-09-15T23:30:00Z',
-  });
+  await setup(page, { epg: LAYOUT_EPG, now: '2026-09-15T23:30:00Z' });
   await expect(page.locator(ROW).first()).toContainText(LONG_TITLE);
   await selectFirst(page);
   await expect(page.locator(`${PANEL} .live-preview-message`)).toHaveCount(0);
@@ -749,7 +470,7 @@ test('keeps long cross-midnight EPG aligned at default and large text sizes', as
   await expectPreviewGeometry(page);
 
   await page.evaluate(() => { document.documentElement.dataset.textSize = '150'; });
-  await page.locator(MUTE).click();
+  await relayout(page);
   await page.mouse.move(0, 0);
   await expectPreviewGeometry(page);
   await expect.poll(() => page.locator('#video-player').evaluate((video: HTMLVideoElement) =>
@@ -758,7 +479,7 @@ test('keeps long cross-midnight EPG aligned at default and large text sizes', as
 });
 
 test('waiting or a failed manifest retains the preview slot and channel identity', async ({ page }) => {
-  await setup(page, { enabled: true });
+  await setup(page);
   await selectFirst(page);
   const before = await page.locator('.live-preview-slot').boundingBox();
   await page.locator('#video-player').evaluate(video => video.dispatchEvent(new Event('waiting')));
@@ -766,17 +487,16 @@ test('waiting or a failed manifest retains the preview slot and channel identity
   await expectPreviewGeometry(page);
   expect(await page.locator('.live-preview-slot').boundingBox()).toEqual(before);
   await page.route('http://host/ch2.m3u8', route => route.fulfill({ status: 503, body: '' }));
-  await page.locator(ROW).nth(1).click();
+  await page.keyboard.press('ArrowDown');
   await expect(page.locator(`${PANEL} .live-preview-channel`)).toHaveText('ch2');
   await expectPreviewGeometry(page);
   expect(await page.locator('.live-preview-slot').boundingBox()).toEqual(before);
 });
 
-test('EPG shows current program, up to four future rows, and favorite action', async ({ page }) => {
-  await setup(page, { enabled: true, epg: true });
+test('EPG shows the current program, up to four future rows, and the favorite mark', async ({ page }) => {
+  await setup(page, { epg: true });
   await expect(page.locator(ROW).first()).toContainText('Program 1');
   await selectFirst(page);
-  await expect(page.locator(`${PANEL} .live-preview-clock`)).toHaveText('12:00');
   await expect(page.locator(`${PANEL} .live-preview-title`)).toHaveText('Program 1');
   await expect(page.locator(`${PANEL} .live-preview-time-range`)).toHaveText('11:00–13:00');
   await expect(page.locator(`${PANEL} .live-preview-program`)).toHaveCount(4);
@@ -788,85 +508,71 @@ test('EPG shows current program, up to four future rows, and favorite action', a
   ]);
   await expect(page.locator(`${PANEL} .live-preview-remaining`)).toHaveText('60 min left');
   await expect(page.locator(`${PANEL} .live-preview-badge`)).toContainText('LIVE');
-  await expect(page.locator(FAVORITE)).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator(`${PANEL} .live-preview-favorite`)).toHaveCount(0);
   const geometry = await page.evaluate(() => {
     const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
     const slot = box('.live-preview-slot');
     const badge = box('.live-preview-badge');
-    const favorite = box('.live-preview-favorite');
-    const channel = box('.live-preview-channel');
-    const clock = box('.live-preview-clock');
     return {
       badgeLeft: badge.left - slot.left, badgeTop: badge.top - slot.top,
-      favoriteAbove: favorite.bottom <= slot.top,
-      favoriteGap: favorite.left - channel.right,
-      clockGap: clock.left - favorite.right,
-      clockRight: clock.right,
-      panelRight: box('#live-preview').right,
+      headingBelow: box('.live-preview-heading').top >= slot.bottom,
     };
   });
   expect(geometry.badgeLeft).toBeGreaterThanOrEqual(0);
   expect(geometry.badgeLeft).toBeLessThan(60);
   expect(geometry.badgeTop).toBeGreaterThanOrEqual(0);
   expect(geometry.badgeTop).toBeLessThan(60);
-  expect(geometry.favoriteAbove).toBe(true);
-  expect(geometry.favoriteGap).toBeGreaterThanOrEqual(0);
-  expect(geometry.clockGap).toBeGreaterThan(0);
-  expect(geometry.panelRight - geometry.clockRight).toBe(36);
+  expect(geometry.headingBelow).toBe(true);
+
+  // Green on the row marks the channel a favorite; the pane shows it.
+  await page.evaluate(() => document.dispatchEvent(
+    new KeyboardEvent('keydown', { keyCode: 404, bubbles: true }),
+  ));
+  await expect(page.locator(`${PANEL} .live-preview-favorite .favorite-glyph.set`)).toBeVisible();
 
   await page.locator(`${PANEL} .live-preview-channel`).evaluate(element => {
     element.textContent = 'Very Long Channel Name '.repeat(20);
   });
   const truncation = await page.evaluate(() => {
     const channel = document.querySelector<HTMLElement>('.live-preview-channel')!;
-    const favorite = document.querySelector('.live-preview-favorite')!.getBoundingClientRect();
-    const clock = document.querySelector('.live-preview-clock')!.getBoundingClientRect();
     return {
       clipped: channel.scrollWidth > channel.clientWidth,
       overflow: getComputedStyle(channel).textOverflow,
-      favoriteBeforeClock: favorite.right < clock.left,
+      inside: channel.getBoundingClientRect().right
+        <= document.querySelector('#live-preview')!.getBoundingClientRect().right,
     };
   });
-  expect(truncation).toEqual({
-    clipped: true,
-    overflow: 'ellipsis',
-    favoriteBeforeClock: true,
-  });
-  await page.clock.setFixedTime(new Date('2026-09-15T12:01:59Z'));
-  await page.locator(FAVORITE).click();
-  await expect(page.locator(`${PANEL} .live-preview-clock`)).toHaveText('12:01');
-  await page.locator(ROW).nth(1).click();
+  expect(truncation).toEqual({ clipped: true, overflow: 'ellipsis', inside: true });
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator(`${PANEL} .live-preview-channel`)).toHaveText('ch2');
   await expect(page.locator(`${PANEL} .live-preview-title`)).toHaveCount(0);
   await expect(page.locator(`${PANEL} .live-preview-program`)).toHaveCount(0);
 });
 
-test('Stop removes preview and section returns do not restart it', async ({ page }) => {
-  await setup(page, { enabled: true });
+test('Stop removes the preview until focus moves on', async ({ page }) => {
+  await setup(page);
   await selectFirst(page);
-  await page.keyboard.press('ArrowRight');
   await stop(page);
   await expect(page.locator(PANEL)).toBeHidden();
   await expect(page.locator(`${ROW}.focused`)).toHaveCount(1);
-  await selectFirst(page);
-  await enterTab(page, 'epg');
-  await expect(page.locator('#view-epg')).toBeVisible();
-  const stopped = await snapshot(page);
-  expect(stopped.source).toBe('');
-  await enterTab(page, 'live');
+  // Resting on the same row does not restart it.
+  await page.waitForTimeout(1500);
   await expect(page.locator(PANEL)).toBeHidden();
-  expect(await snapshot(page)).toMatchObject({
-    sameNode: true, source: '', src: null, plays: stopped.plays,
-  });
+  expect((await snapshot(page)).source).toBe('');
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator(`${PANEL} .live-preview-channel`)).toHaveText('ch2');
+});
+
+test('leaving Live stops the preview', async ({ page }) => {
+  await setup(page);
   await selectFirst(page);
   await enterTab(page, 'settings');
-  await page.locator('#cancel-settings').click();
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await expect(page.locator(PANEL)).toBeHidden();
+  await expect(page.locator('#view-settings')).toBeVisible();
+  expect((await snapshot(page)).source).toBe('');
 });
 
 test('a current program without a following schedule has one concise empty state', async ({ page }) => {
   await setup(page, {
-    enabled: true,
     epg: `<tv><channel id="ch1"><display-name>ch1</display-name></channel>
       <programme channel="ch1" start="20260915110000 +0000" stop="20260915130000 +0000">
         <title>Program 1</title></programme></tv>`,
@@ -879,34 +585,20 @@ test('a current program without a following schedule has one concise empty state
   await expectPreviewGeometry(page);
 });
 
-test('background resume restores preview presentation and mute through the normal lifecycle', async ({ page }) => {
-  await setup(page, { enabled: true });
+test('background resume restores preview presentation through the normal lifecycle', async ({ page }) => {
+  await setup(page);
   await selectFirst(page);
-  await page.locator(MUTE).click();
   await setHidden(page, true);
   await setHidden(page, false);
   await expect(page.locator(PANEL)).toBeVisible();
   await expect(page.locator(`${PANEL} .live-preview-channel`)).toHaveText('ch1');
-  await expect(page.locator(MUTE)).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#view-player')).toBeHidden();
   await expectPreviewGeometry(page);
   expect((await snapshot(page)).source).toBe('http://host/ch1.m3u8');
 });
 
-test('a preference disabled while backgrounded prevents preview playback resuming', async ({ page }) => {
-  await setup(page, { enabled: true });
-  await selectFirst(page);
-  await setHidden(page, true);
-  await page.evaluate(() => localStorage.setItem('iptv_live_preview', 'false'));
-  const suspended = await snapshot(page);
-  await setHidden(page, false);
-  await expect(page.locator(PANEL)).toBeHidden();
-  await expect(page.locator('#view-channels')).not.toHaveClass(/has-live-preview/);
-  expect(await snapshot(page)).toMatchObject({ source: '', src: null, plays: suspended.plays });
-});
-
-test('disabling the playing source in Settings leaves no preview or stale controls', async ({ page }) => {
-  await setup(page, { enabled: true });
+test('disabling the playing source in Settings leaves no preview', async ({ page }) => {
+  await setup(page);
   await selectFirst(page);
   await enterTab(page, 'settings');
   await page.locator('[data-settings-target="sources"]').click();
@@ -916,7 +608,6 @@ test('disabling the playing source in Settings leaves no preview or stale contro
   await expect(page.locator(PANEL)).toBeHidden();
   await expect(page.locator(ROW)).toHaveCount(0);
   await expect(page.locator('#view-channels')).not.toHaveClass(/has-live-preview/);
-  await expect(page.locator(`${PANEL} .focused`)).toHaveCount(0);
   expect((await snapshot(page)).source).toBe('');
 });
 
@@ -924,7 +615,7 @@ test.describe('display timezone', () => {
   test.use({ timezoneId: 'Etc/GMT-2' });
 
   test('future times follow device or feed time without changing current EPG', async ({ page }) => {
-    await setup(page, { enabled: true, epg: true });
+    await setup(page, { epg: true });
     await expect(page.locator(ROW).first()).toContainText('Program 1');
     await selectFirst(page);
     await expect(page.locator(`${PANEL} .live-preview-program time`).first())
@@ -949,11 +640,11 @@ test('essential animation mode preserves geometry and continuity', async ({ page
   await page.addInitScript(() => {
     localStorage.setItem('iptv_animation_mode', JSON.stringify('essential'));
   });
-  await setup(page, { enabled: true });
+  await setup(page);
   await selectFirst(page);
   await expectPreviewGeometry(page);
   const before = await snapshot(page);
-  await page.locator(FULLSCREEN).click();
+  await page.keyboard.press('Enter');
   await expect(page.locator('#view-player')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator(PANEL)).toBeVisible();

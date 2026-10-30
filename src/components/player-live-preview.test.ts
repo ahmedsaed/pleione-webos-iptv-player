@@ -150,6 +150,12 @@ afterEach(() => {
 });
 
 describe('Player live preview', () => {
+  // The TV mutes the video itself; the player remembers it per presentation.
+  const muteVideo = () => {
+    video.muted = true;
+    emit('volumechange');
+  };
+
   it('exposes a snapshot only for an active live session, independent of presentation', () => {
     expect(player.getLivePlaybackSnapshot()).toBeNull();
     expect(player.isInLivePreview()).toBe(false);
@@ -272,7 +278,7 @@ describe('Player live preview', () => {
     player.enterLivePreview();
     video.currentTime = 45;
     video.volume = 0.35;
-    player.togglePreviewMute();
+    muteVideo();
     const src = vi.spyOn(video, 'src', 'set');
     vi.clearAllMocks();
     const parent = video.parentNode;
@@ -299,34 +305,6 @@ describe('Player live preview', () => {
     expect(video.volume).toBe(0.35);
   });
 
-  it('keeps preview mute across channel changes and clears it after stop', () => {
-    player.play(0);
-    player.enterLivePreview();
-    video.volume = 0.3;
-    emit('volumechange');
-    player.togglePreviewMute();
-    expect(onStateChanged).toHaveBeenCalled();
-    player.play(1);
-    expect(video.muted).toBe(true);
-    expect(video.volume).toBe(0.3);
-    expect(player.getLivePlaybackSnapshot()?.muted).toBe(true);
-    player.stop();
-    expect(player.getLivePlaybackSnapshot()).toBeNull();
-    expect(video.muted).toBe(false);
-    player.togglePreviewMute();
-    expect(video.muted).toBe(false);
-    player.enterLivePreview();
-    player.play(0);
-    expect(video.muted).toBe(false);
-    expect(video.volume).toBe(0.3);
-    player.togglePreviewMute();
-    player.play(1);
-    expect(video.muted).toBe(true);
-    player.exitLivePreview();
-    expect(video.muted).toBe(false);
-    expect(video.volume).toBe(0.3);
-  });
-
   it('captures the current live audio state on stop before a volumechange event arrives', () => {
     player.play(0);
     changeAudioBeforeEvent();
@@ -349,7 +327,7 @@ describe('Player live preview', () => {
     player.enterLivePreview();
     video.volume = 0.25;
     emit('volumechange');
-    player.togglePreviewMute();
+    muteVideo();
     playing();
     player.suspend();
     const fresh = currentVideo();
@@ -374,7 +352,7 @@ describe('Player live preview', () => {
     player.play(0);
     player.enterLivePreview();
     video.volume = 0.4;
-    player.togglePreviewMute();
+    muteVideo();
     player.playVod(vod);
     expect(video.muted).toBe(false);
     video.volume = 0.9;
@@ -407,7 +385,7 @@ describe('Player live preview', () => {
     'ignores stale %s events from a replaced video element',
     (event) => {
       player.play(0);
-      player.togglePreviewMute();
+      muteVideo();
       playing();
       player.suspend();
       player.resume();

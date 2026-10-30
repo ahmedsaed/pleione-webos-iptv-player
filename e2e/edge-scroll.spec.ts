@@ -4,8 +4,6 @@ import {
   enterTab,
   neuterVideo,
   routeLiveManifest,
-  routePlaylist,
-  seedPlaylist,
   type Page,
 } from './helpers';
 import type { Locator } from '@playwright/test';
@@ -626,64 +624,6 @@ test('player sidebar tabs scroll without switching playlists and stop when the p
   await expect(sidebar.locator('.sidebar-tab.active')).toHaveText(active ?? '');
   await expect(sidebar.locator('.sidebar-ch-item.playing')).toHaveText(playing ?? '');
   expect(await ownerScope(page)).toBe(scope);
-});
-
-test('Guide dates scroll to their end and back without selecting a day', async ({ page }) => {
-  const xmltv = (d: Date) => `${d.toISOString().replace(/[-:T]/g, '').slice(0, 14)} +0000`;
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const programmes: string[] = [];
-  for (const ch of ['ch1', 'ch2']) {
-    for (let day = -7; day < 14; day++) {
-      for (const hour of [0, 12]) {
-        const start = new Date(today.getTime() + (day * 24 + hour) * 3_600_000);
-        const stop = new Date(start.getTime() + 12 * 3_600_000);
-        programmes.push(`<programme channel="${ch}" start="${xmltv(start)}" stop="${xmltv(stop)}">`
-          + `<title>${hour ? 'Bravo' : 'Alpha'}</title></programme>`);
-      }
-    }
-  }
-  await routePlaylist(page, [
-    '#EXTM3U',
-    '#EXTINF:-1 tvg-id="ch1",Channel 1',
-    'http://streams.example.com/ch1.m3u8',
-    '#EXTINF:-1 tvg-id="ch2",Channel 2',
-    'http://streams.example.com/ch2.m3u8',
-  ].join('\n'));
-  await page.route('**/epg.xml', (route) => route.fulfill({ status: 200, contentType: 'application/xml',
-    body: `<?xml version="1.0" encoding="UTF-8"?><tv><channel id="ch1"/><channel id="ch2"/>${programmes.join('')}</tv>` }));
-  await seedPlaylist(page);
-  await page.addInitScript(() => localStorage.setItem('iptv_epg_url', JSON.stringify('http://host/epg.xml')));
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
-  await expect(page.locator('#view-epg')).toBeVisible();
-  const dates = page.locator('#view-epg .epg-date-list');
-  await expect(dates.locator('.epg-date-item').first()).toBeVisible();
-  await expect(page.locator('#epg-programmes .epg-programme-item').first()).toBeVisible();
-  await expectEdgeTrack(dates);
-  const selected = await dates.locator('.epg-date-item.selected').textContent();
-  const programme = await page.locator('#epg-programmes .epg-programme-item').first().textContent();
-  const scope = await ownerScope(page);
-  const before = await pageScroll(page);
-  const start = await left(dates);
-
-  await pointAt(page, dates, 'center');
-  await enterEdgeAndDwell(page, dates, 'right');
-  const end = await maxLeft(dates);
-  await expect.poll(() => left(dates), { timeout: 10_000 }).toBeGreaterThanOrEqual(end - 1);
-  await expectStopped(page, dates);
-
-  await pointAt(page, dates, 'center');
-  await enterEdgeAndDwell(page, dates, 'left');
-  await expectScrolling(dates, 'left', end, Math.min(24, end / 2));
-  await expect.poll(() => left(dates), { timeout: 10_000 }).toBeLessThanOrEqual(Math.min(start, 1));
-
-  await expect(dates.locator('.epg-date-item.selected')).toHaveCount(1);
-  await expect(dates.locator('.epg-date-item.selected')).toHaveText(selected ?? '');
-  await expect(page.locator('#epg-programmes .epg-programme-item').first()).toHaveText(programme ?? '');
-  expect(await ownerScope(page)).toBe(scope);
-  expect(await pageScroll(page)).toEqual(before);
 });
 
 // channelKey mirrors src/utils/channel.ts (fnv1a of the URL sans query/fragment).

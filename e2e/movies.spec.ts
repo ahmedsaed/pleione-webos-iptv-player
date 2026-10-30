@@ -1,4 +1,4 @@
-import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab, leaveVod, openSideMenu, type Page, pressStepsAndReadPlayer } from './helpers';
+import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab, leaveVod, openSideMenu, type Page, pressStepsAndReadPlayer, openGuide } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 
 // A minimal ASS body with one dialogue active from t=0, so assjs renders it as
@@ -201,8 +201,7 @@ test('gives a scroll-end spacer only to flex containers', async ({ page }) => {
   await enterTab(page, 'movies');
   await expect(page.locator('#view-movies .catalog-category-rail')).toBeVisible();
   expect(await misplaced()).toEqual([]);
-  await enterTab(page, 'epg');
-  await expect(page.locator('#view-epg .epg-date-list')).toBeVisible();
+  await openGuide(page);
   expect(await misplaced()).toEqual([]);
 });
 

@@ -1317,13 +1317,6 @@ export class Player {
     };
   }
 
-  togglePreviewMute(): void {
-    if (!this.livePreviewMode || !this.liveSessionActive || !this.videoEl) return;
-    this.previewMuteOverride = !this.videoEl.muted;
-    this.videoEl.muted = this.previewMuteOverride;
-    this.onPlaybackStateChanged();
-  }
-
   private rememberLiveAudio(): void {
     if (!this.videoEl) return;
     if (this.livePreviewMode) this.previewMuteOverride = !!this.videoEl.muted;

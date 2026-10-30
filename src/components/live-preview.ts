@@ -17,12 +17,7 @@ import { morph } from '../utils/morph';
 import { isSourceEnabled } from '../utils/playlist';
 import { addDisplayDays, displayDayKey, formatDayLabel, formatTime } from '../utils/time';
 import type { ChannelList } from './channel-list';
-import {
-  favoriteIcon,
-  FULLSCREEN_ICON,
-  VOLUME_ICON,
-  VOLUME_MUTED_ICON,
-} from './icons';
+import { favoriteIcon } from './icons';
 import { liveBadge } from './live-badge';
 import type { Player } from './player';
 import { PlayerPresentation } from './player-presentation';
@@ -44,21 +39,19 @@ export interface LivePreviewOptions {
   ) => void;
   expansionBlocked: () => boolean;
   isFavorite: (channel: Channel) => boolean;
-  toggleFavorite: (channel: Channel) => void;
-  // Pleione's three panes: the preview is always on, follows focus (the
-  // host retunes it), and OK on a row watches full screen.
-  paneMode?: () => boolean;
-  // Up off the top control: the host hands the keys to its header.
-  onLeaveUp?: () => void;
+  // Live shows no preview, such as in the Guide.
+  suppressed?: () => boolean;
   // OK on a row started watching `index` full screen.
   onWatch?: (index: number) => void;
 }
 
-type PreviewControl = 'favorite' | 'mute' | 'fullscreen';
-
+// Live's preview pane: the player's one stream in a window beside the rows,
+// with the channel and its programs. It follows focus (the host retunes it
+// once focus rests) and takes no focus itself: OK on a row watches full
+// screen, the pointer's click on the video too. The stream keeps the
+// player's audio state, so it plays with sound unless the player is muted.
 export class LivePreview {
   private state: LivePlaybackSnapshot | null = null;
-  private control: PreviewControl | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly presentation: PlayerPresentation;
   private channelSet: Channel[] | null = null;
@@ -74,31 +67,11 @@ export class LivePreview {
       () => this.slot,
     );
     container.setAttribute('data-self-activate', '');
-    container.addEventListener('nav:hover', event => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const action = target.closest<HTMLElement>('[data-preview-action]')?.dataset.previewAction;
-      if (action === 'favorite' || action === 'mute' || action === 'fullscreen') this.focus(action);
-    });
-    container.addEventListener('nav:unhover', event => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const action = target.closest<HTMLElement>('[data-preview-action]')?.dataset.previewAction;
-      if (action !== this.control) return;
-      this.blur();
-      this.options.channelList.setPreviewFocused(false);
-    });
     container.addEventListener('click', event => {
       const target = event.target;
-      if (!this.state || !(target instanceof Element)) return;
-      const action = target.closest<HTMLElement>('[data-preview-action]')?.dataset.previewAction;
-      if (action === 'favorite') {
-        this.focus('favorite');
-        this.toggleFavorite();
-      } else if (action === 'mute') {
-        this.focus('mute');
-        this.options.player.togglePreviewMute();
-      } else if (action === 'fullscreen' || target.closest('.live-preview-slot')) {
+      if (this.state && target instanceof Element && target.closest('.live-preview-slot')) {
+        const index = this.options.player.getCurrentIndex();
+        if (index >= 0) this.options.onWatch?.(index);
         this.expand();
       }
     });
@@ -106,34 +79,25 @@ export class LivePreview {
 
   get isShowing(): boolean { return this.state !== null; }
 
-  private get panes(): boolean { return this.options.paneMode?.() ?? false; }
-
-  private enabled(): boolean {
-    return this.panes || StorageService.getLivePreview();
-  }
-
   /** The channel the preview plays, or null. */
   get previewIndex(): number | null {
     return this.options.player.getLivePlaybackSnapshot() && this.options.player.isInLivePreview()
       ? this.options.player.getCurrentIndex() : null;
   }
 
-  /** Pleione: retune the preview to `index`, muted, without leaving the list. */
+  private get suppressed(): boolean {
+    return this.options.suppressed?.() ?? false;
+  }
+
+  /** Retune the preview to `index` without leaving the list. */
   retune(index: number, scope: ChannelScope | null): void {
-    if (!this.panes || this.options.channelList.isEditing
+    if (this.options.channelList.isEditing || this.suppressed
         || this.options.getCurrentView() !== 'channels') return;
     this.selectChannel(index, undefined, scope, 'preview');
   }
 
-  private get focused(): boolean { return this.control !== null; }
-
   private get slot(): HTMLElement | null {
     return this.container.querySelector('.live-preview-slot');
-  }
-
-  hintState(): 'off' | 'ready' | 'active' {
-    if (!this.enabled()) return 'off';
-    return this.options.player.getLivePlaybackSnapshot() ? 'active' : 'ready';
   }
 
   beforeViewChange(view: PreviewHostView): void {
@@ -148,49 +112,28 @@ export class LivePreview {
     scope: ChannelScope | null = null,
     mode: 'preview' | 'expand-current' | 'fullscreen' = 'preview',
   ): void {
-    if (!this.enabled() || catchup || mode === 'fullscreen') {
+    if (catchup || mode === 'fullscreen') {
+      if (!catchup) this.options.onWatch?.(index);
       this.options.playFullscreen(index, catchup, scope);
       return;
     }
     const channel = PlaylistService.getByIndex(index);
     if (!channel) return;
     const current = this.options.player.getLivePlaybackSnapshot();
-    if (this.panes && mode !== 'preview') {
+    const same = !!current && channelKey(current.channel) === channelKey(channel)
+      && current.channel.url === channel.url;
+    if (mode !== 'preview') {
       // OK watches: the preview's own stream goes full screen when it is
       // this channel, else the channel starts full screen.
       this.options.onWatch?.(index);
-      if (this.isShowing && current && channelKey(current.channel) === channelKey(channel)
-          && current.channel.url === channel.url) {
-        this.expand();
-      } else {
-        this.options.playFullscreen(index, catchup, scope);
-      }
-      return;
-    }
-    if (mode === 'expand-current' && this.isShowing && current
-        && channelKey(current.channel) === channelKey(channel)
-        && current.channel.url === channel.url) {
-      this.expand();
+      if (this.isShowing && same) this.expand();
+      else this.options.playFullscreen(index, catchup, scope);
       return;
     }
     this.options.player.enterLivePreview();
-    if (!current || channelKey(current.channel) !== channelKey(channel)
-        || current.channel.url !== channel.url) {
-      this.options.player.play(index, undefined, scope);
-    }
+    if (!same) this.options.player.play(index, undefined, scope);
     this.options.channelList.render(false);
     this.refresh();
-  }
-
-  focusControls(): boolean {
-    if (this.options.channelList.isEditing) return false;
-    return this.focus();
-  }
-
-  leaveControls(restoreListFocus: boolean): void {
-    this.blur();
-    this.options.channelList.setPreviewFocused(false);
-    if (restoreListFocus) this.options.channelList.restoreFocus();
   }
 
   handleAction(action: Action): boolean {
@@ -198,31 +141,16 @@ export class LivePreview {
       this.close();
       return true;
     }
-    if (!this.options.channelList.isEditing && this.handleControlAction(action)) return true;
     return false;
-  }
-
-  handleBack(): boolean {
-    if (this.panes && this.focused) {
-      this.leaveControls(true);
-      return true;
-    }
-    if (this.handleControlAction('back')) return true;
-    // The pane stays: Back goes on to the side menu.
-    if (this.panes || !this.isShowing) return false;
-    this.close();
-    return true;
   }
 
   close(): void {
     if (!this.isShowing && !this.options.player.isInLivePreview()) return;
-    this.leaveControls(false);
     this.options.player.stop();
   }
 
   returnFromFullscreen(restoreListFocus: boolean): boolean {
-    if (!this.enabled()
-        || !this.options.player.getLivePlaybackSnapshot()) return false;
+    if (this.suppressed || !this.options.player.getLivePlaybackSnapshot()) return false;
     this.options.player.enterLivePreview();
     this.options.showChannels(restoreListFocus);
     this.options.channelList.setPlaying(this.options.player.getCurrentIndex());
@@ -242,7 +170,6 @@ export class LivePreview {
     const { player } = this.options;
     if (!player.isInLivePreview()) return true;
     const state = player.getLivePlaybackSnapshot();
-    if (!this.enabled()) return false;
     if (state && !this.isChannelAvailable(state.channel)) {
       showToast(t('preview.sourceUnavailable'));
       return false;
@@ -254,11 +181,11 @@ export class LivePreview {
     const { channelView, player } = this.options;
     const currentView = this.options.getCurrentView();
     const state = player.getLivePlaybackSnapshot();
-    if (state && player.isInLivePreview() && !this.enabled()) {
+    if (state && player.isInLivePreview() && this.suppressed && currentView === 'channels') {
       player.stop();
       return;
     }
-    const shouldShow = currentView === 'channels' && this.enabled() && !!state;
+    const shouldShow = currentView === 'channels' && !this.suppressed && !!state;
     if (shouldShow && state && !this.isChannelAvailable(state.channel)) {
       player.stop();
       showToast(t('preview.sourceUnavailable'));
@@ -278,7 +205,6 @@ export class LivePreview {
   private applyState(state: LivePlaybackSnapshot | null): void {
     this.state = state;
     if (!state) {
-      this.control = null;
       hide(this.container);
       this.stopRefreshTimer();
       return;
@@ -303,60 +229,9 @@ export class LivePreview {
     this.timer = null;
   }
 
-  private focus(control: PreviewControl = 'mute'): boolean {
-    if (!this.state) return false;
-    this.control = control;
-    this.options.channelList.setPreviewFocused(true, `preview-${control}`);
-    this.render();
-    return true;
-  }
-
-  private blur(): void {
-    if (!this.control) return;
-    this.control = null;
-    this.render();
-  }
-
-  private handleControlAction(action: Action): boolean {
-    if (!this.focused) return false;
-    if (action === 'back') {
-      this.close();
-    } else if (action === 'left'
-        && (this.control === 'mute' || this.control === 'favorite')) {
-      this.leaveControls(true);
-    } else if (action === 'left' && this.control === 'fullscreen') {
-      this.focus('mute');
-    } else if (action === 'right' && this.control === 'mute') {
-      this.focus('fullscreen');
-    } else if (action === 'up' && this.control !== 'favorite') {
-      this.focus('favorite');
-    } else if (action === 'up' && this.panes && this.options.onLeaveUp) {
-      this.leaveControls(true);
-      this.options.onLeaveUp();
-    } else if (action === 'down' && this.control === 'favorite') {
-      this.focus('fullscreen');
-    } else if (action === 'select') {
-      if (this.control === 'favorite') this.toggleFavorite();
-      else if (this.control === 'mute') this.options.player.togglePreviewMute();
-      else this.expand();
-    } else if (action === 'green') {
-      this.toggleFavorite();
-    } else if (action !== 'up' && action !== 'down') {
-      return false;
-    }
-    return true;
-  }
-
-  private toggleFavorite(): void {
-    if (!this.state) return;
-    this.options.toggleFavorite(this.state.channel);
-    this.render();
-  }
-
   private expand(): void {
     if (!this.isShowing || this.options.channelList.isEditing
         || this.options.expansionBlocked()) return;
-    this.leaveControls(false);
     this.options.showPlayer();
     this.options.player.showOSD();
   }
@@ -388,8 +263,6 @@ export class LivePreview {
     state: LivePlaybackSnapshot | null,
     wasShowing: boolean,
   ): void {
-    const restoreListFocus = this.focused && currentView === 'channels';
-    this.options.channelList.setPreviewFocused(false);
     if (wasShowing && currentView === 'player' && state) {
       this.stopRefreshTimer();
       this.presentation.showFullscreen();
@@ -401,11 +274,10 @@ export class LivePreview {
       this.options.channelList.setPlaying(-1);
       this.options.channelList.render(false);
     }
-    if (restoreListFocus) this.options.channelList.restoreFocus();
   }
 
   private programTimeRange(program: Programme): string {
-    return `${formatTime(program.start)}\u2013${formatTime(program.stop)}`;
+    return `${formatTime(program.start)}–${formatTime(program.stop)}`;
   }
 
   private renderUpcoming(upcoming: Programme[], now: Date): Safe {
@@ -444,44 +316,20 @@ export class LivePreview {
     const remaining = program
       ? Math.max(0, Math.ceil((program.stop.getTime() - now.getTime()) / 60000)) : 0;
     const favorite = this.options.isFavorite(state.channel);
-    const muteLabel = t(state.muted ? 'preview.unmute' : 'preview.mute');
     const message = state.status === 'loading' ? t('common.loading')
       : state.status === 'buffering' ? t('preview.connecting')
       : state.status === 'error' ? t('player.streamError') : '';
     morph(this.container, html`
       <div class="live-preview-heading" data-key="preview-heading">
         <span class="live-preview-channel">${state.channel.name}</span>
-        <button class="live-preview-favorite ${this.control === 'favorite' ? 'focused' : ''}"
-                data-key="preview-favorite" data-focusable data-preview-action="favorite"
-                aria-label="${t('player.toggleFavorite')}" aria-pressed="${String(favorite)}">
-          ${raw(favoriteIcon(favorite))}
-        </button>
-        <time class="live-preview-clock" datetime="${formatTime(now)}">${formatTime(now)}</time>
+        ${favorite ? html`<span class="live-preview-favorite" data-key="preview-favorite"
+              title="${t('channel.favorites')}">${raw(favoriteIcon(true))}</span>` : ''}
       </div>
-      <div class="live-preview-slot" data-key="preview-slot" aria-label="${t('preview.fullScreen')}">
+      <div class="live-preview-slot" data-key="preview-slot">
         ${liveBadge('live-preview-badge')}
         ${message ? html`
           <div class="live-preview-message"
                data-key="preview-message">${message}</div>` : ''}
-        <div class="live-preview-controls" data-key="preview-controls" data-nav-container>
-          <button class="live-preview-button ${this.control === 'mute' ? 'focused' : ''}"
-                  data-key="preview-mute" data-focusable data-preview-action="mute"
-                  aria-label="${muteLabel}" aria-pressed="${String(state.muted)}">
-            ${raw(state.muted ? VOLUME_MUTED_ICON : VOLUME_ICON)}
-          </button>
-          <button class="live-preview-button ${this.control === 'fullscreen' ? 'focused' : ''}"
-                  data-key="preview-fullscreen" data-focusable data-preview-action="fullscreen"
-                  aria-label="${t('preview.fullScreen')}">
-            ${raw(FULLSCREEN_ICON)}
-          </button>
-        </div>
-        ${this.control === 'mute' || this.control === 'fullscreen' ? html`
-          <div class="live-preview-legend" data-key="preview-legend">
-            <span class="live-preview-hint"><span class="live-preview-key">OK</span>
-              <span class="live-preview-hint-label">${
-              this.control === 'mute' ? muteLabel : t('preview.fullScreen')
-            }</span></span>
-          </div>` : ''}
       </div>
       <div class="live-preview-details" data-key="preview-details">
         ${program ? html`<h2 class="live-preview-title">${program.title}</h2>` : ''}
@@ -494,7 +342,7 @@ export class LivePreview {
                aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(fraction * 100)}">
             <div style="width:${fraction * 100}%"></div>
           </div>` : ''}
-        ${this.panes && program?.description ? html`
+        ${program?.description ? html`
           <p class="live-preview-description">${program.description}</p>` : ''}
         ${upcoming.length ? html`
           <div class="live-preview-upcoming">

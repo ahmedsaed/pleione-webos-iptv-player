@@ -1243,7 +1243,7 @@ test('the Red and Blue keys act inside the manager instead of leaving it', async
   }
   await remoteKey(page, 406);
   await expect(view).toBeVisible();
-  await expect(page.locator('#view-epg')).toBeHidden();
+  await expect(page.locator('#view-channels')).toBeHidden();
 });
 
 test('backgrounding closes the manager and restores concealment', async ({ page }) => {

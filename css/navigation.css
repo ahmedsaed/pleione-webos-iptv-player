@@ -36,9 +36,3 @@
   border-color: var(--accent) !important;
   background: var(--bg-primary);
 }
-
-.epg-programme.focused {
-  background: var(--accent-dim) !important;
-  border-color: var(--accent) !important;
-  z-index: 10;
-}

@@ -195,9 +195,7 @@ try {
     const { context, page } = await newPage();
     await openLive(page);
     await remote(page, KEY.RED);
-    await page.locator('#view-epg').waitFor({ state: 'visible' });
-    await page.locator('.live-badge').first().waitFor({ state: 'visible', timeout: 20_000 });
-    await remote(page, KEY.RIGHT);
+    await page.locator('#live-guide .guide-cell.live').first().waitFor({ state: 'visible', timeout: 20_000 });
     await shoot(page, 'guide.png');
     await context.close();
   }

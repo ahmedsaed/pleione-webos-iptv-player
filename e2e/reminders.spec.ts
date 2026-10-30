@@ -98,28 +98,6 @@ test('Cancel dismisses the prompt and stays on the channel list', async ({ page 
   await expect(page.locator('#manage-reminders')).toContainText('(0)');
 });
 
-test('the EPG reminder legend opens management and Back returns to it', async ({ page }) => {
-  await routePlaylist(page);
-  await seedPlaylist(page);
-  await page.goto('/');
-
-  await enterTab(page, 'epg');
-  const entry = page.locator('.epg-reminder-entry');
-  await expect(entry).toBeVisible();
-  await entry.hover();
-  await expect(entry).toHaveCSS('font-size', '15px');
-  await expect(entry).toHaveCSS('font-weight', '600');
-  await expect(entry).toHaveCSS('box-shadow', 'none');
-  await expect(entry).toHaveCSS('border-left-color', 'rgba(0, 0, 0, 0)');
-  await expect(entry).toHaveCSS('transform', 'none');
-  await entry.click();
-  await expect(page.locator('#view-reminders')).toBeVisible();
-
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#view-epg')).toBeVisible();
-  await expect(entry).toHaveClass(/focused/);
-});
-
 test('long reminder text stays on one line inside the card', async ({ page }) => {
   await routePlaylist(page);
   await seedPlaylist(page);

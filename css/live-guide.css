@@ -1,0 +1,296 @@
+/* The Guide inside Live: beside the groups column, a channel column and a
+   time grid of about two and a half hours under a ruler of half hours. The
+   grid's boxes are percentages of the window, so no width is measured. */
+
+#view-channels.live-guide-mode #live-preview {
+  display: none !important;
+}
+
+.live-guide-mode #channel-browser {
+  flex: 0 0 auto;
+}
+
+#live-guide {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  padding-right: 80px;
+}
+
+.guide {
+  position: relative;
+  height: 100%;
+}
+
+.guide-ruler {
+  display: flex;
+  height: 56px;
+}
+
+.guide-day {
+  flex: 0 0 300px;
+  margin-right: 16px;
+  padding-left: 8px;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 48px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.guide-times {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.guide-time {
+  position: absolute;
+  top: 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  font-size: 22px;
+  line-height: 32px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.guide-now-pill {
+  position: absolute;
+  top: 9px;
+  z-index: 2;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--catalog-sort-selected-bg);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 30px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.guide-body {
+  position: absolute;
+  top: 56px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  overflow: hidden;
+}
+
+/* The now line runs down the grid behind the rows: the opaque cells hide
+   it, so it shows in the gaps and never crosses a title. */
+.guide-now-line {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 316px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.guide-now-line i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+}
+
+/* Fixed height: LiveGuide's ROW_STRIDE stays this height plus the 8px gap,
+   both at text size. */
+.guide-row {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  height: calc(80px * var(--font-scale));
+}
+
+.guide-channel {
+  flex: 0 0 300px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  margin-right: 16px;
+  padding-left: 8px;
+}
+
+.guide-number {
+  flex-shrink: 0;
+  width: 44px;
+  font-size: 22px;
+  text-align: right;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.guide-channel.watching .guide-number {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.guide-channel .channel-logo-wrap,
+.guide-channel .channel-logo-placeholder {
+  width: 48px;
+  height: 48px;
+}
+
+.guide-channel .channel-logo {
+  max-width: 48px;
+  max-height: 48px;
+  border-radius: var(--radius);
+}
+
+.guide-channel .channel-logo-placeholder {
+  border-radius: var(--radius);
+}
+
+.guide-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guide-cells {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* The transparent border is the gap between cells, and the ring when focused. */
+.guide-cell {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  border: 3px solid transparent;
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  background-clip: padding-box;
+}
+
+.guide-cell.past,
+.guide-cell.empty {
+  background: var(--bg-secondary);
+  background-clip: padding-box;
+}
+
+/* The tint sits on the cell's own color, so the focused cell stays opaque
+   over the now line. */
+.guide-cell.focused {
+  background:
+    linear-gradient(rgb(var(--accent-rgb) / 0.22), rgb(var(--accent-rgb) / 0.22)),
+    var(--bg-tertiary);
+  background-clip: padding-box;
+}
+
+.guide-cell.past.focused,
+.guide-cell.empty.focused {
+  background:
+    linear-gradient(rgb(var(--accent-rgb) / 0.22), rgb(var(--accent-rgb) / 0.22)),
+    var(--bg-secondary);
+  background-clip: padding-box;
+}
+
+.guide-cell-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 22px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.guide-cell-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.guide-cell.past .guide-cell-title,
+.guide-cell.empty .guide-cell-title {
+  color: var(--text-secondary);
+}
+
+.guide-cell.focused .guide-cell-title {
+  color: var(--text-primary);
+}
+
+.guide-cell-title svg {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+  fill: currentColor;
+  color: var(--text-secondary);
+  vertical-align: 0;
+}
+
+.guide-cell-title .epg-bell-glyph.set {
+  color: var(--text-primary);
+  filter: none;
+}
+
+.guide-cell-time {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 18px;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guide-cell-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 4px;
+  background: var(--accent);
+}
+
+/* The now line's mark inside a live cell: a short tick at the progress
+   bar's end, below the text. */
+.guide-cell-progress:not(.resume)::after {
+  position: absolute;
+  right: -1px;
+  bottom: 0;
+  width: 2px;
+  height: 14px;
+  background: var(--accent);
+  content: '';
+}
+
+/* How much of a past program's catch-up was watched. */
+.guide-cell-progress.resume {
+  background: var(--text-secondary);
+}
+
+.guide-cell-badge {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 22px;
+}

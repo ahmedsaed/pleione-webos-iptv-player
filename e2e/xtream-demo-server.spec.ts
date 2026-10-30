@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { test, expect, enterTab, type Page } from './helpers';
+import { test, expect, enterTab, type Page, openGuide } from './helpers';
 
 // Drives the real app against the demo Xtream server (scripts/xtream-demo-server.mjs)
 // with real, locally generated media. Needs ffmpeg; the first run encodes the
@@ -89,9 +89,8 @@ test('adds the demo server in Settings and loads live channels with a guide', as
   await expect(first.locator('.channel-now')).toContainText(/Program \d+/);
   await expect(page.locator('[data-group="source:Group 1"]')).toBeVisible();
 
-  await enterTab(page, 'epg');
-  await expect(page.locator('#view-epg')).toBeVisible();
-  await expect(page.locator('#view-epg')).toContainText(/Program \d+/);
+  await openGuide(page);
+  await expect(page.locator('#live-guide')).toContainText(/Program \d+/);
 });
 
 test('lists the Movies and Series catalogs', async ({ page }) => {
