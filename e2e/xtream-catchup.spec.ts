@@ -1,4 +1,4 @@
-import { test, expect, type Page } from './helpers';
+import { test, expect, openGuide, type Page } from './helpers';
 
 test.use({ timezoneId: 'UTC' });
 
@@ -81,16 +81,15 @@ test('plays an archived Xtream program through the provider timeshift endpoint',
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
 
+  await openGuide(page);
+  await key(page, 37); // LEFT reaches the program before the live one
+  await expect(page.locator('#live-guide .guide-cell.focused')).toContainText('Earlier Show');
+
   const archiveRequest = page.waitForRequest(request =>
     request.url().includes('action=get_simple_data_table'));
-  await key(page, 403); // RED opens the EPG
-  await expect(page.locator('#view-epg')).toBeVisible();
-  await expect(page.locator('#epg-programmes [data-prog-idx="0"]')).toContainText('Earlier Show');
-  await archiveRequest;
-
   const timeshiftRequest = page.waitForRequest(request => request.url().includes('/timeshift/'));
-  await key(page, 39); // RIGHT focuses programs
-  await key(page, 13); // ENTER plays the selected archived program
+  await key(page, 13); // ENTER plays the archived program
+  await archiveRequest;
 
   await expect(page.locator('#view-player')).toBeVisible();
   expect((await timeshiftRequest).url()).toBe(
@@ -103,16 +102,15 @@ test('blocks an Xtream program whose archive recording is unavailable', async ({
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
 
+  await openGuide(page);
+  await key(page, 37);
+  await expect(page.locator('#live-guide .guide-cell.focused')).toContainText('Earlier Show');
   const archiveResponse = page.waitForResponse(response =>
     response.url().includes('action=get_simple_data_table'));
-  await key(page, 403);
-  await expect(page.locator('#view-epg')).toBeVisible();
-  await expect(page.locator('#epg-programmes [data-prog-idx="0"]')).toContainText('Earlier Show');
-  await archiveResponse;
-  await key(page, 39);
   await key(page, 13);
+  await archiveResponse;
 
-  await expect(page.locator('#view-epg')).toBeVisible();
+  await expect(page.locator('#view-channels.live-guide-mode')).toBeVisible();
   await expect(page.locator('#view-player')).toBeHidden();
   await expect(page.locator('.toast.visible')).toHaveText("This program isn't available for catch-up.");
 });

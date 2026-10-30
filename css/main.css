@@ -137,7 +137,6 @@ html[data-animation="full"] .search-view,
 html[data-animation="full"] .search-virtual-scroll,
 html[data-animation="full"] .reminder-manager-view,
 html[data-animation="full"] .group-picker,
-html[data-animation="full"] .epg-date-list,
 html[data-animation="full"] .parental-options-pane,
 html[data-animation="full"] .sidebar-tabs,
 html[data-animation="full"] .menu-items,
@@ -259,13 +258,9 @@ h3 {
   text-align: center;
 }
 
-/* At launch it is the whole screen, on Home's backdrop. */
+/* At launch it is the whole screen, on Home's backdrop (data-backdrop). */
 .loading-splash {
   color: #fff;
-  background:
-    radial-gradient(1200px 700px at 15% 10%, rgba(91, 79, 230, 0.35), transparent 60%),
-    radial-gradient(1000px 650px at 90% 95%, rgba(194, 24, 91, 0.16), transparent 60%),
-    linear-gradient(160deg, #0b0d2e 0%, #07081c 55%, #0d0718 100%);
 }
 
 .loading-mark {
@@ -317,9 +312,6 @@ html[data-theme="daylight"] .loading-splash,
 html[data-theme="pastel-latte"] .loading-splash,
 html[data-theme="paper-light"] .loading-splash {
   color: var(--text-primary);
-  background:
-    radial-gradient(1200px 700px at 15% 10%, rgba(91, 79, 230, 0.16), transparent 60%),
-    linear-gradient(160deg, #f3f4fb 0%, #e8eaf5 55%, #f4ecf2 100%);
 }
 
 html[data-theme="daylight"] .loading-spinner,
@@ -330,7 +322,7 @@ html[data-theme="paper-light"] .loading-spinner {
 }
 
 /* Buttons */
-button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggle):not(.epg-reminder-entry):not(.parental-row):not(.live-category-row) {
+button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggle):not(.parental-row):not(.live-category-row) {
   transform-origin: center;
   transition:
     transform 160ms ease,
@@ -341,8 +333,8 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
     color var(--transition);
 }
 
-button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggle):not(.epg-reminder-entry):not(.parental-row):not(.live-category-row):not(.search-icon):not(.catalog-remove-mark):hover,
-button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggle):not(.epg-reminder-entry):not(.parental-row):not(.live-category-row):not(.search-icon):not(.catalog-remove-mark).focused {
+button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggle):not(.parental-row):not(.live-category-row):not(.search-icon):not(.catalog-remove-mark):hover,
+button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggle):not(.parental-row):not(.live-category-row):not(.search-icon):not(.catalog-remove-mark).focused {
   transform: scale(1.03);
 }
 
@@ -626,7 +618,6 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
   height: 22px;
   vertical-align: -3px;
 }
-.epg-prog-title .epg-bell-glyph { margin-left: 8px; }
 .epg-bell-glyph.unset { color: var(--text-muted); opacity: 0.5; }
 .epg-bell-glyph.set {
   color: var(--warning);

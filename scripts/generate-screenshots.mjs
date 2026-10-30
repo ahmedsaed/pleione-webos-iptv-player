@@ -793,6 +793,14 @@ async function setupPage(page, {
 
 // Dispatch a webOS remote keycode (colored buttons aren't real keyboard keys).
 const KEY = { RED: 403, GREEN: 404, YELLOW: 405, BLUE: 406 };
+
+// Left through the Guide's past until the partly-watched program has focus.
+async function focusResumeCell(page) {
+  await page.locator('#live-guide .guide-cell.live').first().waitFor({ state: 'visible', timeout: 10_000 });
+  const focused = page.locator('#live-guide .guide-cell.focused .guide-cell-progress.resume');
+  for (let n = 0; n < 12 && !(await focused.count()); n++) await remote(page, 37);
+  await focused.waitFor({ state: 'visible' });
+}
 async function remote(page, keyCode) {
   await page.evaluate((kc) => document.dispatchEvent(
     new KeyboardEvent('keydown', { keyCode: kc, bubbles: true })), keyCode);
@@ -978,19 +986,15 @@ try {
     await context.close();
   }
 
-  // 2) Program guide (EPG) — the three panes, with catch-up resume markers on the
+  // 2) Program guide — Live's timeline, with catch-up resume markers on the
   //    hero channel's already-aired programs: a "Watched" badge on a finished show
-  //    and a "Resume" badge + progress bar on a partly-watched one. Focus the
-  //    partly-watched row so the markers and the live row below are centered.
+  //    and a "Resume" badge + progress bar on a partly-watched one. Step back
+  //    through time to the partly-watched program.
   {
     const { context, page } = await newPage({ catchup: true });
     await gotoChannels(page, base);
-    await remote(page, KEY.RED); // open EPG
-    await page.locator('#view-epg').waitFor({ state: 'visible' });
-    await page.locator('.live-badge').first().waitFor({ state: 'visible', timeout: 10_000 });
-    await page.locator('.epg-catchup-badge').first().waitFor({ state: 'visible', timeout: 10_000 });
-    await remote(page, 39); // RIGHT → focus the programmes column (first row)
-    for (let n = 0; n < 6; n++) await remote(page, 40); // DOWN → "The Evening Debate" (21:00, Resume)
+    await remote(page, KEY.RED); // open the Guide
+    await focusResumeCell(page);
     await page.waitForTimeout(300);
     await clearToasts(page);
     await page.waitForTimeout(400);
@@ -1004,11 +1008,8 @@ try {
   {
     const { context, page } = await newPage({ catchup: true });
     await gotoChannels(page, base);
-    await remote(page, KEY.RED); // open EPG
-    await page.locator('#view-epg').waitFor({ state: 'visible' });
-    await page.locator('.epg-catchup-badge').first().waitFor({ state: 'visible', timeout: 10_000 });
-    await remote(page, 39); // RIGHT → focus the programmes column
-    for (let n = 0; n < 6; n++) await remote(page, 40); // DOWN → "The Evening Debate" (21:00, Resume)
+    await remote(page, KEY.RED); // open the Guide
+    await focusResumeCell(page);
     await remote(page, 13); // ENTER → open the resume prompt
     await page.locator('.catchup-resume-prompt').waitFor({ state: 'visible' });
     await page.locator('.catchup-resume-btn').first().waitFor({ state: 'visible' });

@@ -1,11 +1,11 @@
-import { test, expect, enterTab, showHome, type Page } from './helpers';
+import { test, expect, enterTab, openGuide, routePlaylist, showHome, type Page } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 
 // Every page without artwork or video sits on Pleione's shared backdrop:
 // one layer on the view itself, with the section's tint, and nothing in the
 // page painting over it.
 
-type Section = 'home' | 'epg' | 'movies' | 'series' | 'search' | 'settings';
+type Section = 'home' | 'live' | 'epg' | 'movies' | 'series' | 'search' | 'settings';
 
 async function expectBackdrop(page: Page, view: string, section: Section, clear: string[]): Promise<void> {
   const viewEl = page.locator(view);
@@ -58,7 +58,7 @@ async function seedResume(page: Page): Promise<void> {
   });
 }
 
-test('Home, Search, and the Guide sit on the shared backdrop', async ({ page }) => {
+test('Home, Search, Live, and the Guide sit on the shared backdrop', async ({ page }) => {
   await seedXtream(page);
   await showHome(page);
   await page.goto('/');
@@ -67,10 +67,30 @@ test('Home, Search, and the Guide sit on the shared backdrop', async ({ page }) 
   await enterTab(page, 'search');
   await expectBackdrop(page, '#view-search', 'search', ['.search-layout']);
 
-  await enterTab(page, 'epg');
-  await expectBackdrop(page, '#view-epg', 'epg', ['.epg-view', '.epg-programmes-pane']);
-  await page.locator('.epg-reminder-entry').click();
-  await expectBackdrop(page, '#view-reminders', 'epg', ['.reminder-manager-view']);
+  // Live's list in the Live card's tint, and its Guide in the Guide card's.
+  await enterTab(page, 'live');
+  await expect(page.locator('#channel-browser .channel-item').first()).toBeVisible();
+  await expectBackdrop(page, '#view-channels', 'live', ['.channel-view', '.sidebar', '.channel-main']);
+  await openGuide(page);
+  await expectBackdrop(page, '#view-channels', 'epg', ['#live-guide', '.guide', '.guide-body']);
+});
+
+test('the launch splash sits on Home\'s backdrop, and later loads drop it', async ({ page }) => {
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await routePlaylist(page);
+  await page.route('**/playlist.m3u', async (route) => {
+    await held;
+    await route.fallback();
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem('iptv_playlists', JSON.stringify([{ name: 'Test', url: 'http://host/playlist.m3u' }]));
+  });
+  await page.goto('/');
+  await expectBackdrop(page, '#view-loading', 'home', ['.loading-container']);
+  release();
+  await expect(page.locator('#channel-browser .channel-item').first()).toBeVisible();
+  await expect(page.locator('#view-loading')).not.toHaveAttribute('data-backdrop', /./);
 });
 
 test('Settings, every Settings page, Reminders, and Parental controls sit on the shared backdrop', async ({ page }) => {

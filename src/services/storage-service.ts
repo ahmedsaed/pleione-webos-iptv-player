@@ -1084,13 +1084,6 @@ export const StorageService = {
     set('auto_play', val);
   },
 
-  getLivePreview(): boolean {
-    return get<unknown>('live_preview', false) === true;
-  },
-  setLivePreview(val: boolean): void {
-    set('live_preview', val);
-  },
-
   getAnimationMode(): AnimationMode {
     const mode = get<unknown>('animation_mode', DEFAULT_ANIMATION_MODE);
     return isAnimationMode(mode) ? mode : DEFAULT_ANIMATION_MODE;
@@ -1137,20 +1130,9 @@ export const StorageService = {
     set('text_size', size);
   },
 
-  // Hidden (no UI): Pleione hides the Guide tab unless this is set.
-  getShowGuideTab(): boolean {
-    return get<boolean>('show_guide_tab', false) === true;
-  },
-
   // Hidden (no UI): open Live instead of Home at launch.
   getStartOnLive(): boolean {
     return get<boolean>('start_on_live', false) === true;
-  },
-
-  // Hidden (no UI): the upstream Live list instead of Pleione's three panes
-  // with the Guide inside Live.
-  getClassicLive(): boolean {
-    return get<boolean>('classic_live', false) === true;
   },
 
   getInterfaceSize(): InterfaceSize {

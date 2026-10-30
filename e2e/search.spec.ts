@@ -5,6 +5,7 @@ import {
   SAMPLE_M3U,
   enterTab,
   readUserDataStore,
+  openGuide,
 } from './helpers';
 
 function xmltvDate(date: Date): string {
@@ -540,8 +541,7 @@ test('Back steps from recent searches and results to the box, then to the side m
   });
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
-  await enterTab(page, 'epg');
-  await expect(page.locator('#view-epg')).toBeVisible();
+  await openGuide(page);
   await enterSearch(page);
 
   const input = page.locator('.search-box-input');

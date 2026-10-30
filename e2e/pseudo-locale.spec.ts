@@ -38,7 +38,7 @@ test('expands localized channel navigation without clipping', async ({ page }) =
   await expect(page.locator('.nav-menu-item[data-section="live"]')).toContainText('[!!');
   expect(await textOverflow(page, [
     '.nav-menu-label',
-    '.channel-count',
+    '.live-header-count',
   ].join(','))).toEqual([]);
   await expect(page.locator('.group-name').first()).toHaveCSS('text-overflow', 'ellipsis');
 });

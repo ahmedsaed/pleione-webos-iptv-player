@@ -20,9 +20,9 @@ import { isLunaAvailable, lunaRequest, type LunaRequestHandle } from './services
 import { ChannelList } from './components/channel-list';
 import { Player } from './components/player';
 import { LivePreview } from './components/live-preview';
-import { EpgGrid } from './components/epg-grid';
 import { LiveHeader, type LiveMode } from './components/live-header';
 import { LiveDwell } from './components/live-dwell';
+import { LiveGuide } from './components/live-guide';
 import { Settings, type SaveAction, type SourceTarget } from './components/settings';
 import { Sidebar } from './components/sidebar';
 import { type Section, sectionForView } from './components/sections';
@@ -68,15 +68,9 @@ import type {
 } from './types';
 import { getLocale, initLocale, resolveLocale, setLocale, t, tp } from './i18n';
 
-// Pleione's Live (three panes, the Guide inside Live) unless the hidden
-// classic preference, which the upstream E2E suite sets, asks for the old list.
-function livePanes(): boolean {
-  return !StorageService.getClassicLive();
-}
-
 const log = createLogger('App');
 
-type ViewName = 'home' | 'channels' | 'player' | 'epg' | 'settings' | 'parental-controls' | 'reminders'
+type ViewName = 'home' | 'channels' | 'player' | 'settings' | 'parental-controls' | 'reminders'
   | 'loading' | 'movies' | 'series' | 'search';
 
 class App {
@@ -88,22 +82,32 @@ class App {
   private channelList!: ChannelList;
   private player!: Player;
   private livePreview!: LivePreview;
-  private epgGrid!: EpgGrid;
-  // Pleione's Live: one header over the list and the Guide, and the preview
-  // that follows focus once it rests.
+  // Live: one header over the list and the Guide, the preview that follows
+  // focus once it rests, and the Guide's time grid beside the groups.
   private liveHeader!: LiveHeader;
+  private liveGuide!: LiveGuide;
+  private liveMode: LiveMode = 'list';
+  // In the Guide, whether the time grid or the groups column has the keys.
+  private guideKeys: 'grid' | 'groups' = 'grid';
   private readonly liveDwell = new LiveDwell(CONFIG.PLAYER.LIVE_PREVIEW_DWELL_MS,
-    (index) => this.livePreview.retune(index, {
-      group: this.channelList.group,
-      playlist: this.channelList.playlist || undefined,
-    }));
+    (index) => {
+      // Resting on a locked channel asks for nothing: OK does.
+      const channel = PlaylistService.getByIndex(index);
+      if (channel && !ParentalControlService.decision(liveParentalRequest(channel, 'preview')).allowed) {
+        this.livePreview.close();
+        return;
+      }
+      this.livePreview.retune(index, {
+        group: this.channelList.group,
+        playlist: this.channelList.playlist || undefined,
+      });
+    });
   private settings!: Settings;
   private parentalControls!: ParentalControls;
   private parentalPinPrompt = new ParentalPinPrompt();
   private sidebar!: Sidebar;
   private reminderPrompt = new ReminderPrompt();
   private reminderManager!: ReminderManager;
-  private reminderManagerOrigin: 'settings' | 'epg' = 'settings';
   private home!: Home;
   private navMenu!: NavMenu;
   private searchBox!: SearchBox;
@@ -164,7 +168,6 @@ class App {
       home: $('#view-home')!,
       channels: $('#view-channels')!,
       player: $('#view-player')!,
-      epg: $('#view-epg')!,
       settings: $('#view-settings')!,
       'parental-controls': $('#view-parental-controls')!,
       reminders: $('#view-reminders')!,
@@ -182,7 +185,7 @@ class App {
     this.channelList = new ChannelList(
       $('#channel-browser')!,
       {
-        paneMode: () => livePanes(),
+        guideMode: () => this.liveMode === 'guide',
         onRowFocus: (index) => this.onLiveRowFocus(index),
         onCount: (count) => this.liveHeader.setCount(count),
         onChannelSelect: (idx, catchup, scope, mode) =>
@@ -195,11 +198,8 @@ class App {
         onEpgOffsetChanged: () => {
           void this.search.refreshPrograms();
         },
-        onEnterPreview: () => this.livePreview?.focusControls() ?? false,
         authorizeEdit: proceed =>
           this.authorizeLiveEditing(t('settings.editChannelList'), proceed),
-        onListFocus: () => this.livePreview?.leaveControls(false),
-        getPreviewHintState: () => this.livePreview?.hintState() ?? 'off',
         onEnterManagement: () => this.livePreview?.close(),
       },
     );
@@ -244,27 +244,28 @@ class App {
       isFavorite: (channel) => StorageService.getFavorites().includes(channelKey(channel)),
       toggleFavorite: (channel) => this.toggleChannelFavorite(channel),
     });
-    this.epgGrid = new EpgGrid(
-      $('#epg-body')!,
-      (idx, catchup, scope) => this.playChannel(idx, catchup, scope),
-      () => this.leaveLeft(),
-      () => this.openReminderManager('epg'),
-      { onLeaveUp: () => { if (livePanes()) this.liveHeader.enter(); } },
-    );
+    this.liveGuide = new LiveGuide($('#live-guide')!, {
+      scope: () => ({
+        group: this.channelList.group,
+        playlist: this.channelList.playlist || undefined,
+      }),
+      play: (index, catchup, scope) => {
+        if (!catchup) this.channelList.setWatching(index);
+        this.playChannel(index, catchup, scope);
+      },
+      watching: () => this.channelList.watching,
+      onLeaveLeft: () => this.focusGuideGroups(),
+      onLeaveUp: () => this.liveHeader.enter(),
+    });
     this.reminderManager = new ReminderManager(this.views.reminders, () => {
-      if (this.reminderManagerOrigin === 'epg') {
-        this.showView('epg');
-        this.epgGrid.focusReminderEntry();
-      } else {
-        this.showView('settings');
-        this.settings.focusReminderEntry();
-      }
+      this.showView('settings');
+      this.settings.focusReminderEntry();
     });
     this.settings = new Settings(
       this.views.settings,
       (action) => this.onSettingsSaved(action),
       () => this.player.syncCurrentIndex(),
-      () => this.openReminderManager('settings'),
+      () => this.openReminderManager(),
       () => this.openParentalControls(),
       (name, proceed) => this.authorizeLiveEditing(name, proceed),
       (id, proceed, turnOff) => this.authorizeSourceRemoval(id, proceed, turnOff),
@@ -287,9 +288,7 @@ class App {
       playFullscreen: (index, catchup, scope) => this.playChannel(index, catchup, scope),
       expansionBlocked: () => this.reminderPrompt.visible,
       isFavorite: channel => StorageService.getFavorites().includes(channelKey(channel)),
-      toggleFavorite: channel => this.toggleChannelFavorite(channel),
-      paneMode: () => livePanes(),
-      onLeaveUp: () => this.liveHeader.enter(),
+      suppressed: () => this.liveMode === 'guide',
       onWatch: index => this.channelList.setWatching(index),
     });
     window.addEventListener('resize', () => this.livePreview.refreshLayout());
@@ -959,7 +958,6 @@ class App {
     if (this.playlistRefreshPromise) await this.playlistRefreshPromise;
 
     this.applyDisplayTz();
-    this.epgGrid.resetDay(); // re-pick today; a tz change invalidates the remembered day index
 
     try {
       const playlists = StorageService.getPlaylists();
@@ -1192,9 +1190,8 @@ class App {
     this.showView('settings');
   }
 
-  // A channel row took focus in Pleione's Live: the preview follows once it rests.
+  // A channel row took focus in Live: the preview follows once it rests.
   private onLiveRowFocus(index: number | null): void {
-    if (!livePanes()) return;
     if (index === null || !this.isCurrentView('channels') || this.channelList.isEditing) {
       this.liveDwell.cancel();
       return;
@@ -1202,36 +1199,59 @@ class App {
     this.liveDwell.focus(index, this.livePreview.previewIndex);
   }
 
-  // Pleione's Live switch: the list (with the preview) or the Guide, on the
-  // same group.
+  // Live's switch: the list (with the preview) or the Guide, on the same group.
   private setLiveMode(mode: LiveMode): void {
     this.liveDwell.cancel();
-    if (mode === 'guide') {
-      this.withChannels(() => {
-        this.epgGrid.showGroup(this.channelList.group, this.channelList.playlist);
-        this.sidebar.hide();
-        this.player.stop();
-        this.openEpg();
-      });
+    if (mode === 'list') {
+      this.liveMode = 'list';
+      this.liveGuide.hide();
+      this.channelList.render();
+      this.showView('channels', false, true);
       return;
     }
-    this.epgGrid.deactivateFilters();
-    this.channelList.setGroup(this.epgGrid.group, this.epgGrid.playlist);
-    this.channelList.render();
-    this.showView('channels', false, true);
+    this.withChannels(() => {
+      const index = this.player.getCurrentIndex();
+      this.liveMode = 'guide';
+      this.guideKeys = 'grid';
+      this.sidebar.hide();
+      this.player.stop();
+      this.channelList.render(false);
+      this.liveGuide.show(index);
+      this.showView('channels', true);
+      this.liveGuide.enter();
+      EpgService.refresh(() => this.refreshEpgDependentViews())
+        .then(() => this.refreshEpgDependentViews());
+    });
   }
 
-  // Pleione's header sits over the Live list and the Guide.
+  // In the Guide: the groups column takes the keys.
+  private focusGuideGroups(): void {
+    this.guideKeys = 'groups';
+    this.channelList.focusGroups();
+  }
+
+  // In the Guide: the time grid takes the keys.
+  private focusGuideGrid(): void {
+    this.guideKeys = 'grid';
+    this.liveGuide.enter();
+  }
+
+  // Live's header sits over the list and the Guide; the Guide's grid shows
+  // in place of the rows and the preview.
   private placeLiveHeader(name: ViewName): void {
-    const live = livePanes() && (name === 'channels' || name === 'epg');
-    this.views.channels.classList.toggle('live-panes', livePanes());
-    this.views.epg.classList.toggle('live-panes', livePanes());
-    if (!live) {
+    if (name !== 'channels') {
       this.liveHeader.detach();
       return;
     }
+    const guide = this.liveMode === 'guide';
+    this.views.channels.classList.toggle('live-guide-mode', guide);
+    // The Guide keeps the Guide card's tint, the list the Live card's.
+    this.views.channels.dataset.backdrop = guide ? 'epg' : 'live';
+    const grid = $('#live-guide');
+    if (guide) show(grid);
+    else hide(grid);
     this.liveHeader.leave(false);
-    this.liveHeader.attach(this.views[name], name === 'epg' ? 'guide' : 'list');
+    this.liveHeader.attach(this.views.channels, this.liveMode);
   }
 
   private showView(name: ViewName, preserveChannelFocus = false, resumeChannelFocus = false): void {
@@ -1257,13 +1277,14 @@ class App {
     applyAnimationMode(StorageService.getAnimationMode());
     this.player.closeSubtitleSearch(); // never let the subtitle overlay linger across a view change
     this.player.closeSubtitleOffset(); // never let the subtitle-sync overlay linger across a view change
-    this.epgGrid.dismissPrompt(); // never let the catch-up prompt linger across a view change
+    this.liveGuide.dismissPrompt(); // never let the catch-up prompt linger across a view change
     this.search.dismissPrompt();
     this.settings.dismissPrompt();
     this.reminderManager.dismissPrompt();
     // The launch splash is the only screen once: later loads sit under the
     // view they load for, over the video plane.
     this.views.loading.classList.remove('loading-splash');
+    delete this.views.loading.dataset.backdrop;
     for (const [key, el] of Object.entries(this.views)) {
       if (key === 'loading') continue;
       if (key === name) show(el);
@@ -1286,10 +1307,22 @@ class App {
     this.navMenu?.close('host');
 
     // Focus the channel entry point on entry. No-op on first load (render runs after).
-    if (name === 'channels' && !preserveChannelFocus) {
+    if (name === 'channels' && this.liveMode === 'guide') {
+      if (!this.liveGuide.isShown) this.liveGuide.show(this.player.getCurrentIndex());
+      else this.liveGuide.render();
+      if (!preserveChannelFocus) {
+        if (this.guideKeys === 'grid') this.liveGuide.enter();
+        else this.channelList.focusGroups();
+      }
+    } else if (name === 'channels' && !preserveChannelFocus) {
       this.channelList.highlightEntryPoint(resumeChannelFocus);
     }
     this.livePreview?.refresh();
+    // Back in the list, the preview follows the row focus rests on, even
+    // when entry put focus back on the row it already held.
+    if (name === 'channels' && this.liveMode === 'list') {
+      this.onLiveRowFocus(this.channelList.focusedChannel);
+    }
     if (name === 'channels') this.showLiveCategoryNotices();
   }
 
@@ -1312,7 +1345,6 @@ class App {
       return;
     }
     this.player.stop();
-    if (section === 'epg') { this.openEpg(); return; }
     if (section === 'movies') {
       this.showView('movies');
       const account = this.activeXtreamAccount();
@@ -1370,32 +1402,16 @@ class App {
     this.search.scheduleQuery(query);
   }
 
-  // Show the guide and refresh its data in the background (shared by the EPG
-  // tab and the red-key shortcut).
-  private openEpg(): void {
-    this.epgGrid.focusChannel(this.player.getCurrentIndex());
-    this.showView('epg');
-    this.epgGrid.render(true);
-    const renderEpg = () => {
-      this.refreshEpgDependentViews();
-      this.epgGrid.render();
-    };
-    EpgService.refresh(renderEpg).then(() => {
-      renderEpg();
-    });
-  }
-
   private refreshEpgDependentViews(): void {
     this.applyDisplayTz();
     this.channelList.render();
     this.livePreview.refresh();
+    this.liveGuide.render();
     void this.search.refreshPrograms();
     this.searchPrewarm.schedule('epg');
   }
 
-  private openReminderManager(origin: 'settings' | 'epg'): void {
-    this.reminderManagerOrigin = origin;
-    this.views.reminders.dataset.backdrop = origin;
+  private openReminderManager(): void {
     this.showView('reminders');
     this.reminderManager.open();
   }
@@ -1440,9 +1456,7 @@ class App {
 
   // The section shown now, or null on the player and the Settings sub-pages.
   private currentSection(): Section | null {
-    const section = sectionForView(this.viewStack[this.viewStack.length - 1]);
-    // Pleione's Guide is a mode of Live.
-    return section === 'epg' && livePanes() ? 'live' : section;
+    return sectionForView(this.viewStack[this.viewStack.length - 1]);
   }
 
   // Whether the pointer at the left edge may open the side menu: on a
@@ -1513,7 +1527,7 @@ class App {
     if (this.currentSection() === section) return;
     // Settings lists the guide sources and saves offsets by channel.
     if (!this.channelsLoaded
-      && (section === 'live' || section === 'epg' || section === 'search' || section === 'settings')) {
+      && (section === 'live' || section === 'search' || section === 'settings')) {
       this.withChannels(() => this.selectSection(section, via));
       return;
     }
@@ -1606,8 +1620,10 @@ class App {
       this.search.invalidateCatalog();
     }
     const current = this.viewStack[this.viewStack.length - 1];
-    if (current === 'channels') this.channelList.render();
-    else if (current === 'epg') this.epgGrid.render();
+    if (current === 'channels') {
+      this.channelList.render();
+      this.liveGuide.render();
+    }
     else if (current === 'settings' && concealmentChanged) this.settings.refreshCollectionCounts();
     if (current === 'search') {
       if (concealmentChanged) void this.search.refreshConcealment();
@@ -1736,7 +1752,6 @@ class App {
     const views = new Map<ViewName, FocusScope>();
     const own: Partial<Record<ViewName, FocusScope>> = {
       home: this.home.focusScope,
-      epg: this.epgGrid.focusScope,
       channels: this.channelList.focusScope,
       settings: this.settings.focusScope,
       'parental-controls': this.parentalControls.focusScope,
@@ -1749,7 +1764,9 @@ class App {
       views.set(name, own[name]
         ?? Focus.register({ id: `view.${name}`, root: this.views[name] }));
     }
-    Focus.setBase(() => views.get(current()) ?? null);
+    // In the Guide the time grid owns the keys until they go to the groups.
+    Focus.setBase(() => (current() === 'channels' && this.liveMode === 'guide'
+      && this.guideKeys === 'grid' ? this.liveGuide.focusScope : views.get(current()) ?? null));
     Focus.install();
   }
 
@@ -1791,26 +1808,14 @@ class App {
     // Global shortcuts
     // While the channel list is in edit mode the color keys belong to the editor.
     const editingChannels = currentView === 'channels' && this.channelList.isEditing;
-    if (action === 'red' && livePanes() && !editingChannels) {
-      // Pleione: Red flips Live between the list and the Guide.
-      if (currentView === 'epg') {
-        if (!this.epgGrid.isFilterOpen) this.setLiveMode('list');
-      } else {
-        this.setLiveMode('guide');
-      }
-      return;
-    }
-    if (action === 'red' && currentView !== 'epg' && !editingChannels) {
-      this.withChannels(() => {
-        this.sidebar.hide();
-        this.player.stop();
-        this.openEpg();
-      });
+    // Red flips Live between the list and the Guide, and opens the Guide
+    // from anywhere else.
+    if (action === 'red' && !editingChannels) {
+      this.setLiveMode(currentView === 'channels' && this.liveMode === 'guide' ? 'list' : 'guide');
       return;
     }
     if (action === 'blue' && currentView !== 'settings' && !editingChannels) {
       this.withChannels(() => {
-        if (currentView === 'epg') this.epgGrid.deactivateFilters();
         this.sidebar.hide();
         this.player.stop();
         this.settings.render();
@@ -1845,21 +1850,6 @@ class App {
         this.home.handleAction('back');
         return;
       }
-      if (currentView === 'epg') {
-        if (this.epgGrid.isFilterOpen) {
-          this.epgGrid.handleAction('back');
-          return;
-        }
-        // Red peeks at the Guide from anywhere; Back returns to Live, as before.
-        if (livePanes()) {
-          this.setLiveMode('list');
-          return;
-        }
-        this.epgGrid.deactivateFilters();
-        this.channelList.render();
-        this.showView('channels', false, true);
-        return;
-      }
       if (currentView === 'settings') {
         if (this.settings.dismissDropdown()) return;
         this.openNavMenu('key');
@@ -1870,7 +1860,10 @@ class App {
         return;
       }
       if (currentView === 'channels') {
-        if (this.livePreview.handleBack()) return;
+        if (this.liveMode === 'guide' && this.guideKeys === 'grid') {
+          this.liveGuide.handleAction('back');
+          return;
+        }
         if (this.channelList.handleBack()) return;
         this.openNavMenu('key');
         return;
@@ -1888,12 +1881,22 @@ class App {
         break;
       case 'channels': {
         if (this.livePreview.handleAction(action)) break;
-        const moved = this.channelList.handleAction(action, event);
-        if (action === 'left' && !moved && !this.channelList.isEditing) this.leaveLeft();
-        // Up off the top of the groups or the list: Pleione's header.
-        if (action === 'up' && !moved && livePanes() && !this.channelList.isEditing) {
-          this.liveHeader.enter();
+        if (this.liveMode === 'guide' && this.guideKeys === 'grid') {
+          this.liveGuide.handleAction(action);
+          break;
         }
+        const group = this.channelList.group;
+        const moved = this.channelList.handleAction(action, event);
+        if (this.liveMode === 'guide') {
+          if (this.channelList.group !== group) this.liveGuide.groupChanged();
+          if (action === 'right' && !moved) {
+            this.focusGuideGrid();
+            break;
+          }
+        }
+        if (action === 'left' && !moved && !this.channelList.isEditing) this.leaveLeft();
+        // Up off the top of the groups or the list: the header.
+        if (action === 'up' && !moved && !this.channelList.isEditing) this.liveHeader.enter();
         break;
       }
       case 'movies':
@@ -1925,9 +1928,6 @@ class App {
         } else {
           this.player.handleAction(action, event);
         }
-        break;
-      case 'epg':
-        this.epgGrid.handleAction(action, event);
         break;
       case 'settings':
         if (!this.settings.handleAction(action) && action === 'left') this.leaveLeft();
@@ -2038,7 +2038,6 @@ class App {
     if (action === 'apply') {
       this.search.invalidateCatalog();
       this.applyDisplayTz();
-      this.epgGrid.resetDay();
       this.scheduleEpgRefresh();
       this.schedulePlaylistRefresh();
     }

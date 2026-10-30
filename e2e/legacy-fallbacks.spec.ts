@@ -1,5 +1,5 @@
 import {
-  enterTab, test, expect, isChromium53, neuterVideo, routeLiveManifest, routePlaylist,
+  enterTab, openGuide, pressKeys, test, expect, isChromium53, neuterVideo, routeLiveManifest, routePlaylist,
   seedPlaylist, type Page, SAMPLE_M3U,
 } from './helpers';
 import { POLYFILLED_APIS } from '../scripts/polyfilled-apis.mjs';
@@ -252,16 +252,21 @@ test('no flex-gap container separates an element from loose text', async ({ page
   };
   await collect();
 
-  for (const section of ['epg', 'settings', 'search', 'live'] as const) {
+  for (const section of ['settings', 'search', 'live'] as const) {
     await enterTab(page, section);
     await page.waitForTimeout(300);
     await collect();
   }
+  await openGuide(page);
+  await collect();
+  await pressKeys(page, 403);
+  await expect(page.locator('#view-channels:not(.live-guide-mode)')).toBeVisible();
 
   // The Reminder Manager, then the channel editor: both are full-screen views
   // the section walk never reaches.
-  await enterTab(page, 'epg');
-  await page.locator('.epg-reminder-entry').click();
+  await enterTab(page, 'settings');
+  await page.locator('[data-settings-target="guide"]').click();
+  await page.locator('#manage-reminders').click();
   await expect(page.locator('#view-reminders')).toBeVisible();
   await expect(page.locator('.reminder-manager-row')).toHaveCount(1);
   await collect();

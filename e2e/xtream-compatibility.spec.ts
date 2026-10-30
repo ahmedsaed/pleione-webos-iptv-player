@@ -1,4 +1,4 @@
-import { test, expect, type Page } from './helpers';
+import { test, expect, openGuide, type Page } from './helpers';
 import {
   XtreamReferenceServer,
   type XtreamReferenceProfile,
@@ -43,11 +43,9 @@ function key(page: Page, keyCode: number): Promise<void> {
 }
 
 async function openEarlierProgramme(page: Page): Promise<void> {
-  await key(page, 403);
-  await expect(page.locator('#view-epg')).toBeVisible();
-  await expect(page.locator('#epg-programmes [data-prog-idx="0"]'))
-    .toContainText('Earlier Show');
-  await key(page, 39);
+  await openGuide(page);
+  await key(page, 37);
+  await expect(page.locator('#live-guide .guide-cell.focused')).toContainText('Earlier Show');
   await key(page, 13);
 }
 

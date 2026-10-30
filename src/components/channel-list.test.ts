@@ -96,6 +96,10 @@ import { ChannelCustomizationService, groupKeyOf } from '../services/channel-cus
 
 playlistMock.indexOfKey = (key: string) => data.channels
   .findIndex(ch => channelKey(ch) === key);
+playlistMock.resolveChannelKey = (key: string) => {
+  const channelIndex = playlistMock.indexOfKey(key);
+  return channelIndex < 0 ? null : { channel: data.channels[channelIndex], channelIndex };
+};
 playlistMock.getGroupKeyForDisplay = (display: string): string => {
   for (const key of ChannelCustomizationService.customGroups) {
     if (ChannelCustomizationService.groupLabel(key) === display) return key;
@@ -201,32 +205,6 @@ function hover(el: HTMLElement): void {
 }
 
 describe('ChannelList.render', () => {
-  it('omits the live-preview toolbar when the setting is off', () => {
-    list = new ChannelList(container, {
-      onChannelSelect: onSelect,
-      getPreviewHintState: () => 'off',
-    });
-    list.render();
-    expect(container.querySelector('.preview-list-hints')).toBeNull();
-  });
-
-  it('keeps one stable live-preview hint set across list and control focus', () => {
-    list = new ChannelList(container, {
-      onChannelSelect: onSelect,
-      getPreviewHintState: () => 'active',
-    });
-    list.render();
-    expect(container.querySelector('.preview-list-hints')?.textContent).toContain('Open preview');
-    expect(container.querySelector('.preview-list-hints')?.textContent).toContain('Preview controls');
-    expect(container.querySelector('[data-preview-list-close] .key-back svg')).not.toBeNull();
-    expect(container.querySelector('[data-preview-list-close]')?.textContent).toContain('Close');
-    const hints = container.querySelector('.preview-list-hints')?.innerHTML;
-    list.setPreviewFocused(true);
-    expect(container.querySelector('.preview-list-hints')?.innerHTML).toBe(hints);
-    list.setPreviewFocused(false);
-    expect(container.querySelector('.preview-list-hints')?.innerHTML).toBe(hints);
-  });
-
   it('draws no scroll indicator of its own in preview', () => {
     document.body.classList.add('has-live-preview');
     try {
@@ -280,9 +258,12 @@ describe('ChannelList.render', () => {
     expect(container.querySelector('.settings-btn')).toBeNull();
   });
 
-  it('renders the channel count and all channels for the default group', () => {
+  it('reports the channel count to the header and renders all channels for the default group', () => {
+    const onCount = vi.fn();
+    list = new ChannelList(container, { onChannelSelect: onSelect, onCount });
     list.render();
-    expect(container.querySelector('.channel-count')?.textContent).toBe('3 channels');
+    expect(onCount).toHaveBeenLastCalledWith(3);
+    expect(container.querySelector('.channel-count')).toBeNull();
     expect(channelItems()).toHaveLength(3);
     expect(container.textContent).toContain('Alpha');
   });
@@ -307,21 +288,13 @@ describe('ChannelList.render', () => {
     expect(container.querySelector('.edit-text-input')).toBeNull();
   });
 
-  it('opens channel editing from the pencil button', () => {
-    list.render();
-    const edit = container.querySelector<HTMLElement>('.channel-edit-btn');
-    expect(edit?.querySelector('img')?.getAttribute('src')).toBe('assets/icons/pencil.svg');
-    hover(edit!);
-    list.handleAction('select');
-    expect(list.isEditing).toBe(true);
-    expect(container.querySelector('.channel-edit-btn')).toBeNull();
-  });
-
-  it('uses the singular channel count for a one-channel playlist', () => {
+  it('reports a one-channel playlist to the header', () => {
+    const onCount = vi.fn();
+    list = new ChannelList(container, { onChannelSelect: onSelect, onCount });
     const removed = playlistMock.channels.splice(1);
     try {
       list.render();
-      expect(container.querySelector('.channel-count')?.textContent).toBe('1 channel');
+      expect(onCount).toHaveBeenLastCalledWith(1);
     } finally {
       playlistMock.channels.push(...removed);
     }
@@ -434,7 +407,7 @@ describe('ChannelList.render', () => {
 
       expect(channelItems().length).toBeLessThan(50);
       expect(container.querySelector<HTMLElement>('.channel-list-spacer')?.style.height)
-        .toBe('4400000px');
+        .toBe('6100000px');
     } finally {
       data.raw.splice(0, data.raw.length, ...original);
       playlistMock.applyCustomization();
@@ -501,7 +474,7 @@ describe('ChannelList.render', () => {
       list.render();
       expect(container.querySelectorAll('.group-item').length).toBeLessThan(60);
       expect(container.querySelector<HTMLElement>('.group-list-spacer')?.style.height)
-        .toBe('3400204px');
+        .toBe('3500210px');
     } finally {
       playlistMock.getGroupsForPlaylist = original;
       playlistMock.groupsRevision++;
@@ -511,8 +484,8 @@ describe('ChannelList.render', () => {
   it('marks favorites with a star', () => {
     data.favorites = [channelKey(data.channels[0])];
     list.render();
-    const alpha = channelItems()[0].querySelector('.channel-name')!;
-    expect(alpha.querySelector('.favorite-glyph.set')).not.toBeNull();
+    expect(channelItems()[0].querySelector('.live-badge-favorite .favorite-glyph.set')).not.toBeNull();
+    expect(channelItems()[1].querySelector('.live-badge-favorite')).toBeNull();
   });
 
   it('shows an empty state when a group has no channels', () => {
@@ -672,11 +645,9 @@ describe('ChannelList.render', () => {
     list.render();
     hover(container.querySelector<HTMLElement>('[data-group="builtin:recently-watched"]')!);
     list.handleAction('select');
-    expect(container.querySelector('.channel-edit-btn')).toBeNull();
-    expect(container.querySelector('.channel-edit-btn-spacer')).not.toBeNull();
     list.handleAction('yellow');
     expect(list.isEditing).toBe(false);
-    expect(container.querySelector('.edit-hints')).toBeNull();
+    expect(container.querySelector('.edit-hints:not(.live-legend)')).toBeNull();
   });
 
   it('opens Settings-driven channel editing in All', () => {
@@ -1066,7 +1037,6 @@ describe('ChannelList interaction', () => {
   it('a number action focuses and marks the channel it tuned', () => {
     list.handleAction('number', { number: 2 });
     expect(ringed(channelItems()[1])).toBe(true);
-    expect(channelItems()[1].classList.contains('playing')).toBe(true);
   });
 
   it('widens a filtered group so the tuned channel is reachable on return', () => {
@@ -1084,7 +1054,6 @@ describe('ChannelList interaction', () => {
     );
     expect(channelItems()).toHaveLength(3);
     expect(ringed(channelItems()[0])).toBe(true);
-    expect(channelItems()[0].classList.contains('playing')).toBe(true);
   });
 
   it('ignores an out-of-range number', () => {
@@ -1092,10 +1061,24 @@ describe('ChannelList interaction', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it('setPlaying marks the playing channel on the next render', () => {
-    list.setPlaying(2);
+  it('marks the channel watched full screen on the next render', () => {
+    list.setWatching(2);
     list.render();
-    expect(channelItems()[2].classList.contains('playing')).toBe(true);
+    expect(channelItems()[2].classList.contains('watching')).toBe(true);
+    expect(channelItems()[2].querySelector('.live-badge-watching')).not.toBeNull();
+    expect(list.watching).toBe(2);
+  });
+
+  // Regression: a reorder moved the mark to whatever channel took the index.
+  it('keeps the watched mark on its channel when a reorder moves it', () => {
+    list.setWatching(2);
+    const watched = data.channels[2];
+    data.channels.splice(2, 1);
+    data.channels.unshift(watched);
+    list.render();
+    expect(list.watching).toBe(0);
+    expect(channelItems()[0].classList.contains('watching')).toBe(true);
+    expect(channelItems()[2].classList.contains('watching')).toBe(false);
   });
 
   it('highlightEntryPoint focuses the first channel without taking the caret', () => {
@@ -1193,14 +1176,6 @@ describe('ChannelList morph lifecycle', () => {
 });
 
 describe('ChannelList focus scope off the keys', () => {
-  it('hands a preview\'s return to the scope as a key request', () => {
-    list.render();
-    hover(channelItems()[1]);
-    const focus = vi.spyOn(list.focusScope, 'focus');
-    list.setPreviewFocused(false);
-    expect(focus).toHaveBeenLastCalledWith(channelItems()[1].dataset.key, 'key');
-  });
-
   it('keeps the key it owns lit through a re-render, without asking to reveal it', () => {
     list.render();
     hover(channelItems()[1]);
@@ -1254,7 +1229,7 @@ describe('ChannelList focus scope off the keys', () => {
   });
 });
 
-describe('ChannelList in Pleione panes', () => {
+describe('ChannelList rich rows', () => {
   const epg = epgMock as unknown as Record<string, unknown>;
   const at = (h: number, m: number) => new Date(2026, 0, 1, h, m);
   const program = (title: string, from: Date, to: Date) =>
@@ -1279,7 +1254,7 @@ describe('ChannelList in Pleione panes', () => {
   });
 
   function paneList(options: Partial<ConstructorParameters<typeof ChannelList>[1]> = {}): ChannelList {
-    return new ChannelList(container, { onChannelSelect: onSelect, paneMode: () => true, ...options });
+    return new ChannelList(container, { onChannelSelect: onSelect, ...options });
   }
 
   it('shows the current program with its progress, the next program, and the badges', () => {
@@ -1317,7 +1292,8 @@ describe('ChannelList in Pleione panes', () => {
     const legend = container.querySelector('.live-legend')?.textContent ?? '';
     expect(legend).toContain('Watch');
     expect(legend).toContain('Guide');
-    expect(container.querySelector('.preview-list-hints')).toBeNull();
+    // The preview has no controls, so the legend offers none.
+    expect(legend).not.toContain('Preview controls');
   });
 
   it('draws the groups with line icons', () => {
@@ -1349,6 +1325,28 @@ describe('ChannelList in Pleione panes', () => {
     expect(onRowFocus).toHaveBeenLastCalledWith(1);
     list.handleAction('left');
     expect(onRowFocus).toHaveBeenLastCalledWith(null);
+  });
+
+  it('does nothing on Right from a row: the preview takes no focus', () => {
+    list = paneList();
+    list.render();
+    expect(list.handleAction('right')).toBe(true);
+    Focus.flush();
+    expect(container.querySelector('.channel-item.focused')?.getAttribute('data-channel-index')).toBe('0');
+  });
+
+  it('shows the groups alone in the Guide and hands Right to the host', () => {
+    list = paneList({ guideMode: () => true });
+    list.render();
+    expect(container.querySelector('.channel-main')).toBeNull();
+    expect(container.querySelector('.live-legend')).toBeNull();
+    Focus.flush();
+    expect(container.querySelector('.group-item.focused')?.getAttribute('data-group')).toBe('builtin:all');
+    expect(list.handleAction('right')).toBe(false);
+    list.handleAction('down');
+    list.focusGroups();
+    Focus.flush();
+    expect(container.querySelector('.group-item.focused')?.getAttribute('data-group')).toBe('builtin:all');
   });
 
   it('gives Up off the top row back to the host for its header', () => {

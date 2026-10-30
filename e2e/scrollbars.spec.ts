@@ -1,4 +1,4 @@
-import { test, expect, enterTab, type Page } from './helpers';
+import { test, expect, enterTab, type Page, openGuide } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 
 // TV lists show no scrollbar: focus moving down a list already says it scrolls.
@@ -89,11 +89,11 @@ test('guide scrolls without a scrollbar', async ({ page }) => {
   await seedLongXtream(page);
   await page.goto('/');
   await expect(page.locator('.channel-main .channel-item')).not.toHaveCount(0);
-  await enterTab(page, 'epg');
-  await expect(page.locator('#view-epg .epg-channel-list')).toBeVisible();
+  await openGuide(page);
   await page.keyboard.press('ArrowDown');
   await expectNoScrollbars(page, 'guide');
-  await expectDownScrolls(page, '#view-epg .epg-channel-list', 30);
+  for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#live-guide .guide-cell.focused')).toHaveAttribute('data-row', '31');
   await expectNoScrollbars(page, 'scrolled guide');
 });
 

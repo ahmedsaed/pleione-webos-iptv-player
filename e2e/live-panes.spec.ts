@@ -3,12 +3,11 @@ import {
   expect,
   routeLiveManifest,
   routePlaylist,
-  showLivePanes,
   type Page,
 } from './helpers';
 
-// Pleione's Live: a header over three panes (groups | rows | preview), with
-// the Guide inside Live behind a List | Guide switch.
+// Live: a header over three panes (groups | rows | preview), with the Guide
+// inside Live behind a List | Guide switch (e2e/live-guide.spec.ts).
 
 const LONG_NAME = 'Channel 3 with an exceptionally long synthetic name that keeps going to test truncation';
 const CHANNELS = [
@@ -43,7 +42,6 @@ async function setup(page: Page): Promise<void> {
   await page.route('http://host/guide.xml', route => route.fulfill({
     contentType: 'application/xml', body: EPG,
   }));
-  await showLivePanes(page);
   await page.addInitScript(() => {
     localStorage.setItem('iptv_playlists', JSON.stringify([
       { id: 'p1', name: 'P1', url: 'http://host/playlist.m3u' },
@@ -92,6 +90,9 @@ test('Live shows the header, the groups, rich rows, and the preview in three pan
   await expect(first.locator('.live-row-next')).toHaveText(/13:00\s*Program 2/);
   await expect(page.locator('#channel-browser .group-item .group-icon svg').first()).toBeVisible();
   await expect(page.locator('.live-legend')).toContainText('Watch');
+  // The preview has no controls, so the legend offers none.
+  await expect(page.locator('.live-legend')).not.toContainText('Preview controls');
+  await expect(page.locator('#live-preview [data-focusable], #live-preview button')).toHaveCount(0);
 
   // The preview follows focus once it rests: three panes left to right, inside the gutters.
   await expect(page.locator(PREVIEW_NAME)).toHaveText('ch1');
@@ -124,19 +125,22 @@ test('the preview retunes only after focus rests on a row', async ({ page }) => 
   await expect(page.locator(PREVIEW_NAME)).toHaveText(LONG_NAME);
 });
 
-test('the D-pad crosses groups, rows, preview, and the header with one ring at a time', async ({ page }) => {
+test('the D-pad crosses groups, rows, and the header with one ring at a time', async ({ page }) => {
   await setup(page);
   await expect(page.locator(PREVIEW_NAME)).toHaveText('ch1');
   expect(await focusedKey(page)).toEqual(['ch:0']);
   await press(page, 'left');
   expect(await focusedKey(page)).toEqual(['g:builtin:all']);
-  await press(page, 'right', 'right');
-  expect(await focusedKey(page)).toEqual(['preview-mute']);
-  await press(page, 'up', 'up');
+  await press(page, 'right');
+  expect(await focusedKey(page)).toEqual(['ch:0']);
+  // The preview takes no focus: Right from a row stays on it.
+  await press(page, 'right');
+  expect(await focusedKey(page)).toEqual(['ch:0']);
+  // Up from the top row and from the top group reach the switch.
+  await press(page, 'up');
   expect(await focusedKey(page)).toEqual(['live-mode:list']);
   await press(page, 'down');
   expect(await focusedKey(page)).toEqual(['ch:0']);
-  // Up from the top row and from the top group reach the switch too.
   await press(page, 'up');
   expect(await focusedKey(page)).toEqual(['live-mode:list']);
   await press(page, 'down', 'left', 'up');
@@ -145,48 +149,6 @@ test('the D-pad crosses groups, rows, preview, and the header with one ring at a
   expect(await focusedKey(page)).toEqual(['live-edit']);
   await press(page, 'back');
   expect((await focusedKey(page))[0]).toMatch(/^g:/);
-});
-
-test('the switch opens the Guide inside Live, and Red flips back and forth', async ({ page }) => {
-  await setup(page);
-  await press(page, 'up', 'right');
-  expect(await focusedKey(page)).toEqual(['live-mode:guide']);
-  await press(page, 'ok');
-  await expect(page.locator('#view-epg')).toBeVisible();
-  await expect(page.locator(`#view-epg ${HEADER} [data-live-mode="guide"]`)).toHaveClass(/active/);
-  await expect(page.locator('#view-epg .epg-channel-item')).toHaveCount(3);
-  // The switch's own copy never lingers in the hidden list.
-  await expect(page.locator(`#view-channels ${HEADER}`)).toHaveCount(0);
-
-  await press(page, 'red');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await expect(page.locator(`#view-channels ${HEADER} [data-live-mode="list"]`)).toHaveClass(/active/);
-  await press(page, 'red');
-  await expect(page.locator('#view-epg')).toBeVisible();
-  await press(page, 'back');
-  await expect(page.locator('#view-channels')).toBeVisible();
-});
-
-test('the Guide keeps the Live group and sets a reminder on a future program', async ({ page }) => {
-  await setup(page);
-  await press(page, 'left', 'down', 'down', 'down', 'ok');
-  await expect(page.locator(ROW)).toHaveCount(2);
-  await press(page, 'red');
-  await expect(page.locator('#view-epg .epg-channel-item')).toHaveCount(2);
-
-  await press(page, 'up', 'up');
-  expect(await focusedKey(page)).toEqual(['live-mode:guide']);
-  await press(page, 'down');
-  await page.locator('#view-epg .epg-channel-item[data-channel-idx="0"]').click();
-  await page.mouse.move(1900, 10);
-  await press(page, 'right', 'down', 'down');
-  const future = page.locator('#view-epg .epg-programme-item.focused');
-  await expect(future).toContainText('Program 3');
-  await press(page, 'ok');
-  await expect(page.locator('.toast')).toContainText('Reminder set');
-
-  await press(page, 'red');
-  await expect(page.locator(ROW)).toHaveCount(2);
 });
 
 test('OK watches full screen and Back returns to Live with the row marked', async ({ page }) => {
@@ -244,4 +206,27 @@ test('editing from the header closes the preview without marking a row watched',
   await press(page, 'ok');
   await expect(page.locator('#channel-browser .channel-view.editing')).toHaveCount(1);
   await expect(page.locator(`${ROW} .live-badge-watching`)).toHaveCount(0);
+});
+
+// Regression: a click on the header left its lit button and the content's
+// ring both on screen.
+test('a header click leaves one ring, and the first key shows the content', async ({ page }) => {
+  await setup(page);
+  await page.locator(`${HEADER} [data-edit-channels]`).click();
+  await expect(page.locator('#channel-browser .channel-view.editing')).toHaveCount(1);
+  expect((await focusedKey(page)).length).toBeLessThanOrEqual(1);
+  await page.keyboard.press('ArrowDown');
+  const rings = await focusedKey(page);
+  expect(rings).toHaveLength(1);
+  expect(rings[0]).not.toBe('live-edit');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#channel-browser .channel-view.editing')).toHaveCount(0);
+
+  await page.locator(`${HEADER} [data-live-mode="guide"]`).click();
+  await expect(page.locator('#view-channels.live-guide-mode #live-guide .guide-cell').first()).toBeVisible();
+  const guideRings = await focusedKey(page);
+  expect(guideRings.length).toBeLessThanOrEqual(1);
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#live-guide .guide-cell.focused')).toHaveCount(1);
+  expect(await focusedKey(page)).toHaveLength(1);
 });

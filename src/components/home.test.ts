@@ -4,17 +4,8 @@ import type { PlaylistEntry } from '../types';
 
 const state = vi.hoisted(() => ({
   channels: 0,
-  guide: false,
 }));
 
-vi.mock('../services/storage-service', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../services/storage-service')>();
-  return {
-    StorageService: Object.assign(Object.create(actual.StorageService), {
-      getShowGuideTab: () => state.guide,
-    }),
-  };
-});
 vi.mock('../services/playlist-service', () => ({
   PlaylistService: {
     get channels() { return new Array(state.channels); },
@@ -38,7 +29,6 @@ beforeEach(() => {
   document.body.innerHTML = '<div id="home"></div>';
   container = document.getElementById('home')!;
   state.channels = 0;
-  state.guide = false;
   handlers = {
     onOpenSection: vi.fn(), onPlayNumber: vi.fn(), onSelectAccount: vi.fn(),
     onLockNow: vi.fn(), onLeaveLeft: vi.fn(), onBack: vi.fn(),
@@ -100,15 +90,6 @@ describe('Home', () => {
     expect(container.querySelector('.home-account')?.classList.contains('hidden')).toBe(true);
   });
 
-  it('fits the Guide in when its hidden preference is on', () => {
-    state.guide = true;
-    home.setSources(true, [account], account);
-    home.render();
-    expect(rows()).toEqual([['epg', 'movies', 'series'], ['search', 'settings']]);
-    expect(container.querySelector('.home-card[data-section="settings"]')?.getAttribute('style'))
-      .toContain('flex-grow:2');
-  });
-
   it('counts nothing: Live, Movies, and Series carry no subtitle', () => {
     state.channels = 150;
     home.setSources(true, [account], account);
@@ -155,17 +136,6 @@ describe('Home', () => {
     key('right', 'right', 'right');
     expect(focused()).toBe('section:series');
     expect(handlers.onLeaveLeft).toHaveBeenCalledTimes(1);
-  });
-
-  it('a spanning card is one stop, from either column above it', () => {
-    state.guide = true;
-    home.setSources(true, [account], account);
-    home.render();
-    home.focusEntry('series');
-    key('down');
-    expect(focused()).toBe('section:settings');
-    key('left');
-    expect(focused()).toBe('section:search');
   });
 
   it('opens a card with OK and focuses a given one', () => {

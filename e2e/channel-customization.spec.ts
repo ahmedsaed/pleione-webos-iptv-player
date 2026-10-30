@@ -136,7 +136,7 @@ test('green hides a channel in edit mode and toggles a favorite outside it', asy
   // Outside edit mode green is still the favorite toggle.
   await focusChannel(page, 0);
   await key(page, GREEN);
-  await expect(page.locator('.channel-main .channel-name .favorite-glyph').first()).toBeVisible();
+  await expect(page.locator('.channel-main .live-badge-favorite').first()).toBeVisible();
 
   await key(page, YELLOW);
   await focusChannel(page, 1);
@@ -149,7 +149,7 @@ test('green hides a channel in edit mode and toggles a favorite outside it', asy
   await key(page, YELLOW);
   await expect(page.locator('.channel-main .channel-item')).toHaveCount(3);
   expect(await names(page)).not.toContain('Beta News');
-  await expect(page.locator('.channel-count')).toHaveText('3 channels');
+  await expect(page.locator('#view-channels .live-header-count')).toHaveText('3 channels');
 
   await page.reload();
   await expect(page.locator('#view-channels')).toBeVisible();
@@ -223,7 +223,7 @@ test('a pointer drag lands above the row it reaches after the grabbed row scroll
   const list = await main.boundingBox();
   if (!list) throw new Error('no layout');
   await page.mouse.move(list.x + list.width - 4, up.y);
-  await page.mouse.wheel(0, -30 * pitch);
+  await page.mouse.wheel(0, -45 * pitch);
   await expect(row(2)).toBeVisible();
   await expect(main.locator('.grabbed')).toHaveCount(0);
 
@@ -245,9 +245,9 @@ test('a click in edit mode that wobbles onto the next row does not reorder', asy
   const [upper, lower] = await Promise.all([rows.nth(1).boundingBox(), rows.nth(2).boundingBox()]);
   if (!upper || !lower) throw new Error('no layout');
   const x = upper.x + upper.width / 2;
-  const from = upper.y + upper.height - 1;
-  const to = lower.y + 1;
-  // A pixel either side of the gap between the rows.
+  const from = upper.y + upper.height - 0.5;
+  const to = lower.y + 0.5;
+  // Half a pixel either side of the gap between the rows.
   expect(to - from).toBeLessThan(8);
 
   await page.mouse.move(x + 2, from);
@@ -630,7 +630,7 @@ test('playback follows a channel reordered while it is playing', async ({ page }
   await key(page, BACK);
   await expect(page.locator('#view-channels')).toBeVisible();
 
-  // Move the playing channel to the end; it stays marked as playing.
+  // Move the playing channel to the end; it stays marked as watched.
   await key(page, YELLOW);
   await focusChannel(page, 0);
   await key(page, ENTER);
@@ -641,6 +641,6 @@ test('playback follows a channel reordered while it is playing', async ({ page }
   await key(page, YELLOW);
 
   expect(await names(page)).toEqual(['Beta News', 'Alpha Movies', 'Delta Sports', 'Alpha News']);
-  await expect(page.locator('.channel-main .channel-item.playing .channel-name'))
+  await expect(page.locator('.channel-main .channel-item.watching .channel-name'))
     .toHaveText('Alpha News');
 });

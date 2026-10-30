@@ -271,7 +271,6 @@ describe('i18n', () => {
       expect([0, 1, 2, 3, 10, 11, 100].map(count => tp('channel.count', count))).toEqual([
         '0 قناة', '1 قناة', '2 قناة', '3 قنوات', '10 قنوات', '11 قناة', '100 قناة',
       ]);
-      expect(tp('epg.programCount', 12)).toBe('12 برنامجًا');
       expect(document.documentElement.lang).toBe('ar');
       expect(document.documentElement.dir).toBe('');
     } finally {
@@ -331,12 +330,10 @@ describe('i18n', () => {
     expect(validateTranslations()).toEqual([]);
   });
 
-  it('localizes live preview settings and remaining minutes in every locale', () => {
+  it('localizes the preview remaining minutes in every locale', () => {
     try {
       for (const { value } of localeOptions()) {
         setLocale(value);
-        expect(t('settings.livePreview').length).toBeGreaterThan(0);
-        expect(t('settings.livePreviewHint').length).toBeGreaterThan(0);
         for (const minutes of [0, 1, 2, 25]) {
           const remaining = t('preview.timeLeft', { minutes });
           expect(remaining).toContain(String(minutes));

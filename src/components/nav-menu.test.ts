@@ -40,17 +40,11 @@ beforeEach(() => {
 afterEach(() => Focus.uninstall());
 
 describe('NavMenu', () => {
-  it('lists Home and the sections an M3U setup has, without the hidden Guide', () => {
+  it('lists Home and the sections an M3U setup has; the Guide lives in Live', () => {
     menu.setSections(false);
     expect(sections()).toEqual(['home', 'live', 'search', 'settings']);
     menu.setSections(true);
     expect(sections()).toEqual(['home', 'live', 'movies', 'series', 'search', 'settings']);
-  });
-
-  it('lists the Guide when the hidden preference shows it', () => {
-    localStorage.setItem('iptv_show_guide_tab', 'true');
-    menu.setSections(true);
-    expect(sections()).toContain('epg');
   });
 
   it('opens on the current section, marked apart from focus, and owns the keys', () => {

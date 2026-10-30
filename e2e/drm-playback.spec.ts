@@ -1,4 +1,4 @@
-import { test, expect, routePlaylist, seedPlaylist, type Page } from './helpers';
+import { test, expect, leaveLive, routePlaylist, seedPlaylist, type Page } from './helpers';
 import { DASH_URL, DASH_M3U, DASH_MPD, installShakaStub, startDash, expectDrmPills } from './shaka-fixture';
 
 async function captureDiagnostics(page: Page) {
@@ -199,8 +199,7 @@ for (const drm of [
       expect(state.manifestHeaders).toEqual({});
       expect(licenses).toEqual(['v']);
       await expect(page.locator('#video-player source')).toHaveCount(0);
-      await page.keyboard.press('Escape');
-      await expect(page.locator('#view-channels')).toBeVisible();
+      await leaveLive(page);
       await page.waitForFunction(() => (window as unknown as {
         __shakaE2E: { destroyed: boolean };
       }).__shakaE2E.destroyed);
@@ -568,8 +567,7 @@ test.describe('PlayReady native webOS contract (no browser decryption)', () => {
         await page.evaluate(() =>
           document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 405, bubbles: true })));
         await expect(page.locator('#player-osd .osd-stream-info')).toContainText('PlayReady');
-        await page.keyboard.press('Escape');
-        await expect(page.locator('#view-channels')).toBeVisible();
+        await leaveLive(page);
         await expect.poll(async () => (await playReadyProbe(page)).cancelledRights).toBe(1);
         expect((await playReadyProbe(page)).calls.filter(call => call.method === 'unload')
           .map(call => call.parameters)).toEqual([{ clientId: 'client-1' }]);
@@ -638,8 +636,7 @@ test.describe('PlayReady native webOS contract (no browser decryption)', () => {
       await startDash(page, customPlaylist, mpd);
       await expect.poll(async () => (await playReadyProbe(page)).pending).toBe(1);
       await expect(page.locator('#video-player source')).toHaveCount(0);
-      await page.keyboard.press('Escape');
-      await expect(page.locator('#view-channels')).toBeVisible();
+      await leaveLive(page);
       await finishPlayReadyRequest(page);
       await expect.poll(async () => (await playReadyProbe(page)).calls
         .filter(call => call.method === 'unload').length).toBe(1);

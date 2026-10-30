@@ -8,7 +8,6 @@ import { InputMode } from '../navigation/input-mode';
 import { AccountSwitcher } from './account-switcher';
 import { navSections, type Section, type SectionDef } from './sections';
 import {
-  GUIDE_ICON,
   HOME_ICON,
   LIVE_ICON,
   MOVIES_ICON,
@@ -29,7 +28,6 @@ export const NAV_MENU_REVEAL_DWELL_MS = 400;
 export const SECTION_ICONS: Record<Section, string> = {
   home: HOME_ICON,
   live: LIVE_ICON,
-  epg: GUIDE_ICON,
   movies: MOVIES_ICON,
   series: SERIES_ICON,
   search: SEARCH_STROKE_ICON,

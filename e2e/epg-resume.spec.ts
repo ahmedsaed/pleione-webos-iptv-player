@@ -61,13 +61,16 @@ async function setup(page: Page, seed?: Seed): Promise<void> {
   }, { url: CH_URL, s: seed ?? null });
 }
 
+// The Guide inside Live, from the list with the Red key.
 async function openEpg(page: Page): Promise<void> {
   await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
+  await expect(page.locator('#channel-browser .channel-item').first()).toBeVisible();
   await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
-  await expect(page.locator('#view-epg')).toBeVisible();
-  await page.locator('#epg-programmes .epg-programme-item').first().waitFor();
+  await expect(page.locator('#view-channels.live-guide-mode #live-guide .guide-cell').first()).toBeVisible();
 }
+
+// The past program's cell: it opens on the live one, an hour later.
+const PAST_CELL = `#live-guide .guide-cell[data-time="${PAST_START}"]`;
 
 function key(page: Page, keyCode: number): Promise<void> {
   return page.evaluate(
@@ -76,49 +79,53 @@ function key(page: Page, keyCode: number): Promise<void> {
   );
 }
 
-// Focus the programmes column (RIGHT) and open the resume prompt (ENTER) on the
-// earliest, already-ended program — data-prog-idx 0.
+// Step back in time from the live program (LEFT) to the earlier, already-ended
+// one, and activate it (ENTER).
 async function focusPastProgramme(page: Page): Promise<void> {
-  await key(page, 39); // RIGHT → programmes column, focus prog 0
+  await key(page, 37); // LEFT → the earlier program
   await key(page, 13); // ENTER → activate
 }
 
 const partial: Seed = { startMs: PAST_START, endMs: PAST_END, position: 1800, duration: 3600, completed: false };
 const watched: Seed = { startMs: PAST_START, endMs: PAST_END, position: 3600, duration: 3600, completed: true };
 
-test.describe('EPG catch-up resume markers', () => {
+test.describe('Guide catch-up resume markers', () => {
   test('a partial entry shows a Resume badge and a half-filled progress bar', async ({ page }) => {
     await setup(page, partial);
     await openEpg(page);
+    await key(page, 37); // LEFT → the earlier program, paging the window to it
 
-    const item = page.locator('#epg-programmes [data-prog-idx="0"]');
+    const item = page.locator(PAST_CELL);
     await expect(item).toContainText('Earlier Show');
-    const badge = item.locator('.epg-catchup-badge');
+    const badge = item.locator('.guide-cell-badge');
     await expect(badge).toHaveText('Resume');
     await expect(badge).toHaveClass(/resume/);
     // 1800 / 3600 = 50%.
-    await expect(item.locator('.epg-catchup-progress-fill')).toHaveAttribute('style', /width:\s*50%/);
+    await expect(item.locator('.guide-cell-progress.resume')).toHaveAttribute('style', /width:\s*50%/);
   });
 
   test('a completed entry shows a Watched badge and no progress bar', async ({ page }) => {
     await setup(page, watched);
     await openEpg(page);
+    await key(page, 37);
 
-    const item = page.locator('#epg-programmes [data-prog-idx="0"]');
-    const badge = item.locator('.epg-catchup-badge');
+    const item = page.locator(PAST_CELL);
+    const badge = item.locator('.guide-cell-badge');
     await expect(badge).toHaveText('Watched');
     await expect(badge).toHaveClass(/watched/);
-    await expect(item.locator('.epg-catchup-progress-fill')).toHaveCount(0);
+    await expect(item.locator('.guide-cell-progress.resume')).toHaveCount(0);
   });
 
   test('no marker renders when there is no stored progress', async ({ page }) => {
     await setup(page); // no seed
     await openEpg(page);
-    await expect(page.locator('.epg-catchup-badge')).toHaveCount(0);
+    await key(page, 37);
+    await expect(page.locator(PAST_CELL)).toBeVisible();
+    await expect(page.locator('.guide-cell-badge')).toHaveCount(0);
   });
 });
 
-test.describe('EPG catch-up resume prompt', () => {
+test.describe('Guide catch-up resume prompt', () => {
   test('selecting a partial program opens the prompt at the stored position', async ({ page }) => {
     await setup(page, partial);
     await openEpg(page);
@@ -128,7 +135,7 @@ test.describe('EPG catch-up resume prompt', () => {
     await expect(prompt).toBeVisible();
     await expect(prompt.locator('.catchup-resume-message')).toContainText('Earlier Show');
     await expect(prompt.locator('.catchup-resume-message')).toContainText('30:00'); // 1800s
-    // Still in the EPG — no playback started yet.
+    // Still in the Guide — no playback started yet.
     await expect(page.locator('#view-player')).toBeHidden();
   });
 
@@ -157,7 +164,7 @@ test.describe('EPG catch-up resume prompt', () => {
     expect(Object.keys(stored ? JSON.parse(stored) : {})).toHaveLength(0);
   });
 
-  test('Cancel keeps the EPG open and does not start playback', async ({ page }) => {
+  test('Cancel keeps the Guide open and does not start playback', async ({ page }) => {
     await setup(page, partial);
     await openEpg(page);
     await focusPastProgramme(page);
@@ -167,7 +174,7 @@ test.describe('EPG catch-up resume prompt', () => {
     await key(page, 39); // RIGHT → Cancel
     await key(page, 13); // ENTER
     await expect(page.locator('.catchup-resume-prompt')).toBeHidden();
-    await expect(page.locator('#view-epg')).toBeVisible();
+    await expect(page.locator('#view-channels.live-guide-mode')).toBeVisible();
     await expect(page.locator('#view-player')).toBeHidden();
   });
 
@@ -176,8 +183,9 @@ test.describe('EPG catch-up resume prompt', () => {
   test('a pointer click on the program opens the prompt, and clicking Resume plays it', async ({ page }) => {
     await setup(page, partial);
     await openEpg(page);
+    await key(page, 37);
 
-    await page.locator('#epg-programmes [data-prog-idx="0"]').click();
+    await page.locator(PAST_CELL).click();
     await expect(page.locator('.catchup-resume-prompt')).toBeVisible();
 
     await page.locator('.catchup-resume-btn[data-action="resume"]').click();
@@ -211,7 +219,7 @@ test('a partial program opened from Search shows its resume prompt with the ring
   await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
 
-// Catch-up from the EPG on a fake element with a known duration, so the OSD
+// Catch-up from the Guide on a fake element with a known duration, so the OSD
 // can seek and the Pause path through the app sets the user-paused state.
 async function startFakeCatchup(page: Page): Promise<void> {
   await setup(page);
