@@ -49,6 +49,32 @@ of those URLs and the credentials, and save.
 | `--prepare`, `--jobs` | | | pre-encode everything |
 | `--verbose` | | | log every request |
 
+## Docker
+
+`scripts/xtream-demo/Dockerfile` builds an image with every clip and live
+loop already encoded, so a container starts at once and needs no write
+access. CI builds and smoke-tests it on pull requests and publishes
+`ghcr.io/ahmedsaed/pleione-xtream-demo` from `pleione`:
+
+```bash
+docker run -d --name xtream-demo --restart unless-stopped -p 8090:8090 \
+  -e XTREAM_DEMO_USERNAME=user1 -e XTREAM_DEMO_PASSWORD=secret1 \
+  ghcr.io/ahmedsaed/pleione-xtream-demo:latest
+```
+
+The environment variables above set the account; the port and size
+variables work as well, though `--size large` needs a rebuild with
+`--build-arg XTREAM_DEMO_SIZE=large` to encode its media. To build
+locally:
+
+```bash
+docker build -f scripts/xtream-demo/Dockerfile -t pleione-xtream-demo .
+```
+
+The image is about 800 MB: ffmpeg stays in it because the server checks
+for it at start. Serve it over plain `http://`; older webOS TVs may
+reject newer HTTPS certificates.
+
 ## Desktop preview
 
 ```bash
