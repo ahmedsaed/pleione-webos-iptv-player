@@ -42,7 +42,7 @@ export class SearchBox {
       tier: Tier.bar,
       when: () => this.host.getClientRects().length > 0,
       onAction: (action) => this.handleAction(action),
-      // Another surface took the keys (the side menu, a prompt): its caret
+      // Another surface took the keys (a prompt): its caret
       // must not keep the arrow keys.
       onRelease: () => this.input.blur(),
       onAcquire: () => { if (this.active) this.input.focus(); },

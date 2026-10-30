@@ -26,7 +26,6 @@ import { LiveGuide } from './components/live-guide';
 import { Settings, type SaveAction, type SourceTarget } from './components/settings';
 import { Sidebar } from './components/sidebar';
 import { type Section, sectionForView } from './components/sections';
-import { NavMenu } from './components/nav-menu';
 import { Home } from './components/home';
 import { SearchBox } from './components/search-box';
 import { HomeButton } from './components/home-button';
@@ -56,7 +55,9 @@ import { truncate } from './utils/text';
 import { $, show, hide } from './utils/dom';
 import { createLogger, installGlobalErrorHandlers, logEnvironment } from './utils/logger';
 import { FocusRing } from './navigation/focus-ring';
-import { Focus, Tier, type FocusScope } from './navigation/focus-scope';
+import { backStep, type PlayedFrom } from './navigation/back-route';
+import { leaveToTvHome } from './utils/platform-exit';
+import { Focus, type FocusScope } from './navigation/focus-scope';
 import type {
   Action,
   NumberEvent,
@@ -76,9 +77,8 @@ type ViewName = 'home' | 'channels' | 'player' | 'settings' | 'parental-controls
 class App {
   private views!: Record<ViewName, HTMLElement>;
   private viewStack: ViewName[] = ['channels'];
-  private backPressTime = 0;
-  // Where Back from live playback returns: Home when it started there.
-  private playerReturn: 'channels' | 'home' = 'channels';
+  // Where Back from live playback returns: the page it started on.
+  private playerReturn: PlayedFrom = 'channels';
   private channelList!: ChannelList;
   private player!: Player;
   private livePreview!: LivePreview;
@@ -109,7 +109,6 @@ class App {
   private reminderPrompt = new ReminderPrompt();
   private reminderManager!: ReminderManager;
   private home!: Home;
-  private navMenu!: NavMenu;
   private searchBox!: SearchBox;
   private homeButton!: HomeButton;
   private search!: Search;
@@ -203,14 +202,7 @@ class App {
         onEnterManagement: () => this.livePreview?.close(),
       },
     );
-    this.player = new Player(this.views.player, () => {
-      if (this.playerReturn === 'home') {
-        this.goHome();
-        return;
-      }
-      this.channelList.render();
-      this.showView('channels');
-    }, (idx, catchupStart) => {
+    this.player = new Player(this.views.player, () => this.goUp('player'), (idx, catchupStart) => {
       this.channelList.setPlaying(idx, catchupStart);
       // Zapping full screen moves where Back returns to; the preview never does.
       if (idx >= 0 && this.isCurrentView('player') && !this.player.isInLivePreview()) {
@@ -257,10 +249,7 @@ class App {
       onLeaveLeft: () => this.focusGuideGroups(),
       onLeaveUp: () => this.liveHeader.enter(),
     });
-    this.reminderManager = new ReminderManager(this.views.reminders, () => {
-      this.showView('settings');
-      this.settings.focusReminderEntry();
-    });
+    this.reminderManager = new ReminderManager(this.views.reminders, () => this.goUp('reminders'));
     this.settings = new Settings(
       this.views.settings,
       (action) => this.onSettingsSaved(action),
@@ -272,7 +261,7 @@ class App {
     );
     this.parentalControls = new ParentalControls(
       this.views['parental-controls'],
-      () => this.leaveParentalControls(),
+      () => this.goUp('parental-controls'),
       done => this.parentalPinPrompt.showChange(done),
       done => this.parentalPinPrompt.showCreate(done),
     );
@@ -315,8 +304,7 @@ class App {
     );
 
     this.movies = new Movies(this.views.movies, {
-      onLeaveLeft: () => this.leaveLeft(),
-      onBack: () => this.openNavMenu('key'),
+      onBack: () => this.goUp('movies'),
       onPlayVod: (req) => {
         this.player.playVod({
           ...req,
@@ -328,8 +316,7 @@ class App {
       },
     });
     this.series = new Series(this.views.series, {
-      onLeaveLeft: () => this.leaveLeft(),
-      onBack: () => this.openNavMenu('key'),
+      onBack: () => this.goUp('series'),
       onPlayVod: (req) => {
         this.player.playVod({
           ...req,
@@ -343,8 +330,7 @@ class App {
     this.search = new Search($('.search-results-host', this.views.search)!, {
       onFocusBox: () => this.searchBox.focus(),
       onReleaseBox: () => this.searchBox.release(),
-      onLeaveLeft: () => this.leaveLeft(),
-      // Step back out to the search box, where a second Back opens the menu.
+      // Step back out to the search box, where a second Back goes Home.
       onBack: () => this.searchBox.focus(),
       onPickRecent: (query) => {
         this.searchBox.setQuery(query);
@@ -385,7 +371,7 @@ class App {
         }
         return this.search.focusRecent();
       },
-      onBack: () => this.openNavMenu('key'),
+      onBack: () => this.goUp('search'),
     });
     this.home = new Home(this.views.home, {
       onOpenSection: (section, via) => this.selectSection(section, via),
@@ -395,8 +381,7 @@ class App {
       }),
       onSelectAccount: (id) => this.selectXtreamAccount(id),
       onLockNow: () => ParentalControlService.lock('lock-now'),
-      onLeaveLeft: () => this.openNavMenu('key'),
-      onBack: () => this.confirmExit(),
+      onBack: () => this.goUp('home'),
       onAddSource: (kind, via) =>
         this.openSettingsAt({ kind: kind === 'xtream' ? 'add-xtream' : 'add-playlist' }, via),
       onRetryConnection: () => void this.connection.verify(),
@@ -404,16 +389,6 @@ class App {
         this.openSettingsAt({ kind: 'account', accountId: issue.accountId, state: issue.state }, via),
       loadSetupInfo: () => SetupClient.getInfo(),
     });
-    this.navMenu = new NavMenu({
-      onSelect: (section, via) => this.selectSection(section, via),
-      onBack: () => this.navMenuBack(),
-      onDismiss: () => this.resumeSectionFocus(),
-      onLockNow: () => ParentalControlService.lock('lock-now'),
-      onSelectAccount: (id) => this.selectXtreamAccount(id),
-      canReveal: () => this.sectionTopLevel(),
-      current: () => this.currentSection(),
-    });
-    this.navMenu.init();
     this.homeButton = new HomeButton(() => this.selectSection('home', 'pointer'));
 
     KeyHandler.init();
@@ -507,12 +482,11 @@ class App {
 
   private async exitApp(): Promise<void> {
     if (!await this.flushUserData('exit')) {
-      this.backPressTime = 0;
       showToast(t('app.saveFailed'));
       return;
     }
     this.stopBundledService();
-    window.close();
+    leaveToTvHome();
   }
 
   private cancelServiceEventsSubscription(): void {
@@ -932,8 +906,6 @@ class App {
     const accounts = playlists
       .filter((p) => p.source === 'xtream' && p.xtream && isSourceEnabled(p));
     const account = this.activeXtreamAccount();
-    this.navMenu.setSections(hasXtream);
-    this.navMenu.setAccounts(accounts, account?.id ?? '');
     this.home.setSources(hasXtream, accounts, account);
     this.home.setFirstRun(!playlists.length);
     const issue = this.connection.issue;
@@ -1255,7 +1227,7 @@ class App {
   }
 
   private showView(name: ViewName, preserveChannelFocus = false, resumeChannelFocus = false): void {
-    // Every way out of the manager (Back, color keys, the side menu, a reminder)
+    // Every way out of the manager (Back, color keys, a reminder)
     // ends management so concealment returns; the manager never stays stacked.
     if (name !== 'parental-controls' && this.isCurrentView('parental-controls')) {
       this.parentalControls.close();
@@ -1299,12 +1271,9 @@ class App {
 
     if (name !== 'home') this.home?.hidden();
     this.homeButton?.showOn(name !== 'home' && sectionForView(name) ? name : null);
-    if (name === 'home') this.playerReturn = 'home';
+    if (name === 'home' || name === 'search') this.playerReturn = name;
     else if (name !== 'player') this.playerReturn = 'channels';
     if (name !== 'search') this.searchBox?.release();
-    // Whatever changed the view under the open menu (a reminder's Watch now)
-    // leaves it behind.
-    this.navMenu?.close('host');
 
     // Focus the channel entry point on entry. No-op on first load (render runs after).
     if (name === 'channels' && this.liveMode === 'guide') {
@@ -1459,44 +1428,6 @@ class App {
     return sectionForView(this.viewStack[this.viewStack.length - 1]);
   }
 
-  // Whether the pointer at the left edge may open the side menu: on a
-  // section, with no prompt over it (a view's own dropdown gives way).
-  private sectionTopLevel(): boolean {
-    const owner = Focus.owner();
-    return this.currentSection() !== null && !this.loadingData
-      && !(owner?.modal && owner.tier >= Tier.prompt) && !this.home.accountMenuOpen;
-  }
-
-  private openNavMenu(via: 'key' | 'pointer'): void {
-    const section = this.currentSection();
-    if (section === null) return;
-    this.navMenu.open(via);
-  }
-
-  // Left at a section's left edge.
-  private leaveLeft(): void {
-    this.openNavMenu('key');
-  }
-
-  // Back into the shown section: the focus it left, in view. A plain view
-  // scope without keys of its own has nothing to resume.
-  private resumeSectionFocus(): void {
-    const section = this.currentSection();
-    if (section === 'settings') this.settings.resumeFocus();
-    else if (section === 'movies') this.movies.resumeFocus();
-    else if (section === 'series') this.series.resumeFocus();
-    else {
-      const owner = Focus.owner();
-      if (owner?.logical) owner.enter('resume');
-    }
-  }
-
-  // Back with the menu open goes Home; on Home it only closes.
-  private navMenuBack(): void {
-    this.navMenu.close('key');
-    if (!this.isCurrentView('home')) this.goHome();
-  }
-
   // Show Home; `focus` picks a destination to land on.
   private goHome(focus: Section | null = null): void {
     if (this.channelList.isEditing) this.channelList.exitEditMode();
@@ -1511,18 +1442,35 @@ class App {
     else this.home.resumeFocus();
   }
 
-  // Back on Home: a second Back within a few seconds exits.
-  private confirmExit(): void {
-    const now = Date.now();
-    if (now - this.backPressTime < 3000) {
-      void this.exitApp();
-    } else {
-      this.backPressTime = now;
-      showToast(t('app.exitHint'));
+  // Back once `view` has nothing of its own left to step out of: one level
+  // up, Home from a section, and out of the app from Home.
+  private goUp(view: ViewName): void {
+    switch (backStep(view, this.playerReturn)) {
+      case 'exit':
+        void this.exitApp();
+        return;
+      case 'home':
+        this.goHome(view === 'player' ? null : sectionForView(view));
+        return;
+      case 'channels':
+        this.channelList.render();
+        this.showView('channels');
+        return;
+      case 'search':
+        this.showView('search');
+        return;
+      case 'settings':
+        if (view === 'reminders') {
+          this.showView('settings');
+          this.settings.focusReminderEntry();
+        } else {
+          this.leaveParentalControls();
+        }
+        return;
     }
   }
 
-  // A section picked on Home or in the side menu. The shown one keeps its place.
+  // A section picked on Home. The shown one keeps its place.
   private selectSection(section: Section, via: 'key' | 'pointer'): void {
     if (this.currentSection() === section) return;
     // Settings lists the guide sources and saves offsets by channel.
@@ -1532,7 +1480,7 @@ class App {
       return;
     }
     this.switchSection(section);
-    // A click leaves the pointer on the menu or Home, so the content's focus
+    // A click leaves the pointer on Home, so the content's focus
     // waits for a key. Search keeps the keys in its own box.
     if (via === 'pointer' && section !== 'search') {
       FocusRing.defer(this.viewStack[this.viewStack.length - 1]);
@@ -1566,8 +1514,8 @@ class App {
     return accounts.find((a) => a.id === selId) ?? accounts[0] ?? null;
   }
 
-  // A different Xtream account was picked in the avatar dropdown: persist it and
-  // reload whichever account-scoped section is showing. Live/Settings just store.
+  // A different Xtream account was picked in an avatar dropdown (Home, the
+  // parental manager): persist it; each section opens on it next time.
   private selectXtreamAccount(id: string): void {
     StorageService.setSelectedXtreamAccountId(id);
     ParentalControlService.lock('account-switched');
@@ -1577,7 +1525,6 @@ class App {
     this.searchPrewarm.schedule('account');
     this.syncSources();
     if (this.isCurrentView('home')) this.home.render();
-    this.reopenAccountSection(account);
   }
 
   private reopenAccountSection(account: PlaylistEntry): void {
@@ -1637,7 +1584,6 @@ class App {
     this.sidebar.refresh();
     ReminderService.refreshParentalCopy();
     const session = ParentalControlService.sessionActive;
-    this.navMenu?.setParentalSession(session);
     this.home?.setParentalSession(session);
     if (current === 'home') this.home.render();
     if (concealmentChanged) this.livePreview?.refresh();
@@ -1743,7 +1689,7 @@ class App {
   // The one answer to "who gets the next key": handleKey routes by the owner,
   // the key diagnostic timeline names it, and FocusRing lets only its root
   // show a ring. A "button does nothing" report is usually an unexpected
-  // owner. Prompts, the side menu, the search box, the sidebar, and the player's overlays push
+  // owner. Prompts, the search box, the sidebar, and the player's overlays push
   // themselves while shown (the player view still routes the keys of its
   // controls, track pickers, and subtitle search); below them the shown view
   // owns the keys.
@@ -1838,7 +1784,9 @@ class App {
       if (currentView === 'player') {
         if (this.sidebar.visible) {
           if (!this.sidebar.handleBack()) this.sidebar.hide();
-        } else if (!this.player.handleBack() && !this.livePreview.returnFromFullscreen(true)) {
+        } else if (!this.player.handleBack()
+            // Live's preview keeps playing what Back left; Home and Search stop it.
+            && !(this.playerReturn === 'channels' && this.livePreview.returnFromFullscreen(true))) {
           this.player.handleAction('back');
         }
         return;
@@ -1852,7 +1800,7 @@ class App {
       }
       if (currentView === 'settings') {
         if (this.settings.dismissDropdown()) return;
-        this.openNavMenu('key');
+        this.goUp('settings');
         return;
       }
       if (currentView === 'reminders') {
@@ -1865,7 +1813,7 @@ class App {
           return;
         }
         if (this.channelList.handleBack()) return;
-        this.openNavMenu('key');
+        this.goUp('channels');
         return;
       }
     }
@@ -1894,7 +1842,6 @@ class App {
             break;
           }
         }
-        if (action === 'left' && !moved && !this.channelList.isEditing) this.leaveLeft();
         // Up off the top of the groups or the list: the header.
         if (action === 'up' && !moved && !this.channelList.isEditing) this.liveHeader.enter();
         break;
@@ -1930,7 +1877,7 @@ class App {
         }
         break;
       case 'settings':
-        if (!this.settings.handleAction(action) && action === 'left') this.leaveLeft();
+        this.settings.handleAction(action);
         break;
       case 'reminders':
         this.reminderManager.handleAction(action);

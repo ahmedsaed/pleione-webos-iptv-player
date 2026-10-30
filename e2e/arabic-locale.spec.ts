@@ -80,15 +80,6 @@ test('Arabic keeps the LTR layout with Arabic labels and Western digits', async 
     direction: getComputedStyle(document.body).direction,
   }))).toEqual({ dir: null, direction: 'ltr' });
 
-  const item = (section: string) => page.locator(`.nav-menu-item[data-section="${section}"] .nav-menu-label`);
-  await expect(item('live')).toHaveText('مباشر');
-  await expect(item('search')).toHaveText('بحث');
-  await expect(item('settings')).toHaveText('إعدادات');
-  // The menu keeps its LTR order: icon on the left of each label.
-  const order = await page.locator('.nav-menu-item[data-section]').evaluateAll(items =>
-    items.map(el => [el.querySelector('.nav-menu-icon')!.getBoundingClientRect().left,
-      el.querySelector('.nav-menu-label')!.getBoundingClientRect().left]));
-  for (const [icon, label] of order) expect(icon).toBeLessThan(label);
   await expect(page.locator('#view-channels .live-header-count')).toHaveText('2 قناة');
 
   // The preview follows the first row once focus rests on it.

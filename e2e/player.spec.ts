@@ -39,7 +39,7 @@ test('remote arrow keys move focus and Enter starts playback', async ({ page }) 
 
   await expect(page.locator('#view-channels')).toBeVisible();
 
-  // Initial focus is the first channel (search and settings live in the side menu).
+  // Initial focus is the first channel (search and settings live on Home).
   const focused = page.locator('.channel-main .channel-item.focused');
   await expect(focused).toHaveCount(1);
   await expect(focused).toContainText('Channel One');

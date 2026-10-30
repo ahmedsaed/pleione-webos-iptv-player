@@ -1,4 +1,4 @@
-import { test, expect, routeLiveManifest, SAMPLE_M3U, enterTab, openSideMenu, showHome, type Page } from './helpers';
+import { test, expect, routeLiveManifest, SAMPLE_M3U, enterTab, showHome, type Page } from './helpers';
 
 // Two Xtream accounts on distinct hosts so player_api.php can serve a different
 // catalog per account: Alpha (a1) -> "Alpha Movie" under "Cat Alpha"; Bravo (a2)
@@ -86,8 +86,6 @@ test('Home shows the active account initial at the top right, by the name', asyn
   if (!avatarBox || !titleBox) throw new Error('missing bounding box');
   expect(avatarBox.x).toBeGreaterThan(titleBox.x + titleBox.width);
   expect(avatarBox.y).toBeLessThan(titleBox.y + titleBox.height);
-  // The side menu names the account too.
-  await expect(page.locator('.nav-menu-account .nav-menu-label')).toHaveText('Alpha');
 });
 
 test('no account avatar for an M3U-only setup', async ({ page }) => {
@@ -102,7 +100,6 @@ test('no account avatar for an M3U-only setup', async ({ page }) => {
   await goHome(page);
   await expect(homeSlot(page)).toBeHidden();
   await expect(page.locator('.account-avatar')).toHaveCount(0);
-  await expect(page.locator('.nav-menu-account')).toHaveClass(/\bhidden\b/);
 });
 
 test('the dropdown lists every account with the active one marked', async ({ page }) => {
@@ -151,34 +148,6 @@ test('a menu opened with the remote holds the only ring, which returns to the av
   await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
 
-test('switching account from the side menu reloads Movies and updates the avatar', async ({ page }) => {
-  await seedTwoAccounts(page);
-  await routeLiveManifest(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-
-  // Enter Movies for the default (Alpha) account.
-  await enterTab(page, 'movies');
-  await expect(page.locator('#view-movies .catalog-rail-title')).toContainText('Cat Alpha');
-  await expect(page.locator('.catalog-tile[data-item-id="10"]')).toContainText('Alpha Movie');
-
-  // Switch to Bravo from the side menu's account; Movies reloads for Bravo.
-  await openSideMenu(page);
-  await page.locator('.nav-menu .account-avatar').click();
-  await expect(page.locator('.nav-menu .account-menu')).toBeVisible();
-  await pickAccount(page, 'a2');
-  // The pick lands on the row, not on the section under it.
-  await expect(page.locator('#view-movies')).toBeVisible();
-  await expect(page.locator('#view-movies .catalog-rail-title')).toContainText('Cat Bravo');
-  await expect(page.locator('.catalog-tile[data-item-id="20"]')).toContainText('Bravo Movie');
-  await expect(page.locator('.catalog-tile[data-item-id="10"]')).toHaveCount(0);
-
-  // The avatar now shows Bravo's initial, and the dropdown is closed.
-  await expect(page.locator('.nav-menu .account-avatar')).toHaveText('B');
-  await expect(page.locator('.nav-menu-account .nav-menu-label')).toHaveText('Bravo');
-  await expect(page.locator('.account-menu')).toHaveCount(0);
-});
-
 test('an account picked on Home persists across a reload, and Movies uses it', async ({ page }) => {
   await seedTwoAccounts(page);
   await routeLiveManifest(page);
@@ -198,22 +167,16 @@ test('an account picked on Home persists across a reload, and Movies uses it', a
   await expect(page.locator('.catalog-tile[data-item-id="20"]')).toContainText('Bravo Movie');
 });
 
-test('switching account from the side menu over Search moves Search to the new account', async ({ page }) => {
+test('Search opened after an account is picked on Home searches that account', async ({ page }) => {
   await seedTwoAccounts(page);
   await routeLiveManifest(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
+  await goHome(page);
+  await openAccountMenu(page);
+  await pickAccount(page, 'a2');
+  await expect(homeAvatar(page)).toHaveText('B');
+
   await enterTab(page, 'search');
   const input = page.locator('.search-box-input');
-  await expect(input).toBeFocused();
-
-  await openSideMenu(page);
-  await page.locator('.nav-menu .account-avatar').click();
-  await pickAccount(page, 'a2');
-  await expect(page.locator('.nav-menu .account-avatar')).toHaveText('B');
-  await page.keyboard.press('ArrowRight');
-
-  // The box gets the remote back.
   await expect(input).toBeFocused();
   await page.keyboard.type('Movie');
   await expect(page.locator('#view-search')).toContainText('Bravo Movie');

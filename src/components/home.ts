@@ -7,9 +7,18 @@ import { t } from '../i18n';
 import { CONFIG } from '../config';
 import { formatTime } from '../utils/time';
 import { AccountSwitcher } from './account-switcher';
-import { SECTION_ICONS } from './nav-menu';
 import { navSections, type Section } from './sections';
-import { LINK_ICON, NO_CONNECTION_ICON, SOURCES_ICON, UNLOCK_ICON } from './icons';
+import {
+  LINK_ICON,
+  LIVE_ICON,
+  MOVIES_ICON,
+  NO_CONNECTION_ICON,
+  SEARCH_STROKE_ICON,
+  SERIES_ICON,
+  SETTINGS_ICON,
+  SOURCES_ICON,
+  UNLOCK_ICON,
+} from './icons';
 import { firstRunIntro, phoneSetupPanel } from './first-run';
 import type { ConnectionIssue } from '../services/connection-check';
 import type { ServiceInfo } from '../services/setup-client';
@@ -24,8 +33,6 @@ export interface HomeHandlers {
   onPlayNumber: (number: number) => void;
   onSelectAccount: (accountId: string) => void;
   onLockNow: () => void;
-  // Left at the left edge: the side menu.
-  onLeaveLeft: () => void;
   onBack: () => void;
   onAddSource: (kind: AddCard, via: 'key' | 'pointer') => void;
   onRetryConnection: () => void;
@@ -34,6 +41,14 @@ export interface HomeHandlers {
 }
 
 type Card = Exclude<Section, 'home'>;
+
+const SECTION_ICONS: Record<Card, string> = {
+  live: LIVE_ICON,
+  movies: MOVIES_ICON,
+  series: SERIES_ICON,
+  search: SEARCH_STROKE_ICON,
+  settings: SETTINGS_ICON,
+};
 
 const ADD_CARDS: readonly AddCard[] = ['xtream', 'playlist'];
 const ALERT_KEYS: readonly string[] = ['alert:retry', 'alert:edit'];
@@ -103,7 +118,6 @@ export class Home {
     });
   }
 
-  get accountMenuOpen(): boolean { return !!this.switcher?.menuOpen; }
 
   setSources(hasXtream: boolean, accounts: PlaylistEntry[], account: PlaylistEntry | null): void {
     this.hasXtream = hasXtream;
@@ -327,7 +341,7 @@ export class Home {
       case 'down':
       case 'left':
       case 'right':
-        if (!this.move(action) && action === 'left') this.handlers.onLeaveLeft();
+        this.move(action);
         return;
       case 'select':
         if (this.nav.focused && this.container.contains(this.nav.focused)) {
@@ -366,7 +380,6 @@ export class Home {
     if (this.firstRun) return this.moveFirstRun(key, dir, header);
     const alertIndex = alert.indexOf(key);
     if (alertIndex >= 0) {
-      // Left off Try again leaves for the side menu, like Left off Live.
       if (dir === 'left') return alertIndex > 0 && this.focusKey(alert[alertIndex - 1]);
       if (dir === 'right') return alertIndex === alert.length - 1 || this.focusKey(alert[alertIndex + 1]);
       if (dir === 'up') return header.length ? this.focusKey(header[header.length - 1]) : true;
@@ -396,7 +409,7 @@ export class Home {
     return this.focusKey(`section:${this.grid[row + 1][col]}`);
   }
 
-  // The two Add cards stack; Left leaves for the side menu.
+  // The two Add cards stack.
   private moveFirstRun(key: string, dir: 'up' | 'down' | 'left' | 'right', header: string[]): boolean {
     const index = Math.max(0, ADD_CARDS.indexOf(key.slice('add:'.length) as AddCard));
     if (dir === 'left') return false;

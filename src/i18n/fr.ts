@@ -507,7 +507,6 @@ export const FR_MESSAGES = {
     other: '{count} chaînes chargées',
   },
   'app.loadFailed': 'Impossible de charger la liste. Vérifiez l’URL et réessayez.',
-  'app.exitHint': 'Appuyez de nouveau sur Retour pour quitter',
   'app.saveFailed': 'Impossible d’enregistrer les modifications. Réessayez.',
   'weekday.0': 'Dim',
   'weekday.1': 'Lun',

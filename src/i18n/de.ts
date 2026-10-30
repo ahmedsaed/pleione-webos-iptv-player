@@ -507,7 +507,6 @@ export const DE_MESSAGES = {
     other: '{count} Sender geladen',
   },
   'app.loadFailed': 'Die Wiedergabeliste konnte nicht geladen werden. URL überprüfen und erneut versuchen.',
-  'app.exitHint': 'Zum Beenden erneut Zurück drücken',
   'app.saveFailed': 'Änderungen konnten nicht gespeichert werden. Bitte erneut versuchen.',
   'weekday.0': 'So.',
   'weekday.1': 'Mo.',

@@ -533,7 +533,6 @@ export const PL_MESSAGES = {
     other: 'Wczytano {count} kanału',
   },
   'app.loadFailed': 'Nie udało się wczytać playlisty. Sprawdź URL i spróbuj ponownie.',
-  'app.exitHint': 'Naciśnij Wstecz ponownie, aby wyjść',
   'app.saveFailed': 'Nie udało się zapisać zmian. Spróbuj ponownie.',
   'weekday.0': 'niedz.',
   'weekday.1': 'pon.',

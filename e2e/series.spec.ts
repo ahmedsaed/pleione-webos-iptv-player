@@ -1,4 +1,4 @@
-import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab, openSideMenu } from './helpers';
+import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 
 // Seed one Xtream account (enables Movies and Series) and stub the player_api.php
@@ -128,7 +128,7 @@ test('browse Series, open a detail, and play an episode', async ({ page }) => {
   await expect(page.locator('#view-series .episode-card[data-episode-id="10"]')).toContainText('Episode One');
 });
 
-test('Back walks Series detail -> browse -> side menu instead of ejecting', async ({ page }) => {
+test('Back walks Series detail -> browse -> Home instead of ejecting', async ({ page }) => {
   await seedSeries(page);
   await routeLiveManifest(page);
   await page.goto('/');
@@ -151,9 +151,11 @@ test('Back walks Series detail -> browse -> side menu instead of ejecting', asyn
   await expect(page.locator('#view-series .catalog-rail-title')).toContainText('Cat A');
   await expect(page.locator('#view-channels')).toBeHidden();
 
-  // Second Back from the browse top level opens the side menu over it.
+  // Second Back from the browse top level goes Home, on the Series card.
   await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
-  await expect(page.locator('.nav-menu')).toHaveClass(/\bopen\b/);
+  await expect(page.locator('#view-home')).toBeVisible();
+  await expect(page.locator('#view-series')).toBeHidden();
+  await expect(page.locator('#view-home .focused')).toHaveAttribute('data-section', 'series');
 });
 
 test('episode playback suppresses the live channel sidebar and opens nothing at the right edge', async ({ page }) => {
@@ -290,25 +292,6 @@ test('Next plays the next episode at once and is disabled on the last', async ({
   await expect(episodeTitle(page)).toContainText('S2E1');
   await expect(next).toBeDisabled();
   await expect(previous).toBeEnabled();
-});
-
-test('Right out of the side menu resumes the Series detail it was opened over', async ({ page }) => {
-  await seedSeries(page);
-  await routeLiveManifest(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await enterTab(page, 'series');
-  await page.locator('.catalog-tile[data-item-id="1"]')
-    .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
-  await page.keyboard.press('Enter');
-  const season = page.locator('#view-series .series-season-btn[data-season="1"]');
-  await expect(season).toContainText('Season 1');
-
-  await openSideMenu(page);
-  await expect(page.locator('#view-series .focused')).toHaveCount(0);
-  await page.keyboard.press('ArrowRight');
-  await expect(season).toBeVisible();
-  await expect(page.locator('#view-series .focused')).toHaveCount(1);
 });
 
 const settled = (page: import('@playwright/test').Page) => page.evaluate(() =>
