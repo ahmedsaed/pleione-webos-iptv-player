@@ -31,6 +31,22 @@ export const NO_EPG_CHANNEL = 6;
 export const SUBTITLED_MOVIE_INDEX = 0;
 export const SEASONLESS_SERIES_INDEX = 3;
 
+// Higher-resolution items for checking SD/HD/FHD/UHD playback. They sit in
+// their own group with ids far above every generated one, so adding them never
+// shifts the generated catalog. `renditions` names entries of RENDITIONS in
+// media.mjs; more than one makes an adaptive HLS ladder.
+export const HD_CATEGORY = { id: '100', name: 'Group HD' };
+export const HD_CHANNELS = [
+  { streamId: 9001, name: 'HD 720p', logo: 'HD', renditions: ['720p'] },
+  { streamId: 9002, name: 'Full HD 1080p', logo: 'FHD', renditions: ['1080p'] },
+  { streamId: 9003, name: 'Adaptive 360p-1080p', logo: 'ABR', renditions: ['360p', '720p', '1080p'] },
+];
+export const HD_MOVIES = [
+  { streamId: 19001, name: 'HD Movie 720p', clip: 'movie-720p' },
+  { streamId: 19002, name: 'Full HD Movie 1080p', clip: 'movie-1080p' },
+  { streamId: 19003, name: 'UHD Movie 2160p', clip: 'movie-2160p' },
+];
+
 // 32-bit integer mix of any number of integer inputs; stable across runs.
 export function hash(...values) {
   let h = 0x2545f491;
@@ -70,11 +86,12 @@ function spread(count, buckets) {
   return (index) => Math.floor(index / per);
 }
 
-function categories(count, extraEmpty) {
+// Generated groups, then the HD group if asked, then one empty group last.
+function categories(count, withHd) {
   const list = [];
-  for (let i = 1; i <= count + (extraEmpty ? 1 : 0); i++) {
-    list.push({ id: String(i), name: `Group ${i}`, empty: i > count });
-  }
+  for (let i = 1; i <= count; i++) list.push({ id: String(i), name: `Group ${i}`, empty: false });
+  if (withHd) list.push({ ...HD_CATEGORY, empty: false });
+  list.push({ id: String(count + 1), name: `Group ${count + 1}`, empty: true });
   return list;
 }
 
@@ -103,6 +120,21 @@ export function createCatalog(size = 'small') {
       added: CATALOG_EPOCH - n * 3600,
     });
   }
+  HD_CHANNELS.forEach((item, k) => {
+    channels.push({
+      num: spec.channels + k + 1,
+      streamId: item.streamId,
+      name: item.name,
+      logo: item.logo,
+      categoryId: HD_CATEGORY.id,
+      epgId: `ch${item.streamId}`,
+      archive: false,
+      archiveDays: 0,
+      hue: (k * 47) % 360,
+      added: CATALOG_EPOCH + (k + 1) * 3600,
+      renditions: item.renditions,
+    });
+  });
 
   const vodCategories = categories(spec.vodCategories, true);
   const vodBucket = spread(spec.movies, spec.vodCategories);
@@ -125,8 +157,25 @@ export function createCatalog(size = 'small') {
       hue: (i * 67 + 20) % 360,
     });
   }
+  HD_MOVIES.forEach((item, k) => {
+    const seed = hash(item.streamId, 11);
+    movies.push({
+      num: spec.movies + k + 1,
+      streamId: item.streamId,
+      name: item.name,
+      categoryId: HD_CATEGORY.id,
+      clip: item.clip,
+      subtitled: false,
+      rating: rating(seed),
+      year: 2026,
+      // Newest in the catalog, so they lead "Recently added".
+      added: CATALOG_EPOCH + (k + 1) * 3600,
+      genre: 'Documentary',
+      hue: (k * 67 + 180) % 360,
+    });
+  });
 
-  const seriesCategories = categories(spec.seriesCategories, true);
+  const seriesCategories = categories(spec.seriesCategories, false);
   const seriesBucket = spread(spec.series, spec.seriesCategories);
   const series = [];
   let episodeId = 200001;

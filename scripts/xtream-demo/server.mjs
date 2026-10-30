@@ -11,9 +11,7 @@ import {
   archiveWindow, liveWindow, loopIndex, loopSegment, masterPlaylist, mediaPlaylist,
   ptsOffset, SEGMENT_SECONDS, webvttSegment,
 } from './hls.mjs';
-import {
-  LIVE_AUDIO, LIVE_BANDWIDTH, LIVE_CODECS, LIVE_SUBTITLES, VIDEO,
-} from './media.mjs';
+import { LIVE_AUDIO, LIVE_SUBTITLES, liveVariants } from './media.mjs';
 import { shiftSegment } from './mpegts.mjs';
 
 const TYPES = {
@@ -100,29 +98,35 @@ export function createDemoServer({
 
   // --- HLS ---------------------------------------------------------------
 
-  function hlsMaster(prefix) {
+  function hlsMaster(channel, prefix) {
     return masterPlaylist({
-      video: `${prefix}/video.m3u8`,
+      variants: liveVariants(channel).map(variant => ({
+        uri: `${prefix}/${variant.set}.m3u8`,
+        bandwidth: variant.bandwidth,
+        codecs: variant.codecs,
+        resolution: `${variant.width}x${variant.height}`,
+        frameRate: variant.fps,
+      })),
       audio: LIVE_AUDIO.map((track, i) => ({
         name: track.name, language: track.language, default: i === 0, uri: `${prefix}/audio-${track.id}.m3u8`,
       })),
       subtitles: LIVE_SUBTITLES.map(track => ({
         name: track.name, language: track.language, uri: `${prefix}/subs-${track.id}.m3u8`,
       })),
-      bandwidth: LIVE_BANDWIDTH,
-      codecs: LIVE_CODECS,
-      resolution: `${VIDEO.width}x${VIDEO.height}`,
-      frameRate: VIDEO.fps,
     });
   }
+
+  const isVideoSet = (channel, set) => liveVariants(channel).some(variant => variant.set === set);
 
   async function hlsMedia(channel, rendition, window, baseLoop) {
     const meta = await media.ensureChannel(channel);
     const id = channel.streamId;
     let uri;
-    let duration = g => meta.video[loopSegment(g)];
-    if (rendition === 'video') {
-      uri = g => `/demo-hls/seg/${id}/video/${g}/${baseLoop}.ts`;
+    let duration;
+    if (isVideoSet(channel, rendition)) {
+      const durations = meta.variants?.[rendition] ?? meta.video;
+      uri = g => `/demo-hls/seg/${id}/${rendition}/${g}/${baseLoop}.ts`;
+      duration = g => durations[loopSegment(g)];
     } else if (rendition.startsWith('audio-')) {
       const track = rendition.slice(6);
       const shared = await media.sharedMeta();
@@ -176,7 +180,7 @@ export function createDemoServer({
   async function serveLive(req, res, channel, ext) {
     if (ext === 'm3u8') {
       await media.ensureChannel(channel);
-      send(res, 200, TYPES.hls, hlsMaster(`/demo-hls/live/${channel.streamId}`), { 'Cache-Control': 'no-store' });
+      send(res, 200, TYPES.hls, hlsMaster(channel, `/demo-hls/live/${channel.streamId}`), { 'Cache-Control': 'no-store' });
       return;
     }
     if (ext && ext !== 'ts') throw new HttpError(404, 'Unsupported live output');
@@ -197,7 +201,7 @@ export function createDemoServer({
     if (ext === 'm3u8') {
       await media.ensureChannel(channel);
       send(res, 200, TYPES.hls,
-        hlsMaster(`/demo-hls/archive/${channel.streamId}/${startSeconds}/${duration}`),
+        hlsMaster(channel, `/demo-hls/archive/${channel.streamId}/${startSeconds}/${duration}`),
         { 'Cache-Control': 'no-store' });
       return;
     }
@@ -245,7 +249,7 @@ export function createDemoServer({
     const [kind, a, b] = parts;
     if (kind === 'logo') {
       const channel = channelOrThrow(extension(a).id);
-      return send(res, 200, TYPES.svg, logoSvg(channel.name, channel.hue), { 'Cache-Control': 'max-age=86400' });
+      return send(res, 200, TYPES.svg, logoSvg(channel.name, channel.hue, channel.logo), { 'Cache-Control': 'max-age=86400' });
     }
     if (kind === 'poster' && a === 'movie') {
       const movie = catalog.movie(extension(b).id);
@@ -351,7 +355,7 @@ export function createDemoServer({
       if (kind === 'seg' && parts.length === 6) {
         const channel = channelOrThrow(parts[2]);
         const set = parts[3];
-        if (set !== 'video' && !LIVE_AUDIO.some(track => set === `audio-${track.id}`)) {
+        if (!isVideoSet(channel, set) && !LIVE_AUDIO.some(track => set === `audio-${track.id}`)) {
           throw new HttpError(404, 'Unknown segment set');
         }
         const data = await segment(channel, set, Number(parts[4]), Number(extension(parts[5]).id));

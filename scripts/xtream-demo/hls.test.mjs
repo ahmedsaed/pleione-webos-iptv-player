@@ -38,13 +38,14 @@ describe('timeline', () => {
 
 describe('playlists, read by the app parsers', () => {
   const master = masterPlaylist({
-    video: '/v.m3u8',
+    variants: [{
+      uri: '/v.m3u8', bandwidth: 400000, codecs: 'avc1.4d401e,mp4a.40.2', resolution: '640x360', frameRate: 15,
+    }],
     audio: [
       { name: 'Track 1', language: 'l1', default: true, uri: '/a1.m3u8' },
       { name: 'Track 2', language: 'l2', default: false, uri: '/a2.m3u8' },
     ],
     subtitles: [{ name: 'Track 3', language: 'l1', uri: '/s.m3u8' }],
-    bandwidth: 400000, codecs: 'avc1.4d401e,mp4a.40.2', resolution: '640x360', frameRate: 15,
   });
 
   it('names two audio renditions', () => {
@@ -56,6 +57,24 @@ describe('playlists, read by the app parsers', () => {
     expect(parseSubtitleRenditions(master)).toEqual([
       expect.objectContaining({ name: 'Track 3', lang: 'l1', isForced: false }),
     ]);
+  });
+
+  it('lists one STREAM-INF per variant, in order, sharing the renditions', () => {
+    const ladder = masterPlaylist({
+      variants: [
+        { uri: '/a.m3u8', bandwidth: 500000, codecs: 'c1', resolution: '640x360', frameRate: 30 },
+        { uri: '/b.m3u8', bandwidth: 5000000, codecs: 'c2', resolution: '1920x1080', frameRate: 30 },
+      ],
+      audio: [{ name: 'Track 1', language: 'l1', default: true, uri: '/a1.m3u8' }],
+      subtitles: [],
+    });
+    const lines = ladder.split('\n');
+    const inf = lines.filter(line => line.startsWith('#EXT-X-STREAM-INF:'));
+    expect(inf).toEqual([
+      '#EXT-X-STREAM-INF:BANDWIDTH=500000,CODECS="c1",RESOLUTION=640x360,FRAME-RATE=30.000,AUDIO="aud"',
+      '#EXT-X-STREAM-INF:BANDWIDTH=5000000,CODECS="c2",RESOLUTION=1920x1080,FRAME-RATE=30.000,AUDIO="aud"',
+    ]);
+    expect(lines[lines.indexOf(inf[1]) + 1]).toBe('/b.m3u8');
   });
 
   it('tags every segment with PROGRAM-DATE-TIME', () => {

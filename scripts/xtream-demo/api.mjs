@@ -4,7 +4,7 @@
 
 import { escapeXml } from './assets.mjs';
 import { guideRange, hasArchive, programmesBetween, programmesForDay } from './catalog.mjs';
-import { VOD_CLIPS } from './media.mjs';
+import { RENDITIONS, VOD_CLIPS } from './media.mjs';
 
 export const SERVER_TIMEZONE = 'UTC';
 const DAY_SECONDS = 86400;
@@ -140,10 +140,15 @@ export function vodInfo(catalog, ctx, vodId) {
   const movie = catalog.movie(vodId);
   if (!movie) return [];
   const urls = assetUrls(ctx);
-  const seconds = VOD_CLIPS[movie.clip].seconds;
-  const plot = movie.subtitled
-    ? `${movie.name} is a synthetic demo title with two audio tracks, an embedded subtitle track, and sidecar SRT and WebVTT subtitles.`
-    : `${movie.name} is a synthetic demo title in ${movie.genre.toLowerCase()} for testing the catalog.`;
+  const clip = VOD_CLIPS[movie.clip];
+  const seconds = clip.seconds;
+  const video = RENDITIONS[clip.rendition];
+  let plot = `${movie.name} is a synthetic demo title in ${movie.genre.toLowerCase()} for testing the catalog.`;
+  if (movie.subtitled) {
+    plot = `${movie.name} is a synthetic demo title with two audio tracks, an embedded subtitle track, and sidecar SRT and WebVTT subtitles.`;
+  } else if (video) {
+    plot = `${movie.name} is a synthetic ${video.width}x${video.height} H.264 and AAC test clip for checking playback at this resolution.`;
+  }
   return {
     info: {
       name: movie.name,
@@ -163,7 +168,8 @@ export function vodInfo(catalog, ctx, vodId) {
       backdrop_path: [urls.moviePoster(movie)],
       duration_secs: seconds,
       duration: formatDuration(seconds),
-      bitrate: 400,
+      bitrate: video ? video.kbps : 400,
+      ...(video ? { video: { width: video.width, height: video.height, codec_name: 'h264' } } : {}),
       rating: movie.rating,
       tmdb_id: '',
       subtitles: movie.subtitled ? sidecarSubtitles(ctx) : [],

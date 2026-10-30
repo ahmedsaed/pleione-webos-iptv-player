@@ -44,7 +44,8 @@ function attributes(list) {
 
 const quoted = (value) => `"${value}"`;
 
-export function masterPlaylist({ video, audio, subtitles, bandwidth, codecs, resolution, frameRate }) {
+/** A master playlist; `variants` ({ uri, bandwidth, codecs, resolution, frameRate }) share the renditions. */
+export function masterPlaylist({ variants, audio, subtitles }) {
   const lines = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-INDEPENDENT-SEGMENTS'];
   for (const track of audio) {
     lines.push(`#EXT-X-MEDIA:${attributes([
@@ -60,13 +61,16 @@ export function masterPlaylist({ video, audio, subtitles, bandwidth, codecs, res
       ['FORCED', 'NO'], ['URI', quoted(track.uri)],
     ])}`);
   }
-  lines.push(`#EXT-X-STREAM-INF:${attributes([
-    ['BANDWIDTH', String(bandwidth)], ['CODECS', quoted(codecs)],
-    ['RESOLUTION', resolution], ['FRAME-RATE', frameRate.toFixed(3)],
-    ['AUDIO', audio.length ? quoted('aud') : undefined],
-    ['SUBTITLES', subtitles.length ? quoted('subs') : undefined],
-  ])}`);
-  lines.push(video, '');
+  for (const variant of variants) {
+    lines.push(`#EXT-X-STREAM-INF:${attributes([
+      ['BANDWIDTH', String(variant.bandwidth)], ['CODECS', quoted(variant.codecs)],
+      ['RESOLUTION', variant.resolution], ['FRAME-RATE', variant.frameRate.toFixed(3)],
+      ['AUDIO', audio.length ? quoted('aud') : undefined],
+      ['SUBTITLES', subtitles.length ? quoted('subs') : undefined],
+    ])}`);
+    lines.push(variant.uri);
+  }
+  lines.push('');
   return lines.join('\n');
 }
 
