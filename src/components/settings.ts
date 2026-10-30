@@ -287,6 +287,10 @@ const SETTINGS_CATEGORIES: readonly {
   },
 ];
 
+function categoryLabel(id: SettingsCategory): TextMessageKey {
+  return SETTINGS_CATEGORIES.find(category => category.id === id)!.label;
+}
+
 function settingsNavItem(category: typeof SETTINGS_CATEGORIES[number], active: boolean): Safe {
   return html`
     <button class="settings-nav-item ${active ? 'active' : ''}" data-focusable
@@ -744,8 +748,12 @@ export class Settings {
 
     this.container.innerHTML = String(html`
       <div class="settings-view">
+        <header class="page-header settings-header">
+          <h1 class="page-title settings-title">${t('common.settings')}</h1>
+          <span class="page-subtitle settings-header-category">${t(categoryLabel(this.category))}</span>
+        </header>
+        <div class="settings-body">
         <nav class="settings-sidebar" data-nav-container aria-label="${t('common.settings')}">
-          <h2 class="settings-title">${t('common.settings')}</h2>
           <div class="settings-nav-list">
             ${SETTINGS_CATEGORIES.map(category => settingsNavItem(category, category.id === this.category))}
           </div>
@@ -1213,6 +1221,7 @@ export class Settings {
             <button class="btn btn-secondary btn-large" data-focusable id="cancel-settings">${t('common.cancel')}</button>
             <button class="btn btn-primary btn-large" data-focusable id="save-settings">${t('settings.saveApply')}</button>
           </div>
+        </div>
         </div>
       </div>
     `);
@@ -2144,6 +2153,8 @@ export class Settings {
     });
     const changed = category !== this.category;
     this.category = category;
+    const heading = this.container.querySelector('.settings-header-category');
+    if (heading) heading.textContent = t(categoryLabel(category));
     let shown: HTMLElement | null = null;
     this.container.querySelectorAll<HTMLElement>('.settings-category').forEach((page) => {
       const active = page.dataset.settingsCategory === category;

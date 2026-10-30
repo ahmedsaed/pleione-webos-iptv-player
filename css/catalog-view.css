@@ -115,7 +115,6 @@
   min-height: var(--catalog-rail-fit, 0);
   overflow-x: hidden;
   overflow-y: auto;
-  background: var(--bg-primary);
 }
 .catalog-rails-body { padding: 0 12px 0 80px; }
 /* Room for the last rail to reach the top of the rail area. */
@@ -230,13 +229,17 @@ html[data-animation="reduced"] .catalog-tile { transition: transform var(--trans
   flex-direction: column;
   padding: 0;
   overflow: hidden;
-  background: var(--bg-primary);
 }
+/* The artwork fades into the shared backdrop below it rather than into a
+   flat color, which would leave a seam over the section's tint. */
 .detail-backdrop {
   position: absolute;
   top: 0; left: 0; right: 0;
   height: calc(var(--canvas-height) * 0.7);
   overflow: hidden;
+  /* Chromium 53 has the prefixed mask, which is all this needs. */
+  /* stylelint-disable-next-line plugin/no-unsupported-browser-features */
+  -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
 }
 .detail-art {
   position: absolute;
@@ -255,8 +258,7 @@ html[data-animation="reduced"] .catalog-tile { transition: transform var(--trans
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   background:
-    linear-gradient(90deg, rgb(var(--catalog-hero-scrim-rgb) / 0.97) 0%, rgb(var(--catalog-hero-scrim-rgb) / 0.88) 38%, rgb(var(--catalog-hero-scrim-rgb) / 0.35) 70%, rgb(var(--catalog-hero-scrim-rgb) / 0.15) 100%),
-    linear-gradient(180deg, transparent 55%, var(--bg-primary) 100%);
+    linear-gradient(90deg, rgb(var(--catalog-hero-scrim-rgb) / 0.97) 0%, rgb(var(--catalog-hero-scrim-rgb) / 0.88) 38%, rgb(var(--catalog-hero-scrim-rgb) / 0.35) 70%, rgb(var(--catalog-hero-scrim-rgb) / 0.15) 100%);
 }
 .detail-hero {
   position: relative;

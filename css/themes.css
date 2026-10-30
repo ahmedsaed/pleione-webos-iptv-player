@@ -372,3 +372,29 @@
   --catalog-focus: var(--accent);
   --catalog-focus-rgb: var(--accent-rgb);
 }
+
+/* Pleione's backdrop (main.css [data-backdrop]): the brand glow, and each
+   section's tint in its Home card's color. Light themes soften both. */
+:root {
+  --backdrop-glow: rgba(91, 79, 230, 0.35);
+  --backdrop-tint-live: rgba(194, 24, 91, 0.28);
+  --backdrop-tint-epg: rgba(242, 153, 74, 0.26);
+  --backdrop-tint-movies: rgba(71, 118, 230, 0.3);
+  --backdrop-tint-series: rgba(17, 153, 142, 0.3);
+  --backdrop-tint-search: rgba(33, 147, 176, 0.3);
+  --backdrop-tint-settings: rgba(92, 107, 128, 0.3);
+  --backdrop-home-base: linear-gradient(160deg, #0b0d2e 0%, #07081c 55%, #0d0718 100%);
+}
+
+html[data-theme="daylight"],
+html[data-theme="pastel-latte"],
+html[data-theme="paper-light"] {
+  --backdrop-glow: rgba(91, 79, 230, 0.16);
+  --backdrop-tint-live: rgba(194, 24, 91, 0.14);
+  --backdrop-tint-epg: rgba(242, 153, 74, 0.16);
+  --backdrop-tint-movies: rgba(71, 118, 230, 0.16);
+  --backdrop-tint-series: rgba(17, 153, 142, 0.16);
+  --backdrop-tint-search: rgba(33, 147, 176, 0.16);
+  --backdrop-tint-settings: rgba(92, 107, 128, 0.16);
+  --backdrop-home-base: linear-gradient(160deg, #f3f4fb 0%, #e8eaf5 55%, #f4ecf2 100%);
+}

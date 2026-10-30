@@ -99,9 +99,9 @@ export class ReminderManager {
               : ''}
           </div>
           <div class="reminder-manager-heading">
-            <div>
-              <h1>${t('reminderManager.title')}</h1>
-              <p>${t('reminderManager.summary', { count: reminders.length })}</p>
+            <div class="page-header">
+              <h1 class="page-title">${t('reminderManager.title')}</h1>
+              <p class="page-subtitle">${t('reminderManager.summary', { count: reminders.length })}</p>
             </div>
           </div>
         </header>

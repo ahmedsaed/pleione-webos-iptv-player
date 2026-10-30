@@ -4,14 +4,10 @@
   height: 100%;
   padding: 46px 80px 64px;
   overflow-y: auto;
-  background:
-    radial-gradient(circle at 78% -20%, rgb(var(--accent-rgb) / 0.16), transparent 42%),
-    var(--bg-primary);
 }
 
 .reminder-manager-hero {
-  max-width: 1560px;
-  margin: 0 auto 34px;
+  margin-bottom: 34px;
 }
 
 .reminder-manager-actions {
@@ -78,30 +74,13 @@
 }
 
 .reminder-manager-heading {
-  display: flex;
-  align-items: center;
-  margin-top: 38px;
-}
-
-.reminder-manager-heading h1 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 50px;
-  line-height: 1.05;
-}
-
-.reminder-manager-heading p {
-  margin: 9px 0 0;
-  color: var(--text-secondary);
-  font-size: 23px;
+  margin-top: 24px;
 }
 
 .reminder-manager-list {
   display: flex;
   flex-direction: column;
   gap: 28px;
-  max-width: 1560px;
-  margin: 0 auto;
 }
 
 .reminder-day-heading {
