@@ -42,6 +42,8 @@ beforeEach(() => {
   handlers = {
     onOpenSection: vi.fn(), onPlayNumber: vi.fn(), onSelectAccount: vi.fn(),
     onLockNow: vi.fn(), onLeaveLeft: vi.fn(), onBack: vi.fn(),
+    onAddSource: vi.fn(), onRetryConnection: vi.fn(), onEditAccount: vi.fn(),
+    loadSetupInfo: vi.fn(() => Promise.resolve(null)),
   };
   home = new Home(container, handlers as never);
   Focus.install();
@@ -220,5 +222,147 @@ describe('Home', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+const settle = async () => {
+  for (let i = 0; i < 4; i++) await Promise.resolve();
+};
+
+describe('Home first run', () => {
+  const info = {
+    ip: '10.0.0.2', port: 1, setupUrl: 'http://host/setup?token=t1', manualUrl: 'http://host/a', pairingCode: '1234',
+  };
+
+  it('shows the welcome, phone setup, and the two Add cards instead of the bento', async () => {
+    handlers.loadSetupInfo.mockResolvedValue(info);
+    home.setSources(false, [], null);
+    home.setFirstRun(true);
+    home.render();
+    expect(container.querySelector('.home-bento')).toBeNull();
+    expect(container.querySelector('.home-welcome-title')?.textContent).toBe('Welcome to Pleione');
+    expect(container.querySelector('.home-setup')?.textContent).toContain('Checking setup service');
+    await settle();
+    expect(handlers.loadSetupInfo).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.home-setup-qr')?.getAttribute('src')).toMatch(/^data:image\//);
+    expect(container.querySelector('.home-setup-url')?.textContent).toBe('http://host/a');
+    expect(container.querySelector('.home-setup-code')?.textContent).toBe('1234');
+    expect(Array.from(container.querySelectorAll<HTMLElement>('[data-add]')).map((el) => el.dataset.key))
+      .toEqual(['add:xtream', 'add:playlist']);
+  });
+
+  it('says so when the setup service is unavailable', async () => {
+    home.setFirstRun(true);
+    home.render();
+    await settle();
+    expect(container.querySelector('.home-setup')?.textContent).toContain('currently unavailable');
+    expect(container.querySelector('.home-setup-qr')).toBeNull();
+  });
+
+  it('starts on Add Xtream, moves between the cards, and opens their Add flows with OK', () => {
+    home.setFirstRun(true);
+    home.render();
+    home.focusEntry();
+    Focus.flush();
+    expect(focused()).toBe('add:xtream');
+    home.handleAction('select');
+    expect(handlers.onAddSource).toHaveBeenLastCalledWith('xtream', 'key');
+    key('down');
+    expect(focused()).toBe('add:playlist');
+    key('down', 'right');
+    expect(focused()).toBe('add:playlist');
+    home.handleAction('select');
+    expect(handlers.onAddSource).toHaveBeenLastCalledWith('playlist', 'key');
+    key('up');
+    expect(focused()).toBe('add:xtream');
+    key('left');
+    expect(handlers.onLeaveLeft).toHaveBeenCalledTimes(1);
+  });
+
+  it('a pointer click on a card opens its Add flow', () => {
+    home.setFirstRun(true);
+    home.render();
+    const card = container.querySelector<HTMLElement>('[data-key="add:playlist"]')!;
+    document.elementFromPoint = () => card;
+    card.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(handlers.onAddSource).toHaveBeenCalledWith('playlist', 'pointer');
+  });
+});
+
+describe('Home connection banner', () => {
+  const issue = { state: 'rejected' as const, accountId: 'x1', accountName: '<b>Alpha</b>' };
+
+  beforeEach(() => {
+    home.setSources(true, [account], account);
+    home.render();
+    home.focusEntry();
+    Focus.flush();
+  });
+
+  it('names the account, escaped, and says why', () => {
+    home.setConnection(issue);
+    expect(container.querySelector('.home-alert-title')?.textContent).toBe('Can’t connect to <b>Alpha</b>');
+    expect(container.querySelector('.home-alert-title b')).toBeNull();
+    expect(container.querySelector('.home-alert-body')?.textContent)
+      .toBe('The server didn’t accept the username or password.');
+    home.setConnection({ ...issue, state: 'unreachable' });
+    expect(container.querySelector('.home-alert-body')?.textContent).toContain('isn’t responding');
+  });
+
+  it('takes the keys only while Home rests where it opened', () => {
+    home.setConnection(issue);
+    home.focusAlert();
+    Focus.flush();
+    expect(focused()).toBe('alert:retry');
+    key('down', 'right');
+    expect(focused()).toBe('section:movies');
+    home.setConnection(issue);
+    home.focusAlert();
+    Focus.flush();
+    expect(focused()).toBe('section:movies');
+  });
+
+  it('sits between the header and the bento, and never traps the keys', () => {
+    home.setConnection(issue);
+    key('up');
+    expect(focused()).toBe('alert:retry');
+    key('right');
+    expect(focused()).toBe('alert:edit');
+    key('right');
+    expect(focused()).toBe('alert:edit');
+    key('up');
+    expect(focused()).toBe('account');
+    key('down');
+    expect(focused()).toBe('alert:edit');
+    key('left', 'left');
+    expect(handlers.onLeaveLeft).toHaveBeenCalledTimes(1);
+    key('down');
+    expect(focused()).toBe('section:live');
+  });
+
+  it('Try again asks the host, once while it checks; Edit account names the account', () => {
+    home.setConnection(issue);
+    home.focusAlert();
+    home.handleAction('select');
+    expect(handlers.onRetryConnection).toHaveBeenCalledTimes(1);
+    home.setConnection(issue, true);
+    expect(container.querySelector('.home-alert-body')?.textContent).toBe('Checking…');
+    home.handleAction('select');
+    expect(handlers.onRetryConnection).toHaveBeenCalledTimes(1);
+    key('right');
+    home.handleAction('select');
+    expect(handlers.onEditAccount).toHaveBeenCalledWith(issue, 'key');
+  });
+
+  it('goes on success and hands the keys back to the bento', () => {
+    home.setConnection(issue);
+    home.focusAlert();
+    Focus.flush();
+    expect(focused()).toBe('alert:retry');
+    home.setConnection(null);
+    Focus.flush();
+    expect(container.querySelector('.home-alert')).toBeNull();
+    expect(container.querySelector('.home-view-alert')).toBeNull();
+    expect(focused()).toBe('section:live');
   });
 });
