@@ -78,7 +78,7 @@ html.q-scroll-end-padding .catalog-category-rail::after { content: none; }
  */
 @supports not (display: grid) {
   /* Settings: nav sidebar beside content, not stacked on top. */
-  .settings-view {
+  .settings-body {
     display: -webkit-box;
     display: -webkit-flex;
     display: flex;
@@ -89,12 +89,12 @@ html.q-scroll-end-padding .catalog-category-rail::after { content: none; }
   /* `flex: 0 0 auto` stands in for the `max-content` grid track: the sidebar
      sizes to its longest label, clamped by its own min/max-width. A fixed
      basis would clip the widest localized labels. */
-  .settings-view > .settings-sidebar {
+  .settings-body > .settings-sidebar {
     -webkit-flex: 0 0 auto;
     flex: 0 0 auto;
     margin-right: 32px;
   }
-  .settings-view > .settings-main {
+  .settings-body > .settings-main {
     -webkit-box-flex: 1;
     -webkit-flex: 1 1 auto;
     flex: 1 1 auto;

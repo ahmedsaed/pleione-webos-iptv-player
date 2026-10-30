@@ -185,7 +185,7 @@ html:not(.keyboard-nav) .home-button[data-view] {
   display: flex;
 }
 
-/* Each section's free corner: Live's and the Guide's past the rows' text, Settings' over its panel's empty corner, Search's left
+/* Each section's free corner: Live's and the Guide's past the rows' text, Settings' left of its header, Search's left
    of its box. Movies and Series keep the top-left over the hero's empty
    corner. */
 .home-button[data-view="channels"],

@@ -9,9 +9,6 @@
   height: var(--canvas-height);
   /* The Guide fills the screen; keep its filter and date rows off the top edge. */
   padding-top: 24px;
-  background:
-    radial-gradient(1200px 600px at 78% -10%, rgb(var(--accent-rgb) / 0.06), transparent 60%),
-    var(--bg-primary);
 }
 
 :lang(de) .epg-view { --epg-time-col-width: 111px; }
@@ -535,7 +532,6 @@
   flex: 1;
   overflow-y: auto;
   overflow-anchor: none;
-  background: var(--bg-primary);
 }
 
 .epg-programme-item {

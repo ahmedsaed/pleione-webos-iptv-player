@@ -1395,6 +1395,7 @@ class App {
 
   private openReminderManager(origin: 'settings' | 'epg'): void {
     this.reminderManagerOrigin = origin;
+    this.views.reminders.dataset.backdrop = origin;
     this.showView('reminders');
     this.reminderManager.open();
   }

@@ -1,11 +1,28 @@
+/* The page header sits over the sidebar and the page. Both are placed
+   absolutely so the body's height is definite on every engine, which the
+   legacy flex fallback needs for its full-height columns. */
 .settings-view {
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+}
+
+.settings-header {
+  position: absolute;
+  top: 40px;
+  right: 80px;
+  left: 80px;
+}
+
+.settings-body {
+  position: absolute;
+  top: calc(64px + 53px * var(--font-scale));
+  right: 80px;
+  bottom: 40px;
+  left: 80px;
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: 32px;
-  padding: 40px 60px 40px 40px;
-  overflow: hidden;
-  height: 100%;
-  background: var(--bg-primary);
 }
 
 .settings-sidebar {
@@ -18,15 +35,6 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 10px;
-}
-
-/* At the largest text sizes a long localized title outgrows the sidebar; it
-   wraps, breaking a single long word, rather than losing any of its text. */
-.settings-title {
-  overflow-wrap: break-word;
-  font-size: 36px;
-  margin: 0 16px 22px;
-  color: var(--accent);
 }
 
 /* At a large Interface or text size the categories outgrow the box, so the
@@ -601,7 +609,6 @@
   justify-content: flex-end;
   gap: 16px;
   padding: 20px 12px 8px;
-  background: var(--bg-primary);
   border-top: 1px solid var(--border);
 }
 

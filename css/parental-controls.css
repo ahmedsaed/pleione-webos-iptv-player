@@ -2,9 +2,8 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 42px 54px 32px;
+  padding: 40px 80px 32px;
   color: var(--text-primary);
-  background: var(--bg-primary);
 }
 
 .parental-header {
@@ -28,8 +27,10 @@
 
 .parental-header h2 {
   margin: 0 0 10px;
-  color: var(--accent);
-  font-size: 40px;
+  color: var(--text-primary);
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .playlist-tabs.parental-tabs {
@@ -366,8 +367,8 @@
 .edit-hints.parental-hints {
   position: static;
   flex: 0 0 auto;
-  margin: 18px -54px -32px;
-  padding: 12px 54px;
+  margin: 18px -80px -32px;
+  padding: 12px 80px;
 }
 
 /* Above every other prompt: the PIN keeps the keys over one that opens later. */
