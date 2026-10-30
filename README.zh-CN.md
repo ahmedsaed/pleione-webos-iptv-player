@@ -5,9 +5,9 @@
   <p><a href="README.md">English</a> | 简体中文</p>
   <p>
   <a href="#支持的-webos-版本"><img src="https://img.shields.io/badge/webOS-4%2B-e6007e?logo=webos&logoColor=white" alt="webOS 4+"></a>
-  <a href="https://github.com/ahmedsaed/webos-iptv-player/releases/latest"><img src="https://img.shields.io/github/v/release/ahmedsaed/webos-iptv-player" alt="最新版本"></a>
-  <a href="https://github.com/ahmedsaed/webos-iptv-player/releases"><img src="https://img.shields.io/github/downloads/ahmedsaed/webos-iptv-player/total" alt="GitHub 下载量"></a>
-  <a href="https://ahmedsaed.github.io/webos-iptv-player/"><img src="https://img.shields.io/badge/Website-222?logo=github" alt="项目网站"></a>
+  <a href="https://github.com/ahmedsaed/pleione-webos-iptv-player/releases/latest"><img src="https://img.shields.io/github/v/release/ahmedsaed/pleione-webos-iptv-player" alt="最新版本"></a>
+  <a href="https://github.com/ahmedsaed/pleione-webos-iptv-player/releases"><img src="https://img.shields.io/github/downloads/ahmedsaed/pleione-webos-iptv-player/total" alt="GitHub 下载量"></a>
+  <a href="https://pleione.merope.dev/"><img src="https://img.shields.io/badge/Website-222?logo=github" alt="项目网站"></a>
   </p>
 </div>
 
@@ -139,33 +139,19 @@ Pleione 基于 lennylxx 的 [webOS IPTV Player](https://github.com/lennylxx/webo
 npm install -g @webos-tools/cli
 ```
 
-仅通过 Homebrew Channel 添加软件源并安装应用时，无需准备上述工具。
-
 ## 安装到电视
 
-### Homebrew Channel
-
-首先安装社区维护的
-[webOS Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel)，
-然后打开 **Settings → Add repository** 并输入：
-
-```text
-https://raw.githubusercontent.com/ahmedsaed/webos-iptv-player/main/homebrew-repository.json
-```
-
-如果电脑已配置 `ares-cli`，可运行以下命令预填仓库地址：
-
-```bash
-ares-launch --device tv org.webosbrew.hbchannel -p '{"launchMode":"addRepository","url":"https://raw.githubusercontent.com/ahmedsaed/webos-iptv-player/main/homebrew-repository.json"}'
-```
-
-在电视上确认 **Add repository**。添加完成后，即可通过 Homebrew Channel
-安装本应用，并在 GitHub 发布新版本后自动检测更新。
+Pleione 即将上架 LG Content Store。在此之前，可以通过 LG 的开发者模式
+（Developer Mode）应用侧载安装。另请参阅
+[安装指南](https://pleione.merope.dev/setup/)（英文）。
 
 ### 开发者模式
 
+开发者模式的会话有时间限制。请在到期前通过 Developer Mode 应用续期：
+会话过期后，电视会移除以此方式安装的应用。
+
 1. **下载应用安装包。** 在电脑上打开
-   [Releases 页面](https://github.com/ahmedsaed/webos-iptv-player/releases/latest)，
+   [Releases 页面](https://github.com/ahmedsaed/pleione-webos-iptv-player/releases/latest)，
    下载最新的 `.ipk` 文件。
 
 2. **在电视上开启开发者模式。**
