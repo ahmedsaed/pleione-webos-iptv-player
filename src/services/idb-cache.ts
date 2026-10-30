@@ -9,6 +9,7 @@ import {
   CATALOG_STORE,
   CHANNEL_HEALTH_STORE,
   EPG_STORE,
+  idbWritesRefused,
   isQuotaExceededError,
   openPersistenceDb,
   PLAYLIST_STORE,
@@ -171,6 +172,57 @@ let playlistFrame: number | null = null;
 let playlistGeneration = 0;
 let playlistTimer: ReturnType<typeof setTimeout> | null = null;
 let clearGeneration = 0;
+
+// While IndexedDB refuses writes, cache records live here for the session
+// only, oldest first out past the cap. Their payloads are the objects the app
+// already holds, so the accounted size overstates what this adds.
+const MEMORY_CACHE_MAX_BYTES = 32 * 1024 * 1024;
+const memoryCache = new Map<string, { store: CacheStore; record: StoredRecord }>();
+const memoryRecords = new WeakSet<object>();
+let memoryBytes = 0;
+
+function memoryId(store: CacheStore, key: IDBValidKey): string {
+  return `${store}:${String(key)}`;
+}
+
+function forgetMemory(id: string): void {
+  const entry = memoryCache.get(id);
+  if (!entry) return;
+  memoryBytes -= entry.record.byteSize;
+  memoryCache.delete(id);
+}
+
+function keepInMemory(store: CacheStore, record: StoredRecord): void {
+  const id = memoryId(store, record[cacheKeyPath(store)] as IDBValidKey);
+  forgetMemory(id);
+  memoryCache.set(id, { store, record });
+  memoryRecords.add(record);
+  memoryBytes += record.byteSize;
+  for (const oldest of memoryCache.keys()) {
+    if (memoryBytes <= MEMORY_CACHE_MAX_BYTES || oldest === id) break;
+    forgetMemory(oldest);
+  }
+}
+
+function memoryRecord(store: CacheStore, key: IDBValidKey): StoredRecord | null {
+  const id = memoryId(store, key);
+  const entry = memoryCache.get(id);
+  if (!entry) return null;
+  memoryCache.delete(id);
+  memoryCache.set(id, entry);
+  return entry.record;
+}
+
+function forgetMemoryStore(store: CacheStore): void {
+  for (const id of Array.from(memoryCache.keys())) {
+    if (memoryCache.get(id)!.store === store) forgetMemory(id);
+  }
+}
+
+// The app worker reads only records IndexedDB holds.
+function rememberStoredRecord(raw: StoredRecord, value: unknown, ref: CacheRecordRef): void {
+  if (!memoryRecords.has(raw)) rememberRecord(value, ref);
+}
 
 function enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
   const result = mutationChain.then(operation, operation);
@@ -536,6 +588,8 @@ function normalizeRecord(
 }
 
 async function readRaw(store: CacheStore, key: IDBValidKey): Promise<StoredRecord | null> {
+  const memory = memoryRecord(store, key);
+  if (memory) return memory;
   const db = await openDb();
   if (!db) {
     if (store === CATALOG_STORE) {
@@ -582,6 +636,7 @@ async function readRaw(store: CacheStore, key: IDBValidKey): Promise<StoredRecor
 }
 
 async function touchRecord(store: CacheStore, record: StoredRecord): Promise<void> {
+  if (idbWritesRefused()) return;
   const key = record[cacheKeyPath(store)] as IDBValidKey;
   const id = entryMetaId(store, key);
   const now = Date.now();
@@ -961,6 +1016,7 @@ async function invalidateMetadata(db: IDBDatabase): Promise<void> {
 }
 
 async function removeExpiredRecord(store: CacheStore, key: IDBValidKey): Promise<void> {
+  forgetMemory(memoryId(store, key));
   await enqueueMutation(async () => {
     const current = await readRawWithoutTouch(store, key);
     if (!current || current.expiresAt === null || current.expiresAt > Date.now()) return;
@@ -1075,6 +1131,10 @@ async function putRawNow(
 ): Promise<boolean> {
   const key = raw[cacheKeyPath(store)] as IDBValidKey | undefined;
   if (key === undefined || key === null) return false;
+  if (idbWritesRefused()) {
+    keepInMemory(store, normalizeRecord(store, raw));
+    return false;
+  }
   const db = await openDb();
   if (!db) {
     if (store === CATALOG_STORE) {
@@ -1164,6 +1224,8 @@ async function readRawWithoutTouch(
   store: CacheStore,
   key: IDBValidKey,
 ): Promise<StoredRecord | null> {
+  const memory = memoryCache.get(memoryId(store, key));
+  if (memory) return memory.record;
   const db = await openDb();
   if (!db) return null;
   const tx = db.transaction(store, 'readonly');
@@ -1254,6 +1316,7 @@ async function clearStoreNow(store: CacheStore): Promise<void> {
 }
 
 function clearStore(store: CacheStore): Promise<void> {
+  forgetMemoryStore(store);
   return enqueueMutation(() => clearStoreNow(store));
 }
 
@@ -1388,6 +1451,8 @@ export async function clearCachedEpg(): Promise<void> {
 }
 
 async function readCatalogMetadata(key: string): Promise<CacheEntryMeta | null> {
+  const memory = memoryCache.get(memoryId(CATALOG_STORE, key));
+  if (memory) return entryMeta(CATALOG_STORE, key, memory.record);
   try {
     await ensureMetadata();
     return await readEntryMeta(CATALOG_STORE, key);
@@ -1413,7 +1478,7 @@ export async function getCachedCatalog<T = unknown>(
   const metadata = await readCatalogMetadata(key);
   const state = (metadata?.timestamp === timestamp ? catalogListState(metadata.state) : undefined)
     ?? catalogListState(raw.state);
-  rememberRecord(raw.data, { store: CATALOG_STORE, key, timestamp });
+  rememberStoredRecord(raw, raw.data, { store: CATALOG_STORE, key, timestamp });
   return {
     key,
     timestamp,
@@ -1470,6 +1535,14 @@ export function setCachedCatalogState(
 ): Promise<boolean> {
   const generation = catalogGeneration;
   return enqueueMutation(async () => {
+    if (generation !== catalogGeneration) return false;
+    const memory = memoryCache.get(memoryId(CATALOG_STORE, key));
+    if (memory) {
+      if (cacheRecordTimestamp(memory.record) !== sourceTimestamp) return false;
+      memory.record.state = state;
+      memory.record.expiresAt = ttlMs === null ? null : Date.now() + ttlMs;
+      return true;
+    }
     await ensureMetadata();
     if (generation !== catalogGeneration) return false;
     const db = await openDb();
@@ -1642,6 +1715,12 @@ export async function getCachedChannelHealth<T>(): Promise<Record<string, T>> {
       const key = item.key;
       if (typeof key === 'string' && item.data !== undefined) records[key] = item.data as T;
     }
+    memoryCache.forEach((entry) => {
+      const key = entry.record.key;
+      if (entry.store === CHANNEL_HEALTH_STORE && typeof key === 'string') {
+        records[key] = entry.record.data as T;
+      }
+    });
     return records;
   } catch (err) {
     log.warn(
@@ -1684,7 +1763,11 @@ export async function getCachedPlaylist(
       && payload.channels?.length
       && (refreshIntervalMs === null || Date.now() - timestamp < refreshIntervalMs)
     ) {
-      rememberRecord(payload.channels, { store: PLAYLIST_STORE, key: PLAYLIST_CACHE_KEY, timestamp });
+      rememberStoredRecord(raw, payload.channels, {
+        store: PLAYLIST_STORE,
+        key: PLAYLIST_CACHE_KEY,
+        timestamp,
+      });
       return {
         channels: payload.channels,
         epgSources: payload.epgSources ?? [],
@@ -1762,6 +1845,8 @@ export async function clearAllCachedData(): Promise<void> {
   playlistGeneration++;
   catalogGeneration++;
   clearGeneration++;
+  memoryCache.clear();
+  memoryBytes = 0;
   return enqueueMutation(async () => {
     try {
       localStorage.removeItem(CONFIG.STORAGE_PREFIX + 'cached_playlist');
@@ -1815,6 +1900,15 @@ export function reserveSearchIndex(
   return enqueueMutation(async () => {
     if (generation !== clearGeneration || !candidate.prefix
         || candidate.key.indexOf(candidate.prefix) !== 0) {
+      return null;
+    }
+    if (idbWritesRefused()) {
+      log.info(
+        'Search index not stored',
+        'event=search.index.persist.skipped',
+        'reason=read_only',
+        `bytes=${String(candidate.bytes)}`,
+      );
       return null;
     }
     const db = await openDb();

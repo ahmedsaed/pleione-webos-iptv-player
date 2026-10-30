@@ -1187,6 +1187,9 @@ export class Settings {
                 <div class="cache-usage" id="cache-usage" aria-live="polite">
                   <div class="cache-usage-loading">${t('common.loading')}</div>
                 </div>
+                ${StorageService.isStorageLimited() ? html`
+                  <div class="settings-item-hint" id="storage-limited-note">${t('settings.storageLimited')}</div>
+                ` : ''}
                 <div class="settings-maintenance">
                   <button class="btn btn-secondary" data-focusable id="refresh-data">${t('settings.refreshAll')}</button>
                   <button class="btn btn-danger" data-focusable id="clear-cache">${t('settings.clearCache')}</button>

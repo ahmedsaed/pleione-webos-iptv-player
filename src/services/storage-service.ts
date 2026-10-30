@@ -18,7 +18,8 @@ import {
   clearCachedStreamMimes,
   migrateLegacyStreamMimeCache,
 } from './idb-cache';
-import { openPersistenceDb } from './idb-database';
+import { idbWritesRefused, openPersistenceDb } from './idb-database';
+import { shrinkFallback } from './user-data-fallback';
 import {
   applyUserChanges,
   clearAllUserData,
@@ -26,6 +27,8 @@ import {
   loadAllUserRecords,
   loadMigrationMarkers,
   migrateUserRecordSets,
+  probeUserDataWrites,
+  restoreFallbackUserData,
   replaceAllUserData,
   type UserDataRecord,
 } from './idb-user-data';
@@ -90,6 +93,7 @@ let userDataInitPromise: Promise<void> | null = null;
 let writeFailing = false;
 let onWriteFailure: (() => void) | null = null;
 let onPlaylistsReplaced: ((previous: PlaylistEntry[], next: PlaylistEntry[]) => void) | null = null;
+
 
 function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -512,6 +516,7 @@ async function loadUserDataState(): Promise<UserDataState> {
 
 async function initUserData(): Promise<void> {
   if (!await openPersistenceDb()) throw new Error('IndexedDB unavailable');
+  await probeUserDataWrites();
   // TODO: Remove this legacy migration block once all supported installs use IndexedDB v4.
   const migrations: [string, unknown][] = [
     ['favorites', []],
@@ -557,6 +562,8 @@ async function initUserData(): Promise<void> {
     });
   }
   await migrateUserRecordSets(pending);
+  // After the legacy migration, which may replace whole stores.
+  await restoreFallbackUserData();
   const loadedUserData = await loadUserDataState();
   for (const [key] of migrations) remove(key);
   remove('parental_control');
@@ -591,6 +598,15 @@ function set(key: string, value: unknown): boolean {
       localStorage.setItem(PREFIX + key, JSON.stringify(value));
       return true;
     } catch {
+      // Configuration outranks the user-data fallback.
+      if (shrinkFallback()) {
+        try {
+          localStorage.setItem(PREFIX + key, JSON.stringify(value));
+          return true;
+        } catch {
+          // Reported below.
+        }
+      }
       log.error(
         `Write of '${key}' still failed after eviction`,
         'event=persistence.local.write.failed',
@@ -641,6 +657,12 @@ export const StorageService = {
    *  trace. Fires on the first failed user-data write in a streak. */
   setWriteFailureHandler(handler: () => void): void {
     onWriteFailure = handler;
+  },
+
+  // IndexedDB refuses writes this session: user data is in the
+  // localStorage fallback and caches are memory-only.
+  isStorageLimited(): boolean {
+    return idbWritesRefused();
   },
 
   // Sees every source change, from Settings, phone setup, or a LAN upload.

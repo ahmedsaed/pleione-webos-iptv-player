@@ -509,6 +509,7 @@ export const FR_MESSAGES = {
   'app.loadFailed': 'Impossible de charger la liste. Vérifiez l’URL et réessayez.',
   'app.exitHint': 'Appuyez de nouveau sur Retour pour quitter',
   'app.saveFailed': 'Impossible d’enregistrer les modifications. Réessayez.',
+  'settings.storageLimited': 'Ce téléviseur limite le stockage des apps. Votre progression et vos favoris restent enregistrés, mais le cache n’est pas conservé d’un lancement à l’autre.',
   'weekday.0': 'Dim',
   'weekday.1': 'Lun',
   'weekday.2': 'Mar',
