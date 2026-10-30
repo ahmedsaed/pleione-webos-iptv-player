@@ -7,7 +7,6 @@ import { EpgService } from './services/epg-service';
 import { ChannelHealthService } from './services/channel-health';
 import { StorageService } from './services/storage-service';
 import {
-  clearAllCachedData,
   clearCachedCatalog,
   clearCachedPlaylist,
   flushCacheWrites,
@@ -33,6 +32,7 @@ import { SearchHistoryDropdown } from './components/search-history-dropdown';
 import { showToast } from './components/toast';
 import { showNumberEntry, hideNumberEntry } from './components/number-entry';
 import { ReminderService } from './services/reminder-service';
+import { resetAppData } from './services/app-reset';
 import { ReminderPrompt } from './components/reminder-prompt';
 import { ReminderManager } from './components/reminder-manager';
 import { ParentalControls } from './components/parental-controls';
@@ -1859,9 +1859,7 @@ class App {
       return;
     }
     if (action === 'reset') {
-      await clearAllCachedData();
-      await StorageService.clearUserData();
-      StorageService.clearAll();
+      await resetAppData();
       log.info(
         'App reset completed',
         'event=persistence.reset.completed',
