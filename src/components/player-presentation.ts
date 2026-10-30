@@ -1,4 +1,5 @@
 import { createLogger } from '../utils/logger';
+import { isWebOS } from '../utils/platform';
 
 const log = createLogger('PlayerPresentation');
 const geometryProperties = ['left', 'top', 'width', 'height'] as const;
@@ -76,7 +77,9 @@ export class PlayerPresentation {
     // Animated resizing saturated the TV CPU and caused dropped frames.
     video.style.transition = 'none';
     writeRectangle(video, rect);
-    video.style.borderRadius = getComputedStyle(slot).borderRadius || '0px';
+    // webOS punches a hole for its video plane; a rounded video gets a
+    // clip mask that composites the hole over its own black background.
+    video.style.borderRadius = isWebOS() ? '' : getComputedStyle(slot).borderRadius || '0px';
     video.style.zIndex = '';
   }
 }
