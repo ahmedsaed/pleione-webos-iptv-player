@@ -1,0 +1,7 @@
+# Only the demo Xtream server is built into an image.
+*
+!scripts/cli-args.mjs
+!scripts/xtream-demo-server.mjs
+!scripts/xtream-demo/
+scripts/xtream-demo/*.test.mjs
+scripts/xtream-demo/Dockerfile
