@@ -91,6 +91,12 @@ class App {
   private guideKeys: 'grid' | 'groups' = 'grid';
   private readonly liveDwell = new LiveDwell(CONFIG.PLAYER.LIVE_PREVIEW_DWELL_MS,
     (index) => {
+      // A reminder asking to watch a channel holds the screen: the preview
+      // waits under it and tunes once it closes on the row still focused.
+      if (this.reminderPrompt.visible) {
+        this.liveDwell.focus(index, this.livePreview.previewIndex);
+        return;
+      }
       // Resting on a locked channel asks for nothing: OK does.
       const channel = PlaylistService.getByIndex(index);
       if (channel && !ParentalControlService.decision(liveParentalRequest(channel, 'preview')).allowed) {

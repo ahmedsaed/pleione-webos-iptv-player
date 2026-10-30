@@ -241,3 +241,24 @@ test('the empty-state hint wraps to a readable width at text size 150', async ({
   expect(box.lines).toBe(2);
   expect(Math.abs((box.left + box.right) / 2 - 960)).toBeLessThan(2);
 });
+
+// Regression: the preview's dwell tuned the focused row under a boot-time
+// reminder, so whether it played depended on timing.
+test('the Live preview waits under a reminder prompt and tunes once it is canceled', async ({ page }) => {
+  await routePlaylist(page);
+  await routeLiveManifest(page);
+  await seedPlaylist(page);
+  await seedDueReminder(page);
+
+  await page.goto('/');
+  await expect(page.locator('.reminder-prompt:not(.hidden)')).toBeVisible();
+  await expect(page.locator('#view-channels .channel-item').first()).toBeVisible();
+  // Well past the dwell: nothing tunes under the prompt.
+  await page.waitForTimeout(2000);
+  await expect(page.locator('#live-preview')).toBeHidden();
+  await expect(page.locator('#video-player source')).toHaveCount(0);
+
+  await page.locator('.reminder-btn[data-reminder-action="cancel"]').click();
+  await expect(page.locator('.reminder-prompt:not(.hidden)')).toHaveCount(0);
+  await expect(page.locator('#live-preview .live-preview-channel')).toHaveText('Channel One');
+});

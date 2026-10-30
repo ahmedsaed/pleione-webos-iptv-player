@@ -209,7 +209,15 @@ async function leaveParentalLocked(p: Page): Promise<void> {
 }
 
 const M3U_SCREENS: Screen[] = [
-  { name: 'live', budget: 0, go: async () => { /* the landing view */ } },
+  {
+    // The landing view, once the preview has followed the focused row: its
+    // dwell would otherwise land between the two engines' shots.
+    name: 'live',
+    budget: 0,
+    go: async (p) => {
+      await expect(p.locator('#live-preview .live-preview-channel')).toHaveText('Channel One');
+    },
+  },
   { name: 'guide', budget: 0, go: (p) => openGuide(p) },
   {
     // Back hands the Guide's keys to the groups column; Red then returns to the list.
