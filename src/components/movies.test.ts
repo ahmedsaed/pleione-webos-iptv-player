@@ -985,12 +985,12 @@ describe('Movies browse + grid', () => {
       document.documentElement.classList.add('keyboard-nav');
       view.focusScope.track(JSON.stringify(['detail', '', 'gone']));
       Focus.flush();
-      expect(button('watchlist').classList.contains('focused')).toBe(true);
+      expect(button('play').classList.contains('focused')).toBe(true);
 
       view.focusScope.track(null);
       view.focusScope.enter('key');
       Focus.flush();
-      expect(button('watchlist').classList.contains('focused')).toBe(true);
+      expect(button('play').classList.contains('focused')).toBe(true);
       expect(button('resume').classList.contains('focused')).toBe(false);
     } finally {
       rect.mockRestore();
@@ -1616,6 +1616,27 @@ describe('Movies detail', () => {
     resume.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ resumeSecs: 900 }));
+  });
+
+  it('puts Play from start next to a Resume that shows no progress bar', async () => {
+    storageMock.getResume.mockReturnValue(
+      { accountId: 'x1', kind: 'vod', itemId: '10', name: 'Movie One', poster: '', position: 900, duration: 3600, updatedAt: 1 },
+    );
+    catalogMock.loadVodInfo.mockResolvedValue({
+      plot: '', cast: '', director: '', genre: '', releaseDate: '', durationSecs: 3600, poster: '', imdbId: '', tmdbId: '', year: 0,
+    });
+    const { view, handlers } = await openWith([{ id: '1', name: 'Cat A' }], [vod('10', 'Movie One')]);
+    const tile = container.querySelector('.catalog-tile[data-item-id="10"]') as HTMLElement;
+    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    await Promise.resolve(); await Promise.resolve();
+
+    const actions = Array.from(container.querySelectorAll<HTMLElement>('.detail-actions [data-action]'));
+    expect(actions.map(el => el.dataset.action)).toEqual(['resume', 'play', 'watchlist']);
+    expect(actions[0].querySelector('.detail-btn-progress')).toBeNull();
+    actions[1].dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ resumeSecs: 0 }));
   });
 
   it('refreshes the detail actions when playback creates a resume point', async () => {

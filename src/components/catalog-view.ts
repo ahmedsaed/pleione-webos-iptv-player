@@ -251,6 +251,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private lastRevealInstant = false;
   private readonly plotOverlay: DetailTextOverlay;
   private detailText: { title: string; text: string } | null = null;
+  // The action Down left the actions row from, per detail page.
+  private lastDetailAction: { detail: string; key: string } | null = null;
 
   constructor(protected container: HTMLElement, protected handlers: CatalogHandlers) {
     const layer = (mode: Mode): HTMLElement => {
@@ -957,7 +959,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     const current = this.current();
     const sortRow = current?.closest<HTMLElement>('.catalog-sort, .catalog-collection-actions');
     const horizontalRegion = sortRow ?? (this.mode !== 'grid'
-      ? current?.closest<HTMLElement>('.catalog-rail-track:not(.catalog-category-rail):not(.episode-track), .series-seasons') : null);
+      ? current?.closest<HTMLElement>(
+        '.catalog-rail-track:not(.catalog-category-rail):not(.episode-track), .series-seasons, .detail-actions') : null);
     if (horizontalRegion && (action === 'left' || action === 'right')) {
       this.nav.setRestrict(horizontalRegion);
       const moved = this.nav.move(action);
@@ -1813,7 +1816,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
         poster.style.setProperty('display', 'none');
         body.style.setProperty('width', `${Math.max(0, hero.clientWidth - 2 * body.offsetLeft)}px`);
       } else {
-        body.style.setProperty('width', `${Math.max(0, Math.min(uiPx(DETAIL_BODY_WIDTH), posterLeft - gap - body.offsetLeft))}px`);
+        // Wider than the usual column when the actions need it, so they never overflow.
+        const width = Math.max(uiPx(DETAIL_BODY_WIDTH), actionsEnd);
+        body.style.setProperty('width', `${Math.max(0, Math.min(width, posterLeft - gap - body.offsetLeft))}px`);
       }
     }
     const plotBox = body.querySelector<HTMLElement>('.detail-plot-box');
@@ -1869,6 +1874,19 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     if (index < 0) return false;
     const next = lines[index + (action === 'up' ? -1 : 1)];
     if (!next) return true;
+    // Back to the actions row lands on the action it was left from.
+    const detailKey = this.layers.detail.querySelector<HTMLElement>('.catalog-detail')?.dataset.key ?? '';
+    if (lines[index].line.classList.contains('detail-actions')) {
+      this.lastDetailAction = { detail: detailKey, key: current.dataset.key ?? '' };
+    } else if (action === 'up' && next.line.classList.contains('detail-actions')
+        && this.lastDetailAction?.detail === detailKey) {
+      const key = this.lastDetailAction.key;
+      const remembered = next.targets.find(target => target.dataset.key === key);
+      if (remembered) {
+        this.place(remembered, 'key');
+        return true;
+      }
+    }
     const box = current.getBoundingClientRect();
     const x = box.left + box.width / 2;
     let best = next.targets[0];
