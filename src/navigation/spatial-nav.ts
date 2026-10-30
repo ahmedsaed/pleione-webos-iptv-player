@@ -330,6 +330,16 @@ export class SpatialNav {
     return remembered;
   }
 
+  // Where a move onto `el` lands: in a `data-nav-enter="last-focused"`
+  // container focus is not in, the element it last left there.
+  entry(el: HTMLElement): HTMLElement {
+    const container = el.closest<HTMLElement>('[data-nav-container]');
+    if (!container || container.getAttribute('data-nav-enter') !== 'last-focused'
+        || (this.focused && container.contains(this.focused))) return el;
+    const remembered = this.lastFocusedIn.get(container);
+    return remembered && remembered !== el && this.navigable(remembered) ? remembered : el;
+  }
+
   // Where focusFirst() would land, without moving focus.
   first(): HTMLElement | null {
     return this.getCandidates()[0]?.el ?? null;

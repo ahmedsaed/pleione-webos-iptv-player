@@ -1938,3 +1938,172 @@ test.describe('Settings cache budget', () => {
       .toHaveText(`/ ${value.toFixed(digits)} ${units[unit]}`);
   });
 });
+
+test.describe('Settings form keys', () => {
+  // One M3U playlist and one Xtream account, in the given locale.
+  async function openSources(page: Page, locale = 'en'): Promise<void> {
+    await routePlaylist(page);
+    await page.route('**/player_api.php*', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: '{}',
+    }));
+    await page.route('**/get.php*', route => route.fulfill({ status: 200, body: '#EXTM3U' }));
+    await page.addInitScript(({ loc, playlist }) => {
+      localStorage.setItem('iptv_locale', JSON.stringify(loc));
+      localStorage.setItem('iptv_playlists', JSON.stringify([
+        { id: 'p1', name: 'P1', url: playlist },
+        { id: 'x1', name: 'X1', url: 'http://host:8080', source: 'xtream',
+          xtream: { username: 'u1', password: 'p1' } },
+      ]));
+    }, { loc: locale, playlist: PLAYLIST_URL });
+    await page.goto('/');
+    await expect(page.locator('#view-loading')).toBeHidden({ timeout: 20000 });
+    await enterTab(page, 'settings');
+    await page.locator('[data-settings-target="sources"]').click();
+  }
+
+  // The key-driven ring, as the remote leaves it after a pointer hover.
+  async function ringOn(page: Page, locator: Locator): Promise<void> {
+    await locator.evaluate(el => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+    await expect(locator).toHaveClass(/focused/);
+  }
+
+  for (const locale of ['en', 'ar']) {
+    // The account's Check button sits below and close beside its name, so a
+    // geometric guess once took Right there instead of to the server URL.
+    test(`Right from a source name reaches its URL on the same row (${locale})`, async ({ page }) => {
+      await openSources(page, locale);
+      await ringOn(page, page.locator('.xtream-name'));
+      await page.keyboard.press('ArrowRight');
+      await expect(page.locator('.xtream-url')).toHaveClass(/focused/);
+
+      await ringOn(page, page.locator('.playlist-name'));
+      await page.keyboard.press('ArrowRight');
+      await expect(page.locator('.playlist-url')).toHaveClass(/focused/);
+
+      // Right at the end of a row stays on it.
+      await ringOn(page, page.locator('.remove-playlist'));
+      await page.keyboard.press('ArrowRight');
+      await expect(page.locator('.remove-playlist')).toHaveClass(/focused/);
+    });
+  }
+
+  test('Up from the action bar returns to the control just above it', async ({ page }) => {
+    await openSources(page);
+    const last = page.locator('#reset-customization');
+    await last.scrollIntoViewIfNeeded();
+    await ringOn(page, last);
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('#cancel-settings')).toHaveClass(/focused/);
+    await page.keyboard.press('ArrowUp');
+    await expect(last).toHaveClass(/focused/);
+
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('#save-settings')).toHaveClass(/focused/);
+    await page.keyboard.press('ArrowUp');
+    await expect(last).toHaveClass(/focused/);
+  });
+
+  test('Left at the start of a field leaves for the field beside it, never wrapping', async ({ page }) => {
+    await openSources(page);
+    const prevented: boolean[] = [];
+    await page.exposeFunction('__caretKey', (value: boolean) => { prevented.push(value); });
+    // Read once the key is handled: Settings stops a key it acts on.
+    await page.evaluate(() => window.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      setTimeout(() => (window as unknown as { __caretKey: (v: boolean) => void }).__caretKey(e.defaultPrevented));
+    }, true));
+    const name = page.locator('.playlist-name');
+    const url = page.locator('.playlist-url');
+
+    // Inside the text the arrows move the caret as usual.
+    await url.click();
+    await url.evaluate((el: HTMLInputElement) => el.setSelectionRange(1, 1));
+    await page.keyboard.press('ArrowLeft');
+    expect(await url.evaluate((el: HTMLInputElement) => el.selectionStart)).toBe(0);
+    await expect(url).toBeFocused();
+
+    // At the start, Left goes to the name field instead.
+    await page.keyboard.press('ArrowLeft');
+    await expect(url).not.toBeFocused();
+    await expect(name).toHaveClass(/focused/);
+
+    // The first field of a row has nothing to its left: the caret stays put.
+    await page.keyboard.press('Enter');
+    await expect(name).toBeFocused();
+    await name.evaluate((el: HTMLInputElement) => el.setSelectionRange(0, 0));
+    await page.keyboard.press('ArrowLeft');
+    await expect(name).toBeFocused();
+    expect(await name.evaluate((el: HTMLInputElement) => el.selectionStart)).toBe(0);
+
+    // Right at the end leaves for the URL field.
+    await name.evaluate((el: HTMLInputElement) => el.setSelectionRange(el.value.length, el.value.length));
+    await page.keyboard.press('ArrowRight');
+    await expect(url).toHaveClass(/focused/);
+    await expect.poll(() => prevented).toEqual([false, true, true, true]);
+  });
+
+  for (const interfaceSize of ['100', '130']) {
+    test(`every dropdown opens whole above the action bar (interface ${interfaceSize}, text 150)`, async ({ page }) => {
+      await page.addInitScript((size) => {
+        localStorage.setItem('iptv_interface_size', JSON.stringify(size));
+        localStorage.setItem('iptv_text_size', JSON.stringify('150'));
+      }, interfaceSize);
+      await openSources(page);
+      for (const category of ['general', 'sources', 'appearance', 'subtitles', 'advanced']) {
+        await page.locator(`[data-settings-target="${category}"]`).click();
+        const ids = await page.locator(`#settings-${category} .dropdown:not(.epg-offset-unavailable)`)
+          .evaluateAll(els => els.map(el => el.id));
+        expect(ids.length, category).toBeGreaterThan(0);
+        for (const id of ids) {
+          const dropdown = page.locator(`[id="${id}"]`);
+          // The trigger at the bottom of the pane, just above the action bar.
+          await dropdown.locator('.dropdown-trigger').evaluate(el => el.scrollIntoView({ block: 'end' }));
+          await dropdown.locator('.dropdown-trigger').click();
+          await expect(dropdown).toHaveClass(/open/);
+          const box = await page.evaluate((menuId) => {
+            const menu = document.getElementById(menuId)!.querySelector('.dropdown-menu')!.getBoundingClientRect();
+            const pane = document.querySelector('#view-settings .settings-scroll')!.getBoundingClientRect();
+            const bar = document.querySelector('#view-settings .settings-actions')!.getBoundingClientRect();
+            return { top: menu.top, bottom: menu.bottom, paneTop: pane.top, barTop: bar.top };
+          }, id);
+          expect(box.top, id).toBeGreaterThanOrEqual(box.paneTop - 1);
+          expect(box.bottom, id).toBeLessThanOrEqual(box.barTop + 1);
+          await page.keyboard.press('Escape');
+          await expect(dropdown).not.toHaveClass(/open/);
+        }
+      }
+    });
+  }
+
+  test('a password field shows only the last typed character for a moment', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-settings-target="subtitles"]').click();
+    const field = page.locator('#os-pass');
+    const wrap = page.locator('.password-field').filter({ has: field });
+    const overlay = wrap.locator('.password-reveal');
+    await field.click();
+
+    await page.keyboard.type('ab');
+    await expect(wrap).toHaveClass(/revealing/);
+    await expect(overlay.locator('.password-reveal-clear')).toHaveText('b');
+    await expect(overlay.locator('.password-reveal-masked')).toHaveText('a');
+    // The overlay's discs are drawn the way the field draws its own.
+    const security = await overlay.locator('.password-reveal-masked')
+      .evaluate(el => getComputedStyle(el).getPropertyValue('-webkit-text-security'));
+    expect(security).toBe('disc');
+    await expect(wrap).not.toHaveClass(/revealing/, { timeout: 2000 });
+    await expect(overlay).toBeHidden();
+
+    // Typed in the middle: the value and the caret stay right.
+    await field.evaluate((el: HTMLInputElement) => el.setSelectionRange(1, 1));
+    await page.keyboard.type('X');
+    await expect(overlay.locator('.password-reveal-clear')).toHaveText('X');
+    await expect(field).toHaveValue('aXb');
+    expect(await field.evaluate((el: HTMLInputElement) => el.selectionStart)).toBe(2);
+    await page.keyboard.press('Backspace');
+    await expect(wrap).not.toHaveClass(/revealing/);
+    await expect(field).toHaveValue('ab');
+    await expect(field).toHaveAttribute('type', 'password');
+  });
+});

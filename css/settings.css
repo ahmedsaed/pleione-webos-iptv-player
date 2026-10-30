@@ -566,6 +566,12 @@
   display: block;
 }
 
+/* No room below in the pane: the menu opens above its trigger. */
+.dropdown.drop-up .dropdown-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
 .dropdown-option {
   display: block;
   width: 100%;
@@ -601,6 +607,64 @@
 
 .settings-input::placeholder {
   color: var(--text-muted);
+}
+
+/* A password field shows the character just typed for a moment: the overlay
+   draws the field's discs with that character clear and its own caret, while
+   the field's glyphs and caret are hidden. A password reads left to right in
+   every locale, so the overlay's discs line up with the field's. */
+.password-field {
+  position: relative;
+}
+
+.password-field > input[type="password"] {
+  direction: ltr;
+  unicode-bidi: normal;
+  text-align: left;
+  transition-property: background-color, border-color, box-shadow;
+}
+
+.password-field.revealing > input[type="password"] {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.password-reveal {
+  display: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  align-items: center;
+  overflow: hidden;
+  color: var(--text-primary);
+  white-space: pre;
+  pointer-events: none;
+}
+
+.password-field.revealing > .password-reveal {
+  display: flex;
+}
+
+.password-field .password-reveal * {
+  direction: ltr;
+  unicode-bidi: bidi-override;
+}
+
+.password-reveal-line {
+  flex: none;
+}
+
+.password-reveal-masked {
+  -webkit-text-security: disc;
+}
+
+.password-reveal-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.2em;
+  margin-right: -2px;
+  vertical-align: middle;
+  background: currentColor;
 }
 
 .settings-actions {

@@ -182,6 +182,24 @@ describe('KeyHandler', () => {
       expect(handler).not.toHaveBeenCalled();
     });
 
+    // On the TV, Left at the start of a field wrapped the caret to its end.
+    it('keeps the caret at a field edge instead of letting the engine wrap it', () => {
+      const input = document.createElement('input');
+      input.value = 'abc';
+      document.body.appendChild(input);
+      const pressIn = (keyCode: number, caret: number): boolean => {
+        input.setSelectionRange(caret, caret);
+        const event = new KeyboardEvent('keydown', { keyCode, bubbles: true, cancelable: true } as KeyboardEventInit);
+        input.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+      expect(pressIn(K.LEFT, 0)).toBe(true);
+      expect(pressIn(K.RIGHT, 3)).toBe(true);
+      expect(pressIn(K.LEFT, 2)).toBe(false);
+      expect(pressIn(K.RIGHT, 0)).toBe(false);
+      expect(handler).not.toHaveBeenCalled();
+    });
+
     // Dedicated remote-control buttons must still reach the app even while the
     // search box has focus — otherwise Back can't exit, Red/Blue can't open
     // EPG/Settings, etc.
