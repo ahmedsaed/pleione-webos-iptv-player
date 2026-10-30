@@ -1,0 +1,10 @@
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+# Copied in from the repo by scripts/copy-assets.mjs — the originals are the source.
+public/screenshots/
+public/logo.svg
+public/icon.png
+public/tmdb-logo.svg
