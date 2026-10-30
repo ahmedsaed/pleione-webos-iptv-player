@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -10,7 +11,7 @@ import {
   migrateUserRecordSets,
 } from './idb-user-data';
 import { clearAllCachedData, getCachedCatalog, setCachedCatalog } from './idb-cache';
-import { CATALOG_STORE } from './idb-database';
+import { CATALOG_STORE, idbWritesRefused, resetIdbWriteStateForTests } from './idb-database';
 import { fillOrigin } from '../test/full-origin';
 
 describe('IndexedDB user-data write barrier', () => {
@@ -113,6 +114,8 @@ describe('IndexedDB user data on a full origin', () => {
     origin?.restore();
     origin = null;
     vi.restoreAllMocks();
+    resetIdbWriteStateForTests();
+    localStorage.clear();
   });
 
   function quotaEvents(warn: ReturnType<typeof vi.spyOn>): string[] {
@@ -137,20 +140,30 @@ describe('IndexedDB user data on a full origin', () => {
     );
   });
 
-  it('surfaces the failure when eviction frees no room', async () => {
+  it('keeps a write in localStorage when eviction frees no room', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     origin = fillOrigin([]);
 
-    await expect(applyUserChanges('playback-progress', [progress]))
-      .rejects.toMatchObject({ name: 'QuotaExceededError' });
-    await expect(flushUserDataWrites()).rejects.toBeTruthy();
+    await expect(applyUserChanges('playback-progress', [progress])).resolves.toBeUndefined();
+    await expect(flushUserDataWrites()).resolves.toBeUndefined();
 
-    origin.restore();
-    origin = null;
-    expect(await loadUserRecords('playback-progress')).toEqual([]);
+    expect(idbWritesRefused()).toBe(true);
+    expect(localStorage.getItem('iptv_fb_playback-progress')).toContain('progress:x1|movie|1');
+    expect(await loadUserRecords('playback-progress')).toEqual([progress]);
     const events = quotaEvents(warn);
     expect(events).toHaveLength(1);
-    expect(events[0]).toContain('outcome=retry_failed');
+    expect(events[0]).toContain('outcome=fallback');
+    const readOnly = warn.mock.calls.map(call => call.join(' '))
+      .filter(line => line.indexOf('event=storage.idb.readonly') >= 0);
+    expect(readOnly).toHaveLength(1);
+    expect(readOnly[0]).toMatch(/event=storage\.idb\.readonly reason=quota fallbackKeys=0$/);
+
+    // Read-only for the session: the next write skips IndexedDB.
+    origin.restore();
+    origin = null;
+    await applyUserChanges('favorites', [{ key: 'favorite:ch1', value: 'ch1' }]);
+    expect(localStorage.getItem('iptv_fb_favorites')).toContain('favorite:ch1');
+    expect(quotaEvents(warn)).toHaveLength(1);
   });
 
   it('leaves the caches alone when a write fails for another reason', async () => {

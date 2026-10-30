@@ -1205,6 +1205,9 @@ export class Settings {
                 <div class="cache-usage" id="cache-usage" aria-live="polite">
                   <div class="cache-usage-loading">${t('common.loading')}</div>
                 </div>
+                ${StorageService.isStorageLimited() ? html`
+                  <div class="settings-item-hint" id="storage-limited-note">${t('settings.storageLimited')}</div>
+                ` : ''}
                 <div class="settings-maintenance">
                   <button class="btn btn-secondary" data-focusable id="refresh-data">${t('settings.refreshAll')}</button>
                   <button class="btn btn-danger" data-focusable id="clear-cache">${t('settings.clearCache')}</button>
@@ -1502,7 +1505,7 @@ export class Settings {
         break;
 
       case 'left':
-        // Nothing left of the categories: the host opens the side menu.
+        // The categories are the left edge: nothing lies past them.
         if (this.nav.focused?.classList.contains('settings-nav-item')) return this.nav.move(action);
         {
           const openDropdown = this.container.querySelector<HTMLElement>('.dropdown.open');
@@ -1999,12 +2002,6 @@ export class Settings {
     this.notedKey = null;
     this.land();
     if (Focus.owner() === this.focusScope) Focus.flush();
-  }
-
-  /** Back onto Settings: the last control, brought into view. */
-  resumeFocus(): void {
-    this.land();
-    Focus.flush();
   }
 
   // The remembered control, under the key of what stands in for it now, with

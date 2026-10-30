@@ -5,14 +5,13 @@ import {
   seedPlaylist,
   SEARCH_M3U,
   enterTab,
-  openSideMenu,
   routeLiveManifest,
   measureRowTextFit,
   type Page,
 } from './helpers';
 
 // The channel list: rendering safety (XSS), group filtering, and the fact that
-// search and settings live in Home and the side menu (not the sidebar).
+// search and settings live on Home (not the sidebar).
 
 test('a malicious channel name from the playlist is escaped, not executed', async ({ page }) => {
   const EVIL = '<img src=x onerror="window.__xssfired=true">';
@@ -36,7 +35,7 @@ test('a malicious channel name from the playlist is escaped, not executed', asyn
   expect(await page.evaluate(() => (window as unknown as { __xssfired?: boolean }).__xssfired)).toBeUndefined();
 });
 
-test('the sidebar has no inline search magnifier or settings gear (they live in the side menu)', async ({ page }) => {
+test('the sidebar has no inline search magnifier or settings gear (they live on Home)', async ({ page }) => {
   await routePlaylist(page, SEARCH_M3U);
   await seedPlaylist(page);
   await page.goto('/');
@@ -62,7 +61,7 @@ test('selecting a group filters the channel list', async ({ page }) => {
   await expect(page.locator('.channel-main')).not.toContainText('Delta Sports');
 });
 
-test('M3U-only Search (from the side menu) filters channels into a rail of cards', async ({ page }) => {
+test('M3U-only Search (from Home) filters channels into a rail of cards', async ({ page }) => {
   await routePlaylist(page, SEARCH_M3U);
   await seedPlaylist(page);
   await page.goto('/');
@@ -473,7 +472,7 @@ test('rapid D-pad under full animation moves one row per key press', async ({ pa
   expect(events.filter((text) => text.includes('event=nav.focus.repaired'))).toEqual([]);
 });
 
-test('Up at the top of the sidebar reaches the header, and Left opens the side menu, not the scrolled list', async ({ page }) => {
+test('Up at the top of the sidebar reaches the header, and Left stays on the groups, not the scrolled list', async ({ page }) => {
   await routePlaylist(page, longPlaylist(300));
   await seedPlaylist(page);
   await page.goto('/');
@@ -492,15 +491,13 @@ test('Up at the top of the sidebar reaches the header, and Left opens the side m
   await expect(toggle).toHaveClass(/\bfocused\b/);
   await page.keyboard.press('ArrowUp');
   await expect(toggle).toHaveClass(/\bfocused\b/);
-  // Down from there returns to the top group, and Left then opens the side menu.
+  // Down from there returns to the top group, where Left goes nowhere.
   await page.keyboard.press('ArrowDown');
-  await expect(page.locator('#view-channels .sidebar [data-group-position="0"]')).toHaveClass(/\bfocused\b/);
-  const menuItem = page.locator('.nav-menu-item[data-section="live"].focused');
-  for (let i = 0; i < 3 && !(await menuItem.count()); i++) await page.keyboard.press('ArrowLeft');
-  await expect(menuItem).toHaveCount(1);
-  await expect(page.locator('#view-channels .focused')).toHaveCount(0);
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator('#view-channels .sidebar .focused')).toHaveCount(1);
+  const top = page.locator('#view-channels .sidebar [data-group-position="0"]');
+  await expect(top).toHaveClass(/\bfocused\b/);
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowLeft');
+  await expect(top).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('#view-channels .focused')).toHaveCount(1);
 
   // In edit mode Up stays on the top group: the header waits.
   await page.keyboard.press('ArrowDown');
@@ -954,29 +951,6 @@ test('a wheel step below a short list moves the pointer-left row at once', async
   await expect(main.locator('[data-list-position="1"]')).toHaveClass(/\bfocused\b/);
 });
 
-test('Right out of the side menu resumes in view after the list scrolled meanwhile', async ({ page }) => {
-  await routePlaylist(page, longPlaylist(60));
-  await seedPlaylist(page);
-  await page.goto('/');
-  const main = page.locator('#view-channels .channel-main');
-  await expect(main.locator('[data-list-position="0"]')).toHaveClass(/\bfocused\b/);
-  const list = await main.boundingBox();
-  if (!list) throw new Error('no layout');
-
-  await page.keyboard.press('Escape');
-  await expect(page.locator('.nav-menu-item[data-section="live"].focused')).toHaveCount(1);
-  await main.evaluate((el) => { el.scrollTop = 1500; });
-  await settleVirtualScroll(page);
-
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator('.nav-menu .focused')).toHaveCount(0);
-  const focused = main.locator('.focused');
-  await expect(focused).toHaveCount(1);
-  const box = await focused.boundingBox();
-  if (!box) throw new Error('no layout');
-  expect(rowInView(box, list)).toBe(true);
-});
-
 test('the Live tab clicked from another section shows the far channel that is playing', async ({ page }) => {
   const lines = ['#EXTM3U'];
   for (let index = 1; index <= 200; index++) {
@@ -1086,39 +1060,6 @@ test('the list from the Guide resumes a group scrolled out of view, brought into
     const [r, l] = await Promise.all([focused.boundingBox(), groups.boundingBox()]);
     return !!r && !!l && rowInView(r, l);
   }).toBe(true);
-});
-
-test('Right out of the side menu resumes the row you left after the preview was stopped and retuned', async ({ page }) => {
-  await routePlaylist(page, longPlaylist(300));
-  await routeLiveManifest(page);
-  await seedPlaylist(page);
-  await page.goto('/');
-  await focusFirstChannelRow(page);
-  const main = page.locator('#view-channels .channel-main');
-  const preview = page.locator('#view-channels #live-preview');
-
-  // The preview follows the row focus rests on.
-  for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown');
-  await expect(preview.locator('.live-preview-channel')).toHaveText('Ch 3');
-  await page.evaluate(() =>
-    document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 413, bubbles: true })));
-  await expect(preview).toBeHidden();
-  await expect(main.locator('[data-list-position="2"]')).toHaveClass(/\bfocused\b/);
-  for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown');
-  await expect(preview.locator('.live-preview-channel')).toHaveText('Ch 5');
-  await expect(page.locator('#view-player')).toBeHidden();
-
-  // The row you leave the list from is the one to resume, and the preview follows it.
-  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowUp');
-  await expect(main.locator('[data-list-position="0"]')).toHaveClass(/\bfocused\b/);
-  await openSideMenu(page);
-  await expect(page.locator('.nav-menu .focused')).toHaveCount(1);
-  await page.keyboard.press('ArrowRight');
-
-  const focused = main.locator('.focused');
-  await expect(focused).toHaveCount(1);
-  await expect(focused).toHaveAttribute('data-key', 'ch:0');
-  await expect(preview.locator('.live-preview-channel')).toHaveText('Ch 1');
 });
 
 test('the list from the Guide lands on a channel tuned elsewhere, not the row you left', async ({ page }) => {

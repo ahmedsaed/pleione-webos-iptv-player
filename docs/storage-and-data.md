@@ -105,6 +105,7 @@ This is the complete active key inventory:
 | `iptv_online_subtitles` | `OnlineSubtitleConfig` | Preferred language; SubDL and Assrt API keys; OpenSubtitles API key, username, password, access token, and token timestamp | Configuration and credentials |
 | `iptv_tmdb_api_key` | `string` | The user's own TMDB v3 API key or v4 read access token for cast photos; empty means the app never contacts TMDB | Configuration and credentials |
 | `iptv_log_level` | `string` | Optional runtime logger threshold used by diagnostics | Developer preference |
+| `iptv_fb_<store>` | `{r, d}` | Personal records kept while IndexedDB refuses writes, one key per user-data store (see [When IndexedDB refuses writes](#when-indexeddb-refuses-writes)) | Personal data fallback |
 
 This lets the app discover its sources and render basic preferences before
 opening IndexedDB. No fixed Web Storage capacity is assumed: it is intentionally
@@ -384,8 +385,61 @@ app clears whole cache stores until the freed space reaches 4 MiB, in this
 order: Search indexes (always), catalog and media metadata, program guides,
 subtitles, channel health results, stream MIME types, and finally parsed
 playlists. It then retries the write once and logs
-`persistence.user.quota.evicted` with the outcome. If the retry fails too,
-the save fails as before. Personal-data stores are never cleared.
+`persistence.user.quota.evicted` with the outcome. If the retry is
+rejected for quota too, IndexedDB is treated as read-only for the session
+(see below). Personal-data stores are never cleared.
+
+### When IndexedDB refuses writes
+
+Chromium 53 (webOS 4) keeps 1 GiB of free disk for the system
+(`kMinimumPreserveForSystem` in its quota manager). Below that, it allows
+an origin no growth at all, while `queryUsageAndQuota()` still reports a
+temporary quota: one fifth of a third of the free space plus usage, about
+18 MB on a TV with 270 MB free. Every IndexedDB put then aborts with
+`QuotaExceededError`, even a 10-byte one into an empty database, and reads
+keep working. Many 4 GB webOS 4 TVs never have 1 GiB free, so on them this is
+the normal state, not a passing one.
+
+At startup the app writes one small record to `user-meta`. If that write,
+or any later personal-data write, is still rejected for quota after the cache
+eviction above, IndexedDB is read-only for the rest of the session, and the
+app logs `storage.idb.readonly` once with the number of records the fallback
+already holds. From then on:
+
+- **Personal records** go to localStorage, one `iptv_fb_<store>` key per
+  user-data store, holding the records written and the keys deleted since.
+  Reads merge them over the IndexedDB records, so nothing stored before
+  disappears. Each store keeps its most recent records and as many deletions:
+
+  | Store | Records kept |
+  | --- | --- |
+  | `favorites` | 500 |
+  | `reminders` | 200 |
+  | `channel-state` | 1000 |
+  | `watchlist` | 400 |
+  | `playback-progress` | 1000 |
+  | `recently-watched` | 30 |
+  | `online-sub-picks` | 200 |
+  | `parental-control` | 1 |
+
+  All fallback keys together hold at most 1 Mi characters (2 MiB as UTF-16,
+  of Chromium's 5 Mi-character localStorage), and the oldest records across
+  stores go first; the parental-control record is never evicted. When a
+  setup or preference key cannot be saved even after the derived caches are
+  evicted, the oldest half of the fallback is dropped to make room for it.
+  Fallback writes never evict any other key.
+- **Caches** (playlists, guides, catalogs, subtitles, stream MIME types,
+  channel health) are kept in memory for the session only, up to 32 MiB of
+  counted size, and Search indexes are not stored. They never use
+  localStorage.
+- No save-failure message is shown, on exit or otherwise. While the
+  session is read-only, **Settings → Data Management** notes under the
+  cache total that the TV limits app storage and the cache is not kept
+  between launches.
+
+In a later session where the startup write succeeds, the app writes the
+fallback records into IndexedDB, removes the `iptv_fb_*` keys, and logs
+`storage.idb.restored`.
 
 The category order is implemented after a global expired-record pass. Within
 each category, candidates sort by ascending `lastAccessedAt`, giving LRU

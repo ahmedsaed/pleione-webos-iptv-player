@@ -1,14 +1,11 @@
-import { test, expect, showHome, enterTab, openSideMenu, type Page } from './helpers';
+import { test, expect, showHome, enterTab, type Page } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 
-// Pleione's TV navigation: Home first, sections full screen, and a hidden
-// side menu that Back at a section's top level, Left at its left edge, or the
-// pointer at the screen's left edge reveals.
+// Pleione's TV navigation: Home first, sections full screen, and Back one
+// level up, from a section's top level to Home. Back on Home leaves the app.
 
 const press = (page: Page, key: string) => page.keyboard.press(key);
 const back = (page: Page) => press(page, 'Escape');
-const menu = (page: Page) => page.locator('.nav-menu');
-const menuFocus = (page: Page) => page.locator('.nav-menu .nav-menu-item.focused');
 const homeFocus = (page: Page) => page.locator('#view-home .focused');
 const card = (page: Page, section: string) => page.locator(`.home-card[data-section="${section}"]`);
 
@@ -67,7 +64,6 @@ test('Home is the first screen: the name, the clock, the account, and the bento 
   expect(requests.map((url) => new URL(url).pathname + (new URL(url).searchParams.get('action') ?? '')))
     .toEqual(['/player_api.php']);
   await expect(page.getByText('Unable to connect')).toHaveCount(0);
-  await expect(page.locator('.tab-bar')).toHaveCount(0);
 
   // Live spans both rows on the left; the others pair up beside it.
   const [live, movies, series, search, settings] = await Promise.all(
@@ -175,9 +171,8 @@ test('the banner is a D-pad row between the header and the bento, and traps noth
   await expect(homeFocus(page)).toHaveAttribute('data-key', 'alert:edit');
   await press(page, 'ArrowLeft');
   await press(page, 'ArrowLeft');
-  await expect(menu(page)).toHaveClass(/\bopen\b/);
-  await back(page);
   await expect(homeFocus(page)).toHaveAttribute('data-key', 'alert:retry');
+  await expect(page.locator('#view-home')).toBeVisible();
 });
 
 test('Try again checks again, keeps the banner while it fails, and a pass removes it', async ({ page }) => {
@@ -270,7 +265,7 @@ for (const [section, view] of [
   ['live', 'channels'], ['movies', 'movies'], ['series', 'series'],
   ['search', 'search'], ['settings', 'settings'],
 ] as const) {
-  test(`the ${section} destination opens full screen; Back opens the menu marking it, Back again goes Home`, async ({ page }) => {
+  test(`the ${section} destination opens full screen; Back goes Home on its card`, async ({ page }) => {
     await seedHome(page);
     await goHome(page);
     const path: Record<string, string[]> = {
@@ -284,83 +279,74 @@ for (const [section, view] of [
     await expectFullScreen(page, view);
     // Search keeps the caret in its box, where Back is the top level too.
     await back(page);
-    await expect(menu(page)).toHaveClass(/\bopen\b/);
-    await expect(page.locator('.nav-menu-item.current')).toHaveAttribute('data-section', section);
-    await expect(menuFocus(page)).toHaveAttribute('data-section', section);
-    await back(page);
-    await expect(menu(page)).not.toHaveClass(/\bopen\b/);
     await expect(page.locator('#view-home')).toBeVisible();
+    await expect(page.locator(`#view-${view}`)).toBeHidden();
     await expect(homeFocus(page)).toHaveAttribute('data-section', section);
   });
 }
 
-test('the menu switches section with Up/Down/OK and Right closes it where focus was', async ({ page }) => {
-  await seedHome(page);
-  await goHome(page);
-  await press(page, 'Enter');
-  await page.locator('.channel-item').first().waitFor();
-  await press(page, 'ArrowDown');
-  const row = page.locator('#view-channels .focused');
-  const before = await row.getAttribute('data-key');
-  await back(page);
-  await expect(menuFocus(page)).toHaveAttribute('data-section', 'live');
-  await press(page, 'ArrowRight');
-  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
-  await expect(row).toHaveAttribute('data-key', before!);
-
-  await back(page);
-  await press(page, 'ArrowDown');
-  await press(page, 'ArrowDown');
-  await expect(menuFocus(page)).toHaveAttribute('data-section', 'series');
-  await press(page, 'ArrowUp');
-  await expect(menuFocus(page)).toHaveAttribute('data-section', 'movies');
-  await press(page, 'Enter');
-  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
-  await expect(page.locator('#view-movies')).toBeVisible();
-});
-
-test('Left at the left edge of a section opens the menu', async ({ page }) => {
+test('Left at the left edge of a section stays where it is', async ({ page }) => {
   await seedHome(page);
   await goHome(page);
   await press(page, 'ArrowRight');
   await press(page, 'Enter');
   await expect(page.locator('#view-movies .catalog-tile[data-focusable]').first()).toBeVisible();
   await press(page, 'ArrowDown');
-  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveCount(1);
+  const tile = page.locator('#view-movies .catalog-tile.focused');
+  await expect(tile).toHaveCount(1);
+  const key = await tile.getAttribute('data-key');
   await press(page, 'ArrowLeft');
-  await expect(menu(page)).toHaveClass(/\bopen\b/);
-  await expect(menuFocus(page)).toHaveAttribute('data-section', 'movies');
-  await press(page, 'ArrowRight');
-  await expect(page.locator('#view-movies .catalog-tile.focused')).toHaveCount(1);
+  await press(page, 'ArrowLeft');
+  await expect(tile).toHaveAttribute('data-key', key!);
+  await expect(page.locator('#view-movies')).toBeVisible();
 
-  // Live: Left from a channel row reaches the groups first.
+  // Live: Left from a channel row reaches the groups, and stops there.
   await enterTab(page, 'live');
   await page.locator('.channel-item').first().waitFor();
   await press(page, 'ArrowDown');
   await press(page, 'ArrowLeft');
-  await expect(page.locator('#view-channels .group-item.focused')).toHaveCount(1);
-  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
+  const group = page.locator('#view-channels .group-item.focused');
+  await expect(group).toHaveCount(1);
+  const groupKey = await group.getAttribute('data-key');
   await press(page, 'ArrowLeft');
-  await expect(menu(page)).toHaveClass(/\bopen\b/);
+  await expect(group).toHaveAttribute('data-key', groupKey!);
+  await expect(page.locator('#view-channels .focused')).toHaveCount(1);
 });
 
-test('Left on Home\'s Live card opens the menu, where Back only closes it', async ({ page }) => {
+test('Left on Home\'s Live card stays on it', async ({ page }) => {
   await seedHome(page);
   await goHome(page);
   await press(page, 'ArrowLeft');
-  await expect(menu(page)).toHaveClass(/\bopen\b/);
-  await expect(page.locator('.nav-menu-item.current')).toHaveAttribute('data-section', 'home');
-  await back(page);
-  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
   await expect(homeFocus(page)).toHaveAttribute('data-section', 'live');
+  await expect(page.locator('#view-home .focused')).toHaveCount(1);
 });
 
-test('Back on Home asks for a second Back to exit', async ({ page }) => {
+// LG store checklist: Back on the entry page shows the TV's Home screen.
+test('Back on Home leaves the app in one press, with no hint', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __closed: number };
+    w.__closed = 0;
+    window.close = () => { w.__closed += 1; };
+  });
   await seedHome(page);
   await goHome(page);
-  await expect(page.locator('#view-home')).toBeVisible();
   await back(page);
-  await expect(page.locator('.toast')).toHaveText('Press back again to exit');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __closed: number }).__closed)).toBe(1);
+  await expect(page.locator('.toast.visible')).toHaveCount(0);
+});
+
+test('Back on Home asks the TV for its Home screen through platformBack', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __calls: string[]; PalmSystem: { platformBack: () => void } };
+    w.__calls = [];
+    w.PalmSystem = { platformBack: () => { w.__calls.push('platformBack'); } };
+    window.close = () => { w.__calls.push('close'); };
+  });
+  await seedHome(page);
+  await goHome(page);
+  await back(page);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __calls: string[] }).__calls))
+    .toEqual(['platformBack']);
 });
 
 test('first run shows the welcome, phone setup, and the two Add cards, Add Xtream focused', async ({ page }) => {
@@ -443,56 +429,24 @@ test('first run shows the phone setup the LAN service offers', async ({ page }) 
   expect(qr.y + qr.height).toBeLessThanOrEqual(panel.y + panel.height);
 });
 
-test('the Magic Remote reveals the menu at the left edge, and a click switches', async ({ page }) => {
+test('the pointer resting at the left edge reveals nothing', async ({ page }) => {
   await seedHome(page);
   await goHome(page);
   await press(page, 'Enter');
   await page.locator('.channel-item').first().waitFor();
   await page.mouse.move(400, 500);
-  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
-  await openSideMenu(page);
-  const series = page.locator('.nav-menu-item[data-section="series"]');
-  await series.hover();
-  await expect(series).toHaveClass(/\bfocused\b/);
-  await enterTab(page, 'series');
-  await expect(page.locator('#view-series')).toBeVisible();
-  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
-
-});
-
-// Regression: Magic Remote drift far from the panel closed the menu.
-test('the pointer moving over the content leaves the menu open; a scrim click closes it', async ({ page }) => {
-  await seedHome(page);
-  await goHome(page);
-  await press(page, 'Enter');
-  await page.locator('.channel-item').first().waitFor();
-  await openSideMenu(page);
-  for (const [x, y] of [[700, 300], [1200, 500], [1800, 900], [1500, 200], [1900, 1060]]) {
-    await page.mouse.move(x, y, { steps: 3 });
-    await page.waitForTimeout(250);
-    await expect(menu(page)).toHaveClass(/\bopen\b/);
-  }
-  await expect(menuFocus(page)).toHaveCount(1);
-  await page.mouse.click(1200, 500);
-  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
-  await expect(page.locator('#view-channels')).toBeVisible();
-});
-
-// The reveal fires once per visit to the edge: closed there, it stays closed.
-test('a menu closed with the pointer still at the edge does not reopen until it leaves and returns', async ({ page }) => {
-  await seedHome(page);
-  await goHome(page);
-  await openSideMenu(page);
-  await back(page);
-  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
-  await page.mouse.move(0, 4);
+  await page.mouse.move(0, 500);
   await page.waitForTimeout(800);
-  await expect(menu(page)).not.toHaveClass(/\bopen\b/);
-  await openSideMenu(page);
-  await expect(menu(page)).toHaveClass(/\bopen\b/);
+  await expect(page.locator('#view-channels')).toBeVisible();
+  // Nothing covers the content at the edge.
+  const atEdge = await page.evaluate(() => {
+    const hit = document.elementFromPoint(2, 500);
+    return !!hit && !!hit.closest('#view-channels');
+  });
+  expect(atEdge).toBe(true);
 });
 
-test('the account switcher is reachable from the menu and from Home', async ({ page }) => {
+test('the account switcher on Home switches the account', async ({ page }) => {
   await seedXtream(page);
   await showHome(page);
   await page.addInitScript(() => {
@@ -509,19 +463,15 @@ test('the account switcher is reachable from the menu and from Home', async ({ p
   await back(page);
   await expect(page.locator('#view-home .account-menu')).toHaveCount(0);
 
-  await press(page, 'ArrowDown');
-  await press(page, 'ArrowLeft');
-  await expect(menu(page)).toHaveClass(/\bopen\b/);
-  for (let i = 0; i < 3; i++) await press(page, 'ArrowUp');
-  await expect(menuFocus(page)).toHaveAttribute('data-key', 'account');
   await press(page, 'Enter');
-  await expect(page.locator('.nav-menu .account-menu-item')).toHaveCount(2);
+  await expect(page.locator('#view-home .account-menu-item')).toHaveCount(2);
   await press(page, 'ArrowDown');
   await press(page, 'Enter');
-  await expect(page.locator('.nav-menu-account .nav-menu-label')).toHaveText('Y Account');
+  await expect(page.locator('#view-home .account-menu')).toHaveCount(0);
+  await expect(page.locator('.home-account .account-avatar')).toHaveText('Y');
 });
 
-test('Lock now stays reachable on Home and in the menu during a PIN session', async ({ page }) => {
+test('Lock now stays reachable on Home during a PIN session', async ({ page }) => {
   await seedHome(page);
   await goHome(page);
   await expect(page.locator('#view-home')).toBeVisible();
@@ -539,11 +489,9 @@ test('Lock now stays reachable on Home and in the menu during a PIN session', as
   await expect(page.locator('#view-settings')).toBeVisible();
 
   await enterTab(page, 'home');
-  await expect(page.locator('#view-home .home-lock')).toHaveText('Lock now');
-  await openSideMenu(page);
-  const menuLock = page.locator('.nav-menu [data-lock-now]');
-  await expect(menuLock).toHaveText('Lock now');
-  await menuLock.click();
+  const lock = page.locator('#view-home .home-lock');
+  await expect(lock).toHaveText('Lock now');
+  await lock.click();
   await expect(page.locator('[data-lock-now]')).toHaveCount(0);
 });
 
@@ -569,24 +517,13 @@ test('Interface size 130 at text size 150 keeps the bento centered, on the canva
   const label = card(page, 'settings').locator('.home-card-label');
   await expect(label).toHaveText('Einstellungen');
   expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-  await press(page, 'ArrowLeft');
-  await expect.poll(async () => (await page.locator('.nav-menu-panel').boundingBox())!.x).toBe(0);
-  const panel = await page.locator('.nav-menu-panel').boundingBox();
-  expect(panel!.height).toBe(1080);
-  const items = await page.locator('.nav-menu-item:not(.hidden)').evaluateAll((els) =>
-    els.map((el) => el.getBoundingClientRect().bottom));
-  expect(Math.max(...items)).toBeLessThanOrEqual(1080);
 });
 
-test('Arabic labels Home and the menu, and the menu still opens from the left', async ({ page }) => {
+test('Arabic labels Home', async ({ page }) => {
   await seedHome(page);
   await page.addInitScript(() => localStorage.setItem('iptv_locale', JSON.stringify('ar')));
   await goHome(page);
   await expect(card(page, 'live').locator('.home-card-label')).toHaveText('مباشر');
-  await press(page, 'ArrowLeft');
-  await expect(menu(page)).toHaveClass(/\bopen\b/);
-  await expect(page.locator('.nav-menu-item[data-section="home"]')).toHaveText('الرئيسية');
-  await expect.poll(async () => (await page.locator('.nav-menu-panel').boundingBox())!.x).toBe(0);
 });
 
 test('a light theme keeps the cards and darkens the header text', async ({ page }) => {

@@ -155,6 +155,7 @@ const {
       setLocalePreference: vi.fn(),
       setOnlineSubtitleConfig: vi.fn((cfg: any) => { state.onlineSubtitles = cfg; }),
       getTmdbApiKey: vi.fn(() => state.tmdbApiKey),
+      isStorageLimited: vi.fn(() => false),
       setTmdbApiKey: vi.fn((key: string) => { state.tmdbApiKey = key.trim(); return true; }),
       remove: vi.fn(),
       clearRecentlyWatched: vi.fn(),
@@ -1311,6 +1312,20 @@ describe('Settings Recently Watched clearing', () => {
       'btn btn-danger',
       'settings-item-hint',
     ]);
+  });
+
+  it('notes limited storage under the cache usage only while IndexedDB refuses writes', () => {
+    expect(container.querySelector('#storage-limited-note')).toBeNull();
+
+    storageMock.isStorageLimited.mockReturnValue(true);
+    settings.render();
+    const note = container.querySelector('#storage-limited-note')!;
+    expect(note.className).toBe('settings-item-hint');
+    expect(note.textContent).toBe(
+      'This TV limits how much the app can store. Your progress and favorites are still saved, but the cache isn’t kept between launches.',
+    );
+    expect(note.previousElementSibling?.id).toBe('cache-usage');
+    storageMock.isStorageLimited.mockReturnValue(false);
   });
 
   it('places maintenance actions after history settings', () => {

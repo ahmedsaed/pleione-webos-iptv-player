@@ -263,7 +263,7 @@ test('a click in edit mode that wobbles onto the next row does not reorder', asy
   expect(await names(page)).toEqual(before);
 });
 
-test('leaving edit mode through the side menu keeps hidden channels out of Search', async ({ page }) => {
+test('leaving edit mode through Home keeps hidden channels out of Search', async ({ page }) => {
   await boot(page);
   await key(page, YELLOW);
   await focusChannel(page, 1);

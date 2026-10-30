@@ -1,7 +1,9 @@
 import { evictCachesForQuota } from './idb-cache';
 import {
+  idbWritesRefused,
   isQuotaExceededError,
   openPersistenceDb,
+  refuseIdbWrites,
   requestResult,
   transactionDone,
   USER_DATA_STORES,
@@ -9,6 +11,15 @@ import {
   type UserDataStore,
 } from './idb-database';
 import { createLogger } from '../utils/logger';
+import {
+  applyFallbackChanges,
+  clearFallback,
+  fallbackRecordCount,
+  fallbackSnapshot,
+  forgetFallbackKeys,
+  mergeFallbackRecords,
+  replaceFallbackStore,
+} from './user-data-fallback';
 
 const log = createLogger('UserDataStorage');
 
@@ -32,12 +43,53 @@ function enqueueWrite(operation: () => Promise<void>): Promise<void> {
   return result;
 }
 
+// IndexedDB that still refuses a write after the caches are evicted is
+// read-only for the rest of the session: user data goes to localStorage.
+function engageFallback(reason: string): void {
+  if (!refuseIdbWrites(reason)) return;
+  log.warn(
+    'IndexedDB refuses writes; keeping user data in localStorage',
+    'event=storage.idb.readonly',
+    `reason=${reason}`,
+    `fallbackKeys=${String(fallbackRecordCount())}`,
+  );
+}
+
+let fallbackWriteFailed = false;
+
+function writeFallback(store: UserDataStore, puts: UserDataRecord[], deletes: string[]): void {
+  if (applyFallbackChanges(store, puts, deletes) || fallbackWriteFailed) return;
+  fallbackWriteFailed = true;
+  log.error(
+    'User data fallback write failed',
+    'event=persistence.user.fallback.write.failed',
+    `store=${store}`,
+    `records=${String(puts.length + deletes.length)}`,
+  );
+}
+
+async function replaceFallback(
+  db: IDBDatabase,
+  records: Partial<Record<UserDataStore, UserDataRecord[]>>,
+): Promise<void> {
+  const tx = db.transaction(USER_DATA_STORES, 'readonly');
+  const keys = await Promise.all(USER_DATA_STORES.map(storeName =>
+    requestResult(tx.objectStore(storeName).getAllKeys())));
+  USER_DATA_STORES.forEach((storeName, index) => {
+    const stored = keys[index].filter((key): key is string => typeof key === 'string');
+    if (!replaceFallbackStore(storeName, records[storeName] ?? [], stored)) {
+      writeFallback(storeName, records[storeName] ?? [], []);
+    }
+  });
+}
+
 // User data outranks every cache: a write the origin quota rejects evicts
-// caches and is tried once more.
+// caches and is tried once more; one still rejected runs `fallback`.
 async function withQuotaRecovery(
   operation: string,
   store: string,
   write: () => Promise<void>,
+  fallback: () => void | Promise<void>,
 ): Promise<void> {
   try {
     await write();
@@ -55,7 +107,8 @@ async function withQuotaRecovery(
       await write();
       outcome = 'recovered';
     } catch (retryErr) {
-      throw outcome === 'evict_failed' ? err : retryErr;
+      if (outcome === 'retry_failed' && !isQuotaExceededError(retryErr)) throw retryErr;
+      outcome = 'fallback';
     } finally {
       log.warn(
         'User data write hit the storage quota; evicted caches',
@@ -67,6 +120,9 @@ async function withQuotaRecovery(
         `outcome=${outcome}`,
       );
     }
+    if (outcome !== 'fallback') return;
+    engageFallback('quota');
+    await fallback();
   }
 }
 
@@ -95,7 +151,10 @@ export async function loadUserRecords<T = unknown>(
   }
   try {
     const tx = db.transaction(storeName, 'readonly');
-    return await requestResult(tx.objectStore(storeName).getAll()) as UserDataRecord<T>[];
+    return mergeFallbackRecords(
+      storeName,
+      await requestResult(tx.objectStore(storeName).getAll()) as UserDataRecord<T>[],
+    );
   } catch (err) {
     log.error(
       'User data read failed',
@@ -137,7 +196,9 @@ Record<UserDataStore, UserDataRecord[]>
       await requestResult(tx.objectStore(storeName).getAll()) as UserDataRecord[],
     ] as const));
     const result = {} as Record<UserDataStore, UserDataRecord[]>;
-    for (const [storeName, items] of records) result[storeName] = items;
+    for (const [storeName, items] of records) {
+      result[storeName] = mergeFallbackRecords(storeName, items);
+    }
     return result;
   } catch (err) {
     log.error(
@@ -196,6 +257,17 @@ export function migrateUserRecordSets(migrations: UserDataMigration[]): Promise<
       );
       throw new Error('IndexedDB unavailable');
     }
+    // Read-only: the fallback keeps the records; markers wait for a later
+    // session, which migrates again only what is still in localStorage.
+    const toFallback = () => {
+      for (const migration of migrations) {
+        writeFallback(migration.storeName, migration.records, []);
+      }
+    };
+    if (idbWritesRefused()) {
+      toFallback();
+      return;
+    }
     try {
       const storeNames = [...new Set(migrations.map(item => item.storeName))];
       const existingKeys = new Map<UserDataStore, string[]>();
@@ -235,6 +307,11 @@ export function migrateUserRecordSets(migrations: UserDataMigration[]): Promise<
         `records=${migrations.reduce((count, item) => count + item.records.length, 0)}`,
       );
     } catch (err) {
+      if (isQuotaExceededError(err)) {
+        engageFallback('quota');
+        toFallback();
+        return;
+      }
       log.error(
         'User data migration failed',
         'event=persistence.user.migration.failed',
@@ -254,6 +331,10 @@ export function applyUserChanges(
 ): Promise<void> {
   if (!puts.length && !deletes.length) return Promise.resolve();
   return enqueueWrite(async () => {
+    if (idbWritesRefused()) {
+      writeFallback(storeName, puts, deletes);
+      return;
+    }
     const db = await openPersistenceDb();
     if (!db) {
       log.warn(
@@ -271,7 +352,8 @@ export function applyUserChanges(
         for (const key of deletes) store.delete(key);
         for (const record of puts) store.put(record);
         await transactionDone(tx);
-      });
+        forgetFallbackKeys(storeName, [...deletes, ...puts.map(record => record.key)]);
+      }, () => writeFallback(storeName, puts, deletes));
     } catch (err) {
       log.error(
         'User data write failed',
@@ -298,6 +380,10 @@ export function replaceAllUserData(
       );
       throw new Error('IndexedDB unavailable');
     }
+    if (idbWritesRefused()) {
+      await replaceFallback(db, records);
+      return;
+    }
     try {
       await withQuotaRecovery('recover', 'all', async () => {
         const tx = db.transaction(USER_DATA_STORES, 'readwrite');
@@ -307,7 +393,8 @@ export function replaceAllUserData(
           for (const item of records[storeName] ?? []) store.put(item);
         }
         await transactionDone(tx);
-      });
+        clearFallback();
+      }, () => replaceFallback(db, records));
     } catch (err) {
       log.error(
         'User data recovery write failed',
@@ -336,6 +423,7 @@ export function clearAllUserData(): Promise<void> {
       for (const storeName of USER_DATA_STORES) tx.objectStore(storeName).clear();
       tx.objectStore(USER_META_STORE).clear();
       await transactionDone(tx);
+      clearFallback();
       writeFailure = null;
       log.info(
         'User data clear completed',
@@ -353,5 +441,68 @@ export function clearAllUserData(): Promise<void> {
       );
       throw err;
     }
+  });
+}
+
+const PROBE_KEY = 'probe:write';
+
+// One small write at startup tells whether IndexedDB accepts writes for the
+// session.
+export function probeUserDataWrites(): Promise<void> {
+  return enqueueWrite(async () => {
+    if (idbWritesRefused()) return;
+    const db = await openPersistenceDb();
+    if (!db) return;
+    try {
+      await withQuotaRecovery('probe', USER_META_STORE, async () => {
+        const tx = db.transaction(USER_META_STORE, 'readwrite');
+        tx.objectStore(USER_META_STORE).put({ key: PROBE_KEY, writtenAt: Date.now() });
+        await transactionDone(tx);
+      }, () => undefined);
+    } catch (err) {
+      log.warn(
+        'User data write probe failed',
+        'event=persistence.user.probe.failed',
+        err,
+      );
+    }
+  });
+}
+
+// After a read-only session, moves the localStorage fallback back once
+// IndexedDB accepts writes again.
+export function restoreFallbackUserData(): Promise<void> {
+  return enqueueWrite(async () => {
+    if (idbWritesRefused()) return;
+    const db = await openPersistenceDb();
+    if (!db) return;
+    const snapshot = fallbackSnapshot();
+    if (!snapshot.length) return;
+    try {
+      await withQuotaRecovery('restore', 'all', async () => {
+        const tx = db.transaction(snapshot.map(item => item.store), 'readwrite');
+        for (const item of snapshot) {
+          const store = tx.objectStore(item.store);
+          for (const key of item.deletes) store.delete(key);
+          for (const record of item.puts) store.put(record);
+        }
+        await transactionDone(tx);
+      }, () => undefined);
+    } catch (err) {
+      log.warn(
+        'Restoring user data from localStorage failed',
+        'event=persistence.user.fallback.restore.failed',
+        err,
+      );
+      return;
+    }
+    if (idbWritesRefused()) return;
+    clearFallback();
+    log.info(
+      'User data moved back to IndexedDB',
+      'event=storage.idb.restored',
+      `records=${String(snapshot.reduce((count, item) =>
+        count + item.puts.length + item.deletes.length, 0))}`,
+    );
   });
 }
