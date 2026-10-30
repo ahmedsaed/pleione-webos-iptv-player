@@ -589,7 +589,7 @@ test('at Interface size 130 the box and rails scale and one ring shows', async (
 });
 
 // Regression: Back from a recent search or a result used to jump to Live.
-test('Back steps from recent searches and results to the box, then to the side menu', async ({ page }) => {
+test('Back steps from recent searches and results to the box, then Home', async ({ page }) => {
   await seedSearch(page);
   await page.addInitScript(() => {
     localStorage.setItem('iptv_search_history', JSON.stringify(['one']));
@@ -617,13 +617,37 @@ test('Back steps from recent searches and results to the box, then to the side m
   await expect(page.locator('#view-search .focused')).toHaveCount(0);
 
   await pressBack(page);
-  await expect(page.locator('.nav-menu')).toHaveClass(/\bopen\b/);
-  await expect(page.locator('.nav-menu .focused')).toHaveAttribute('data-section', 'search');
+  await expect(page.locator('#view-home')).toBeVisible();
+  await expect(page.locator('#view-search')).toBeHidden();
+  await expect(page.locator('#view-home .focused')).toHaveAttribute('data-section', 'search');
   await expect(input).not.toBeFocused();
   await expect(page.locator('.focused:visible')).toHaveCount(1);
-  // Right closes it and gives the caret back.
-  await page.keyboard.press('ArrowRight');
+});
+
+test('Back from a channel played from Search returns to Search', async ({ page }) => {
+  await seedSearch(page);
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterSearch(page);
+  const input = page.locator('.search-box-input');
+  await input.fill('one');
+  const channel = page.locator('#view-search .search-channel-card[data-channel-index="0"]');
+  await expect(channel).toContainText('Channel One');
+  await input.press('ArrowDown');
+  await channel.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-player')).toBeVisible();
+
+  await pressBack(page);
+  await expect(page.locator('#view-search')).toBeVisible();
+  await expect(page.locator('#view-player')).toBeHidden();
+  await expect(page.locator('#view-channels')).toBeHidden();
+  await expect(channel).toBeVisible();
+  await pressBack(page);
   await expect(input).toBeFocused();
+  await pressBack(page);
+  await expect(page.locator('#view-home')).toBeVisible();
 });
 
 test('opening a search result records the query as a recent search', async ({ page }) => {

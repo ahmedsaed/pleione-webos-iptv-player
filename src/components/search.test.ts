@@ -172,7 +172,6 @@ beforeEach(() => {
 function mkHandlers() {
   return {
     onFocusBox: vi.fn(),
-    onLeaveLeft: vi.fn(),
     onReleaseBox: vi.fn(),
     onHoldBox: vi.fn(),
     boxHeld: vi.fn(() => false),

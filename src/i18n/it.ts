@@ -505,7 +505,6 @@ export const IT_MESSAGES = {
     other: '{count} canali caricati',
   },
   'app.loadFailed': 'Impossibile caricare la playlist. Verifica l’URL e riprova.',
-  'app.exitHint': 'Premi di nuovo Indietro per uscire',
   'app.saveFailed': 'Impossibile salvare le modifiche. Riprova.',
   'weekday.0': 'Dom',
   'weekday.1': 'Lun',

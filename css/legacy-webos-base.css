@@ -119,8 +119,6 @@ html.q-no-flex-gap .home-bento > * + * { margin-left: 32px; }
 html.q-no-flex-gap .home-bento-side > * + * { margin-top: 32px; }
 html.q-no-flex-gap .home-bento-cols-1 > * + * { margin-left: 48px; }
 html.q-no-flex-gap .home-bento-row > * + * { margin-left: 32px; }
-html.q-no-flex-gap .nav-menu-sections > * + * { margin-top: 8px; }
-html.q-no-flex-gap .nav-menu-item > * + * { margin-left: 20px; }
 html.q-no-flex-gap .search-busy > * + * { margin-left: 16px; }
 html.q-no-flex-gap .catalog-rail-track > * + * { margin-left: 20px; }
 html.q-no-flex-gap .catalog-sort > * + * { margin-left: 16px; }

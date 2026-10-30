@@ -72,18 +72,17 @@ async function remote(page, keyCode, times = 1) {
   }
 }
 
-// Enter a section the Magic Remote way: the pointer at the screen's left edge
-// reveals the side menu, and a click on the section opens it.
+// Enter a section the Magic Remote way: the Home button, then its card.
 async function enterSection(page, section) {
-  await page.mouse.move(200, 540);
-  await page.mouse.move(0, 540);
-  const item = page.locator(`.nav-menu.open .nav-menu-item[data-section="${section}"]`);
-  await item.waitFor({ state: 'visible' });
-  await page.waitForTimeout(300); // the panel slides in
-  const box = await item.boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.up();
+  // The first move only seeds the pointer; the second hands over to it.
+  await page.mouse.move(900, 2);
+  await page.mouse.move(960, 2);
+  const home = page.locator('#view-home');
+  if (!(await home.isVisible())) {
+    await page.locator('.home-button').click();
+    await home.waitFor({ state: 'visible' });
+  }
+  if (section !== 'home') await home.locator(`[data-key="section:${section}"]`).first().click();
   // Park the pointer, then go back to keys so the focus ring shows.
   await page.mouse.move(1919, 1079);
   await remote(page, 1537);

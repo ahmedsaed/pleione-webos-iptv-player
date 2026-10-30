@@ -97,8 +97,6 @@ export interface SearchHandlers {
   onHoldBox: () => void;
   // Whether the box still holds the keys it was given while waiting.
   boxHeld: () => boolean;
-  // Left at the results' left edge.
-  onLeaveLeft: () => void;
   onBack: () => void;
   // OK on a recent search: run it.
   onPickRecent: (query: string) => void;
@@ -513,8 +511,6 @@ export class Search {
         if (!this.nav.move('up')) this.handlers.onFocusBox();
         return;
       case 'left':
-        if (!this.nav.move('left')) this.handlers.onLeaveLeft();
-        return;
       case 'down':
       case 'right':
         this.nav.move(action);

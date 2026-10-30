@@ -144,6 +144,19 @@ describe('PlayerPresentation', () => {
     expect(video?.style.width).toBe('');
   });
 
+  it('keeps the video square on webOS so the clip mask cannot hide its plane', () => {
+    const userAgent = Object.getOwnPropertyDescriptor(navigator, 'userAgent');
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Web0S' });
+    try {
+      presentation.showPreview();
+      expectGeometry(preview);
+      expect(video?.style.borderRadius).toBe('');
+    } finally {
+      if (userAgent) Object.defineProperty(navigator, 'userAgent', userAgent);
+      else delete (navigator as { userAgent?: string }).userAgent;
+    }
+  });
+
   it('restores fullscreen styles without touching unrelated state', () => {
     video!.style.opacity = '0.8';
     presentation.showPreview();

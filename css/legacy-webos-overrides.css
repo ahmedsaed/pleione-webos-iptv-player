@@ -60,7 +60,6 @@ html.q-scroll-end-padding .catalog-category-rail::after { content: none; }
   .player-osd,
   .number-entry,
   .live-preview-message { background: rgb(10, 10, 15); }
-  .nav-menu-panel { background: var(--bg-secondary); }
 }
 
 /*

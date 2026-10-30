@@ -2,7 +2,6 @@ import {
   test,
   expect,
   enterTab,
-  openSideMenu,
   routePlaylist,
   seedPlaylist,
   SEARCH_M3U,
@@ -34,13 +33,12 @@ test('expands localized channel navigation without clipping', async ({ page }) =
   await page.goto('/?pseudo=1');
 
   await expect(page.locator('html')).toHaveAttribute('lang', 'en-XA');
-  await openSideMenu(page);
-  await expect(page.locator('.nav-menu-item[data-section="live"]')).toContainText('[!!');
-  expect(await textOverflow(page, [
-    '.nav-menu-label',
-    '.live-header-count',
-  ].join(','))).toEqual([]);
+  await expect(page.locator('.live-header-count')).toContainText('[!!');
+  expect(await textOverflow(page, '.live-header-count')).toEqual([]);
   await expect(page.locator('.group-name').first()).toHaveCSS('text-overflow', 'ellipsis');
+  await enterTab(page, 'home');
+  await expect(page.locator('.home-card[data-section="live"]')).toContainText('[!!');
+  expect(await textOverflow(page, '.home-card-label')).toEqual([]);
 });
 
 test('keeps pseudo-localized Settings controls within their boxes', async ({ page }) => {

@@ -507,7 +507,6 @@ export const ES_MESSAGES = {
     other: '{count} canales cargados',
   },
   'app.loadFailed': 'No se pudo cargar la lista. Revisa la URL e inténtalo de nuevo.',
-  'app.exitHint': 'Pulsa Volver de nuevo para salir',
   'app.saveFailed': 'No se pudieron guardar los cambios. Inténtalo de nuevo.',
   'weekday.0': 'Dom',
   'weekday.1': 'Lun',

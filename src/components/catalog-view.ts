@@ -91,7 +91,6 @@ const HERO_PLOT_LINES = 3;
 
 export interface CatalogHandlers {
   // Left at the browse's left edge.
-  onLeaveLeft: () => void;
   onBack: () => void;
   onPlayVod: (req: Omit<VodPlayback, 'onBack'>) => void;
 }
@@ -188,8 +187,8 @@ function isScroller(overflow: string): boolean {
 // Shared browse/grid/detail machinery for the Xtream catalog sections (Movies,
 // Series): a hero + poster rails browse view, a per-category poster grid, and a
 // detail screen. One focus scope holds the focused tile or button across all
-// modes, and a SpatialNav only picks the next one geometrically. Up at the top
-// rail's left edge opens the side menu; Back walks detail -> grid -> browse -> menu.
+// modes, and a SpatialNav only picks the next one geometrically. Back walks
+// detail -> grid -> browse -> the host, which goes Home.
 // Each mode renders into its own stacked layer. Browse stays resident (hidden,
 // not rebuilt) while a grid or detail is open, so Back finds its rails, scroll
 // positions, and focused tile exactly as they were.
@@ -275,7 +274,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       has: (key) => this.hasKey(key),
       reveal: (key) => this.revealKey(key),
       concealOnLeave: true,
-      // With the keys in the side menu nothing in the rails is focused, so the
+      // With the keys in a prompt nothing in the rails is focused, so the
       // hero goes back to the first title; it follows the focus once back.
       onRelease: () => this.syncHero(),
       onAcquire: () => this.syncHero(),
@@ -670,11 +669,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     });
   }
 
-  // Back into the section: the focus it left, in view.
-  resumeFocus(): void {
-    this.focusScope.focus(this.focusScope.focusKey, 'resume');
-  }
-
   // SpatialNav picks from where the scope's focus is, which a fallback may have moved.
   private syncNav(): void {
     const el = this.current();
@@ -963,10 +957,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
         '.catalog-rail-track:not(.catalog-category-rail):not(.episode-track), .series-seasons, .detail-actions') : null);
     if (horizontalRegion && (action === 'left' || action === 'right')) {
       this.nav.setRestrict(horizontalRegion);
-      const moved = this.nav.move(action);
+      this.nav.move(action);
       this.nav.setRestrict(this.layers[this.mode]);
-      // Nothing left of a browse rail: the host opens the side menu.
-      if (!moved && action === 'left' && this.mode === 'browse' && !sortRow) this.handlers.onLeaveLeft();
       return;
     }
     if (sortRow && action === 'down' && this.mode === 'grid') {
@@ -997,12 +989,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     switch (action) {
       case 'up':
       case 'down':
+      case 'left':
       case 'right':
         this.nav.move(action);
-        return;
-      case 'left':
-        // Nothing left of a browse rail: the host opens the side menu.
-        if (!this.nav.move('left') && this.mode === 'browse') this.handlers.onLeaveLeft();
         return;
       case 'select':
         this.onSelect();

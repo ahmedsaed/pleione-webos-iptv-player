@@ -494,7 +494,6 @@ export const ZH_CN_MESSAGES = {
     other: '已加载 {count} 个频道',
   },
   'app.loadFailed': '无法加载播放列表，请检查 URL 后重试。',
-  'app.exitHint': '再次按返回键退出',
   'app.saveFailed': '无法保存更改，请重试。',
   'weekday.0': '周日',
   'weekday.1': '周一',

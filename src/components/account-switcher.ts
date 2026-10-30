@@ -116,7 +116,7 @@ export class AccountSwitcher {
       if (!this.shown) return;
       const hit = document.elementFromPoint(e.clientX, e.clientY);
       if (!hit) return;
-      // Several switchers can be mounted (Home, side menu, parental manager); each
+      // Several switchers can be mounted (Home, parental manager); each
       // only answers to its own slot.
       if (!this.slot.contains(hit)) {
         if (this.open) this.closeMenu('outside', hit);

@@ -68,7 +68,7 @@ beforeEach(() => {
 async function openWith(cats = [{ id: '1', name: 'Cat A' }], items = [series('s1', 'Series One')]) {
   catalogMock.loadSeriesCategories.mockResolvedValue(cats);
   catalogMock.loadSeries.mockResolvedValue(items);
-  const handlers = { onLeaveLeft: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() };
+  const handlers = { onBack: vi.fn(), onPlayVod: vi.fn() };
   const view = new Series(container, handlers);
   Focus.setBase(() => view.focusScope);
   await view.open(account);
@@ -276,13 +276,15 @@ describe('Series browse + grid', () => {
     expect(container.querySelector('.series-detail')?.textContent).toContain('Saved Series');
   });
 
-  it('leaves Up at the top alone and hands Left at the left edge to the host', async () => {
+  it('leaves Up at the top and Left at the left edge on the focused tile', async () => {
     const { view, handlers } = await openWith();
+    const start = container.querySelector('.focused');
+    expect(start).not.toBeNull();
     view.handleAction('up');
     expect(container.querySelector('.catalog-sort')).toBeNull();
-    expect(handlers.onLeaveLeft).not.toHaveBeenCalled();
     view.handleAction('left');
-    expect(handlers.onLeaveLeft).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.focused')).toBe(start);
+    expect(handlers.onBack).not.toHaveBeenCalled();
   });
 
   it('drills into a non-rail category grid and back to browse', async () => {
@@ -832,7 +834,7 @@ describe('Series detail', () => {
 describe('Series deep-link (openItem)', () => {
   it('opens a series detail directly and Back returns to Search via the callback', async () => {
     catalogMock.loadSeriesInfo.mockResolvedValue({ seasons: [], episodesBySeason: {} });
-    const handlers = { onLeaveLeft: vi.fn(), onBack: vi.fn(), onPlayVod: vi.fn() };
+    const handlers = { onBack: vi.fn(), onPlayVod: vi.fn() };
     const onDetailBack = vi.fn();
     const view = new Series(container, handlers);
     Focus.setBase(() => view.focusScope);

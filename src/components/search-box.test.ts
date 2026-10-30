@@ -71,13 +71,13 @@ describe('SearchBox', () => {
   it('gives its caret up under a scope above and takes it back after', () => {
     box.focus();
     Focus.owner();
-    const menuRoot = document.createElement('div');
-    document.body.appendChild(menuRoot);
-    const menu = Focus.register({ id: 'test.menu', root: menuRoot, tier: Tier.menu, restrict: 'self-only' });
-    Focus.push(menu);
-    expect(Focus.owner()?.id).toBe('test.menu');
+    const promptRoot = document.createElement('div');
+    document.body.appendChild(promptRoot);
+    const prompt = Focus.register({ id: 'test.prompt', root: promptRoot, tier: Tier.prompt, restrict: 'self-only' });
+    Focus.push(prompt);
+    expect(Focus.owner()?.id).toBe('test.prompt');
     expect(document.activeElement).not.toBe(input());
-    Focus.pop(menu);
+    Focus.pop(prompt);
     expect(Focus.owner()?.id).toBe('search.box');
     expect(document.activeElement).toBe(input());
   });
