@@ -38,18 +38,25 @@ function getLanIp(): string {
   return 'localhost';
 }
 
-function send(res: http.ServerResponse, status: number, contentType: string, body: string | Buffer): void {
+function send(
+  res: http.ServerResponse,
+  status: number,
+  contentType: string,
+  body: string | Buffer,
+  crossOrigin = true,
+): void {
   const buf = typeof body === 'string' ? bufferFrom(body, 'utf-8') : body;
-  res.writeHead(status, {
+  const headers: { [name: string]: string | number } = {
     'Content-Type': contentType,
     'Content-Length': buf.length,
-    'Access-Control-Allow-Origin': '*',
-  });
+  };
+  if (crossOrigin) headers['Access-Control-Allow-Origin'] = '*';
+  res.writeHead(status, headers);
   res.end(buf);
 }
 
-function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
-  send(res, status, 'application/json; charset=utf-8', JSON.stringify(data));
+function sendJson(res: http.ServerResponse, status: number, data: unknown, crossOrigin = true): void {
+  send(res, status, 'application/json; charset=utf-8', JSON.stringify(data), crossOrigin);
 }
 
 function isLoopback(req: http.IncomingMessage): boolean {
@@ -241,12 +248,19 @@ export function startServer(
           sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) });
         }
       } else if (pathname === '/uploads') {
+        // Playlists often embed provider credentials: only the TV app (loopback)
+        // or a paired phone may read them, and only the app gets CORS.
+        const local = isLoopback(req);
+        if (!local && query('token') !== setupToken) {
+          sendJson(res, 403, { error: 'Invalid setup token' }, false);
+          return;
+        }
         const base = 'http://' + host;
         const items = uploads.list().map((m) => ({
           ...m,
           url: base + '/uploads/' + encodeURIComponent(m.id) + '.m3u',
         }));
-        sendJson(res, 200, items);
+        sendJson(res, 200, items, local);
       } else if (pathname.indexOf('/uploads/') === 0) {
         let id: string;
         try {
@@ -268,10 +282,15 @@ export function startServer(
           if (ok) { try { onChange?.('uploads-changed'); } catch (cbErr) { console.error('[lan] onChange callback threw:', cbErr); } }
           sendJson(res, ok ? 200 : 404, { deleted: ok, id });
         } else {
+          const local = isLoopback(req);
+          if (!local && query('token') !== setupToken) {
+            sendJson(res, 403, { error: 'Invalid setup token' }, false);
+            return;
+          }
           try {
-            send(res, 200, 'audio/mpegurl; charset=utf-8', uploads.read(id));
+            send(res, 200, 'audio/mpegurl; charset=utf-8', uploads.read(id), local);
           } catch {
-            send(res, 404, 'text/plain; charset=utf-8', 'Upload not found: ' + id);
+            send(res, 404, 'text/plain; charset=utf-8', 'Upload not found: ' + id, local);
           }
         }
       } else {

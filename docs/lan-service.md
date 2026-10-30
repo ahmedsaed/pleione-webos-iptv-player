@@ -54,9 +54,9 @@ HTTP (called by phones, and by the app for reconcile):
 | `/setup-actions` | GET | Loopback-only list consumed by the TV app. |
 | `/setup-actions/:id` | DELETE | Loopback-only acknowledgement from the TV app. |
 | `/setup-actions/:id?token=…` | GET | Phone-facing application status. |
-| `/uploads` | GET | List all stored uploads with serve-back URLs. |
+| `/uploads?token=…` | GET | List stored uploads with serve-back URLs; loopback callers do not need the token. |
 | `/uploads?name=foo.m3u&token=…` | POST | Save a playlist; fires `serviceEvents`. |
-| `/uploads/:id[.m3u]` | GET | Serve a stored playlist. |
+| `/uploads/:id[.m3u]?token=…` | GET | Serve a stored playlist; loopback callers do not need the token. |
 | `/uploads/:id?token=…` | DELETE | Remove an upload; loopback callers do not need the token. |
 
 ## Event-driven updates
@@ -103,7 +103,12 @@ the short root URL manually. The public page exchanges that code for the full
 token; five failures from one client lock pairing for one minute.
 
 The token is required to submit source changes, query their status, upload M3U
-files, read the sanitized setup state, or remotely delete uploads. Publishing
+files, read the sanitized setup state, or remotely list, download, or delete
+uploads, because a playlist often embeds provider credentials. The TV app reads
+uploads over loopback without the token. Upload reads answer with
+`Access-Control-Allow-Origin: *` only to loopback callers, so a web page on
+another LAN device cannot read them cross-origin; the setup page is
+same-origin and needs no CORS. Publishing
 state and reading or acknowledging queued actions is loopback-only, which
 prevents another LAN client from injecting state or reading Xtream
 credentials. Upload identifiers are validated before file access so requests
