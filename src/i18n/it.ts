@@ -190,6 +190,9 @@ export const IT_MESSAGES = {
   'player.timeshift': 'TIMESHIFT',
   'player.remaining': 'Ancora {duration}',
   'player.upNext': 'A seguire',
+  'live.list': 'Elenco',
+  'live.watch': 'Guarda',
+  'live.favorite': 'Preferito',
   'player.playingIn': {
     one: 'Inizia tra {count} secondo',
     other: 'Inizia tra {count} secondi',

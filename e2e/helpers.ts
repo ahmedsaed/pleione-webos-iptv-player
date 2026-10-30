@@ -268,6 +268,9 @@ export const test = base.extend({
     await page.addInitScript(() => localStorage.setItem('iptv_show_guide_tab', 'true'));
     // Upstream flows start on Live; showHome() opts a test into Pleione's Home.
     await page.addInitScript(() => localStorage.setItem('iptv_start_on_live', 'true'));
+    // Upstream flows drive the classic Live list; showLivePanes() opts a test
+    // into Pleione's three panes with the Guide inside Live.
+    await page.addInitScript(() => localStorage.setItem('iptv_classic_live', 'true'));
     await stubProviderApi(page);
     const ringFailures = await auditRings(page, process.env.RING_AUDIT,
       `${testInfo.project.name} › ${testInfo.titlePath.slice(1).join(' › ')}`);
@@ -395,6 +398,11 @@ function installRingAudit(recordNone: boolean): void {
 /** Pleione's default: launch on Home. Call before `page.goto`. */
 export async function showHome(page: Page): Promise<void> {
   await page.addInitScript(() => localStorage.removeItem('iptv_start_on_live'));
+}
+
+/** Pleione's default: Live in three panes, the Guide inside it. Call before `page.goto`. */
+export async function showLivePanes(page: Page): Promise<void> {
+  await page.addInitScript(() => localStorage.removeItem('iptv_classic_live'));
 }
 
 /** Pleione's default: no Guide tab. Call before `page.goto`. */

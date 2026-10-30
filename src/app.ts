@@ -21,6 +21,8 @@ import { ChannelList } from './components/channel-list';
 import { Player } from './components/player';
 import { LivePreview } from './components/live-preview';
 import { EpgGrid } from './components/epg-grid';
+import { LiveHeader, type LiveMode } from './components/live-header';
+import { LiveDwell } from './components/live-dwell';
 import { Settings, type SaveAction } from './components/settings';
 import { Sidebar } from './components/sidebar';
 import { type Section, sectionForView } from './components/sections';
@@ -66,6 +68,12 @@ import type {
 } from './types';
 import { getLocale, initLocale, resolveLocale, setLocale, t, tp } from './i18n';
 
+// Pleione's Live (three panes, the Guide inside Live) unless the hidden
+// classic preference, which the upstream E2E suite sets, asks for the old list.
+function livePanes(): boolean {
+  return !StorageService.getClassicLive();
+}
+
 const log = createLogger('App');
 
 type ViewName = 'home' | 'channels' | 'player' | 'epg' | 'settings' | 'parental-controls' | 'reminders'
@@ -81,6 +89,14 @@ class App {
   private player!: Player;
   private livePreview!: LivePreview;
   private epgGrid!: EpgGrid;
+  // Pleione's Live: one header over the list and the Guide, and the preview
+  // that follows focus once it rests.
+  private liveHeader!: LiveHeader;
+  private readonly liveDwell = new LiveDwell(CONFIG.PLAYER.LIVE_PREVIEW_DWELL_MS,
+    (index) => this.livePreview.retune(index, {
+      group: this.channelList.group,
+      playlist: this.channelList.playlist || undefined,
+    }));
   private settings!: Settings;
   private parentalControls!: ParentalControls;
   private parentalPinPrompt = new ParentalPinPrompt();
@@ -148,9 +164,17 @@ class App {
       loading: $('#view-loading')!,
     };
 
+    this.liveHeader = new LiveHeader({
+      onMode: (mode) => this.setLiveMode(mode),
+      onEdit: () => this.channelList.enterEditMode(),
+      onLeave: () => Focus.base()?.enter('back'),
+    });
     this.channelList = new ChannelList(
       $('#channel-browser')!,
       {
+        paneMode: () => livePanes(),
+        onRowFocus: (index) => this.onLiveRowFocus(index),
+        onCount: (count) => this.liveHeader.setCount(count),
         onChannelSelect: (idx, catchup, scope, mode) =>
           this.livePreview.selectChannel(idx, catchup, scope, mode),
         onChannelsChanged: () => {
@@ -178,6 +202,10 @@ class App {
       this.showView('channels');
     }, (idx, catchupStart) => {
       this.channelList.setPlaying(idx, catchupStart);
+      // Zapping full screen moves where Back returns to; the preview never does.
+      if (idx >= 0 && this.isCurrentView('player') && !this.player.isInLivePreview()) {
+        this.channelList.setWatching(idx);
+      }
       if (this.livePreview?.isShowing) this.channelList.render(false);
     },
     () => !this.sidebar.visible,
@@ -207,10 +235,11 @@ class App {
       toggleFavorite: (channel) => this.toggleChannelFavorite(channel),
     });
     this.epgGrid = new EpgGrid(
-      this.views.epg,
+      $('#epg-body')!,
       (idx, catchup, scope) => this.playChannel(idx, catchup, scope),
       () => this.leaveLeft(),
       () => this.openReminderManager('epg'),
+      { onLeaveUp: () => { if (livePanes()) this.liveHeader.enter(); } },
     );
     this.reminderManager = new ReminderManager(this.views.reminders, () => {
       if (this.reminderManagerOrigin === 'epg') {
@@ -249,6 +278,9 @@ class App {
       expansionBlocked: () => this.reminderPrompt.visible,
       isFavorite: channel => StorageService.getFavorites().includes(channelKey(channel)),
       toggleFavorite: channel => this.toggleChannelFavorite(channel),
+      paneMode: () => livePanes(),
+      onLeaveUp: () => this.liveHeader.enter(),
+      onWatch: index => this.channelList.setWatching(index),
     });
     window.addEventListener('resize', () => this.livePreview.refreshLayout());
     ParentalControlService.subscribe(concealmentChanged =>
@@ -1120,6 +1152,48 @@ class App {
     this.showView('settings');
   }
 
+  // A channel row took focus in Pleione's Live: the preview follows once it rests.
+  private onLiveRowFocus(index: number | null): void {
+    if (!livePanes()) return;
+    if (index === null || !this.isCurrentView('channels') || this.channelList.isEditing) {
+      this.liveDwell.cancel();
+      return;
+    }
+    this.liveDwell.focus(index, this.livePreview.previewIndex);
+  }
+
+  // Pleione's Live switch: the list (with the preview) or the Guide, on the
+  // same group.
+  private setLiveMode(mode: LiveMode): void {
+    this.liveDwell.cancel();
+    if (mode === 'guide') {
+      this.withChannels(() => {
+        this.epgGrid.showGroup(this.channelList.group, this.channelList.playlist);
+        this.sidebar.hide();
+        this.player.stop();
+        this.openEpg();
+      });
+      return;
+    }
+    this.epgGrid.deactivateFilters();
+    this.channelList.setGroup(this.epgGrid.group, this.epgGrid.playlist);
+    this.channelList.render();
+    this.showView('channels', false, true);
+  }
+
+  // Pleione's header sits over the Live list and the Guide.
+  private placeLiveHeader(name: ViewName): void {
+    const live = livePanes() && (name === 'channels' || name === 'epg');
+    this.views.channels.classList.toggle('live-panes', livePanes());
+    this.views.epg.classList.toggle('live-panes', livePanes());
+    if (!live) {
+      this.liveHeader.detach();
+      return;
+    }
+    this.liveHeader.leave(false);
+    this.liveHeader.attach(this.views[name], name === 'epg' ? 'guide' : 'list');
+  }
+
   private showView(name: ViewName, preserveChannelFocus = false, resumeChannelFocus = false): void {
     // Every way out of the manager (Back, color keys, the side menu, a reminder)
     // ends management so concealment returns; the manager never stays stacked.
@@ -1131,6 +1205,8 @@ class App {
     }
     this.livePreview?.beforeViewChange(name);
     if (name !== 'channels' && this.channelList.isEditing) this.channelList.exitEditMode();
+    if (name !== 'channels') this.liveDwell.cancel();
+    this.placeLiveHeader(name);
     // Re-assert the persisted theme on every view transition. This reverts any
     // unsaved live preview when Settings closes (Back / section switch / Cancel)
     // while keeping a just-saved theme, since save() persists before this runs.
@@ -1320,7 +1396,9 @@ class App {
 
   // The section shown now, or null on the player and the Settings sub-pages.
   private currentSection(): Section | null {
-    return sectionForView(this.viewStack[this.viewStack.length - 1]);
+    const section = sectionForView(this.viewStack[this.viewStack.length - 1]);
+    // Pleione's Guide is a mode of Live.
+    return section === 'epg' && livePanes() ? 'live' : section;
   }
 
   // Whether the pointer at the left edge may open the side menu: on a
@@ -1669,6 +1747,15 @@ class App {
     // Global shortcuts
     // While the channel list is in edit mode the color keys belong to the editor.
     const editingChannels = currentView === 'channels' && this.channelList.isEditing;
+    if (action === 'red' && livePanes() && !editingChannels) {
+      // Pleione: Red flips Live between the list and the Guide.
+      if (currentView === 'epg') {
+        if (!this.epgGrid.isFilterOpen) this.setLiveMode('list');
+      } else {
+        this.setLiveMode('guide');
+      }
+      return;
+    }
     if (action === 'red' && currentView !== 'epg' && !editingChannels) {
       this.withChannels(() => {
         this.sidebar.hide();
@@ -1720,6 +1807,10 @@ class App {
           return;
         }
         // Red peeks at the Guide from anywhere; Back returns to Live, as before.
+        if (livePanes()) {
+          this.setLiveMode('list');
+          return;
+        }
         this.epgGrid.deactivateFilters();
         this.channelList.render();
         this.showView('channels', false, true);
@@ -1755,6 +1846,10 @@ class App {
         if (this.livePreview.handleAction(action)) break;
         const moved = this.channelList.handleAction(action, event);
         if (action === 'left' && !moved && !this.channelList.isEditing) this.leaveLeft();
+        // Up off the top of the groups or the list: Pleione's header.
+        if (action === 'up' && !moved && livePanes() && !this.channelList.isEditing) {
+          this.liveHeader.enter();
+        }
         break;
       }
       case 'movies':

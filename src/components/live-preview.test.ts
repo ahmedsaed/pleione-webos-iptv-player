@@ -459,4 +459,86 @@ describe('LivePreview', () => {
     expect(root.classList.contains('hidden')).toBe(true);
     expect(view.focus()).toBe(false);
   });
+  describe('in Pleione panes', () => {
+    let onWatch: ReturnType<typeof vi.fn>;
+    let onLeaveUp: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      onWatch = vi.fn();
+      onLeaveUp = vi.fn();
+      const options = (preview as unknown as { options: Record<string, unknown> }).options;
+      options.paneMode = () => true;
+      options.onWatch = onWatch;
+      options.onLeaveUp = onLeaveUp;
+    });
+
+    it('is on without the Live preview setting', () => {
+      expect(StorageService.getLivePreview()).toBe(false);
+      expect(preview.hintState()).toBe('ready');
+    });
+
+    it('retunes to a focused channel muted, without leaving the list', () => {
+      const current = state();
+      PlaylistService.channels = [current.channel];
+      preview.retune(0, { group: 'builtin:all' });
+      expect(playerPlay).toHaveBeenCalledWith(0, undefined, { group: 'builtin:all' });
+      expect(livePreviewMode).toBe(true);
+      expect(actions.onExpand).not.toHaveBeenCalled();
+      expect(onWatch).not.toHaveBeenCalled();
+    });
+
+    it('watches full screen on OK: the preview stream when it is that channel', () => {
+      const current = state();
+      PlaylistService.channels = [current.channel];
+      liveSnapshot.mockReturnValue(current);
+      view.applyState(current);
+      preview.selectChannel(0, undefined, null, 'expand-current');
+      expect(actions.onExpand).toHaveBeenCalledOnce();
+      expect(playerPlay).not.toHaveBeenCalled();
+      expect(onWatch).toHaveBeenCalledWith(0);
+    });
+
+    it('watches full screen on OK: a channel the preview is not showing starts there', () => {
+      const current = state();
+      PlaylistService.channels = [current.channel, { ...current.channel, id: 'ch2', url: 'http://host/ch2' }];
+      liveSnapshot.mockReturnValue(current);
+      view.applyState(current);
+      preview.selectChannel(1, undefined, null, 'expand-current');
+      expect(actions.onPlayFullscreen).toHaveBeenCalledWith(1, undefined, null);
+      expect(actions.onExpand).not.toHaveBeenCalled();
+      expect(onWatch).toHaveBeenCalledWith(1);
+    });
+
+    it('keeps the pane on Back, which goes on to the host', () => {
+      const current = state();
+      liveSnapshot.mockReturnValue(current);
+      view.applyState(current);
+      expect(preview.handleBack()).toBe(false);
+      expect(actions.onClose).not.toHaveBeenCalled();
+      view.focus('mute');
+      expect(preview.handleBack()).toBe(true);
+      expect(actions.onClose).not.toHaveBeenCalled();
+      expect(actions.onReturn).toHaveBeenCalled();
+    });
+
+    it('hands Up off the top control to the host header', () => {
+      const current = state();
+      liveSnapshot.mockReturnValue(current);
+      view.applyState(current);
+      view.focus('mute');
+      preview.handleAction('up');
+      expect(onLeaveUp).not.toHaveBeenCalled();
+      preview.handleAction('up');
+      expect(onLeaveUp).toHaveBeenCalledOnce();
+      expect(view.focused).toBe(false);
+    });
+
+    it('shows the current program description', () => {
+      vi.mocked(EpgService.getNowPlaying).mockReturnValue({
+        ...program(-36, 24), description: 'Synthetic description',
+      });
+      view.applyState(state());
+      expect(root.querySelector('.live-preview-description')?.textContent).toBe('Synthetic description');
+    });
+  });
 });

@@ -49,6 +49,11 @@ html.q-no-flex-gap .live-preview-controls > * + * { margin-left: 8px; }
 html.q-no-flex-gap .live-preview-program > * + * { margin-left: 18px; }
 html.q-no-flex-gap .live-preview-legend > * + * { margin-left: 8px; }
 html.q-no-flex-gap .live-preview-hint > * + * { margin-left: 8px; }
+html.q-no-flex-gap .live-panes .group-item > * + * { margin-left: 14px; }
+html.q-no-flex-gap .live-panes .channel-item.live-row > * + * { margin-left: 18px; }
+html.q-no-flex-gap .live-row-badges > * + * { margin-left: 10px; }
+html.q-no-flex-gap .live-legend > * + * { margin-left: 36px; }
+html.q-no-flex-gap .live-legend .edit-hint > * + * { margin-left: 10px; }
 html.q-no-flex-gap .osd-channel > * + * { margin-left: 16px; }
 html.q-no-flex-gap .osd-stream-info > * + * { margin-left: 8px; }
 html.q-no-flex-gap .osd-programme-detail > * + * { margin-left: 16px; }

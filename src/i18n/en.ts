@@ -194,6 +194,9 @@ export const EN_MESSAGES = {
   'player.timeshift': 'TIMESHIFT',
   'player.remaining': '{duration} remaining',
   'player.upNext': 'Up next',
+  'live.list': 'List',
+  'live.watch': 'Watch',
+  'live.favorite': 'Favorite',
   'player.playingIn': {
     one: 'Starts in {count} second',
     other: 'Starts in {count} seconds',

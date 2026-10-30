@@ -1260,3 +1260,34 @@ describe('EpgGrid click pointer activation', () => {
     expect(measure).toHaveBeenCalledOnce();
   });
 });
+
+describe('the Guide inside Pleione Live', () => {
+  it('hands Up off its top row to the host, and nowhere without one', () => {
+    const onLeaveUp = vi.fn();
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    Focus.uninstall();
+    const g = new EpgGrid(c, vi.fn(), undefined, undefined, { onLeaveUp });
+    Focus.setBase(() => g.focusScope);
+    g.focusChannel(0);
+    g.render();
+    g.handleAction('up'); // channels -> filters
+    expect(onLeaveUp).not.toHaveBeenCalled();
+    g.handleAction('up'); // filters -> the host
+    expect(onLeaveUp).toHaveBeenCalledOnce();
+    g.handleAction('down');
+    g.handleAction('right'); // channels -> programmes
+    g.handleAction('up'); // programmes -> dates
+    g.handleAction('up'); // dates -> the host
+    expect(onLeaveUp).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the group the Live list had, or All for one it lacks', () => {
+    grid.showGroup('source:Sports', '');
+    grid.render();
+    expect(grid.group).toBe('source:Sports');
+    expect(channelItems().map(item => item.querySelector('.epg-ch-name')!.textContent)).toEqual(['Chan B']);
+    grid.showGroup('builtin:recently-watched', '');
+    expect(grid.group).toBe('builtin:all');
+  });
+});

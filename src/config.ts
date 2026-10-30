@@ -55,6 +55,12 @@ export const CONFIG = {
   PLAYER: {
     LIVE_PREVIEW_UPCOMING_COUNT: 4,
     LIVE_PREVIEW_REFRESH_MS: 1000,
+    // Pleione's Live preview retunes to the focused row once focus rests this
+    // long. Remote auto-repeat steps every ~100-150 ms and a deliberate press
+    // a little slower, so scrolling never tunes the rows it passes; a tune
+    // costs the TV's one decoder a second or more, so a shorter wait would
+    // start streams nobody looks at.
+    LIVE_PREVIEW_DWELL_MS: 800,
     DEFAULT_PLAYER_OSD_TIMEOUT_MS: 5000,
     BUFFER_LENGTH: 30,
     MANIFEST_TIMEOUT: 5000,
