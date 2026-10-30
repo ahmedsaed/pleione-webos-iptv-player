@@ -101,31 +101,47 @@ test('Red opens the Guide beside the groups, on the current time', async ({ page
   await expect(page.locator('#view-channels')).toHaveAttribute('data-backdrop', 'live');
 });
 
-// Regression: the now line was drawn over the cells, through their titles.
-test('the now line passes behind the cells and never crosses their text', async ({ page }) => {
+// Regression: a solid now line hid the letters of the titles it crossed.
+test('the now line runs over the cells, dimmed, under a solid time pill', async ({ page }) => {
   await setup(page);
-  const order = await page.evaluate(() => {
-    const line = document.querySelector<HTMLElement>('#live-guide .guide-now-line i')!;
-    const box = line.getBoundingClientRect();
-    const results: { cellOnTop: boolean; lineBelow: boolean }[] = [];
-    line.style.pointerEvents = 'auto';
-    document.querySelector<HTMLElement>('#live-guide .guide-now-line')!.style.pointerEvents = 'auto';
-    for (const cell of Array.from(document.querySelectorAll<HTMLElement>('#live-guide .guide-cell'))) {
+  const line = await page.evaluate(() => {
+    const el = document.querySelector<HTMLElement>('#live-guide .guide-now-line i')!;
+    const box = el.getBoundingClientRect();
+    const host = document.querySelector<HTMLElement>('#live-guide .guide-now-line')!;
+    el.style.pointerEvents = 'auto';
+    host.style.pointerEvents = 'auto';
+    const onTop: boolean[] = [];
+    // The focused cell keeps its ring above the line.
+    for (const cell of Array.from(document.querySelectorAll<HTMLElement>('#live-guide .guide-cell:not(.focused)'))) {
       const c = cell.getBoundingClientRect();
       if (c.left > box.left || c.right < box.right) continue;
-      const stack = document.elementsFromPoint(box.left + 1, c.top + c.height / 2);
-      const cellAt = stack.findIndex(el => cell.contains(el));
-      const lineAt = stack.indexOf(line);
-      results.push({ cellOnTop: cellAt >= 0, lineBelow: lineAt < 0 || lineAt > cellAt });
+      const hit = document.elementFromPoint(box.left + 1, c.top + c.height / 2);
+      onTop.push(hit === el);
     }
-    return results;
+    el.style.pointerEvents = '';
+    host.style.pointerEvents = '';
+    // How opaque the line paints: its own opacity times its color's alpha.
+    const alpha = (node: Element) => {
+      const color = getComputedStyle(node).backgroundColor;
+      const parts = color.match(/[\d.]+/g) ?? [];
+      return parts.length === 4 ? parseFloat(parts[3]) : 1;
+    };
+    let opacity = alpha(el);
+    for (let node: Element | null = el; node; node = node.parentElement) {
+      opacity *= parseFloat(getComputedStyle(node).opacity);
+    }
+    const pill = document.querySelector<HTMLElement>('#live-guide .guide-now-pill')!;
+    let pillOpacity = alpha(pill);
+    for (let node: Element | null = pill; node; node = node.parentElement) {
+      pillOpacity *= parseFloat(getComputedStyle(node).opacity);
+    }
+    return { onTop, opacity, pillOpacity };
   });
-  expect(order.length).toBeGreaterThan(0);
-  for (const at of order) expect(at).toEqual({ cellOnTop: true, lineBelow: true });
-  // The focused cell stays opaque over the line.
-  const focusedBackground = await page.locator('#live-guide .guide-cell.focused')
-    .evaluate(el => getComputedStyle(el).backgroundImage);
-  expect(focusedBackground).toContain('gradient');
+  expect(line.onTop.length).toBeGreaterThan(0);
+  expect(line.onTop.every(Boolean)).toBe(true);
+  expect(line.opacity).toBeGreaterThan(0.3);
+  expect(line.opacity).toBeLessThanOrEqual(0.6);
+  expect(line.pillOpacity).toBe(1);
 });
 
 test('the D-pad moves through time and channels with one ring per step', async ({ page }) => {

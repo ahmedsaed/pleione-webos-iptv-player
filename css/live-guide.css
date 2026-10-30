@@ -82,15 +82,15 @@
   overflow: hidden;
 }
 
-/* The now line runs down the grid behind the rows: the opaque cells hide
-   it, so it shows in the gaps and never crosses a title. */
+/* The now line runs down the grid, over the cells, dimmed so the titles
+   under it stay readable. */
 .guide-now-line {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
   left: 316px;
-  z-index: 0;
+  z-index: 3;
   pointer-events: none;
 }
 
@@ -101,6 +101,7 @@
   width: 2px;
   margin-left: -1px;
   background: var(--accent);
+  opacity: 0.5;
 }
 
 /* Fixed height: LiveGuide's ROW_STRIDE stays this height plus the 8px gap,
@@ -109,7 +110,6 @@
   position: absolute;
   right: 0;
   left: 0;
-  z-index: 1;
   display: flex;
   height: calc(80px * var(--font-scale));
 }
@@ -192,20 +192,8 @@
   background-clip: padding-box;
 }
 
-/* The tint sits on the cell's own color, so the focused cell stays opaque
-   over the now line. */
 .guide-cell.focused {
-  background:
-    linear-gradient(rgb(var(--accent-rgb) / 0.22), rgb(var(--accent-rgb) / 0.22)),
-    var(--bg-tertiary);
-  background-clip: padding-box;
-}
-
-.guide-cell.past.focused,
-.guide-cell.empty.focused {
-  background:
-    linear-gradient(rgb(var(--accent-rgb) / 0.22), rgb(var(--accent-rgb) / 0.22)),
-    var(--bg-secondary);
+  background: rgb(var(--accent-rgb) / 0.22);
   background-clip: padding-box;
 }
 
@@ -263,18 +251,6 @@
   left: 0;
   height: 4px;
   background: var(--accent);
-}
-
-/* The now line's mark inside a live cell: a short tick at the progress
-   bar's end, below the text. */
-.guide-cell-progress:not(.resume)::after {
-  position: absolute;
-  right: -1px;
-  bottom: 0;
-  width: 2px;
-  height: 14px;
-  background: var(--accent);
-  content: '';
 }
 
 /* How much of a past program's catch-up was watched. */
