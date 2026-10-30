@@ -21,6 +21,8 @@ export class SearchBox {
   private readonly box: HTMLElement;
   private readonly scope: FocusScope;
   private active = false;
+  // The keys are here, but not the caret: the on-screen keyboard stays shut.
+  private holding = false;
 
   constructor(private readonly host: HTMLElement, private readonly handlers: SearchBoxHandlers) {
     const box = document.createElement('div');
@@ -44,13 +46,21 @@ export class SearchBox {
       onAction: (action) => this.handleAction(action),
       // Another surface took the keys (the side menu, a prompt): its caret
       // must not keep the arrow keys.
-      onRelease: () => this.input.blur(),
-      onAcquire: () => { if (this.active) this.input.focus(); },
+      onRelease: () => {
+        this.input.blur();
+        this.box.classList.remove('active');
+      },
+      onAcquire: () => {
+        if (!this.active) return;
+        if (this.holding) this.box.classList.add('active');
+        else this.input.focus();
+      },
     });
     this.bind();
   }
 
   get focused(): boolean { return this.active; }
+  get held(): boolean { return this.active && this.holding; }
   get query(): string { return this.input.value; }
 
   setPlaceholder(hasXtream: boolean): void {
@@ -64,6 +74,7 @@ export class SearchBox {
 
   // Take the keys and put the caret in the box.
   focus(): void {
+    this.holding = false;
     if (!this.active) {
       this.active = true;
       Focus.push(this.scope);
@@ -71,9 +82,22 @@ export class SearchBox {
     this.input.focus();
   }
 
+  // Take the keys without the caret, so the on-screen keyboard closes; OK
+  // puts the caret back.
+  hold(): void {
+    this.holding = true;
+    this.input.blur();
+    this.box.classList.add('active');
+    if (this.active) return;
+    this.active = true;
+    Focus.push(this.scope);
+  }
+
   // Give the keys back to the view below.
   release(): void {
+    this.holding = false;
     this.input.blur();
+    this.box.classList.remove('active');
     if (!this.active) return;
     this.active = false;
     Focus.pop(this.scope);
@@ -83,8 +107,9 @@ export class SearchBox {
     // Reached only when the input lost DOM focus (e.g. to a pointer click),
     // since the global handler leaves keys typed into it alone.
     if (action === 'back') this.handlers.onBack();
+    else if (action === 'select' && this.holding) this.focus();
     else if (action === 'down' || action === 'select') this.leave();
-    else this.input.focus();
+    else this.focus();
   }
 
   private leave(): void {
@@ -94,9 +119,12 @@ export class SearchBox {
 
   private bind(): void {
     this.input.addEventListener('input', () => this.handlers.onQuery(this.input.value));
-    this.input.addEventListener('blur', () => this.box.classList.remove('active'));
+    this.input.addEventListener('blur', () => {
+      if (!this.holding) this.box.classList.remove('active');
+    });
     // A pointer click into the box takes the keys too.
     this.input.addEventListener('focus', () => {
+      this.holding = false;
       this.box.classList.add('active');
       if (this.active) return;
       this.active = true;

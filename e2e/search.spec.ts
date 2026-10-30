@@ -135,7 +135,7 @@ test('unified search matches channels, movies, and series; a channel result play
   await expect(page.locator('#view-player')).toBeVisible();
 });
 
-test('a query typed while the index prepares shows a hint, then its results', async ({ page }) => {
+test('a query typed while the index prepares shows a spinner with a hint, then its results', async ({ page }) => {
   await seedSearch(page);
   let releaseCatalog!: () => void;
   const catalogHeld = new Promise<void>((resolve) => { releaseCatalog = resolve; });
@@ -148,17 +148,68 @@ test('a query typed while the index prepares shows a hint, then its results', as
   await enterSearch(page);
 
   await page.locator('.search-box-input').fill('one');
-  const hint = page.locator('#view-search .search-results .search-hint');
-  await expect(hint).toHaveText('Preparing search…');
+  const busy = page.locator('#view-search .search-results .search-busy');
+  await expect(busy).toHaveText('Preparing search…');
+  await expect(busy.locator('.search-busy-spinner')).toBeVisible();
   await expect(page.locator('#view-search .catalog-tile')).toHaveCount(0);
   await page.locator('.search-box-input').fill('zzz');
-  await expect(hint).toHaveText('Preparing search…');
+  await expect(busy).toHaveText('Preparing search…');
   await page.locator('.search-box-input').fill('one');
 
   releaseCatalog();
   await expect(page.locator('#view-search .catalog-tile[data-stream-id="10"]')).toContainText('Movie One');
   await expect(page.locator('#view-search .search-channel-card[data-channel-index="0"]')).toContainText('Channel One');
-  await expect(page.locator('#view-search .search-hint')).toHaveCount(0);
+  await expect(page.locator('#view-search .search-busy')).toHaveCount(0);
+});
+
+test('OK in the box closes the keyboard and rings the first result; Up returns to the box', async ({ page }) => {
+  await seedSearch(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterSearch(page);
+  const input = page.locator('.search-box-input');
+  await input.fill('one');
+  const first = page.locator('#view-search .search-channel-card[data-channel-index="0"]');
+  await expect(first).toContainText('Channel One');
+
+  await input.press('Enter');
+  await expect(input).not.toBeFocused();
+  await expect(first).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+  await expect(page.locator('.search-box.active')).toHaveCount(0);
+
+  await page.keyboard.press('ArrowUp');
+  await expect(input).toBeFocused();
+  await expect(page.locator('#view-search .focused')).toHaveCount(0);
+});
+
+test('OK while the index prepares closes the keyboard, then rings the first result', async ({ page }) => {
+  await seedSearch(page);
+  let releaseCatalog!: () => void;
+  const catalogHeld = new Promise<void>((resolve) => { releaseCatalog = resolve; });
+  await page.route(/get_vod_streams/, async (route) => {
+    await catalogHeld;
+    await route.fallback();
+  });
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterSearch(page);
+  const input = page.locator('.search-box-input');
+  await input.fill('one');
+  await expect(page.locator('#view-search .search-busy')).toBeVisible();
+
+  await input.press('Enter');
+  // The box keeps the keys, with no caret, so the on-screen keyboard closes.
+  await expect(input).not.toBeFocused();
+  await expect(page.locator('.search-box.active')).toHaveCount(1);
+  await expect(page.locator('#view-search .focused')).toHaveCount(0);
+
+  releaseCatalog();
+  const first = page.locator('#view-search .search-channel-card[data-channel-index="0"]');
+  await expect(first).toHaveClass(/\bfocused\b/);
+  await expect(page.locator('.search-box.active')).toHaveCount(0);
+  await expect(input).not.toBeFocused();
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
 
 test('a wide virtual search rail keeps its full scrollable width', async ({ page }) => {
@@ -399,8 +450,12 @@ test('picking a recent search that matches nothing keeps the remote in the box',
   await page.keyboard.press('Enter');
   await expect(input).toHaveValue('zzz');
   await expect(page.locator('#view-search')).toBeVisible();
-  await expect(input).toBeFocused();
+  // The box holds the keys with the keyboard shut; OK puts the caret back.
+  await expect(page.locator('.search-box.active')).toHaveCount(1);
+  await expect(input).not.toBeFocused();
   await expect(page.locator('.focused:visible')).toHaveCount(0);
+  await page.keyboard.press('Enter');
+  await expect(input).toBeFocused();
 });
 
 test('the search box is a wide pill centered on the screen, with recent searches under it', async ({ page }) => {
