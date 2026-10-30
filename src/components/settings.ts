@@ -46,7 +46,7 @@ import {
   dropdown,
   toggleDropdown,
 } from './dropdown';
-import qrcode from 'qrcode-generator';
+import { qrDataUrl } from './setup-qr';
 import { createLogger } from '../utils/logger';
 import { ParentalControlService, isResumeConcealed, isWatchlistConcealed } from '../services/parental-control';
 import { parentalPinSupported } from '../services/parental-pin';
@@ -82,14 +82,6 @@ import {
 const log = createLogger('Settings');
 
 type EpgScopePlaylist = Pick<PlaylistEntry, 'id' | 'name' | 'url'>;
-
-/** Generate a PNG data URL containing a QR code for the given text. */
-function qrDataUrl(text: string): string {
-  const qr = qrcode(0, 'M');
-  qr.addData(text);
-  qr.make();
-  return qr.createDataURL(6, 4);
-}
 
 /** "UTC+08:00" / "UTC-05:00" / "UTC" for a feed offset in minutes. */
 function formatOffset(min: number): string {
@@ -479,6 +471,11 @@ function formatExpiry(expiresAt: number | null): string {
  *  apply = re-render for display-only changes; reset = erase local app data;
  *  edit-channels = open the channel list in edit mode; cancel = discard. */
 export type SaveAction = 'reload' | 'apply' | 'reset' | 'cancel' | 'edit-channels';
+
+export type SourceTarget =
+  | { kind: 'add-xtream' }
+  | { kind: 'add-playlist' }
+  | { kind: 'account'; accountId: string; state: 'rejected' | 'unreachable' };
 
 export class Settings {
   private container: HTMLElement;
@@ -1501,6 +1498,26 @@ export class Settings {
     });
     this.markCategoryOf(entry);
     this.nav.focus(entry);
+  }
+
+  // Sources, from Home: a new account or playlist, as its Add button makes,
+  // or an account's field to fix after a failed sign-in.
+  openSource(target: SourceTarget): void {
+    this.showCategory('sources');
+    if (target.kind === 'add-xtream') {
+      this.addXtreamEntry();
+      return;
+    }
+    if (target.kind === 'add-playlist') {
+      this.addPlaylistEntry();
+      return;
+    }
+    const card = Array.from(this.container.querySelectorAll<HTMLElement>('.xtream-card'))
+      .find((el) => el.dataset.id === target.accountId);
+    const field = card?.querySelector<HTMLElement>(
+      target.state === 'rejected' ? '.xtream-password' : '.xtream-url');
+    if (field) this.nav.focus(field);
+    else this.focusCategoryFirst('sources');
   }
 
   private activate(el: HTMLElement): void {

@@ -283,3 +283,252 @@ html[data-theme="paper-light"] .home-view {
     radial-gradient(1200px 700px at 15% 10%, rgba(91, 79, 230, 0.16), transparent 60%),
     linear-gradient(160deg, #f3f4fb 0%, #e8eaf5 55%, #f4ecf2 100%);
 }
+
+/* First run: the welcome over phone setup and the two Add cards, on the
+   bento's width and gutters. */
+.home-first-run {
+  position: absolute;
+  top: 178px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  width: 1504px;
+  max-width: calc(var(--canvas-width) - 160px);
+  height: 762px;
+  /* Down to the 80px gutter at the foot, at any size. */
+  max-height: calc(var(--canvas-height) - 258px);
+  transform: translateX(-50%);
+}
+
+.home-welcome {
+  flex-shrink: 0;
+}
+
+.home-welcome-title {
+  font-size: 56px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.home-welcome-hint {
+  margin-top: 10px;
+  font-size: 28px;
+  opacity: 0.8;
+}
+
+.home-first-run-row {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 48px;
+}
+
+/* Glass over the backdrop: it informs, so it takes no focus. */
+.home-setup {
+  display: flex;
+  flex: 0 1 720px;
+  flex-direction: column;
+  min-width: 0;
+  padding: 36px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 22px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.home-setup-title {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.home-setup-icon {
+  display: flex;
+  flex-shrink: 0;
+  margin-right: 16px;
+}
+
+.home-setup-icon svg,
+.home-alert-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.home-setup-icon svg {
+  width: 44px;
+  height: 44px;
+}
+
+.home-setup-title-text {
+  min-width: 0;
+}
+
+.home-setup-hint {
+  flex-shrink: 0;
+  margin-top: 8px;
+  font-size: 22px;
+  opacity: 0.8;
+}
+
+/* Too tall for the panel at a large size, the QR shrinks (Home.fitLabels). */
+.home-setup-body {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-end;
+  margin-top: 32px;
+}
+
+.setup-qr.home-setup-qr {
+  flex-shrink: 0;
+  width: 276px;
+  height: 276px;
+  padding: 14px;
+  border-radius: 12px;
+}
+
+.home-setup-steps {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 36px;
+}
+
+.home-setup-step {
+  font-size: 22px;
+  opacity: 0.8;
+}
+
+.home-setup-step-code {
+  margin-top: 20px;
+}
+
+.home-setup-url {
+  font-size: 26px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.home-setup-code {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  white-space: nowrap;
+}
+
+.home-first-run-cards {
+  display: flex;
+  flex: 0 1 744px;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: 40px;
+}
+
+.home-first-run-cards > .home-card {
+  flex: 1 1 0;
+}
+
+.home-first-run-cards > .home-card + .home-card {
+  margin-top: 32px;
+}
+
+.home-card-add-xtream { background: linear-gradient(135deg, #8e54e9, #4776e6); }
+.home-card-add-playlist { background: linear-gradient(135deg, #f2994a, #c0392b); }
+
+/* The wide Add cards grow less, clear of the panel beside them. */
+[data-focusable].home-card-add.focused {
+  transform: scale(1.04);
+}
+
+/* A failed sign-in: a banner on the bento's width, the bento lower under it. */
+.home-alert {
+  position: absolute;
+  top: 168px;
+  left: 50%;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  width: 1504px;
+  max-width: calc(var(--canvas-width) - 160px);
+  min-height: 136px;
+  padding: 20px 24px 20px 28px;
+  background: rgb(var(--danger-rgb) / 0.14);
+  border: 2px solid rgb(var(--danger-rgb) / 0.55);
+  border-radius: 16px;
+  transform: translateX(-50%);
+}
+
+.home-alert-cols-1 { width: 1368px; }
+.home-alert-cols-3 { width: 1696px; }
+
+.home-alert-icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  color: #fff;
+  background: var(--danger);
+  border-radius: 50%;
+}
+
+.home-alert-icon svg {
+  width: 40px;
+  height: 40px;
+  stroke-width: 2;
+}
+
+.home-alert-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 24px;
+}
+
+.home-alert-title {
+  overflow: hidden;
+  font-size: 28px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.home-alert-body {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 22px;
+  opacity: 0.8;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.home-alert-action {
+  flex-shrink: 0;
+  min-height: 54px;
+  margin-left: 24px;
+  white-space: nowrap;
+}
+
+.home-alert-action + .home-alert-action {
+  margin-left: 16px;
+}
+
+.home-view-alert .home-bento {
+  top: 344px;
+  height: 512px;
+  max-height: calc(var(--canvas-height) - 504px);
+  transform: translateX(-50%);
+}
+
+html[data-theme="daylight"] .home-setup,
+html[data-theme="pastel-latte"] .home-setup,
+html[data-theme="paper-light"] .home-setup {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 18px 40px rgba(40, 40, 90, 0.12);
+}

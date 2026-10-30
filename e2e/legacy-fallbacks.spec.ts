@@ -143,31 +143,16 @@ test('the loading view keeps its spacing before the quirks are measured', async 
   // string, because without app.js the simulation lacks the polyfills
   // Playwright needs to return an object.
   const spacing = JSON.parse(await page.evaluate(() => {
-    const spinner = document.querySelector<HTMLElement>('.loading-spinner')!;
+    const mark = document.querySelector<HTMLElement>('.loading-mark')!;
+    const title = document.querySelector<HTMLElement>('.loading-title')!;
     const text = document.querySelector<HTMLElement>('.loading-text')!;
     return JSON.stringify({
       quirks: document.documentElement.className,
-      gap: text.offsetTop - spinner.offsetTop - spinner.offsetHeight,
+      title: title.offsetTop - mark.offsetTop - mark.offsetHeight,
+      text: text.offsetTop - title.offsetTop - title.offsetHeight,
     });
   }));
-  expect(spacing).toEqual({ quirks: '', gap: 24 });
-});
-
-test('the loading view stopgap steps aside once the quirks are measured', async ({ page }) => {
-  test.skip(!isChromium53(), 'only the simulation activates the stopgap');
-  await routePlaylist(page);
-  await seedPlaylist(page);
-  await page.goto('/');
-  await expect(page.locator('#view-channels')).toBeVisible();
-  // Without the quirk class only the stopgap could space the loading view,
-  // as it would on an engine with flex gap but no `inset`.
-  const margins = await page.evaluate(() => {
-    const text = document.querySelector('.loading-text')!;
-    const before = getComputedStyle(text).marginTop;
-    document.documentElement.classList.remove('q-no-flex-gap');
-    return [before, getComputedStyle(text).marginTop];
-  });
-  expect(margins).toEqual(['24px', '0px']);
+  expect(spacing).toEqual({ quirks: '', title: 36, text: 12 });
 });
 
 // addInitScript reaches page realms only, so the worker is degraded by a
