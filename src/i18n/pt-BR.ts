@@ -508,6 +508,7 @@ export const PT_BR_MESSAGES = {
   },
   'app.loadFailed': 'Não foi possível carregar a lista. Verifique a URL e tente novamente.',
   'app.saveFailed': 'Não foi possível salvar as alterações. Tente novamente.',
+  'settings.storageLimited': 'Esta TV limita o armazenamento dos apps. Seu progresso e seus favoritos continuam salvos, mas o cache não é mantido entre as sessões.',
   'weekday.0': 'Dom',
   'weekday.1': 'Seg',
   'weekday.2': 'Ter',
