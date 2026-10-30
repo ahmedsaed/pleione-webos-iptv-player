@@ -264,13 +264,15 @@ test('late manifest results from an old selection cannot replace the active prev
   await expect(page.locator('#video-player source')).toHaveAttribute('src', 'http://host/ch2.m3u8');
 });
 
-test('Back keeps the preview and opens the side menu', async ({ page }) => {
+test('Back from Live stops the preview and goes Home', async ({ page }) => {
   await setup(page);
   await selectFirst(page);
-  await page.keyboard.press('Escape');
-  await expect(page.locator('.nav-menu')).toHaveClass(/\bopen\b/);
   await expect(page.locator(PANEL)).toBeVisible();
-  await expect(page.locator('#view-channels')).toHaveClass(/has-live-preview/);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#view-home')).toBeVisible();
+  await expect(page.locator('#view-channels')).toBeHidden();
+  await expect(page.locator(PANEL)).toBeHidden();
+  await expect(page.locator('#view-home .focused')).toHaveAttribute('data-section', 'live');
 });
 
 test('committed numeric channel entry opens full screen directly', async ({ page }) => {
@@ -368,16 +370,6 @@ test('expand keeps the video identity, source, time, audio and loading counters'
   await page.locator('.live-preview-slot').click({ position: { x: 30, y: 80 } });
   await expect(page.locator('#view-player')).toBeVisible();
   expect(await snapshot(page)).toEqual(expanded);
-});
-
-test('selecting the active Live tab keeps an existing preview session', async ({ page }) => {
-  await setup(page);
-  await selectFirst(page);
-  const before = await snapshot(page);
-  await enterTab(page, 'live');
-  await expect(page.locator(PANEL)).toBeVisible();
-  await expectPreviewGeometry(page);
-  expect(await snapshot(page)).toEqual(before);
 });
 
 test('real desktop MSE attachment survives expand and minimize without reload', async ({ page }) => {

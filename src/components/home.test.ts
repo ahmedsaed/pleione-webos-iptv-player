@@ -31,7 +31,7 @@ beforeEach(() => {
   state.channels = 0;
   handlers = {
     onOpenSection: vi.fn(), onPlayNumber: vi.fn(), onSelectAccount: vi.fn(),
-    onLockNow: vi.fn(), onLeaveLeft: vi.fn(), onBack: vi.fn(),
+    onLockNow: vi.fn(), onBack: vi.fn(),
     onAddSource: vi.fn(), onRetryConnection: vi.fn(), onEditAccount: vi.fn(),
     loadSetupInfo: vi.fn(() => Promise.resolve(null)),
   };
@@ -127,15 +127,15 @@ describe('Home', () => {
     expect(focused()).toBe('section:movies');
   });
 
-  it('hands Left off Live to the host and keeps Right at the far edge', () => {
+  it('keeps Left off Live and Right at the far edge in place', () => {
     home.setSources(true, [account], account);
     home.render();
     home.focusEntry();
     key('left');
-    expect(handlers.onLeaveLeft).toHaveBeenCalledTimes(1);
+    expect(focused()).toBe('section:live');
     key('right', 'right', 'right');
     expect(focused()).toBe('section:series');
-    expect(handlers.onLeaveLeft).toHaveBeenCalledTimes(1);
+    expect(handlers.onBack).not.toHaveBeenCalled();
   });
 
   it('opens a card with OK and focuses a given one', () => {
@@ -246,7 +246,7 @@ describe('Home first run', () => {
     key('up');
     expect(focused()).toBe('add:xtream');
     key('left');
-    expect(handlers.onLeaveLeft).toHaveBeenCalledTimes(1);
+    expect(focused()).toBe('add:xtream');
   });
 
   it('a pointer click on a card opens its Add flow', () => {
@@ -305,7 +305,7 @@ describe('Home connection banner', () => {
     key('down');
     expect(focused()).toBe('alert:edit');
     key('left', 'left');
-    expect(handlers.onLeaveLeft).toHaveBeenCalledTimes(1);
+    expect(focused()).toBe('alert:retry');
     key('down');
     expect(focused()).toBe('section:live');
   });

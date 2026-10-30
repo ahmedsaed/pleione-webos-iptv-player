@@ -91,8 +91,6 @@ export interface SearchHandlers {
   onFocusBox: () => void;
   // A result arrived after the remote waited in the box: let it go.
   onReleaseBox: () => void;
-  // Left at the results' left edge.
-  onLeaveLeft: () => void;
   onBack: () => void;
   // OK on a recent search: run it.
   onPickRecent: (query: string) => void;
@@ -505,8 +503,6 @@ export class Search {
         if (!this.nav.move('up')) this.handlers.onFocusBox();
         return;
       case 'left':
-        if (!this.nav.move('left')) this.handlers.onLeaveLeft();
-        return;
       case 'down':
       case 'right':
         this.nav.move(action);

@@ -95,22 +95,6 @@ test('watching a reminder that comes due over the Clear all confirmation closes 
   await expect(owner(page)).not.toHaveAttribute('data-focus-scope', 'prompt.reminder_manager');
 });
 
-test('a reminder takes the keys from the side menu and gives them back', async ({ page }) => {
-  await setup(page);
-  await page.keyboard.press('Escape');
-  await expect(owner(page)).toHaveAttribute('data-focus-scope', 'navmenu');
-  // The panel slides in on real time, which the installed clock leaves alone.
-  await expect.poll(async () => (await page.locator('.nav-menu-panel').boundingBox())!.x).toBe(0);
-  await page.clock.runFor(1000);
-
-  await reminderComesDue(page);
-  await expect(owner(page)).toHaveAttribute('data-focus-scope', 'prompt.reminder');
-
-  await page.keyboard.press('Escape');
-  await expect(page.locator('.reminder-prompt:not(.hidden)')).toHaveCount(0);
-  await expect(owner(page)).toHaveAttribute('data-focus-scope', 'navmenu');
-});
-
 const rings = (page: Page) => page.locator('.focused');
 
 async function hoverCenter(page: Page, selector: string): Promise<void> {

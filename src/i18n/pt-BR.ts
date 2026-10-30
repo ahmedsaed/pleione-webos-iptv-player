@@ -507,7 +507,6 @@ export const PT_BR_MESSAGES = {
     other: '{count} canais carregados',
   },
   'app.loadFailed': 'Não foi possível carregar a lista. Verifique a URL e tente novamente.',
-  'app.exitHint': 'Pressione Voltar novamente para sair',
   'app.saveFailed': 'Não foi possível salvar as alterações. Tente novamente.',
   'weekday.0': 'Dom',
   'weekday.1': 'Seg',

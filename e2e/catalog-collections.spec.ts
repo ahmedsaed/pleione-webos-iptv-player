@@ -1,4 +1,4 @@
-import { test, expect, enterTab, leaveVod, openSideMenu, readUserDataStore, type Page } from './helpers';
+import { test, expect, enterTab, leaveVod, readUserDataStore, type Page } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 import { THEMES } from '../src/config/themes';
 import type { ResumeEntry, WatchlistEntry } from '../src/types';
@@ -242,7 +242,7 @@ test('refreshes concealed collection counts when the unlock session expires with
   await expect(page.locator('#view-settings .focused')).toHaveCount(1);
 });
 
-test('keeps one ring through virtualized deletion, the side menu, and management exit', async ({ page }) => {
+test('keeps one ring through virtualized deletion and management exit', async ({ page }) => {
   await seedCollections(page, 200);
   await page.goto('/');
   await enterTab(page, 'movies');
@@ -258,11 +258,7 @@ test('keeps one ring through virtualized deletion, the side menu, and management
   await expect(grid.locator('.catalog-remove-mark.focused')).toHaveAttribute('data-key', 'w:vod198');
   await page.keyboard.press('Escape');
   await expect(grid.locator('[data-collection-action="manage"]')).toHaveClass(/focused/);
-  await openSideMenu(page);
-  await expect(page.locator('.nav-menu .focused')).toHaveCount(1);
-  await expect(grid.locator('.focused')).toHaveCount(0);
-  await page.keyboard.press('ArrowRight');
-  await expect(grid.locator('[data-collection-action="manage"]')).toHaveClass(/focused/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
 
 test('leaves a managed collection where each spaced wheel step stops it', async ({ page }) => {

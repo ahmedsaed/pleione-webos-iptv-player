@@ -55,7 +55,7 @@ Procedural workflows live in `.agents/skills/` (open Agent Skills format;
   `setRing()`/`ringsIn()`; the only `focus/*` disable is the player OSD's
   activity listener. Every E2E test fails when a key press
   leaves two rings on screen. Hover never moves the keys; after a
-  pointer click on a section (Home or the side menu), `FocusRing.defer()`
+  pointer click on a Home card, `FocusRing.defer()`
   keeps the content's ring hidden and the first key only shows it.
 - `bundled-service/` runs on Node.js 0.12.2: ES5/CommonJS, newer Node APIs
   via `compat.ts`, and `npm run service:smoke` after any change. Read
@@ -128,9 +128,10 @@ build constant; `scripts/sync-version.mjs` runs on `npm version`.
   first screen: destinations for the **Live / Guide / Movies / Series /
   Search / Settings** sections (`sections.ts`), the Continue Watching and
   Favorites rails, and the multi-account avatar switcher
-  (`account-switcher.ts`). Sections open full screen; the hidden side menu
-  (`nav-menu.ts`) opens with Back at a section's top level, Left at its
-  left edge, or the pointer at the screen's left edge. Search keeps its
+  (`account-switcher.ts`). Sections open full screen. Back goes up one
+  level (`navigation/back-route.ts`): a section's top level returns to Home,
+  where Back leaves the app in one press (`utils/platform-exit.ts`); the
+  pointer gets a Home button (`home-button.ts`). Search keeps its
   query box (`search-box.ts`) at the top of its view. `App` owns section
   switching. Movies/Series
   (`movies.ts`, `series.ts`) share the browse/grid/detail machinery in
