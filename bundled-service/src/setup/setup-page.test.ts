@@ -99,7 +99,7 @@ describe('setup page forms', () => {
           manualEpgSources: [],
         }));
       }
-      if (url === '/uploads') return Promise.resolve(response([]));
+      if (url === '/uploads?token=paired-token') return Promise.resolve(response([]));
       return Promise.resolve(response({ error: 'unexpected request' }, 500));
     });
     const dom = new JSDOM(PAGE_HTML, {
@@ -132,7 +132,7 @@ describe('setup page forms', () => {
 
   it('submits a playlist with the QR token and waits for TV acknowledgement', async () => {
     const fetchMock = vi.fn((url: string, options?: { method?: string; body?: string }) => {
-      if (url === '/uploads') return Promise.resolve(response([]));
+      if (url === '/uploads?token=abc123') return Promise.resolve(response([]));
       if (url === '/setup-state?token=abc123') {
         return Promise.resolve(response({
           playlists: [],
@@ -186,7 +186,7 @@ describe('setup page forms', () => {
   it('renders synchronized sources and removes an Xtream account by id', async () => {
     let removed = false;
     const fetchMock = vi.fn((url: string, options?: { method?: string; body?: string }) => {
-      if (url === '/uploads') return Promise.resolve(response([]));
+      if (url === '/uploads?token=abc123') return Promise.resolve(response([]));
       if (url === '/setup-state?token=abc123') {
         return Promise.resolve(response({
           playlists: [{ id: 'p1', name: 'Alpha', url: 'http://host/a.m3u' }],
@@ -243,7 +243,7 @@ describe('setup page forms', () => {
   it('submits ordered EPG sources with playlist scopes', async () => {
     const posts: unknown[] = [];
     const fetchMock = vi.fn((url: string, options?: { method?: string; body?: string }) => {
-      if (url === '/uploads') return Promise.resolve(response([]));
+      if (url === '/uploads?token=abc123') return Promise.resolve(response([]));
       if (url === '/setup-state?token=abc123') {
         return Promise.resolve(response({
           playlists: [
@@ -304,7 +304,7 @@ describe('setup page forms', () => {
   it('rejects duplicate EPG URLs before submitting', async () => {
     const posts: unknown[] = [];
     const fetchMock = vi.fn((url: string, options?: { method?: string; body?: string }) => {
-      if (url === '/uploads') return Promise.resolve(response([]));
+      if (url === '/uploads?token=abc123') return Promise.resolve(response([]));
       if (url === '/setup-state?token=abc123') {
         return Promise.resolve(response({
           playlists: [{ id: 'p1', name: 'Alpha', url: 'http://host/a.m3u' }],
@@ -348,7 +348,7 @@ describe('setup page forms', () => {
   it('does not overwrite unsaved EPG scope changes during state refresh', async () => {
     let stateRequests = 0;
     const fetchMock = vi.fn((url: string) => {
-      if (url === '/uploads') return Promise.resolve(response([]));
+      if (url === '/uploads?token=abc123') return Promise.resolve(response([]));
       if (url === '/setup-state?token=abc123') {
         stateRequests += 1;
         return Promise.resolve(response({
@@ -394,7 +394,7 @@ describe('setup page forms', () => {
   it('reconciles dirty EPG scopes when playlists change', async () => {
     let stateRequests = 0;
     const fetchMock = vi.fn((url: string) => {
-      if (url === '/uploads') return Promise.resolve(response([]));
+      if (url === '/uploads?token=abc123') return Promise.resolve(response([]));
       if (url === '/setup-state?token=abc123') {
         stateRequests += 1;
         return Promise.resolve(response({
@@ -451,7 +451,7 @@ describe('setup page forms', () => {
     let nextId = 20;
     const posts: unknown[] = [];
     const fetchMock = vi.fn((url: string, options?: { method?: string; body?: string }) => {
-      if (url === '/uploads') {
+      if (url === '/uploads?token=abc123') {
         return Promise.resolve(response([
           { id: 'upload-1', name: 'Uploaded', count: 2, createdAt: 1 },
         ]));
@@ -514,7 +514,7 @@ describe('setup page forms', () => {
 
   it('masks saved subtitle credentials and clears one on a single delete', async () => {
     const fetchMock = vi.fn((url: string, options?: { method?: string; body?: string }) => {
-      if (url === '/uploads') return Promise.resolve(response([]));
+      if (url === '/uploads?token=abc123') return Promise.resolve(response([]));
       if (url === '/setup-state?token=abc123') {
         return Promise.resolve(response({
           playlists: [],

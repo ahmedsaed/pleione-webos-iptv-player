@@ -466,6 +466,73 @@ describe('GET /uploads/:id.m3u', () => {
   });
 });
 
+describe('upload reads from a LAN client', () => {
+  let remote: http.Server;
+  let remoteBase: string;
+  let remoteToken: string;
+
+  beforeAll(async () => {
+    const result = await startServer(0, dataDir);
+    remote = result.server;
+    remoteBase = `http://127.0.0.1:${result.port}`;
+    const info = (await (await fetch(`${remoteBase}/info`)).json()) as { setupUrl: string };
+    remoteToken = new URL(info.setupUrl).searchParams.get('token')!;
+    // Every later request looks like a phone on the LAN, not the TV app.
+    remote.prependListener('request', (req: http.IncomingMessage) => {
+      Object.defineProperty(req.socket, 'remoteAddress', { value: '192.0.2.10', configurable: true });
+    });
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => remote.close(() => resolve()));
+  });
+
+  beforeEach(async () => {
+    await fetch(`${remoteBase}/uploads?name=secret.m3u&token=${remoteToken}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      body: VALID_M3U,
+    });
+  });
+
+  it.each([
+    ['without a token', ''],
+    ['with a wrong token', '?token=000000000000'],
+  ])('rejects listing and downloading uploads %s', async (_label, search) => {
+    for (const route of ['/uploads', '/uploads/secret.m3u', '/uploads/secret']) {
+      const res = await fetch(`${remoteBase}${route}${search}`);
+      expect(res.status, route).toBe(403);
+      expect(res.headers.get('access-control-allow-origin'), route).toBeNull();
+      expect(await res.text(), route).not.toContain('EXTINF');
+    }
+  });
+
+  it('lets a paired client list and download uploads without cross-origin access', async () => {
+    const list = await fetch(`${remoteBase}/uploads?token=${remoteToken}`);
+    expect(list.status).toBe(200);
+    expect(list.headers.get('access-control-allow-origin')).toBeNull();
+    expect(((await list.json()) as Array<{ id: string }>).map((it) => it.id)).toEqual(['secret']);
+
+    const file = await fetch(`${remoteBase}/uploads/secret.m3u?token=${remoteToken}`);
+    expect(file.status).toBe(200);
+    expect(file.headers.get('access-control-allow-origin')).toBeNull();
+    expect(await file.text()).toBe(VALID_M3U);
+  });
+});
+
+describe('upload reads from the TV app', () => {
+  it('lists and downloads over loopback without a token, with CORS for the app', async () => {
+    await postUpload('local.m3u', VALID_M3U);
+    const list = await fetch(`${baseUrl}/uploads`);
+    expect(list.status).toBe(200);
+    expect(list.headers.get('access-control-allow-origin')).toBe('*');
+    const file = await fetch(`${baseUrl}/uploads/local.m3u`);
+    expect(file.status).toBe(200);
+    expect(file.headers.get('access-control-allow-origin')).toBe('*');
+    expect(await file.text()).toBe(VALID_M3U);
+  });
+});
+
 describe('DELETE /uploads/:id', () => {
   it('removes both the .m3u and .json files', async () => {
     await postUpload('gone.m3u', VALID_M3U);
