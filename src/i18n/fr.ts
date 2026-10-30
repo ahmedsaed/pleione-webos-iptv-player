@@ -201,6 +201,9 @@ export const FR_MESSAGES = {
   'player.timeshift': 'DIFFÉRÉ',
   'player.remaining': 'Temps restant : {duration}',
   'player.upNext': 'À suivre',
+  'live.list': 'Liste',
+  'live.watch': 'Regarder',
+  'live.favorite': 'Favori',
   'player.playingIn': {
     one: 'Début dans {count} seconde',
     other: 'Début dans {count} secondes',

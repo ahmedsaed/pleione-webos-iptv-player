@@ -1253,3 +1253,117 @@ describe('ChannelList focus scope off the keys', () => {
     }
   });
 });
+
+describe('ChannelList in Pleione panes', () => {
+  const epg = epgMock as unknown as Record<string, unknown>;
+  const at = (h: number, m: number) => new Date(2026, 0, 1, h, m);
+  const program = (title: string, from: Date, to: Date) =>
+    ({ title, start: from, stop: to, description: '', category: '', icon: '' });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(at(20, 45));
+    epg.findChannelId = (ch: Channel) => ch.id;
+    epg.getNowPlaying = (id: string) => (id === 'a' ? program('Program 1', at(20, 0), at(21, 0)) : null);
+    epg.getUpcoming = (id: string) => (id === 'a'
+      ? [program('Program 2', at(21, 0), at(21, 30)), program('Program 3', at(21, 30), at(22, 0))]
+      : []);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    epg.findChannelId = () => null;
+    epg.getNowPlaying = () => null;
+    delete epg.getUpcoming;
+    delete document.documentElement.dataset.textSize;
+  });
+
+  function paneList(options: Partial<ConstructorParameters<typeof ChannelList>[1]> = {}): ChannelList {
+    return new ChannelList(container, { onChannelSelect: onSelect, paneMode: () => true, ...options });
+  }
+
+  it('shows the current program with its progress, the next program, and the badges', () => {
+    data.favorites = [channelKey(data.channels[0])];
+    data.channels[0].catchupSource = 'http://host/a?utc={utc}';
+    try {
+      list = paneList();
+      list.setWatching(0);
+      list.render();
+      const row = channelItems()[0];
+      expect(row.classList.contains('live-row')).toBe(true);
+      expect(row.querySelector('.channel-now')?.textContent).toBe('Program 1');
+      expect(row.querySelector<HTMLElement>('.live-row-progress > div')?.style.width).toBe('75%');
+      expect(row.querySelector('.live-row-next time')?.textContent).toBe('21:00');
+      expect(row.querySelector('.live-row-next span')?.textContent).toBe('Program 2');
+      expect(row.querySelector('.live-badge-watching')).not.toBeNull();
+      expect(row.querySelector('.live-badge-favorite')).not.toBeNull();
+      expect(row.querySelector('.live-badge-catchup')).not.toBeNull();
+      // Without guide data a row shows its name alone.
+      const bare = channelItems()[1];
+      expect(bare.querySelector('.channel-now')).toBeNull();
+      expect(bare.querySelector('.live-row-next')).toBeNull();
+      expect(bare.querySelector('.live-badge-watching')).toBeNull();
+    } finally {
+      data.channels[0].catchupSource = '';
+    }
+  });
+
+  it('moves the count to the host header and shows the key legend', () => {
+    const onCount = vi.fn();
+    list = paneList({ onCount });
+    list.render();
+    expect(onCount).toHaveBeenCalledWith(3);
+    expect(container.querySelector('.sidebar-header')).toBeNull();
+    const legend = container.querySelector('.live-legend')?.textContent ?? '';
+    expect(legend).toContain('Watch');
+    expect(legend).toContain('Guide');
+    expect(container.querySelector('.preview-list-hints')).toBeNull();
+  });
+
+  it('draws the groups with line icons', () => {
+    list = paneList();
+    list.render();
+    const icons = Array.from(container.querySelectorAll('.group-item .group-icon'));
+    expect(icons.length).toBeGreaterThan(3);
+    for (const icon of icons) {
+      expect(icon.querySelector('svg')).not.toBeNull();
+      expect(icon.querySelector('img')).toBeNull();
+    }
+  });
+
+  it('spaces the rows by the pane stride, grown with the text size', () => {
+    list = paneList();
+    list.render();
+    expect(container.querySelector<HTMLElement>('.channel-list-spacer')?.style.height).toBe('366px');
+    document.documentElement.dataset.textSize = '150';
+    list.render();
+    expect(container.querySelector<HTMLElement>('.channel-list-spacer')?.style.height).toBe('549px');
+  });
+
+  it('reports the channel row that takes focus, and null off the rows', () => {
+    const onRowFocus = vi.fn();
+    list = paneList({ onRowFocus });
+    list.render();
+    expect(onRowFocus).toHaveBeenLastCalledWith(0);
+    list.handleAction('down');
+    expect(onRowFocus).toHaveBeenLastCalledWith(1);
+    list.handleAction('left');
+    expect(onRowFocus).toHaveBeenLastCalledWith(null);
+  });
+
+  it('gives Up off the top row back to the host for its header', () => {
+    list = paneList();
+    list.render();
+    expect(list.handleAction('up')).toBe(false);
+    list.handleAction('left');
+    expect(list.handleAction('up')).toBe(false);
+  });
+
+  it('switches groups for the Guide and back', () => {
+    list = paneList();
+    list.setGroup('source:Sports', '');
+    list.render();
+    expect(list.group).toBe('source:Sports');
+    expect(channelItems().map(row => row.querySelector('.channel-name')?.textContent)).toEqual(['Bravo']);
+  });
+});

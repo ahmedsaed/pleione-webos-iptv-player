@@ -124,6 +124,7 @@
   --success: #2ea043;
   --warning: #d9820b;
   --warning-rgb: 217 130 11;
+  --favorite: #a15c00;
   --border: #dfe3ea;
 }
 
@@ -279,6 +280,7 @@
   --success: #40a02b;
   --warning: #df8e1d;
   --warning-rgb: 223 142 29;
+  --favorite: #a15c00;
   --border: #ccd0da;
 }
 
@@ -302,6 +304,7 @@
   --success: #859900;
   --warning: #b58900;
   --warning-rgb: 181 137 0;
+  --favorite: #a15c00;
   --border: #ded8c5;
 }
 

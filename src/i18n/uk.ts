@@ -213,6 +213,9 @@ export const UK_MESSAGES = {
   'player.timeshift': 'ТАЙМШИФТ',
   'player.remaining': 'Залишилося {duration}',
   'player.upNext': 'Далі',
+  'live.list': 'Список',
+  'live.watch': 'Дивитися',
+  'live.favorite': 'Обране',
   'player.playingIn': {
     one: 'Початок через {count} секунду',
     few: 'Початок через {count} секунди',

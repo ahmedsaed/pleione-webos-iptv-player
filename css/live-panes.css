@@ -1,0 +1,454 @@
+/* Pleione's Live: a header (title, count, List | Guide, clock) over three
+   panes (groups | rich channel rows | the preview) or over the Guide. Every
+   rule is scoped to .live-panes, which the app sets unless the hidden
+   classic-Live preference asks for the upstream list. */
+
+.view.live-panes {
+  background:
+    radial-gradient(1200px 700px at 15% 10%, rgba(91, 79, 230, 0.2), transparent 60%),
+    radial-gradient(1000px 650px at 90% 95%, rgba(194, 24, 91, 0.1), transparent 60%),
+    var(--bg-primary);
+}
+
+#view-channels.live-panes {
+  padding: 136px 0 64px;
+}
+
+#view-epg.live-panes {
+  padding-top: 136px;
+}
+
+/* Header */
+.live-header {
+  position: absolute;
+  top: 40px;
+  right: 80px;
+  left: 80px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  height: 64px;
+  color: var(--text-primary);
+}
+
+.live-header-title {
+  flex-shrink: 0;
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.live-header-count {
+  min-width: 0;
+  margin-left: 20px;
+  font-size: 26px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.live-header-spacer {
+  flex: 1 1 auto;
+}
+
+.live-header-edit {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  margin-right: 20px;
+  padding: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+}
+
+
+.live-header-edit.focused {
+  color: var(--text-primary);
+}
+
+.live-mode-toggle {
+  flex-shrink: 0;
+}
+
+.live-mode-option {
+  height: 54px;
+  min-width: 150px;
+  font-family: inherit;
+}
+
+.live-mode-icon {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  margin-right: 10px;
+}
+
+.live-mode-icon svg,
+.live-header-edit svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The Red key switches to the option it marks. */
+.live-red-key {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-left: 12px;
+  border-radius: 50%;
+  background: var(--remote-key-red);
+}
+
+.live-header-clock {
+  flex-shrink: 0;
+  margin-left: 40px;
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+/* The list's three panes: groups and rows in the browser, then the preview. */
+.live-panes #channel-browser {
+  flex: 1 1 0;
+}
+
+.live-panes .channel-view {
+  background: transparent;
+}
+
+.live-panes .sidebar {
+  width: 416px;
+  padding-left: 72px;
+  background: transparent;
+  border-right: none;
+}
+
+.live-panes .channel-main {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px;
+}
+
+.live-panes .has-channel-hints .channel-main {
+  padding-bottom: 8px;
+}
+
+/* Fixed height: virtualized, so PANE_GROUP_ROW_STRIDE in channel-list.ts
+   stays this height plus the 6px vertical margin, both at text size. */
+.live-panes .group-item {
+  height: calc(64px * var(--font-scale));
+  margin: calc(3px * var(--font-scale)) 0;
+  padding: 0 14px;
+  gap: 14px;
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.live-panes .group-item.active {
+  color: var(--accent);
+  background: transparent;
+  border-color: transparent;
+}
+
+.live-panes .group-item.active::before {
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: -12px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  content: '';
+}
+
+.live-panes .group-item.focused {
+  color: var(--text-primary);
+}
+
+.live-panes .group-item.active.focused {
+  color: var(--accent);
+}
+
+.live-panes .group-icon {
+  width: 30px;
+  height: 30px;
+  color: inherit;
+}
+
+.live-panes .group-icon svg {
+  width: 30px;
+  height: 30px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.live-panes .group-name {
+  font-size: 26px;
+}
+
+.live-panes .group-count {
+  min-width: 0;
+  font-size: 22px;
+  color: inherit;
+}
+
+/* Fixed height: virtualized, so PANE_CHANNEL_ROW_STRIDE in channel-list.ts
+   stays this height plus the 6px gap, both at text size. */
+.live-panes .channel-item.live-row {
+  height: calc(116px * var(--font-scale));
+  padding: 0 16px 0 8px;
+  /* Gap alone spaces the parts: webOS 4's generated gap margins would
+     outrank a part's own margin. */
+  gap: 18px;
+}
+
+.live-panes .channel-item.recent-item {
+  height: calc(96px * var(--font-scale));
+}
+
+.live-panes .channel-number {
+  min-width: 52px;
+  font-size: 24px;
+  text-align: right;
+  color: var(--text-secondary);
+}
+
+.live-panes .channel-item.watching .channel-number {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.live-panes .channel-logo-wrap,
+.live-panes .channel-logo-placeholder {
+  width: 72px;
+  height: 72px;
+}
+
+.live-panes .channel-logo {
+  max-width: 72px;
+  max-height: 72px;
+  border-radius: var(--radius);
+}
+
+.live-panes .channel-logo-placeholder {
+  border-radius: var(--radius);
+  font-size: 32px;
+}
+
+.live-row-top {
+  display: flex;
+  align-items: center;
+}
+
+.live-panes .live-row .channel-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 26px;
+}
+
+.live-row-badges {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 12px;
+}
+
+.live-badge-icon {
+  display: flex;
+  width: 24px;
+  height: 24px;
+}
+
+.live-badge-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.live-badge-watching {
+  color: var(--accent);
+}
+
+.live-badge-favorite {
+  color: var(--favorite);
+}
+
+.live-badge-favorite svg {
+  fill: currentColor;
+}
+
+.live-badge-catchup {
+  color: var(--text-secondary);
+}
+
+.live-badge-catchup svg {
+  fill: currentColor;
+}
+
+.live-panes .live-row .channel-now {
+  margin-top: 2px;
+  font-size: 22px;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.live-row-progress {
+  height: 4px;
+  margin: 6px 0 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+}
+
+.channel-item.focused .live-row-progress {
+  background: var(--border);
+}
+
+.live-row-progress > div {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.live-row-next {
+  display: flex;
+  min-width: 0;
+  font-size: 20px;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.live-row-next time {
+  flex-shrink: 0;
+  margin-right: 10px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-row-next span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The key legend spans the screen under the panes. */
+.live-panes .edit-hints {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 64px;
+  padding: 0 80px;
+  background: rgb(var(--catalog-hero-scrim-rgb) / 0.7);
+}
+
+.live-legend {
+  gap: 36px;
+}
+
+.live-legend .edit-hint {
+  gap: 10px;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.live-legend .edit-key {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+
+.live-legend .edit-key.key-ok {
+  width: auto;
+  height: auto;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.live-legend svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The preview pane: the video on top, then the channel and its program. */
+/* 848px of the 1920px canvas at every Interface size: a larger size takes
+   its room from the list, so the preview keeps a useful width. */
+.live-panes #live-preview {
+  flex: 0 0 calc(var(--canvas-width) * 0.4417);
+  width: auto;
+  min-width: 0;
+  padding: 8px 80px 0 32px;
+  box-shadow: none;
+}
+
+/* The pane keeps its place before anything plays, so the list never jumps. */
+.live-panes #live-preview.hidden {
+  display: flex !important;
+  visibility: hidden;
+}
+
+/* 16:9 from the pane's width (padding-top is a share of the width). */
+.live-panes .live-preview-slot {
+  order: -1;
+  height: 0;
+  padding-top: 56.25%;
+}
+
+.live-panes .live-preview-heading {
+  height: 80px;
+  background: transparent;
+}
+
+.live-panes .live-preview-clock {
+  display: none;
+}
+
+.live-panes .live-preview-details {
+  padding-top: 4px;
+  background: transparent;
+}
+
+.live-panes .live-preview-description {
+  display: -webkit-box;
+  margin-top: 12px;
+  overflow: hidden;
+  font-size: 22px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.live-panes .live-preview-upcoming {
+  margin-top: 20px;
+}
+
+/* The Guide inside Live, under the same header. */
+.live-panes .epg-view {
+  height: calc(var(--canvas-height) - 136px);
+  padding-top: 0;
+  background: transparent;
+}

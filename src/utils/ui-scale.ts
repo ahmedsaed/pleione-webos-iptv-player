@@ -13,6 +13,19 @@ export function uiPx(px: number): number {
   return px * uiScale();
 }
 
+// The Text size factor (`--font-scale`), read from the `data-text-size` the
+// theme service sets: a box that holds text grows with it.
+export function textScale(): number {
+  if (typeof document === 'undefined') return 1;
+  const size = Number(document.documentElement.dataset.textSize);
+  return size > 0 ? size / 100 : 1;
+}
+
+/** A text-holding length designed in 1920x1080 px, at the current Interface and Text size. */
+export function uiTextPx(px: number): number {
+  return px * uiScale() * textScale();
+}
+
 const SHEET_RE = /^css\/(?:ui-\d+\/)?([\w.-]+\.css)$/;
 
 /** Points every app stylesheet at the build's copy for `size` (css/ui-<size>/,

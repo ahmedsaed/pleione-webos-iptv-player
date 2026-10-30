@@ -69,6 +69,8 @@ export class EpgGrid {
   private onChannelSelect: (index: number, catchup?: CatchupInfo, scope?: ChannelScope) => void;
   private onLeaveLeft?: () => void;
   private onManageReminders?: () => void;
+  // Up off the Guide's top row: Pleione's Live header takes the keys.
+  private onLeaveUp?: () => void;
   private selectedChannelIdx = 0;
   private selectedPlaylist = '';
   private playlistFocusIdx = 0;
@@ -137,8 +139,10 @@ export class EpgGrid {
     onChannelSelect: (index: number, catchup?: CatchupInfo, scope?: ChannelScope) => void,
     onLeaveLeft?: () => void,
     onManageReminders?: () => void,
+    options: { onLeaveUp?: () => void } = {},
   ) {
     this.container = container;
+    this.onLeaveUp = options.onLeaveUp;
     this.onChannelSelect = onChannelSelect;
     this.onLeaveLeft = onLeaveLeft;
     this.onManageReminders = onManageReminders;
@@ -383,6 +387,19 @@ export class EpgGrid {
     const visible = this.getVisibleChannels();
     this.selectedChannelIdx = visible[0]?.globalIndex ?? -1;
     this.focusProg = 0;
+  }
+
+  get group(): ChannelGroupId { return this.selectedGroup; }
+  get playlist(): string { return this.selectedPlaylist; }
+
+  /** Show `group` of `playlist`, as Pleione's Live list had it; a group the
+   *  Guide lacks (such as Recently Watched) shows All. */
+  showGroup(group: ChannelGroupId, playlist: string): void {
+    if (PlaylistService.playlistTabs.some(tab => tab.id === playlist) || playlist === '') {
+      this.selectedPlaylist = playlist;
+    }
+    const known = this.getGroupOptions().some(option => option.id === group);
+    this.selectGroup(known ? group : 'builtin:all');
   }
 
   private selectGroup(id: ChannelGroupId): void {
@@ -1316,6 +1333,9 @@ export class EpgGrid {
             this.focusCol = 'dates';
             this.render();
           }
+        } else if (this.focusCol === 'filters' || this.focusCol === 'playlists'
+            || this.focusCol === 'dates' || this.focusCol === 'legend') {
+          this.onLeaveUp?.();
         }
         break;
 

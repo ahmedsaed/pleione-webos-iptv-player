@@ -195,6 +195,9 @@ export const TR_MESSAGES = {
   'player.timeshift': 'ZAMAN KAYDIRMA',
   'player.remaining': '{duration} kaldı',
   'player.upNext': 'Sıradaki',
+  'live.list': 'Liste',
+  'live.watch': 'İzle',
+  'live.favorite': 'Favori',
   'player.playingIn': {
     other: '{count} saniye içinde başlıyor',
   },

@@ -195,6 +195,9 @@ export const ZH_CN_MESSAGES = {
   'player.timeshift': '时移',
   'player.remaining': '剩余 {duration}',
   'player.upNext': '即将播放',
+  'live.list': '列表',
+  'live.watch': '观看',
+  'live.favorite': '收藏',
   'player.playingIn': {
     other: '{count} 秒后开始播放',
   },

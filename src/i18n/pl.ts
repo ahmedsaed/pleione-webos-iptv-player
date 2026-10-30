@@ -213,6 +213,9 @@ export const PL_MESSAGES = {
   'player.timeshift': 'TIMESHIFT',
   'player.remaining': 'Pozostało {duration}',
   'player.upNext': 'Następnie',
+  'live.list': 'Lista',
+  'live.watch': 'Oglądaj',
+  'live.favorite': 'Ulubione',
   'player.playingIn': {
     one: 'Start za {count} sekundę',
     few: 'Start za {count} sekundy',

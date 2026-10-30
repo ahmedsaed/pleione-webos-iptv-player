@@ -1147,6 +1147,12 @@ export const StorageService = {
     return get<boolean>('start_on_live', false) === true;
   },
 
+  // Hidden (no UI): the upstream Live list instead of Pleione's three panes
+  // with the Guide inside Live.
+  getClassicLive(): boolean {
+    return get<boolean>('classic_live', false) === true;
+  },
+
   getInterfaceSize(): InterfaceSize {
     const size = get<unknown>('interface_size', DEFAULT_INTERFACE_SIZE);
     return isValidInterfaceSize(size as string) ? (size as InterfaceSize) : DEFAULT_INTERFACE_SIZE;

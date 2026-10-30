@@ -213,6 +213,9 @@ export const RU_MESSAGES = {
   'player.timeshift': 'ТАЙМШИФТ',
   'player.remaining': 'Осталось {duration}',
   'player.upNext': 'Далее',
+  'live.list': 'Список',
+  'live.watch': 'Смотреть',
+  'live.favorite': 'Избранное',
   'player.playingIn': {
     one: 'Начало через {count} секунду',
     few: 'Начало через {count} секунды',

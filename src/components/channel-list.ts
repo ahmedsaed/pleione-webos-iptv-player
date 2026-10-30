@@ -15,27 +15,41 @@ import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
 import { html, raw, type Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { channelKey, groupDisplayLabel } from '../utils/channel';
-import { formatPosition } from '../utils/time';
+import { formatPosition, formatTime } from '../utils/time';
 import { PlaylistService } from '../services/playlist-service';
 import { EpgService } from '../services/epg-service';
 import { StorageService } from '../services/storage-service';
 import { RecentlyWatchedService, type RecentlyWatchedItem } from '../services/recently-watched';
 import { ChannelHealthService } from '../services/channel-health';
 import { groupIcon } from './group-icon';
-import { NAV_HORIZONTAL_ICON, favoriteIcon } from './icons';
+import {
+  CLOCK_ICON,
+  FOLDER_ICON,
+  GRID_ICON,
+  NAV_HORIZONTAL_ICON,
+  NOW_PLAYING_ICON,
+  REPLAY_ICON,
+  STAR_OUTLINE_ICON,
+  favoriteIcon,
+} from './icons';
 import { backKey, okHint } from './key-hints';
+import { liveRowSchedule } from './live-row';
 import { channelLockBadge, liveGroupLockBadge } from './parental-badge';
 import { showToast } from './toast';
 import { getLocale, t, tp, type SupportedLocale } from '../i18n';
 import { ChannelListEditor } from './channel-list-editor';
 import { VirtualList } from '../utils/virtual-list';
 import { VirtualScrollGuard } from '../utils/virtual-scroll';
-import { uiPx } from '../utils/ui-scale';
+import { uiPx, uiTextPx } from '../utils/ui-scale';
 
 // Row strides mirror the fixed row geometry in css/channel-list.css:
 // .channel-item is 88px, .group-item is 60px plus its 8px vertical margin.
 const CHANNEL_ROW_STRIDE = 88;
 const GROUP_ROW_STRIDE = 68;
+// Pleione's three panes: .live-panes .channel-item is 116px plus a 6px gap,
+// and .group-item 64px plus 6px; both grow with the text size.
+const PANE_CHANNEL_ROW_STRIDE = 122;
+const PANE_GROUP_ROW_STRIDE = 70;
 const CHANNEL_OVERSCAN = 12;
 const CHANNEL_VIEWPORT_FALLBACK = 900;
 
@@ -61,6 +75,12 @@ export interface ChannelListOptions {
   onListFocus?: () => void;
   getPreviewHintState?: () => PreviewHintState;
   onEnterManagement?: () => void;
+  // Pleione's three panes (rich rows, line-icon groups, the key legend); the
+  // header with the count and the List | Guide switch belongs to the host.
+  paneMode?: () => boolean;
+  // A channel row took focus (null: something else did).
+  onRowFocus?: (index: number | null) => void;
+  onCount?: (count: number) => void;
   authorizeEdit?: (proceed: () => void) => void;
 }
 
@@ -76,6 +96,11 @@ export class ChannelList {
   private onEnterPreview: () => boolean;
   private onListFocus: () => void;
   private getPreviewHintState: () => PreviewHintState;
+  private readonly paneMode: () => boolean;
+  private readonly onRowFocus: (index: number | null) => void;
+  private readonly onCount: (count: number) => void;
+  // Pleione: the channel the player shows full screen, where OK returns to.
+  private watchingIndex = -1;
   private nav: SpatialNav;
   private editor: ChannelListEditor;
   private currentGroup: ChannelGroupId = 'builtin:all';
@@ -86,12 +111,12 @@ export class ChannelList {
   private recentItems: RecentlyWatchedItem[] = [];
   private failedLogos = new Set<string>();
   private readonly channelVirtualizer = new VirtualList({
-    itemSize: () => uiPx(CHANNEL_ROW_STRIDE),
+    itemSize: () => (this.paneMode() ? uiTextPx(PANE_CHANNEL_ROW_STRIDE) : uiPx(CHANNEL_ROW_STRIDE)),
     overscan: CHANNEL_OVERSCAN,
     fallbackViewportSize: CHANNEL_VIEWPORT_FALLBACK,
   });
   private readonly groupVirtualizer = new VirtualList({
-    itemSize: () => uiPx(GROUP_ROW_STRIDE),
+    itemSize: () => (this.paneMode() ? uiTextPx(PANE_GROUP_ROW_STRIDE) : uiPx(GROUP_ROW_STRIDE)),
     overscan: CHANNEL_OVERSCAN,
     fallbackViewportSize: CHANNEL_VIEWPORT_FALLBACK,
   });
@@ -132,7 +157,13 @@ export class ChannelList {
       getPreviewHintState = () => 'off',
       onEnterManagement = () => {},
       authorizeEdit = proceed => proceed(),
+      paneMode = () => false,
+      onRowFocus = () => {},
+      onCount = () => {},
     } = options;
+    this.paneMode = paneMode;
+    this.onRowFocus = onRowFocus;
+    this.onCount = onCount;
     this.authorizeEdit = authorizeEdit;
     this.container = container;
     this.onChannelSelect = onChannelSelect;
@@ -165,6 +196,8 @@ export class ChannelList {
     this.nav = new SpatialNav(container, (el) => {
       this.editor?.trackFocus(el);
       if (el) this.onListFocus();
+      const row = el?.closest('.channel-main') ? el.dataset.channelIndex : undefined;
+      this.onRowFocus(row === undefined ? null : parseInt(row, 10));
       const via = this.navVia;
       this.navVia = 'key';
       this.syncScope(via);
@@ -292,6 +325,8 @@ export class ChannelList {
     const editing = this.editor.isChannelEditing;
     const managingFavorites = this.editor.isManagingFavorites;
     const allSourcesDisabled = PlaylistService.allSourcesDisabled;
+    const panes = this.paneMode();
+    this.onCount(totalChannels);
 
     // Capture the focus key before morph so focus lands on the same item
     // after it. Focus a re-render already detached waits for the next key.
@@ -338,14 +373,14 @@ export class ChannelList {
     const groupRange = this.groupVirtualizer.getRange(groups.length, groupViewportHeight);
 
     morph(this.container, html`
-      <div class="channel-view ${editing && !managingFavorites ? 'editing' : ''} ${
+      <div class="channel-view ${panes ? 'live-panes-list' : ''} ${editing && !managingFavorites ? 'editing' : ''} ${
         managingFavorites ? 'favorite-managing' : ''} ${
         !editing && this.currentGroup === 'builtin:favorites'
           && (managingFavorites || filteredChannels.length)
           ? 'has-channel-hints'
           : ''}">
         <div class="sidebar" data-nav-container>
-          <div class="sidebar-header">
+          ${panes ? '' : html`<div class="sidebar-header">
             <div class="channel-count">${tp('channel.count', totalChannels)}</div>
             ${editing || showingRecent
               ? html`<div class="channel-edit-btn-spacer" aria-hidden="true"></div>`
@@ -356,7 +391,7 @@ export class ChannelList {
                         aria-label="${t('settings.editChannelList')}"
                         title="${t('settings.editChannelList')}"><img src="assets/icons/pencil.svg" alt=""></button>
               `}
-          </div>
+          </div>`}
           ${showTabs ? html`
             <div class="playlist-tabs" data-edge-scroll>
               <div class="playlist-tab ${!this.currentPlaylist ? 'active' : ''}"
@@ -408,7 +443,7 @@ export class ChannelList {
         </div>
         ${this.editor.renderFooter(
           this.currentGroup === 'builtin:favorites' && filteredChannels.length > 0,
-        ) || this.renderPreviewHints()}
+        ) || (panes ? this.renderPaneLegend() : this.renderPreviewHints())}
         ${this.editor.renderGroupPicker()}
       </div>
     `);
@@ -781,7 +816,7 @@ export class ChannelList {
            data-key="g:${g.id}"
            data-focusable data-group="${g.id}" data-group-position="${position}"
            style="top:${top}px">
-        <span class="group-icon">${raw(groupIcon(g.label, g.builtin))}</span>
+        <span class="group-icon">${raw(this.paneMode() ? paneGroupIcon(g.builtin) : groupIcon(g.label, g.builtin))}</span>
         ${renaming
           ? html`<input class="edit-text-input" type="text" value="${this.editor.renameValue(g.label)}">`
           : html`<span class="group-name">${
@@ -940,6 +975,10 @@ export class ChannelList {
     const hidden = this.editor.isChannelHidden(ch);
     const grabbed = this.editor.isChannelGrabbed(ch);
     const renaming = this.editor.isChannelRenaming(ch);
+    if (this.paneMode()) {
+      return this.renderPaneChannel(ch, { globalIdx, position, top, isFav, hidden, grabbed, renaming,
+        selectedFavorite, epgId });
+    }
 
     return html`
       <div class="channel-item ${isPlaying ? 'playing' : ''} ${hidden ? 'hidden-entry' : ''} ${
@@ -966,6 +1005,84 @@ export class ChannelList {
         ${isPlaying ? raw('<div class="playing-indicator">&#9654;</div>') : ''}
       </div>
     `;
+  }
+
+  private renderPaneChannel(ch: Channel, row: {
+    globalIdx: number; position: number; top: number; isFav: boolean; hidden: boolean;
+    grabbed: boolean; renaming: boolean; selectedFavorite: boolean; epgId: string | null;
+  }): Safe {
+    const schedule = liveRowSchedule(
+      row.epgId ? EpgService.getNowPlaying(row.epgId) : null,
+      row.epgId ? EpgService.getUpcoming(row.epgId, 3) : [],
+      Date.now(),
+    );
+    const watching = row.globalIdx === this.watchingIndex;
+    const editingSource = this.editor.isChannelEditing && ch.sourceName;
+    return html`
+      <div class="channel-item live-row ${watching ? 'watching' : ''} ${row.hidden ? 'hidden-entry' : ''} ${
+        row.grabbed ? 'grabbed' : ''} ${row.selectedFavorite ? 'favorite-selected' : ''}"
+           data-key="ch:${String(row.globalIdx)}"
+           data-focusable data-channel-index="${row.globalIdx}"
+           data-list-position="${row.position}" style="top:${row.top}px">
+        <div class="channel-number">${row.globalIdx + 1}</div>
+        ${this.renderLogo(ch)}
+        <div class="channel-info">
+          <div class="live-row-top">
+            ${row.renaming
+              ? html`<input class="edit-text-input" type="text" value="${this.editor.renameValue(ch.name)}">`
+              : html`<div class="channel-name">${raw(channelLockBadge(ch))}${ch.name}</div>`}
+            <span class="live-row-badges">
+              ${watching ? html`<span class="live-badge-icon live-badge-watching"
+                  title="${t('player.now')}">${raw(NOW_PLAYING_ICON)}</span>` : ''}
+              ${row.isFav ? html`<span class="live-badge-icon live-badge-favorite"
+                  title="${t('channel.favorites')}">${raw(favoriteIcon(true))}</span>` : ''}
+              ${ch.catchupSource ? html`<span class="live-badge-icon live-badge-catchup"
+                  title="${t('common.catchup')}">${raw(REPLAY_ICON)}</span>` : ''}
+            </span>
+          </div>
+          ${editingSource
+            ? html`<div class="channel-now channel-source-name">${ch.sourceName}</div>`
+            : schedule.now ? html`
+              <div class="channel-now">${schedule.now.title}</div>
+              <div class="live-row-progress"><div style="width:${Math.round(schedule.now.progress * 100)}%"></div></div>`
+            : ''}
+          ${!editingSource && schedule.next ? html`
+            <div class="live-row-next"><time>${formatTime(schedule.next.start)}</time><span>${schedule.next.title}</span></div>` : ''}
+        </div>
+        ${this.editor.renderChannelEditStatus(ch)}
+        ${this.renderHealth(ch)}
+      </div>
+    `;
+  }
+
+  private renderPaneLegend(): Safe {
+    return html`
+      <div class="edit-hints live-legend">
+        ${okHint(t('live.watch'))}
+        <span class="edit-hint">${raw(NAV_HORIZONTAL_ICON)}<span>${t('preview.controls')}</span></span>
+        <span class="edit-hint"><span class="edit-key key-green"></span><span>${t('live.favorite')}</span></span>
+        <span class="edit-hint"><span class="edit-key key-red"></span><span>${t('nav.epg')}</span></span>
+      </div>
+    `;
+  }
+
+  /** Pleione: mark the channel the player shows full screen. */
+  setWatching(idx: number): void {
+    this.watchingIndex = idx;
+  }
+
+  get group(): ChannelGroupId {
+    return this.currentGroup;
+  }
+
+  get playlist(): string {
+    return this.currentPlaylist;
+  }
+
+  /** Show `group` (falling back to All when this list has no such group). */
+  setGroup(group: ChannelGroupId, playlist: string): void {
+    this.currentPlaylist = playlist;
+    this.currentGroup = group;
   }
 
   private renderRecentItem(
@@ -1228,6 +1345,15 @@ export class ChannelList {
     return this.groupEntries;
   }
 
+}
+
+// Pleione's line icons for the groups: built-in groups get their own, and
+// every provider group the same folder.
+function paneGroupIcon(builtin?: BuiltinChannelGroup): string {
+  if (builtin === 'all') return GRID_ICON;
+  if (builtin === 'favorites') return STAR_OUTLINE_ICON;
+  if (builtin === 'recently-watched') return CLOCK_ICON;
+  return FOLDER_ICON;
 }
 
 // Escape a value for use inside a `[attr="..."]` selector. Only `\` and `"`

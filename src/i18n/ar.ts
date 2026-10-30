@@ -227,6 +227,9 @@ export const AR_MESSAGES = {
   'player.timeshift': 'الإزاحة الزمنية',
   'player.remaining': 'متبقٍ {duration}',
   'player.upNext': 'التالي',
+  'live.list': 'قائمة',
+  'live.watch': 'مشاهدة',
+  'live.favorite': 'المفضلة',
   'player.playingIn': {
     zero: 'يبدأ خلال {count} ثانية',
     one: 'يبدأ خلال {count} ثانية',

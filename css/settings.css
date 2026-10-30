@@ -966,8 +966,10 @@
   opacity: 0.38;
 }
 
+/* The darker selected fill keeps white text at 4.5:1 (Midnight's accent
+   would give 1.8:1). */
 .toggle-option.active {
-  background: var(--accent);
+  background: var(--catalog-sort-selected-bg);
   border-color: var(--accent);
   color: #fff;
   font-weight: 600;
