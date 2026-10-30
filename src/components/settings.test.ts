@@ -1964,6 +1964,15 @@ describe('Settings.handleAction', () => {
     expect(storageMock.setPlaylists).toHaveBeenCalled();
   });
 
+  it('names the shown category beside the page title', () => {
+    settings.render();
+    const subtitle = () => container.querySelector('.settings-header .page-subtitle')?.textContent;
+    expect(container.querySelector('.settings-header .settings-title')?.textContent).toBe('Settings');
+    expect(subtitle()).toBe('General');
+    click('[data-settings-target="appearance"]');
+    expect(subtitle()).toBe('Appearance');
+  });
+
   it('moves right from a category to its first control', () => {
     settings.render();
     const appearance = container.querySelector<HTMLElement>(

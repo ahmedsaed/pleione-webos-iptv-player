@@ -1,17 +1,16 @@
 /* Home: the app's name, the clock, and the account over a bento of section
-   cards on a dark gradient whose glow leans toward the focused card. */
+   cards on the shared backdrop (data-backdrop="home"), whose tint follows
+   the focused card. */
 .home-view {
   position: relative;
   width: var(--canvas-width);
   height: 100%;
   overflow: hidden;
   color: #fff;
-  background:
-    radial-gradient(1200px 700px at 15% 10%, rgba(91, 79, 230, 0.35), transparent 60%),
-    linear-gradient(160deg, #0b0d2e 0%, #07081c 55%, #0d0718 100%);
 }
 
-/* One glow per card color; only the focused card's shows. */
+/* One tint per card color; only the focused card's shows. The geometry
+   matches the [data-backdrop] tint layer in main.css. */
 .home-glow {
   position: absolute;
   top: 0;
@@ -21,14 +20,15 @@
   opacity: 0;
   transition: opacity 400ms ease;
   pointer-events: none;
+  background: radial-gradient(1000px 650px at 90% 95%, var(--backdrop-tint), transparent 60%);
 }
 
-.home-glow-live { background: radial-gradient(1000px 650px at 90% 95%, rgba(194, 24, 91, 0.28), transparent 60%); }
-.home-glow-epg { background: radial-gradient(1000px 650px at 90% 95%, rgba(242, 153, 74, 0.26), transparent 60%); }
-.home-glow-movies { background: radial-gradient(1000px 650px at 90% 95%, rgba(71, 118, 230, 0.3), transparent 60%); }
-.home-glow-series { background: radial-gradient(1000px 650px at 90% 95%, rgba(17, 153, 142, 0.3), transparent 60%); }
-.home-glow-search { background: radial-gradient(1000px 650px at 90% 95%, rgba(33, 147, 176, 0.3), transparent 60%); }
-.home-glow-settings { background: radial-gradient(1000px 650px at 90% 95%, rgba(92, 107, 128, 0.3), transparent 60%); }
+.home-glow-live { --backdrop-tint: var(--backdrop-tint-live); }
+.home-glow-epg { --backdrop-tint: var(--backdrop-tint-epg); }
+.home-glow-movies { --backdrop-tint: var(--backdrop-tint-movies); }
+.home-glow-series { --backdrop-tint: var(--backdrop-tint-series); }
+.home-glow-search { --backdrop-tint: var(--backdrop-tint-search); }
+.home-glow-settings { --backdrop-tint: var(--backdrop-tint-settings); }
 
 .home-view[data-tint="live"] .home-glow-live,
 .home-view[data-tint="epg"] .home-glow-epg,
@@ -272,16 +272,13 @@ html[data-animation="essential"] .home-card {
   transition: none;
 }
 
-/* Light themes: a pale backdrop with dark header text; the cards keep their
+/* Light themes: dark header text over the pale backdrop; the cards keep their
    colors, and the ring takes the theme's focus color. */
 html[data-theme="daylight"] .home-view,
 html[data-theme="pastel-latte"] .home-view,
 html[data-theme="paper-light"] .home-view {
   --home-ring: var(--focus-ring);
   color: var(--text-primary);
-  background:
-    radial-gradient(1200px 700px at 15% 10%, rgba(91, 79, 230, 0.16), transparent 60%),
-    linear-gradient(160deg, #f3f4fb 0%, #e8eaf5 55%, #f4ecf2 100%);
 }
 
 /* First run: the welcome over phone setup and the two Add cards, on the

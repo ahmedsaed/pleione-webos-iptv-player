@@ -174,8 +174,63 @@ html[lang="ar"] input {
   height: var(--canvas-height);
 }
 
+/* Pleione's backdrop: one static layer per view, under everything in it.
+   A view opts in with data-backdrop="<section>"; artwork and video draw
+   over it. It covers the screen, so it never animates. */
+[data-backdrop] {
+  --backdrop-tint: transparent;
+  --backdrop-base: var(--bg-primary);
+  --backdrop-glow-pos: 1200px 700px at 15% 10%;
+  --backdrop-glow-end: 60%;
+  background:
+    radial-gradient(1000px 650px at 90% 95%, var(--backdrop-tint), transparent 60%),
+    radial-gradient(var(--backdrop-glow-pos), var(--backdrop-glow), transparent var(--backdrop-glow-end)),
+    var(--backdrop-base);
+}
+
+[data-backdrop="home"] { --backdrop-base: var(--backdrop-home-base); }
+[data-backdrop="live"] { --backdrop-tint: var(--backdrop-tint-live); }
+[data-backdrop="epg"] { --backdrop-tint: var(--backdrop-tint-epg); }
+[data-backdrop="movies"] { --backdrop-tint: var(--backdrop-tint-movies); }
+[data-backdrop="series"] { --backdrop-tint: var(--backdrop-tint-series); }
+/* Search centers the glow behind its query box. */
+[data-backdrop="search"] {
+  --backdrop-tint: var(--backdrop-tint-search);
+  --backdrop-glow-pos: 1100px 600px at 50% -10%;
+  --backdrop-glow-end: 65%;
+}
+[data-backdrop="settings"] { --backdrop-tint: var(--backdrop-tint-settings); }
+
 .hidden {
   display: none !important;
+}
+
+/* A page's header: its title, then a secondary count or subtitle on the
+   same line, as on the Movies and Series grids. */
+.page-header {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.page-title {
+  flex: none;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.page-subtitle {
+  min-width: 0;
+  margin-left: 20px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 26px;
+  font-weight: 400;
+  text-overflow: ellipsis;
 }
 
 h2 {
