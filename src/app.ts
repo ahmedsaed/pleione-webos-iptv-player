@@ -56,7 +56,7 @@ import { $, show, hide } from './utils/dom';
 import { createLogger, installGlobalErrorHandlers, logEnvironment } from './utils/logger';
 import { FocusRing } from './navigation/focus-ring';
 import { backStep, type PlayedFrom } from './navigation/back-route';
-import { leaveToTvHome } from './utils/platform-exit';
+import { closeApp } from './utils/platform-exit';
 import { Focus, type FocusScope } from './navigation/focus-scope';
 import type {
   Action,
@@ -492,7 +492,7 @@ class App {
       return;
     }
     this.stopBundledService();
-    leaveToTvHome();
+    closeApp();
   }
 
   private cancelServiceEventsSubscription(): void {
