@@ -16,6 +16,42 @@ export const VIDEO_PID = 0x100;
 export const LIVE_CODECS = 'avc1.4d401e,mp4a.40.2';
 export const LIVE_BANDWIDTH = 400_000;
 
+// Higher-resolution video. `kbps` is the constant bitrate of an adaptive
+// ladder rung (x264 pads with filler, so the declared BANDWIDTH is real);
+// single-rendition channels and VOD clips use CRF and stay far below it.
+// BANDWIDTH covers the video, one 48 kbps audio rendition and TS overhead.
+export const RENDITIONS = {
+  '360p': {
+    width: 640, height: 360, fps: 30, profile: 'main', level: '3.0',
+    codecs: 'avc1.4d401e,mp4a.40.2', kbps: 400, bandwidth: 550_000,
+  },
+  '720p': {
+    width: 1280, height: 720, fps: 30, profile: 'main', level: '3.1',
+    codecs: 'avc1.4d401f,mp4a.40.2', kbps: 2200, bandwidth: 2_500_000,
+  },
+  '1080p': {
+    width: 1920, height: 1080, fps: 30, profile: 'main', level: '4.0',
+    codecs: 'avc1.4d4028,mp4a.40.2', kbps: 4500, bandwidth: 5_000_000,
+  },
+  // VOD only.
+  '2160p': { width: 3840, height: 2160, fps: 30, profile: 'high', level: '5.1', kbps: 8000 },
+};
+
+/**
+ * The HLS variants of a live channel, lowest first: `set` is the segment set
+ * on disk. A plain channel has the one 640x360 `video` set.
+ */
+export function liveVariants(channel) {
+  const ids = channel.renditions;
+  if (!ids) {
+    return [{
+      set: 'video', width: VIDEO.width, height: VIDEO.height, fps: VIDEO.fps,
+      codecs: LIVE_CODECS, bandwidth: LIVE_BANDWIDTH,
+    }];
+  }
+  return ids.map(id => ({ ...RENDITIONS[id], id, set: ids.length > 1 ? `video-${id}` : 'video' }));
+}
+
 export const LIVE_AUDIO = [
   { id: 'l1', name: 'Track 1', language: 'l1', frequency: 440, beep: 2 },
   { id: 'l2', name: 'Track 2', language: 'l2', frequency: 330, beep: 3 },
@@ -28,6 +64,9 @@ export const VOD_CLIPS = {
   // Two audio tracks plus an embedded subtitle track; sidecars are served beside it.
   feature: { seconds: 150, label: 'Feature clip', hue: 280, extraTracks: true },
   episode: { seconds: 90, label: 'Episode clip', hue: 120 },
+  'movie-720p': { seconds: 60, label: 'HD 720p clip', hue: 160, rendition: '720p' },
+  'movie-1080p': { seconds: 60, label: 'Full HD 1080p clip', hue: 240, rendition: '1080p' },
+  'movie-2160p': { seconds: 30, label: 'UHD 2160p clip', hue: 320, rendition: '2160p' },
 };
 
 const AUDIO_RATE = 32000;
@@ -35,13 +74,13 @@ const AUDIO_RATE = 32000;
 // frame from the source to make the loop exactly LOOP_SECONDS long.
 const AUDIO_LOOP_SAMPLES = LOOP_SECONDS * AUDIO_RATE - 1024;
 const GOP = VIDEO.fps * SEGMENT_SECONDS;
-const SIZE = `${VIDEO.width}x${VIDEO.height}`;
 
 // Static color bars with a sliding box: cheap to encode, tiny on disk, and the
 // motion still shows at a glance whether playback is advancing.
-function testPattern(seconds) {
-  return `smptehdbars=size=${SIZE}:rate=${VIDEO.fps}:duration=${seconds},`
-    + "drawbox=x='mod(t*144\\,iw-48)':y=140:w=48:h=48:color=white@0.9:t=fill";
+function testPattern(seconds, video = VIDEO) {
+  const k = video.height / VIDEO.height;
+  return `smptehdbars=size=${video.width}x${video.height}:rate=${video.fps}:duration=${seconds},`
+    + `drawbox=x='mod(t*${144 * k}\\,iw-${48 * k})':y=${140 * k}:w=${48 * k}:h=${48 * k}:color=white@0.9:t=fill`;
 }
 
 export function runFfmpeg(args, { cwd } = {}) {
@@ -192,10 +231,17 @@ export function createMediaStore({ cacheDir, log = () => {}, concurrency = 2 }) 
   }
 
   async function buildVodClip(dir, spec) {
-    log(`Generating the ${spec.label.toLowerCase()} (${spec.seconds}s)...`);
-    await writeFile(join(dir, 'label.txt'), `${spec.label}  %{pts:hms}`);
+    log(`Generating the VOD clip "${spec.label}" (${spec.seconds}s)...`);
+    const video = spec.rendition ? RENDITIONS[spec.rendition] : VIDEO;
+    const k = video.height / VIDEO.height;
+    const size = spec.rendition ? ` (${video.width}x${video.height})` : '';
+    await writeFile(join(dir, 'label.txt'), `${spec.label}${size}  %{pts:hms}`);
+    const rate = spec.rendition
+      ? ['-profile:v', video.profile, '-level', video.level, '-crf', '24',
+        '-maxrate', `${video.kbps}k`, '-bufsize', `${video.kbps * 2}k`]
+      : ['-profile:v', 'main', '-crf', '24', '-maxrate', '400k', '-bufsize', '800k'];
     const inputs = [
-      '-f', 'lavfi', '-i', testPattern(spec.seconds),
+      '-f', 'lavfi', '-i', testPattern(spec.seconds, video),
       '-f', 'lavfi', '-i', `sine=frequency=520:beep_factor=2:sample_rate=48000:duration=${spec.seconds}`,
     ];
     const maps = ['-map', '0:v', '-map', '1:a'];
@@ -219,19 +265,22 @@ export function createMediaStore({ cacheDir, log = () => {}, concurrency = 2 }) 
     await runFfmpeg([
       ...inputs, ...maps,
       // Top of the frame, so the player's bottom OSD never covers the running time.
-      '-vf', `hue=h=${spec.hue},drawtext=textfile=label.txt:font=Sans:fontsize=28:fontcolor=white:`
-        + 'box=1:boxcolor=black@0.6:boxborderw=10:x=(w-tw)/2:y=36',
-      '-c:v', 'libx264', '-preset', 'veryfast', '-profile:v', 'main', '-pix_fmt', 'yuv420p',
-      '-crf', '24', '-maxrate', '400k', '-bufsize', '800k', '-g', String(VIDEO.fps * 2),
+      '-vf', `hue=h=${spec.hue},drawtext=textfile=label.txt:font=Sans:fontsize=${28 * k}:fontcolor=white:`
+        + `box=1:boxcolor=black@0.6:boxborderw=${10 * k}:x=(w-tw)/2:y=${36 * k}`,
+      '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', ...rate, '-g', String(video.fps * 2),
       '-c:a', 'aac', '-b:a', '64k', '-ac', '2',
       ...metadata, '-movflags', '+faststart', '-t', String(spec.seconds), 'clip.mp4',
     ], { cwd: dir });
   }
 
   async function buildChannel(dir, channel) {
-    const long = channel.name.length > 28;
     await writeFile(join(dir, 'name.txt'), channel.name);
     await writeFile(join(dir, 'clock.txt'), 'LIVE  :%{pts:gmtime:0:%S}');
+    if (channel.renditions) {
+      await buildHdChannel(dir, channel);
+      return;
+    }
+    const long = channel.name.length > 28;
     await runFfmpeg([
       '-i', join(shared, 'base.mp4'),
       '-vf', [
@@ -254,6 +303,55 @@ export function createMediaStore({ cacheDir, log = () => {}, concurrency = 2 }) 
     const firstVideoPts = firstPts(await readFile(join(dir, 'video', '00.ts')), VIDEO_PID);
     await rm(join(dir, 'video.mp4'));
     await writeFile(join(dir, 'meta.json'), JSON.stringify({ video, muxed, firstVideoPts }));
+  }
+
+  // A higher-resolution channel: each rendition is encoded straight from the
+  // test source at its own size, with the name, the resolution and the clock
+  // drawn on it. An adaptive ladder is constant-bitrate and GOP-aligned, so a
+  // player can switch rungs at any segment; its TS output muxes the lowest rung.
+  async function buildHdChannel(dir, channel) {
+    const variants = liveVariants(channel);
+    const adaptive = variants.length > 1;
+    const meta = { variants: {} };
+    for (const [i, variant] of variants.entries()) {
+      const k = variant.height / VIDEO.height;
+      const gop = variant.fps * SEGMENT_SECONDS;
+      const label = adaptive
+        ? `Variant ${i + 1} of ${variants.length}: ${variant.width}x${variant.height}`
+        : `${variant.width}x${variant.height}, ${variant.fps} fps`;
+      await writeFile(join(dir, `label-${variant.id}.txt`), label);
+      const rate = adaptive
+        ? ['-b:v', `${variant.kbps}k`, '-minrate', `${variant.kbps}k`, '-maxrate', `${variant.kbps}k`,
+          '-bufsize', `${variant.kbps}k`, '-x264-params', 'nal-hrd=cbr:force-cfr=1']
+        : ['-crf', '26', '-maxrate', `${variant.kbps}k`, '-bufsize', `${variant.kbps * 2}k`];
+      // MPEG-TS, not MP4: remuxing MP4 puts the CBR buffering-period SEI ahead of the SPS.
+      const source = `video-${variant.id}.ts`;
+      await runFfmpeg([
+        '-f', 'lavfi', '-i', testPattern(LOOP_SECONDS, variant),
+        '-vf', [
+          `hue=h=${channel.hue}`,
+          `drawtext=textfile=name.txt:expansion=none:font=Sans:fontsize=${48 * k}:fontcolor=white:`
+            + `box=1:boxcolor=black@0.65:boxborderw=${14 * k}:x=(w-tw)/2:y=${40 * k}`,
+          `drawtext=textfile=label-${variant.id}.txt:expansion=none:font=Sans:fontsize=${32 * k}:fontcolor=white:`
+            + `box=1:boxcolor=black@0.65:boxborderw=${10 * k}:x=(w-tw)/2:y=${220 * k}`,
+          `drawtext=textfile=clock.txt:font=Sans:fontsize=${40 * k}:fontcolor=yellow:`
+            + `box=1:boxcolor=black@0.65:boxborderw=${12 * k}:x=(w-tw)/2:y=h-th-${40 * k}`,
+        ].join(','),
+        '-c:v', 'libx264', '-preset', 'veryfast', '-profile:v', variant.profile, '-level', variant.level,
+        '-bf', '0', '-pix_fmt', 'yuv420p', ...rate,
+        '-g', String(gop), '-keyint_min', String(gop), '-sc_threshold', '0', '-an', source,
+      ], { cwd: dir });
+      meta.variants[variant.set] = await segmentLoop(dir, variant.set, ['-i', join(dir, source)], ['-map', '0:v']);
+    }
+    const lowest = variants[0];
+    meta.video = meta.variants[lowest.set];
+    meta.muxed = await segmentLoop(dir, 'muxed', [
+      '-i', join(dir, `video-${lowest.id}.ts`),
+      ...LIVE_AUDIO.flatMap(track => ['-i', join(shared, `audio-${track.id}.m4a`)]),
+    ], ['-map', '0:v', ...LIVE_AUDIO.flatMap((_, i) => ['-map', `${i + 1}:a`])]);
+    meta.firstVideoPts = firstPts(await readFile(join(dir, lowest.set, '00.ts')), VIDEO_PID);
+    for (const variant of variants) await rm(join(dir, `video-${variant.id}.ts`));
+    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta));
   }
 
   const store = {

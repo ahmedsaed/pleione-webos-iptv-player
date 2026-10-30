@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
-  createCatalog, guideRange, hasArchive, letterCode, LONG_NAME_CHANNEL, NO_EPG_CHANNEL,
+  createCatalog, guideRange, hasArchive, HD_CATEGORY, letterCode, LONG_NAME_CHANNEL, NO_EPG_CHANNEL,
   programmesBetween, programmesForDay, SEASONLESS_SERIES_INDEX, SUBTITLED_MOVIE_INDEX,
 } from './catalog.mjs';
+import { RENDITIONS, VOD_CLIPS } from './media.mjs';
 
 const DAY = 86400;
 const NOW = Date.UTC(2026, 2, 10, 12, 30) / 1000;
 
 describe('createCatalog', () => {
+  // Generated counts plus the three HD channels and three HD movies.
   it('builds the small catalog', () => {
     const catalog = createCatalog('small');
-    expect(catalog.channels).toHaveLength(150);
-    expect(catalog.movies).toHaveLength(240);
+    expect(catalog.channels).toHaveLength(153);
+    expect(catalog.movies).toHaveLength(243);
     expect(catalog.series).toHaveLength(120);
     expect(catalog.channels.slice(0, 3).map(channel => channel.name))
       .toEqual(['Alpha', 'Bravo', 'Charlie']);
@@ -19,8 +21,8 @@ describe('createCatalog', () => {
 
   it('builds the large catalog for performance testing', () => {
     const catalog = createCatalog('large');
-    expect(catalog.channels).toHaveLength(2000);
-    expect(catalog.movies).toHaveLength(1500);
+    expect(catalog.channels).toHaveLength(2003);
+    expect(catalog.movies).toHaveLength(1503);
     expect(catalog.series).toHaveLength(300);
   });
 
@@ -61,6 +63,46 @@ describe('createCatalog', () => {
     const added = createCatalog('small').movies.map(movie => movie.added);
     expect(new Set(added).size).toBe(added.length);
     expect([...added].sort((a, b) => b - a)).not.toEqual(added);
+  });
+});
+
+describe('HD group', () => {
+  for (const size of ['small', 'large']) {
+    it(`adds the HD channels and movies after the ${size} catalog without moving it`, () => {
+      const catalog = createCatalog(size);
+      const { spec } = catalog;
+      expect(catalog.channels.slice(0, spec.channels).map(channel => channel.streamId))
+        .toEqual(Array.from({ length: spec.channels }, (_, i) => i + 1));
+      expect(catalog.movies[spec.movies - 1].streamId).toBe(10000 + spec.movies);
+      expect(catalog.liveCategories.at(-2)).toMatchObject({ id: HD_CATEGORY.id, name: 'Group HD' });
+      expect(catalog.vodCategories.at(-2)).toMatchObject({ id: HD_CATEGORY.id, name: 'Group HD' });
+      expect(catalog.seriesCategories.some(category => category.id === HD_CATEGORY.id)).toBe(false);
+    });
+  }
+
+  it('offers 720p, 1080p and an adaptive ladder live, each with a guide', () => {
+    const catalog = createCatalog('small');
+    const hd = catalog.channels.filter(channel => channel.categoryId === HD_CATEGORY.id);
+    expect(hd.map(channel => [channel.streamId, channel.name, channel.renditions])).toEqual([
+      [9001, 'HD 720p', ['720p']],
+      [9002, 'Full HD 1080p', ['1080p']],
+      [9003, 'Adaptive 360p-1080p', ['360p', '720p', '1080p']],
+    ]);
+    expect(hd.map(channel => channel.num)).toEqual([151, 152, 153]);
+    for (const channel of hd) {
+      expect(catalog.channel(channel.streamId)).toBe(channel);
+      expect(programmesBetween(catalog, channel, 0, 4e9, NOW).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('offers 720p, 1080p and 2160p movies', () => {
+    const catalog = createCatalog('small');
+    const hd = catalog.movies.filter(movie => movie.categoryId === HD_CATEGORY.id);
+    expect(hd.map(movie => [movie.streamId, movie.name])).toEqual([
+      [19001, 'HD Movie 720p'], [19002, 'Full HD Movie 1080p'], [19003, 'UHD Movie 2160p'],
+    ]);
+    expect(hd.map(movie => RENDITIONS[VOD_CLIPS[movie.clip].rendition].height)).toEqual([720, 1080, 2160]);
+    expect(catalog.movie(19002)).toBe(hd[1]);
   });
 });
 
@@ -107,10 +149,10 @@ describe('EPG schedule', () => {
 });
 
 describe('small catalog rails', () => {
-  it('fills every non-empty group past the 20-title rail, so each ends in See all', () => {
+  it('fills every generated group past the 20-title rail, so each ends in See all', () => {
     const catalog = createCatalog('small');
     for (const [items, groups] of [[catalog.movies, catalog.vodCategories], [catalog.series, catalog.seriesCategories]]) {
-      for (const group of groups.filter(g => !g.empty)) {
+      for (const group of groups.filter(g => !g.empty && g.id !== HD_CATEGORY.id)) {
         expect(items.filter(item => item.categoryId === group.id).length).toBeGreaterThan(20);
       }
     }

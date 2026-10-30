@@ -45,6 +45,8 @@ jobs:
           curl -fsS "$base/player_api.php?username=x&password=x" | grep -q '"auth":0'
           curl -fsS "$base/player_api.php?username=ci&password=ci&action=get_live_streams" | grep -q stream_id
           curl -fsS "$base/live/ci/ci/1.m3u8" | grep -q EXT-X-STREAM-INF
+          [ "$(curl -fsS "$base/live/ci/ci/9003.m3u8" | grep -c '^#EXT-X-STREAM-INF:.*RESOLUTION=')" = 3 ]
+          curl -fsS "$base/live/ci/ci/9003.m3u8" | grep -q 'RESOLUTION=1920x1080'
           curl -fsS -o /dev/null "$base/xmltv.php?username=ci&password=ci"
 
       - name: Show logs

@@ -18,12 +18,12 @@ function initials(name) {
 const svg = (width, height, body) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`;
 
-export function logoSvg(name, hue) {
+export function logoSvg(name, hue, text = initials(name)) {
   return svg(256, 256,
     `<rect width="256" height="256" rx="48" fill="hsl(${hue},55%,38%)"/>`
     + `<circle cx="128" cy="128" r="92" fill="hsl(${hue},60%,52%)"/>`
     + `<text x="128" y="128" dy="0.35em" text-anchor="middle" font-family="sans-serif" font-weight="700"`
-    + ` font-size="${initials(name).length > 2 ? 64 : 88}" fill="#fff">${escapeXml(initials(name))}</text>`);
+    + ` font-size="${text.length > 2 ? 64 : 88}" fill="#fff">${escapeXml(text)}</text>`);
 }
 
 function gradient(hue, id) {
@@ -37,7 +37,7 @@ export function posterSvg(title, subtitle, hue) {
     gradient(hue, 'g')
     + '<rect width="400" height="600" fill="url(#g)"/>'
     + `<circle cx="200" cy="240" r="120" fill="hsl(${(hue + 180) % 360},50%,60%)" opacity="0.35"/>`
-    + `<text x="200" y="470" text-anchor="middle" font-family="sans-serif" font-weight="700" font-size="44" fill="#fff">${escapeXml(title)}</text>`
+    + `<text x="200" y="470" text-anchor="middle" font-family="sans-serif" font-weight="700" font-size="${title.length > 14 ? 32 : 44}" fill="#fff">${escapeXml(title)}</text>`
     + `<text x="200" y="520" text-anchor="middle" font-family="sans-serif" font-size="24" fill="#fff" opacity="0.8">${escapeXml(subtitle)}</text>`);
 }
 

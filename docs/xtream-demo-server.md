@@ -71,8 +71,8 @@ locally:
 docker build -f scripts/xtream-demo/Dockerfile -t pleione-xtream-demo .
 ```
 
-The image is about 800 MB: ffmpeg stays in it because the server checks
-for it at start. Serve it over plain `http://`; older webOS TVs may
+The image is about 870 MB, about 280 MB of it media: ffmpeg stays in it
+because the server checks for it at start. Serve it over plain `http://`; older webOS TVs may
 reject newer HTTPS certificates.
 
 ## Desktop preview
@@ -110,10 +110,10 @@ Everything is deterministic and synthetic.
 
 | | Small | Large |
 | --- | --- | --- |
-| Live channels | 150 in `Group 1`-`Group 8` | 2000 in 40 groups |
+| Live channels | 150 in `Group 1`-`Group 8`, plus 3 in `Group HD` | 2000 in 40 groups, plus 3 in `Group HD` |
 | Catch-up | every third channel (and `Alpha`), 3 days | 1 day |
 | Guide | 3 past days + 2 days ahead | 1 + 1 day |
-| Movies | 240 in 6 groups | 1500 in 25 groups |
+| Movies | 240 in 6 groups, plus 3 in `Group HD` | 1500 in 25 groups, plus 3 in `Group HD` |
 | Series | 120 in 4 groups, 1-3 seasons | 300 in 12 groups |
 
 Channels are `Alpha`, `Bravo`, `Charlie`, then `Channel 4`, `Channel 5`,
@@ -121,6 +121,21 @@ and so on; programmes are `Program N`; movies are `Movie A`, `Movie B`, …;
 series are `Series A`, …. Logos, posters, covers and episode stills are
 SVGs the server draws. Movies carry ratings, years, durations and spread
 `added` dates, so every sort order has something to sort.
+
+`Group HD` (category `100`, between the numbered groups and the empty
+one) is for checking playback at each resolution:
+
+| Stream ID | Name | Video |
+| --- | --- | --- |
+| live `9001` | `HD 720p` | 1280x720 |
+| live `9002` | `Full HD 1080p` | 1920x1080 |
+| live `9003` | `Adaptive 360p-1080p` | HLS ladder: 640x360, 1280x720, 1920x1080 |
+| movie `19001` | `HD Movie 720p` | 1280x720, 60 s |
+| movie `19002` | `Full HD Movie 1080p` | 1920x1080, 60 s |
+| movie `19003` | `UHD Movie 2160p` | 3840x2160 (UHD), 30 s |
+
+Their IDs sit above every generated one, so the rest of the catalog keeps
+its IDs and order. The live ones have a guide but no catch-up.
 
 Edge cases:
 
@@ -137,8 +152,9 @@ Edge cases:
 
 ## Media
 
-All media is H.264 + AAC at 640x360, built from ffmpeg's color-bar and
-sine-tone test sources.
+All media is H.264 + AAC, built from ffmpeg's color-bar and sine-tone
+test sources. Everything is 640x360 at 15 fps except `Group HD`, which is
+30 fps at its own resolution with the resolution drawn on the picture.
 
 - **Live HLS** (`/live/<user>/<pass>/<id>.m3u8`): a master playlist with
   two audio renditions (`Track 1`/`l1` and `Track 2`/`l2`, different
@@ -149,6 +165,21 @@ sine-tone test sources.
   every segment carries `EXT-X-PROGRAM-DATE-TIME`, and timestamps are
   rewritten per loop, so the stream plays as one continuous live
   timeline and the burned-in seconds match the clock.
+- **HD live**: `HD 720p` and `Full HD 1080p` work the same way at their
+  resolution (Main profile, levels 3.1 and 4.0). `Adaptive 360p-1080p`
+  offers three variants with the same audio and subtitle renditions:
+
+  | Variant | `BANDWIDTH` | `CODECS` | Video bitrate |
+  | --- | --- | --- | --- |
+  | 640x360 | 550000 | `avc1.4d401e,mp4a.40.2` | 400 kbps |
+  | 1280x720 | 2500000 | `avc1.4d401f,mp4a.40.2` | 2.2 Mbps |
+  | 1920x1080 | 5000000 | `avc1.4d4028,mp4a.40.2` | 4.5 Mbps |
+
+  Each variant is constant-bitrate (x264 pads with filler) and
+  keyframe-aligned at every segment, so a player on a throttled link
+  steps between them; each picture says which variant it is. The ladder
+  needs HLS: set the account's live output to HLS or Auto. Its MPEG-TS
+  stream carries only the 360p variant.
 - **Live MPEG-TS** (`/live/<user>/<pass>/<id>.ts`, also
   `/<user>/<pass>/<id>`): the same loop muxed with both audio tracks,
   streamed continuously at real-time pace. The app requests `.ts` unless
@@ -161,7 +192,9 @@ sine-tone test sources.
   live edge); TS streams the window faster than real time.
 - **VOD** (`/movie/…/<id>.mp4`, `/series/…/<id>.mp4`): faststart MP4
   clips of 1.5-3 minutes with a running time burned in, served with
-  `Range` support for seeking.
+  `Range` support for seeking. The `Group HD` movies are 60-second clips
+  at 720p and 1080p (Main profile) and a 30-second 2160p clip (High
+  profile, level 5.1), with `info.video` giving the size.
 
 ## API surface
 
@@ -180,5 +213,6 @@ the Player API and `401` elsewhere.
 
 Compared with a real provider: one fixed account with no connection
 limits or expiry, no redirects or tokenized stream URLs, UTC as the only
-server time zone, one video quality, the same 60-second loop for every
-hour of a channel's archive, and episodes that all share one clip.
+server time zone, a single adaptive channel, H.264 only (no HEVC or
+HDR), the same 60-second loop for every hour of a channel's archive, and
+episodes that all share one clip.

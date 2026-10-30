@@ -74,7 +74,7 @@ describe('player_api.php through the app client', () => {
     expect(categories).toHaveLength(catalog.liveCategories.length);
     const result = await client.getLiveStreamsResult();
     expect(result.available).toBe(true);
-    expect(result.streams).toHaveLength(150);
+    expect(result.streams).toHaveLength(153);
     expect(result.streams[0]).toMatchObject({
       streamId: '1', name: 'Alpha', epgChannelId: 'ch1', categoryId: '1', archive: true, archiveDurationDays: 3,
     });
@@ -86,11 +86,11 @@ describe('player_api.php through the app client', () => {
     const client = createXtreamClient(creds(), 'x1');
     expect(await client.getVodCategories()).toHaveLength(catalog.vodCategories.length);
     const all = await client.getVodStreams();
-    expect(all).toHaveLength(240);
+    expect(all).toHaveLength(243);
     expect(all[0]).toMatchObject({ name: 'Movie A', containerExtension: 'mp4', accountId: 'x1' });
     expect(all.every(movie => movie.addedAt > 0 && movie.year > 1900)).toBe(true);
     expect(await client.getVodStreams('2')).toHaveLength(40);
-    expect(await client.getVodStreams(String(catalog.vodCategories.length))).toEqual([]);
+    expect(await client.getVodStreams(catalog.vodCategories.at(-1).id)).toEqual([]);
     const info = await client.getVodInfo(all[0].streamId);
     expect(info.durationSecs).toBeGreaterThan(0);
     expect(info.subtitles.map(subtitle => [subtitle.name, subtitle.lang])).toEqual([
@@ -100,6 +100,22 @@ describe('player_api.php through the app client', () => {
     expect(parseSubtitleFile(srt)[0].text).toBe('Line 1');
     const vtt = await (await fetch(info.subtitles[1].url)).text();
     expect(parseSubtitleFile(vtt)).toHaveLength(parseSubtitleFile(srt).length);
+  });
+
+  it('lists the HD group in live and VOD with resolution details', async () => {
+    const client = createXtreamClient(creds(), 'x1');
+    const live = await client.getLiveStreamsResult();
+    expect(live.streams.slice(-3).map(stream => [stream.streamId, stream.name, stream.epgChannelId])).toEqual([
+      ['9001', 'HD 720p', 'ch9001'], ['9002', 'Full HD 1080p', 'ch9002'], ['9003', 'Adaptive 360p-1080p', 'ch9003'],
+    ]);
+    expect((await client.getLiveCategories()).map(category => category.name)).toContain('Group HD');
+    const movies = await client.getVodStreams('100');
+    expect(movies.map(movie => movie.name)).toEqual(['HD Movie 720p', 'Full HD Movie 1080p', 'UHD Movie 2160p']);
+    const res = await fetch(`${base}/player_api.php?username=u1&password=p1&action=get_vod_info&vod_id=19002`);
+    const { info } = await res.json();
+    expect(info).toMatchObject({ duration_secs: 60, video: { width: 1920, height: 1080 } });
+    expect(info.plot).toContain('1920x1080');
+    expect(await (await fetch(`${base}/demo-assets/logo/9002.svg`)).text()).toContain('>FHD<');
   });
 
   it('serves series with seasons, episodes and the seasonless quirk', async () => {
@@ -169,6 +185,35 @@ describe('streams', () => {
     const segment = media.split('\n').find(line => line.startsWith('/demo-hls/seg/'));
     const body = Buffer.from(await (await fetch(base + segment)).arrayBuffer());
     expect(body[0]).toBe(0x47);
+  });
+
+  it('serves single-rendition HD masters at their resolution', async () => {
+    const master = await (await fetch(xtreamLiveUrl(creds(), '9002', 'm3u8'))).text();
+    expect(master.match(/#EXT-X-STREAM-INF:.*/g)).toEqual([
+      '#EXT-X-STREAM-INF:BANDWIDTH=5000000,CODECS="avc1.4d4028,mp4a.40.2",RESOLUTION=1920x1080,'
+        + 'FRAME-RATE=30.000,AUDIO="aud",SUBTITLES="subs"',
+    ]);
+    expect(master).toContain('/demo-hls/live/9002/video.m3u8');
+  });
+
+  it('serves an adaptive master with 360p, 720p and 1080p variants', async () => {
+    const master = await (await fetch(xtreamLiveUrl(creds(), '9003', 'm3u8'))).text();
+    const lines = master.split('\n');
+    const variants = lines.flatMap((line, i) => {
+      if (!line.startsWith('#EXT-X-STREAM-INF:')) return [];
+      const attr = name => new RegExp(`${name}=("[^"]*"|[^,]*)`).exec(line)[1];
+      return [[attr('BANDWIDTH'), attr('RESOLUTION'), attr('CODECS'), attr('AUDIO'), lines[i + 1]]];
+    });
+    expect(variants).toEqual([
+      ['550000', '640x360', '"avc1.4d401e,mp4a.40.2"', '"aud"', '/demo-hls/live/9003/video-360p.m3u8'],
+      ['2500000', '1280x720', '"avc1.4d401f,mp4a.40.2"', '"aud"', '/demo-hls/live/9003/video-720p.m3u8'],
+      ['5000000', '1920x1080', '"avc1.4d4028,mp4a.40.2"', '"aud"', '/demo-hls/live/9003/video-1080p.m3u8'],
+    ]);
+    const media = await (await fetch(`${base}/demo-hls/live/9003/video-1080p.m3u8`)).text();
+    const segment = media.split('\n').find(line => line.startsWith('/demo-hls/seg/9003/video-1080p/'));
+    expect((await fetch(base + segment)).status).toBe(200);
+    expect((await fetch(`${base}/demo-hls/live/1/video-1080p.m3u8`)).status).toBe(404);
+    expect((await fetch(base + segment.replace('/9003/', '/1/'))).status).toBe(404);
   });
 
   it('streams live MPEG-TS continuously', async () => {
