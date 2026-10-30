@@ -193,20 +193,42 @@ h3 {
   margin-bottom: 12px;
 }
 
-/* Loading */
+/* Loading: the logo inside a spinning ring, the app's name, and what loads.
+   Margins, not gap: this paints before app.js measures the engine quirks. */
 .loading-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
-  gap: 24px;
+  text-align: center;
+}
+
+/* At launch it is the whole screen, on Home's backdrop. */
+.loading-splash {
+  color: #fff;
+  background:
+    radial-gradient(1200px 700px at 15% 10%, rgba(91, 79, 230, 0.35), transparent 60%),
+    radial-gradient(1000px 650px at 90% 95%, rgba(194, 24, 91, 0.16), transparent 60%),
+    linear-gradient(160deg, #0b0d2e 0%, #07081c 55%, #0d0718 100%);
+}
+
+.loading-mark {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 168px;
+  height: 168px;
 }
 
 .loading-spinner {
-  width: 64px;
-  height: 64px;
-  border: 4px solid var(--border);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 5px solid rgba(255, 255, 255, 0.15);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -216,9 +238,40 @@ h3 {
   to { transform: rotate(360deg); }
 }
 
+.loading-logo {
+  width: 104px;
+  height: 104px;
+  border-radius: 22px;
+}
+
+.loading-title {
+  margin-top: 36px;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
 .loading-text {
-  font-size: 28px;
-  color: var(--text-secondary);
+  margin-top: 12px;
+  font-size: 26px;
+  opacity: 0.75;
+}
+
+/* Light themes: Home's pale backdrop, with dark text. */
+html[data-theme="daylight"] .loading-splash,
+html[data-theme="pastel-latte"] .loading-splash,
+html[data-theme="paper-light"] .loading-splash {
+  color: var(--text-primary);
+  background:
+    radial-gradient(1200px 700px at 15% 10%, rgba(91, 79, 230, 0.16), transparent 60%),
+    linear-gradient(160deg, #f3f4fb 0%, #e8eaf5 55%, #f4ecf2 100%);
+}
+
+html[data-theme="daylight"] .loading-spinner,
+html[data-theme="pastel-latte"] .loading-spinner,
+html[data-theme="paper-light"] .loading-spinner {
+  border-color: rgba(0, 0, 0, 0.1);
+  border-top-color: var(--accent);
 }
 
 /* Buttons */

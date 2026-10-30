@@ -122,14 +122,120 @@ test('a channel number typed on Home loads the channels and tunes', async ({ pag
   await expect(page.locator('#view-player')).toBeVisible();
 });
 
-test('a failed sign-in on Home shows the connection error', async ({ page }) => {
+// The sign-in check answers `auth` until told otherwise; returns how many
+// checks the portal saw.
+async function routeSignIn(page: Page, auth: { value: number }): Promise<{ count: number }> {
+  const seen = { count: 0 };
+  await page.route(/player_api\.php\?username=[^&]+&password=[^&]+$/, (route) => {
+    seen.count++;
+    return route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ user_info: { auth: auth.value } }),
+    });
+  });
+  return seen;
+}
+
+const alert = (page: Page) => page.locator('#view-home .home-alert');
+
+test('a failed sign-in on Home shows the connection banner with Try again focused', async ({ page }) => {
   await seedHome(page);
-  await page.route(/player_api\.php\?username=[^&]+&password=[^&]+$/, (route) => route.fulfill({
-    status: 200, contentType: 'application/json', body: JSON.stringify({ user_info: { auth: 0 } }),
-  }));
-  await goHome(page);
-  await expect(page.locator('.toast')).toHaveText('Login failed — check credentials.');
-  await expect(page.locator('#view-home')).toBeVisible();
+  await routeSignIn(page, { value: 0 });
+  await page.goto('/');
+  await expect(alert(page)).toBeVisible();
+  await expect(alert(page).locator('.home-alert-title')).toHaveText('Can’t connect to X Account');
+  await expect(alert(page).locator('.home-alert-body'))
+    .toHaveText('The server didn’t accept the username or password.');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'alert:retry');
+  await expect(page.locator('.toast.visible')).toHaveCount(0);
+  // Above the bento on its width, inside the gutters.
+  const banner = (await alert(page).boundingBox())!;
+  const live = await box(page, 'live');
+  const settings = await box(page, 'settings');
+  expect(banner.x).toBeCloseTo(live.x, 0);
+  expect(banner.x + banner.width).toBeCloseTo(settings.x + settings.w, 0);
+  expect(banner.y + banner.height).toBeLessThan(live.y);
+  expect(live.y + live.h).toBeLessThanOrEqual(1080 - 80);
+});
+
+test('the banner is a D-pad row between the header and the bento, and traps nothing', async ({ page }) => {
+  await seedHome(page);
+  await routeSignIn(page, { value: 0 });
+  await page.goto('/');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'alert:retry');
+  await press(page, 'ArrowRight');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'alert:edit');
+  await press(page, 'ArrowUp');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'account');
+  await press(page, 'ArrowDown');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'alert:edit');
+  await press(page, 'ArrowDown');
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'live');
+  await press(page, 'ArrowRight');
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'movies');
+  await press(page, 'ArrowUp');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'alert:edit');
+  await press(page, 'ArrowLeft');
+  await press(page, 'ArrowLeft');
+  await expect(menu(page)).toHaveClass(/\bopen\b/);
+  await back(page);
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'alert:retry');
+});
+
+test('Try again checks again, keeps the banner while it fails, and a pass removes it', async ({ page }) => {
+  await seedHome(page);
+  const auth = { value: 0 };
+  const seen = await routeSignIn(page, auth);
+  await page.goto('/');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'alert:retry');
+  await expect.poll(() => seen.count).toBe(1);
+  await press(page, 'Enter');
+  await expect.poll(() => seen.count).toBe(2);
+  await expect(alert(page)).toBeVisible();
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'alert:retry');
+
+  auth.value = 1;
+  await press(page, 'Enter');
+  await expect.poll(() => seen.count).toBe(3);
+  await expect(alert(page)).toHaveCount(0);
+  // The keys return to the bento, and the bento to its place.
+  await expect(homeFocus(page)).toHaveAttribute('data-section', 'live');
+  const live = await box(page, 'live');
+  const movies = await box(page, 'movies');
+  expect(live.h).toBeCloseTo(movies.h * 2 + 32, 0);
+  expect(live.y + live.h / 2).toBeCloseTo(540, 0);
+});
+
+test('the pointer reaches the banner: Try again re-checks and Edit account opens that account', async ({ page }) => {
+  await seedHome(page);
+  const seen = await routeSignIn(page, { value: 0 });
+  await page.goto('/');
+  await expect(alert(page)).toBeVisible();
+  const retry = page.locator('[data-key="alert:retry"]');
+  const edit = page.locator('[data-key="alert:edit"]');
+  await edit.hover();
+  await expect(edit).toHaveClass(/\bfocused\b/);
+  await retry.click();
+  await expect.poll(() => seen.count).toBe(2);
+  await expect(alert(page)).toBeVisible();
+
+  await edit.click();
+  await expect(page.locator('#view-settings')).toBeVisible();
+  await expect(page.locator('#settings-sources')).toHaveClass(/\bactive\b/);
+  await expect(page.locator('.xtream-card[data-id="x1"] .xtream-password')).toBeVisible();
+});
+
+test('Edit account with the D-pad opens Settings on the account', async ({ page }) => {
+  await seedHome(page);
+  await routeSignIn(page, { value: 0 });
+  await page.goto('/');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'alert:retry');
+  await press(page, 'ArrowRight');
+  await press(page, 'Enter');
+  await expect(page.locator('#view-settings')).toBeVisible();
+  await expect(page.locator('#view-settings .focused'))
+    .toHaveClass(/\bxtream-password\b/);
+  await expect(page.locator('#view-settings .focused').locator('xpath=ancestor::div[contains(@class,"xtream-card")]'))
+    .toHaveAttribute('data-id', 'x1');
 });
 
 test('the D-pad moves across the bento, Up reaches the account, and the glow follows focus', async ({ page }) => {
@@ -271,20 +377,86 @@ test('Back on Home asks for a second Back to exit', async ({ page }) => {
   await expect(page.locator('.toast')).toHaveText('Press back again to exit');
 });
 
-test('first run shows Home with Settings focused and the welcome', async ({ page }) => {
+test('first run shows the welcome, phone setup, and the two Add cards, Add Xtream focused', async ({ page }) => {
   await showHome(page);
   await hideGuideTab(page);
   await page.goto('/');
   await expect(page.locator('#view-home')).toBeVisible();
-  await expect(page.locator('.home-card .home-card-label')).toHaveText(['Live', 'Search', 'Settings']);
-  // Search and Settings stack beside Live; Live has no count yet.
-  await expect(page.locator('.home-bento-cols-1')).toHaveCount(1);
-  await expect(card(page, 'live').locator('.home-card-sub')).toHaveCount(0);
-  await expect(card(page, 'search').locator('.home-card-sub')).toHaveText('Channels and programs');
-  await expect(homeFocus(page)).toHaveAttribute('data-section', 'settings');
-  await expect(page.locator('.toast')).toContainText('Welcome');
+  await expect(page.locator('.home-welcome-title')).toHaveText('Welcome to Pleione');
+  await expect(page.locator('#view-home .home-bento')).toHaveCount(0);
+  await expect(page.locator('.home-card .home-card-label')).toHaveText(['Add Xtream account', 'Add M3U playlist']);
+  // No LAN service on the desktop preview.
+  await expect(page.locator('.home-setup')).toContainText('The setup service is currently unavailable.');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'add:xtream');
+  await expect(page.locator('.toast.visible')).toHaveCount(0);
+  // The welcome, the panel, and the cards keep the 80px gutters.
+  for (const sel of ['.home-welcome', '.home-setup', '[data-key="add:xtream"]', '[data-key="add:playlist"]']) {
+    const b = (await page.locator(sel).boundingBox())!;
+    expect(b.x).toBeGreaterThanOrEqual(80);
+    expect(b.x + b.width).toBeLessThanOrEqual(1920 - 80);
+    expect(b.y + b.height).toBeLessThanOrEqual(1080 - 80);
+  }
+});
+
+test('the first-run cards open the Add flows by D-pad and pointer', async ({ page }) => {
+  await showHome(page);
+  await hideGuideTab(page);
+  await page.goto('/');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'add:xtream');
   await press(page, 'Enter');
   await expect(page.locator('#view-settings')).toBeVisible();
+  await expect(page.locator('#settings-sources')).toHaveClass(/\bactive\b/);
+  await expect(page.locator('#xtream-entries .xtream-card')).toHaveCount(1);
+  await expect(page.locator('#view-settings .focused')).toHaveClass(/\bxtream-name\b/);
+  // Cancel returns to the first run, where it was left.
+  await page.locator('#cancel-settings').click();
+  await expect(page.locator('#view-home .home-first-run')).toBeVisible();
+
+  await press(page, 'ArrowDown');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'add:playlist');
+  await press(page, 'ArrowDown');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'add:playlist');
+  await press(page, 'ArrowUp');
+  await expect(homeFocus(page)).toHaveAttribute('data-key', 'add:xtream');
+
+  await page.locator('[data-key="add:playlist"]').click();
+  await expect(page.locator('#view-settings')).toBeVisible();
+  await expect(page.locator('#playlist-entries [data-source-entry]')).toHaveCount(1);
+  await expect(page.locator('#playlist-entries .playlist-name')).toBeFocused();
+});
+
+test('first run shows the phone setup the LAN service offers', async ({ page }) => {
+  await showHome(page);
+  // The later route wins: /info over the catch-all.
+  await page.route('http://127.0.0.1:9999/**', (r) => r.fulfill({
+    status: 200, contentType: 'application/json', body: '[]' }));
+  await page.route('http://127.0.0.1:9999/info', (r) => r.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ ip: '10.0.0.2', port: 9999, setupUrl: 'http://host/setup?token=t1',
+      manualUrl: 'http://host/a', pairingCode: '1234' }),
+  }));
+  await page.addInitScript(() => {
+    class FakePalmServiceBridge {
+      onservicecallback: ((message: string) => void) | null = null;
+      call(uri: string): void {
+        const method = uri.slice(uri.lastIndexOf('/') + 1);
+        const response = method === 'start' ? { running: true, port: 9999 }
+          : method === 'serviceEvents' ? { subscribed: true } : { returnValue: false };
+        setTimeout(() => this.onservicecallback?.(JSON.stringify(response)), 0);
+      }
+      cancel(): void { this.onservicecallback = null; }
+    }
+    (window as unknown as { PalmServiceBridge?: unknown }).PalmServiceBridge = FakePalmServiceBridge;
+  });
+  await page.goto('/');
+  await expect(page.locator('.home-setup-qr')).toBeVisible();
+  await expect(page.locator('.home-setup-url')).toHaveText('http://host/a');
+  await expect(page.locator('.home-setup-code')).toHaveText('1234');
+  // The QR is square and stays inside its panel.
+  const qr = (await page.locator('.home-setup-qr').boundingBox())!;
+  const panel = (await page.locator('.home-setup').boundingBox())!;
+  expect(qr.width).toBeCloseTo(qr.height, 0);
+  expect(qr.y + qr.height).toBeLessThanOrEqual(panel.y + panel.height);
 });
 
 test('the Magic Remote reveals the menu at the left edge, and a click switches', async ({ page }) => {

@@ -23,7 +23,7 @@ import { LivePreview } from './components/live-preview';
 import { EpgGrid } from './components/epg-grid';
 import { LiveHeader, type LiveMode } from './components/live-header';
 import { LiveDwell } from './components/live-dwell';
-import { Settings, type SaveAction } from './components/settings';
+import { Settings, type SaveAction, type SourceTarget } from './components/settings';
 import { Sidebar } from './components/sidebar';
 import { type Section, sectionForView } from './components/sections';
 import { NavMenu } from './components/nav-menu';
@@ -36,8 +36,8 @@ import { Search } from './components/search';
 import { showToast } from './components/toast';
 import { showNumberEntry, hideNumberEntry } from './components/number-entry';
 import { ReminderService } from './services/reminder-service';
-import { checkConnections } from './services/connection-check';
-import { resetAppData } from './services/app-reset';
+import { StartupConnection } from './services/connection-check';
+import { firstRunLanding } from './components/first-run';import { resetAppData } from './services/app-reset';
 import { ReminderPrompt } from './components/reminder-prompt';
 import { ReminderManager } from './components/reminder-manager';
 import { ParentalControls } from './components/parental-controls';
@@ -133,6 +133,14 @@ class App {
   private forceEpgOnLoad = false;
   // Only the latest action waiting on the channels runs.
   private channelWaiter = 0;
+  // Home's sign-in check, behind its connection banner.
+  private readonly connection = new StartupConnection(
+    () => StorageService.getPlaylists(),
+    (issue, checking) => {
+      this.home.setConnection(issue, checking);
+      if (issue && !checking && this.isCurrentView('home')) this.home.focusAlert();
+    },
+  );
 
   async init(): Promise<void> {
     const done = log.time('init');
@@ -149,6 +157,8 @@ class App {
     applyAnimationMode(StorageService.getAnimationMode());
     const initialLoadingText = $('#loading-text');
     if (initialLoadingText) initialLoadingText.textContent = t('common.loading');
+    const loadingTitle = $('#loading-title');
+    if (loadingTitle) loadingTitle.textContent = CONFIG.APP_NAME;
     initTheme();
     this.views = {
       home: $('#view-home')!,
@@ -388,6 +398,12 @@ class App {
       onLockNow: () => ParentalControlService.lock('lock-now'),
       onLeaveLeft: () => this.openNavMenu('key'),
       onBack: () => this.confirmExit(),
+      onAddSource: (kind, via) =>
+        this.openSettingsAt({ kind: kind === 'xtream' ? 'add-xtream' : 'add-playlist' }, via),
+      onRetryConnection: () => void this.connection.verify(),
+      onEditAccount: (issue, via) =>
+        this.openSettingsAt({ kind: 'account', accountId: issue.accountId, state: issue.state }, via),
+      loadSetupInfo: () => SetupClient.getInfo(),
     });
     this.navMenu = new NavMenu({
       onSelect: (section, via) => this.selectSection(section, via),
@@ -615,6 +631,7 @@ class App {
     await this.queueDeviceSetupSync();
     void SetupClient.publishState();
     await this.settings.refreshSetupInfo();
+    if (this.home.showsFirstRun) await this.home.refreshSetupInfo();
     await this.settings.refreshUploads();
     await this.loadChannelsAfterFirstUpload();
   }
@@ -919,6 +936,9 @@ class App {
     this.navMenu.setSections(hasXtream);
     this.navMenu.setAccounts(accounts, account?.id ?? '');
     this.home.setSources(hasXtream, accounts, account);
+    this.home.setFirstRun(!playlists.length);
+    const issue = this.connection.issue;
+    if (issue && !accounts.some((a) => a.id === issue.accountId)) this.connection.clear();
     this.searchBox.setPlaceholder(!!account);
   }
 
@@ -944,8 +964,10 @@ class App {
     try {
       const playlists = StorageService.getPlaylists();
       log.info('Configured playlists:', playlists.length);
-      if (!playlists.length) {
-        log.info('No playlists configured — opening settings');
+      const firstRun = firstRunLanding(playlists, landing, StorageService.getStartOnLive());
+      if (firstRun) {
+        log.info('No playlists configured — opening', firstRun);
+        this.connection.clear();
         // Clear in-memory state so the channel list does not show stale
         // channels if the user navigates back from settings (e.g. with BACK).
         PlaylistService.reset();
@@ -955,14 +977,14 @@ class App {
         // account avatars.
         this.syncSources();
         this.channelList.render();
-        // Home guides a first run to Settings; started on Live, it opens there.
-        if (landing === 'launch' && !StorageService.getStartOnLive()) {
-          this.goHome('settings');
+        // Home shows the first run; started on Live, Settings opens instead.
+        if (firstRun === 'home') {
+          this.goHome();
         } else {
           this.showView('settings');
           this.settings.render();
+          showToast(t('app.welcome'));
         }
-        showToast(t('app.welcome'));
         return;
       }
 
@@ -1122,11 +1144,29 @@ class App {
     });
   }
 
-  // Home's only request: does each Xtream account still sign in?
-  private async verifyConnection(): Promise<void> {
-    const state = await checkConnections(StorageService.getPlaylists());
-    if (state === 'ok') return;
-    showToast(t(state === 'rejected' ? 'settings.loginFailed' : 'settings.verifyFailed'));
+  // Home's only request: does each Xtream account still sign in? A failure
+  // shows Home's banner until a check passes.
+  private verifyConnection(): Promise<void> {
+    return this.connection.verify();
+  }
+
+  // Settings' Sources page from Home: an Add flow, or the account a failed
+  // sign-in names. Settings needs the channels, which Home skipped; a load
+  // that fails opens Settings itself, and the account still gets the keys.
+  private openSettingsAt(target: SourceTarget, via: 'key' | 'pointer'): void {
+    const open = (): void => {
+      if (!this.isCurrentView('settings')) this.selectSection('settings', via);
+      this.settings.openSource(target);
+    };
+    if (this.channelsLoaded) {
+      open();
+      return;
+    }
+    const waiter = ++this.channelWaiter;
+    void this.ensureChannels().then(() => {
+      if (waiter !== this.channelWaiter) return;
+      if (this.isCurrentView('home') || this.isCurrentView('settings')) open();
+    });
   }
 
   // New Live categories are announced only over the channel list, never over
@@ -1221,6 +1261,9 @@ class App {
     this.search.dismissPrompt();
     this.settings.dismissPrompt();
     this.reminderManager.dismissPrompt();
+    // The launch splash is the only screen once: later loads sit under the
+    // view they load for, over the video plane.
+    this.views.loading.classList.remove('loading-splash');
     for (const [key, el] of Object.entries(this.views)) {
       if (key === 'loading') continue;
       if (key === name) show(el);
