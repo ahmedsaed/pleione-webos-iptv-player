@@ -58,7 +58,7 @@
   align-items: center;
   gap: 14px;
   width: 100%;
-  min-height: 58px;
+  min-height: var(--control-height);
   padding: 10px 14px;
   color: var(--text-secondary);
   font-size: 20px;
@@ -75,8 +75,8 @@
 
 .settings-nav-item.active::before {
   position: absolute;
-  top: 13px;
-  bottom: 13px;
+  top: 22px;
+  bottom: 22px;
   left: -13px;
   width: 4px;
   background: var(--accent);
@@ -118,7 +118,7 @@
   margin-top: auto;
   padding: 18px 10px 0;
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: 20px;
   border-top: 1px solid var(--border);
 }
 
@@ -277,7 +277,7 @@
   flex: 0 0 160px;
   min-width: 0;
   color: var(--text-muted);
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 650;
   word-wrap: break-word;
 }
@@ -338,8 +338,8 @@
 }
 
 .epg-offset-step {
-  width: 54px;
-  min-width: 54px;
+  width: var(--control-height);
+  min-width: var(--control-height);
 }
 
 .epg-offset-value {
@@ -393,8 +393,8 @@
 .manual-epg-source-head .move-epg-earlier,
 .manual-epg-source-head .move-epg-later {
   flex: none;
-  width: 54px;
-  min-width: 54px;
+  width: var(--control-height);
+  min-width: var(--control-height);
   padding-right: 12px;
   padding-left: 12px;
 }
@@ -431,9 +431,9 @@
 
 .manual-epg-scope-label {
   flex: none;
-  padding-top: 10px;
+  padding-top: 24px;
   color: var(--text-muted);
-  font-size: 18px;
+  font-size: 20px;
 }
 
 .manual-epg-scope-options {
@@ -446,14 +446,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 60px;
-  padding: 8px 14px;
+  min-width: var(--control-height);
+  min-height: var(--control-height);
+  padding: 8px 20px;
   color: var(--text-secondary);
   font: inherit;
-  font-size: 18px;
+  font-size: 20px;
   background: var(--bg-primary);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius);
 }
 
 .epg-scope-option.active {
@@ -523,6 +524,7 @@
   justify-content: space-between;
   gap: 12px;
   width: 100%;
+  min-height: var(--control-height);
   padding: 12px 16px;
   font-size: 22px;
   text-align: left;
@@ -573,8 +575,10 @@
 }
 
 .dropdown-option {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
+  min-height: var(--control-height);
   padding: 12px 16px;
   font-size: 22px;
   text-align: left;
@@ -595,6 +599,7 @@
 
 .settings-input {
   width: 100%;
+  min-height: var(--control-height);
   padding: 12px 16px;
   font-size: 22px;
   background: var(--bg-secondary);
@@ -679,7 +684,7 @@
 .settings-about {
   margin-top: 32px;
   text-align: center;
-  font-size: 18px;
+  font-size: 20px;
   color: var(--text-muted);
 }
 
@@ -878,7 +883,7 @@
   gap: 10px 24px;
   margin-top: 14px;
   color: var(--text-muted);
-  font-size: 18px;
+  font-size: 20px;
 }
 
 .channel-health-progress {
@@ -888,7 +893,7 @@
   gap: 16px;
   margin-top: 14px;
   color: var(--text-secondary);
-  font-size: 18px;
+  font-size: 20px;
 }
 
 .channel-health-progress-track {
@@ -970,7 +975,7 @@
 }
 
 .cache-usage-value span {
-  font-size: 16px;
+  font-size: 20px;
 }
 
 .cache-usage-breakdown {
@@ -1009,6 +1014,7 @@
   align-items: center;
   justify-content: center;
   min-width: 120px;
+  min-height: var(--control-height);
   padding: 10px 24px;
   font-family: inherit;
   font-size: 22px;
@@ -1046,9 +1052,10 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
+  min-height: var(--control-height);
   padding: 12px 14px;
   font-family: inherit;
-  font-size: 18px;
+  font-size: 20px;
   color: var(--text-secondary);
   background: transparent;
   border: 2px solid transparent;
@@ -1143,7 +1150,7 @@
 .xtream-status {
   flex: 1;
   min-width: 0;
-  font-size: 18px;
+  font-size: 20px;
   color: var(--text-muted);
   word-break: break-word;
 }
@@ -1320,7 +1327,7 @@
   border-radius: 999px;
   color: #111;
   background: var(--success);
-  font-size: 15px;
+  font-size: 20px;
   font-style: normal;
   font-weight: 600;
   white-space: nowrap;

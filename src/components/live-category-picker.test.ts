@@ -311,7 +311,7 @@ describe('LiveCategoryPicker', () => {
     it('resumes from the remembered row after a wheel scroll unmounts it', async () => {
       await open({ loadCategories: vi.fn(async () => many) });
       expect(focusedKey()).toBe('all:c1');
-      list().scrollTop = 64 * 2000;
+      list().scrollTop = 82 * 2000;
       list().dispatchEvent(new Event('scroll'));
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
       expect(root().querySelector('[data-key="all:c1"]')).toBeNull();

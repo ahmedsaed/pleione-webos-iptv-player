@@ -436,7 +436,7 @@ ${guideChannels}
       controlsCenter: Math.round((bounds.left + bounds.right) / 2),
     };
   });
-  expect(offsetLayout.heights).toEqual([54, 54, 54]);
+  expect(offsetLayout.heights).toEqual([76, 76, 76]);
   expect(offsetLayout.buttonsCenter).toBeCloseTo(offsetLayout.controlsCenter, 0);
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('.epg-offset-current')).toHaveText('+1 h 15 min');
@@ -502,7 +502,7 @@ ${guideChannels}
     expect(localizedLayout.sourceWidth, locale).toBeLessThan(440);
     expect(localizedLayout.controlsFit, locale).toBe(true);
     expect(localizedLayout.whiteSpace, locale).toBe('nowrap');
-    expect(localizedLayout.heights, locale).toEqual([54, 54, 54]);
+    expect(localizedLayout.heights, locale).toEqual([76, 76, 76]);
     expect(localizedLayout.buttonsCenter, locale)
       .toBeCloseTo(localizedLayout.controlsCenter, 0);
   }

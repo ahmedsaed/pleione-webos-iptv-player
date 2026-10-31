@@ -123,6 +123,7 @@
 
 .parental-pin-actions button {
   min-width: 150px;
+  min-height: var(--control-height);
   padding: 14px 24px;
   color: var(--text-primary);
   font-size: 20px;
@@ -183,7 +184,7 @@
 .parental-column-note {
   margin-left: 12px;
   color: var(--text-muted);
-  font-size: 18px;
+  font-size: 20px;
 }
 
 /* Room for the focus ring, which the scroll container would clip. */
@@ -198,7 +199,7 @@
 .parental-row {
   display: flex;
   width: 100%;
-  min-height: 58px;
+  min-height: var(--control-height);
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
@@ -211,7 +212,7 @@
   margin-bottom: 6px;
 }
 
-/* Group and item lists are virtualized: a fixed 58px row on a 64px stride
+/* Group and item lists are virtualized: a fixed 76px row on an 82px stride
    (see ROW_STRIDE in parental-controls.ts). */
 .parental-spacer {
   position: relative;
@@ -221,7 +222,7 @@
   position: absolute;
   right: 0;
   left: 0;
-  height: 58px;
+  height: 76px;
   margin-bottom: 0;
 }
 
@@ -240,7 +241,7 @@
 .parental-row strong {
   margin-left: auto;
   color: var(--text-muted);
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -251,7 +252,7 @@
 
 .parental-row small {
   color: var(--text-muted);
-  font-size: 18px;
+  font-size: 20px;
   white-space: nowrap;
 }
 
@@ -260,7 +261,7 @@
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-secondary);
-  font-size: 15px;
+  font-size: 20px;
   font-style: normal;
   white-space: nowrap;
 }
@@ -270,13 +271,13 @@
   border: 1px solid var(--warning);
   border-radius: 999px;
   color: var(--warning);
-  font-size: 15px;
+  font-size: 20px;
   font-style: normal;
   white-space: nowrap;
 }
 
 .parental-row.parental-suggest-row {
-  height: 58px;
+  height: 76px;
   color: var(--warning);
   font-weight: 600;
   border-color: var(--warning);
@@ -302,8 +303,9 @@
   flex-shrink: 0;
   font-family: inherit;
   line-height: 1.4;
+  min-height: var(--control-height);
   background: transparent;
-  padding: 6px 18px;
+  padding: 6px 24px;
   border: 2px solid var(--warning);
   border-radius: 999px;
   color: var(--warning);
@@ -350,7 +352,7 @@
 .parental-empty {
   padding: 28px 18px;
   color: var(--text-muted);
-  font-size: 19px;
+  font-size: 20px;
   line-height: 1.4;
 }
 
@@ -360,7 +362,7 @@
   position: static;
   flex: 0 0 auto;
   margin: 18px -80px -32px;
-  padding: 12px 80px;
+  padding: 0 80px;
 }
 
 /* Above every other prompt: the PIN keeps the keys over one that opens later. */
@@ -402,13 +404,13 @@
 
 .parental-pin-dialog .parental-pin-warning {
   margin-top: -12px;
-  font-size: 18px;
+  font-size: 20px;
 }
 
 .parental-pin-field {
   position: relative;
   width: 276px;
-  height: 68px;
+  height: var(--control-height);
   margin: 0 auto;
 }
 
@@ -447,7 +449,7 @@
 .parental-pin-slots span {
   display: flex;
   width: 60px;
-  height: 68px;
+  height: 100%;
   align-items: center;
   justify-content: center;
   background: var(--bg-primary);
@@ -484,7 +486,7 @@
   min-height: 28px;
   margin: 14px 0;
   color: var(--danger);
-  font-size: 18px;
+  font-size: 20px;
 }
 
 .parental-pin-actions {

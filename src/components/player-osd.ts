@@ -440,10 +440,10 @@ export class PlayerOsd {
     if (x === null || y === null || !this.callbacks.canSeek()) return false;
     const bar = $('[data-seekbar]', this.container) as HTMLElement | null;
     if (!bar) return false;
+    // The bar's box is its full-height target around the thin track.
     const rect = bar.getBoundingClientRect();
-    const margin = 20;
     const hit = rect.width > 0 && x >= rect.left && x <= rect.right &&
-      y >= rect.top - margin && y <= rect.bottom + margin;
+      y >= rect.top && y <= rect.bottom;
     if (!hit) return false;
     this.callbacks.onSeekFraction((x - rect.left) / rect.width);
     return true;

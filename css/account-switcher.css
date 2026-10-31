@@ -1,14 +1,14 @@
 .account-avatar {
-  width: 52px;
-  height: 52px;
+  width: var(--control-height);
+  height: var(--control-height);
   border-radius: 50%;
   border: none;
   padding: 0;
   color: #fff;
   font-family: inherit;
-  font-size: 26px;
+  font-size: 34px;
   font-weight: 700;
-  line-height: 52px;
+  line-height: var(--control-height);
   text-align: center;
   cursor: pointer;
   box-shadow: 0 0 0 3px transparent;
@@ -43,6 +43,7 @@ html:not(.keyboard-nav) .account-avatar:hover {
   display: flex;
   align-items: center;
   gap: 16px;
+  min-height: var(--control-height);
   padding: 12px 14px;
   border-radius: 8px;
   color: var(--text-secondary);

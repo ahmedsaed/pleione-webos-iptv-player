@@ -8,8 +8,8 @@
   display: none;
   align-items: center;
   justify-content: center;
-  width: 64px;
-  height: 64px;
+  width: var(--control-height);
+  height: var(--control-height);
   padding: 0;
   color: var(--text-primary);
   /* Opaque enough to read over any content without a blur, which old
@@ -27,8 +27,8 @@ html:not(.keyboard-nav) .home-button[data-view] {
 }
 
 /* Each section's free corner: Live's (list and Guide) past the rows' text,
-   Settings' left of its header, Search's left of its box. Movies and Series
-   keep the top-left over the hero's empty corner. */
+   Settings' top right, Search's left of its box. Movies and Series keep
+   the top-left over the hero's empty corner. */
 .home-button[data-view="channels"] {
   top: auto;
   right: 24px;
@@ -37,8 +37,8 @@ html:not(.keyboard-nav) .home-button[data-view] {
 }
 
 .home-button[data-view="settings"] {
-  top: 8px;
-  left: 8px;
+  right: 24px;
+  left: auto;
 }
 
 .home-button[data-view="search"] {

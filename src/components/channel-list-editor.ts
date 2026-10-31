@@ -44,7 +44,7 @@ interface ChannelListEditorOptions {
   requestEditMode: (group: ChannelGroupId) => void;
 }
 
-const EPG_OPTION_HEIGHT = 72;
+const EPG_OPTION_HEIGHT = 76;
 const EPG_VIEWPORT_HEIGHT = 420;
 const EPG_OVERSCAN = 3;
 // A Magic Remote OK wobbles the pointer a few pixels; only a longer move drags.

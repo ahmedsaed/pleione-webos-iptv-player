@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 58px;
+  min-height: var(--control-height);
 }
 
 .reminder-manager-back,
@@ -34,7 +34,7 @@
 
 .reminder-manager-back,
 .reminder-manager-clear {
-  min-height: 60px;
+  min-height: var(--control-height);
   padding: 12px 22px;
   font-size: 22px;
 }
@@ -106,7 +106,7 @@
 .reminder-day-label span {
   margin-top: 3px;
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: 20px;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
@@ -193,7 +193,7 @@
 
 .reminder-manager-remove {
   min-width: calc(164px * var(--font-scale));
-  min-height: 58px;
+  min-height: var(--control-height);
   padding: 12px 18px;
   color: var(--text-secondary);
   background: transparent;

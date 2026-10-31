@@ -134,7 +134,7 @@
 }
 
 .si-badge {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   padding: 2px 10px;
   border-radius: 4px;
@@ -149,7 +149,7 @@
 .si-badge--hdr { background: #c9971c; }
 
 .si-pill {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
   padding: 2px 10px;
   border-radius: 4px;
@@ -158,7 +158,7 @@
 }
 
 .si-text {
-  font-size: 18px;
+  font-size: 20px;
   color: var(--text-secondary);
 }
 
@@ -220,6 +220,12 @@
   margin: 12px 0;
 }
 
+/* Room for the seek bar's and LIVE's full-height targets, which reach
+   past the row's thin track into this margin. */
+.osd-progress-row[data-dock-row] {
+  margin: 20px 0;
+}
+
 .osd-time-current,
 .osd-time-end {
   font-size: 22px;
@@ -251,8 +257,12 @@
 .osd-progress[data-seekbar] {
   position: relative;
   cursor: pointer;
-  height: 36px;
-  padding: 15px 0;
+  /* A full-height target around the 6px track; the negative margin keeps
+     the row as tall as the track's old 36px box. */
+  height: var(--control-height);
+  margin-top: -20px;
+  margin-bottom: -20px;
+  padding: 35px 0;
   background-clip: content-box;
   overflow: visible;
 }
@@ -279,7 +289,7 @@
 /* The focused seek bar grows its track and rings its thumb, the bar's own
    visual target, instead of boxing the whole bar. */
 .osd-progress[data-seekbar].focused {
-  padding: 14px 0;
+  padding: 34px 0;
   box-shadow: none;
 }
 
@@ -312,7 +322,7 @@
 }
 
 .osd-seek-delta {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 500;
   opacity: 0.85;
 }
@@ -400,8 +410,15 @@
 .osd-dvr-live {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 0;
+  min-width: var(--control-height);
+  height: var(--control-height);
+  margin-top: -20px;
+  margin-right: -12px;
+  margin-bottom: -20px;
+  padding: 0 12px;
+  border-radius: var(--radius);
   border: none;
   background: none;
   color: var(--text-muted);
@@ -500,7 +517,8 @@
 }
 
 .osd-next-episode-actions button {
-  padding: 10px 20px;
+  min-height: var(--control-height);
+  padding: 10px 24px;
   border: 1px solid var(--overlay-chip);
   border-radius: 6px;
   background: var(--overlay-chip);
@@ -670,7 +688,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  height: 64px;
+  height: 76px;
   padding: 8px 12px;
   display: flex;
   align-items: center;
@@ -730,7 +748,7 @@
   color: var(--text-secondary);
   background: var(--overlay-chip);
   border-radius: 10px;
-  font-size: 16px;
+  font-size: 20px;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -769,8 +787,11 @@
 }
 
 .player-sidebar .sidebar-tab {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
   padding: 8px 14px;
-  font-size: 16px;
+  font-size: 20px;
   color: var(--text-secondary);
   border-bottom: 2px solid transparent;
   cursor: pointer;
@@ -819,7 +840,7 @@
   right: 0;
   display: flex;
   align-items: center;
-  padding: 12px 20px;
+  padding: 10px 20px;
   border-radius: var(--radius);
   border: 2px solid transparent;
   cursor: pointer;
@@ -845,7 +866,7 @@
 }
 
 .player-sidebar .sidebar-ch-item .ch-num {
-  font-size: 16px;
+  font-size: 20px;
   color: var(--text-muted);
   min-width: 40px;
   text-align: center;
@@ -898,7 +919,7 @@
 }
 
 .player-sidebar .sidebar-ch-item .ch-now {
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1.25;
   color: var(--text-secondary);
   overflow: hidden;
@@ -918,11 +939,11 @@
 
 .player-sidebar .sidebar-recent-kind {
   flex-shrink: 0;
-  padding: 3px 7px;
+  padding: 2px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 20px;
   font-weight: 700;
 }
 
@@ -987,6 +1008,7 @@
   display: flex;
   align-items: center;
   gap: 14px;
+  min-height: var(--control-height);
   padding: 12px 16px;
   border-radius: var(--radius);
   border: 2px solid transparent;
@@ -1006,7 +1028,7 @@
 .player-menu .menu-item-value {
   margin-left: auto;
   padding-left: 12px;
-  font-size: 16px;
+  font-size: 20px;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -1048,7 +1070,8 @@
   display: flex;
   flex-direction: column;
   width: 1100px;
-  max-height: 600px;
+  /* Five and a half 80px result rows: the cut one says the list scrolls. */
+  max-height: 640px;
   background: rgba(30, 30, 50, 0.95);
   border-radius: 12px;
   padding: 24px;
@@ -1071,6 +1094,7 @@
   flex: none;
   width: 100%;
   box-sizing: border-box;
+  min-height: var(--control-height);
   margin-bottom: 16px;
   padding: 12px 16px;
   font-family: inherit;
@@ -1096,6 +1120,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  min-height: var(--control-height);
   padding: 12px 16px;
   font-size: 22px;
   color: var(--text-secondary);
@@ -1117,7 +1142,7 @@
   flex-shrink: 0;
   align-items: center;
   gap: 5px;
-  font-size: 18px;
+  font-size: 20px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -1184,13 +1209,16 @@
 }
 
 .subs-offset-hint {
-  font-size: 18px;
+  font-size: 20px;
   color: var(--text-muted);
   margin-bottom: 20px;
 }
 
 .subs-offset-reset {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
   padding: 10px 28px;
   border-radius: var(--radius);
   border: 1px solid transparent;

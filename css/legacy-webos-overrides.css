@@ -130,7 +130,7 @@ html.q-scroll-end-padding .catalog-category-rail::after { content: none; }
   }
 
   .channel-epg-offset-controls button {
-    flex: 0 0 54px;
+    flex: 0 0 var(--control-height);
   }
 
   /* Fallback for engines without :focus-within, which the wrapper uses to
