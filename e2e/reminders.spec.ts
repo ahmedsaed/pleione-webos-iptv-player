@@ -46,22 +46,52 @@ test('a reminder due by the time Live opens prompts there, and Watch now plays',
 });
 
 // Not yet due at launch, so Home loads no channels for it; due by the time
-// Live loads them, which prompts.
+// Live loads them, which prompts. The clock moves only when the test says.
+const LAUNCH = Date.parse('2026-09-15T12:00:00Z');
+const DUE = LAUNCH + 60_000;
+
 async function seedReminderDueSoon(page: Page): Promise<void> {
-  await page.addInitScript((k) => {
-    const now = Date.now();
+  await page.clock.setFixedTime(LAUNCH);
+  await page.addInitScript(([k, due]) => {
     localStorage.setItem('iptv_reminders', JSON.stringify([
-      { channelKey: k, channelName: 'Channel One', title: 'Alpha', startMs: now + 1500, stopMs: now + 3600000 },
+      { channelKey: k, channelName: 'Channel One', title: 'Alpha', startMs: due, stopMs: due + 3600000 },
     ]));
-  }, channelKey(CHAN_ONE));
+  }, [channelKey(CHAN_ONE), DUE] as const);
 }
 
 async function openLiveOnceDue(page: Page): Promise<void> {
   await expect(page.locator('#view-home [data-key="section:live"].focused')).toBeVisible();
-  await page.waitForTimeout(2000);
+  await expect(page.locator('.reminder-prompt:not(.hidden)')).toHaveCount(0);
+  await page.clock.setFixedTime(DUE + 1000);
   await page.keyboard.press('Enter');
   await expect(page.locator('#view-channels')).toBeVisible();
 }
+
+// Regression: Watch now tuned with no scope, so Channel Up left Live's group.
+test('Watch now keeps Channel Up in the Live group that holds the channel', async ({ page }) => {
+  await routePlaylist(page);
+  await routeLiveManifest(page);
+  await seedPlaylist(page);
+  await seedReminderDueSoon(page);
+  await page.goto('/');
+  await enterTab(page, 'live');
+  await page.locator('#channel-browser .group-item', { hasText: 'News' }).click();
+  await expect(page.locator('#channel-browser .channel-main .channel-item')).toHaveCount(1);
+
+  await page.clock.setFixedTime(DUE + 1000);
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.locator('.reminder-btn[data-reminder-action="ok"]').click();
+  await expect(page.locator('#view-player')).toContainText('Channel One');
+  const plays: string[] = [];
+  page.on('console', msg => {
+    if (msg.text().includes('play index')) plays.push(msg.text());
+  });
+  // News holds only Channel One: Channel Up tunes it again.
+  await page.evaluate(() => document.dispatchEvent(
+    new KeyboardEvent('keydown', { keyCode: 33, bubbles: true })));
+  await expect.poll(() => plays.length).toBeGreaterThan(0);
+  expect(plays[0]).toContain('Channel One');
+});
 
 test('a due reminder on Home loads the channels for its prompt, and Watch now plays', async ({ page }) => {
   await routePlaylist(page);

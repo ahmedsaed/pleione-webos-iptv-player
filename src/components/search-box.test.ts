@@ -108,7 +108,7 @@ describe('SearchBox', () => {
     Focus.owner();
     const menuRoot = document.createElement('div');
     document.body.appendChild(menuRoot);
-    const menu = Focus.register({ id: 'test.menu2', root: menuRoot, tier: Tier.menu, restrict: 'self-only' });
+    const menu = Focus.register({ id: 'test.menu2', root: menuRoot, tier: Tier.prompt, restrict: 'self-only' });
     Focus.push(menu);
     expect(Focus.owner()?.id).toBe('test.menu2');
     expect(host.querySelector('.search-box.active')).toBeNull();

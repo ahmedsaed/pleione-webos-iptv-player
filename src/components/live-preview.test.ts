@@ -100,6 +100,8 @@ describe('LivePreview', () => {
     } as unknown as Player;
     const channelList = {
       isEditing: false,
+      group: 'builtin:all',
+      playlist: '',
       highlightEntryPoint: actions.onHighlightEntryPoint,
       render: vi.fn(),
       setPlaying: actions.onSetPlaying,
@@ -221,6 +223,44 @@ describe('LivePreview', () => {
     expect(actions.onPlayFullscreen).toHaveBeenCalledWith(1, undefined, null);
     expect(actions.onExpand).not.toHaveBeenCalled();
     expect(actions.onWatch).toHaveBeenCalledWith(1);
+  });
+
+  // Regression: OK expanded the failed stream into a black full-screen
+  // player that never retried or moved on.
+  it('reloads a failed preview full screen on OK and on a click, never expanding it', () => {
+    const current = { ...state(), status: 'error' as const };
+    PlaylistService.channels = [current.channel];
+    liveSnapshot.mockReturnValue(current);
+    view.applyState(current);
+    preview.selectChannel(0, undefined, { group: 'builtin:all' }, 'expand-current');
+    expect(actions.onPlayFullscreen).toHaveBeenCalledWith(0, undefined, { group: 'builtin:all' });
+    view.slot!.click();
+    expect(actions.onPlayFullscreen).toHaveBeenLastCalledWith(1, undefined,
+      { group: 'builtin:all', playlist: undefined });
+    expect(actions.onExpand).not.toHaveBeenCalled();
+  });
+
+  it('checks a retuned channel against the playlist without rehashing every channel', () => {
+    const reads = { count: 0 };
+    const counted = (id: string) => {
+      const channel = { ...state().channel, id };
+      let url = `http://host/${id}`;
+      Object.defineProperty(channel, 'url', {
+        get: () => { reads.count++; return url; },
+        set: (value: string) => { url = value; },
+      });
+      return channel;
+    };
+    localStorage.setItem('iptv_playlists', JSON.stringify([{ id: 'p1', name: 'P1', url: 'http://host/p1' }]));
+    PlaylistService.allChannels = Array.from({ length: 100 }, (_, i) => counted(`c${String(i)}`));
+    const internals = preview as unknown as { isChannelAvailable(channel: unknown): boolean };
+    const target = { ...state().channel, url: 'http://host/c5' };
+    expect(internals.isChannelAvailable(target)).toBe(true);
+    reads.count = 0;
+    expect(internals.isChannelAvailable({ ...target, url: 'http://host/c6' })).toBe(true);
+    expect(internals.isChannelAvailable({ ...target, url: 'http://host/x' })).toBe(false);
+    expect(reads.count).toBe(0);
+    localStorage.removeItem('iptv_playlists');
   });
 
   it('routes a numbered channel straight to full screen', () => {

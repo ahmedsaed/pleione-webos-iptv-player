@@ -200,6 +200,7 @@ class App {
         onRowFocus: (index) => this.onLiveRowFocus(index),
         onCount: (count) => this.liveHeader.setCount(count),
         onRetry: () => this.retryLive(),
+        onScopeChange: () => this.liveGuide?.render(),
         onChannelSelect: (idx, catchup, scope, mode) =>
           this.livePreview.selectChannel(idx, catchup, scope, mode),
         onChannelsChanged: () => {
@@ -261,6 +262,7 @@ class App {
       watching: () => this.channelList.watching,
       onLeaveLeft: () => this.focusGuideGroups(),
       onLeaveUp: () => this.liveHeader.enter(),
+      visible: () => this.isCurrentView('channels') && this.liveMode === 'guide',
     });
     this.reminderManager = new ReminderManager(this.views.reminders, () => this.goUp('reminders'));
     this.settings = new Settings(
@@ -1692,6 +1694,15 @@ class App {
     this.player.play(index, catchup, scope, false);
   }
 
+  // Channel Up/Down from a reminder steps through Live's group when the
+  // channel is in it, else through every channel.
+  private liveScopeFor(index: number): ChannelScope {
+    const scope = { group: this.channelList.group, playlist: this.channelList.playlist || undefined };
+    const channel = PlaylistService.getByIndex(index);
+    return channel && PlaylistService.getByGroup(scope.group, scope.playlist).includes(channel)
+      ? scope : { group: 'builtin:all' };
+  }
+
   private bindReminderLifecycle(): void {
     setInterval(() => this.scanReminders(), CONFIG.REMINDER_SCAN_INTERVAL);
     document.addEventListener('visibilitychange', () => {
@@ -1717,7 +1728,7 @@ class App {
     const idx = ReminderService.resolveLaunchChannel(raw);
     if (idx >= 0) {
       log.info('Reminder launch — tuning channel index', idx);
-      this.playChannel(idx);
+      this.playChannel(idx, undefined, this.liveScopeFor(idx));
       return;
     }
     const concealed = ReminderService.resolveConcealedLaunchChannel(raw);
@@ -1732,7 +1743,7 @@ class App {
       // The unlock reveals the channel, but lists rebuild only after this runs.
       PlaylistService.applyCustomization();
       const index = ReminderService.resolveChannelIndex(key);
-      if (index >= 0) this.playChannel(index);
+      if (index >= 0) this.playChannel(index, undefined, this.liveScopeFor(index));
       else {
         log.warn('Unlocked reminder channel is missing', 'event=parental.reminder.missing',
           `channel=${key}`);
@@ -1771,7 +1782,7 @@ class App {
       onConfirm: () => {
         ReminderService.remove(r.channelKey, r.startMs);
         const idx = ReminderService.resolveChannelIndex(r.channelKey);
-        if (idx >= 0) this.playChannel(idx);
+        if (idx >= 0) this.playChannel(idx, undefined, this.liveScopeFor(idx));
         else if (concealed) this.playConcealedReminder(r.channelKey, concealed);
         this.showNextReminder();
       },
@@ -1926,14 +1937,13 @@ class App {
         break;
       case 'channels': {
         if (this.livePreview.handleAction(action)) break;
-        if (this.liveMode === 'guide' && this.guideKeys === 'grid') {
+        // Digits tune from the grid as from the groups column.
+        if (this.liveMode === 'guide' && this.guideKeys === 'grid' && action !== 'number') {
           this.liveGuide.handleAction(action);
           break;
         }
-        const group = this.channelList.group;
         const moved = this.channelList.handleAction(action, event);
         if (this.liveMode === 'guide') {
-          if (this.channelList.group !== group) this.liveGuide.groupChanged();
           if (action === 'right' && !moved) {
             this.focusGuideGrid();
             break;

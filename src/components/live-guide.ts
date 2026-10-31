@@ -49,6 +49,8 @@ export interface LiveGuideOptions {
   onLeaveLeft: () => void;
   // Up off the first row: the Live header.
   onLeaveUp: () => void;
+  // The Guide is on screen, so its clock ticks.
+  visible?: () => boolean;
 }
 
 interface Cell {
@@ -70,6 +72,11 @@ export class LiveGuide {
   private windowStart = 0;
   private firstRow = 0;
   private shown = false;
+  // The group and playlist `channels` lists.
+  private scopeKey = '';
+  private clockTimer: ReturnType<typeof setTimeout> | null = null;
+  // The now line showed at the last render.
+  private nowInWindow = false;
 
   constructor(private readonly container: HTMLElement, private readonly options: LiveGuideOptions) {
     this.focusScope = Focus.register({
@@ -106,6 +113,7 @@ export class LiveGuide {
     const now = Date.now();
     this.windowStart = initialWindowStart(now);
     this.time = now;
+    this.scopeKey = this.currentScopeKey();
     this.channels = this.listedChannels();
     const at = this.channels.findIndex(ch => PlaylistService.indexOf(ch) === index);
     this.row = at >= 0 ? at : Math.min(this.row, Math.max(0, this.channels.length - 1));
@@ -116,19 +124,16 @@ export class LiveGuide {
   hide(): void {
     this.shown = false;
     this.dismissPrompt();
+    this.stopClock();
   }
 
-  /** The Live list's group changed: start at its first channel. */
-  groupChanged(): void {
-    this.channels = this.listedChannels();
-    this.row = 0;
-    this.firstRow = 0;
-    this.render();
-  }
-
-  /** Take the keys on the focused cell. */
+  /** Take the keys on the focused cell; an empty group leaves them to the groups. */
   enter(): void {
     this.render();
+    if (!this.channels.length) {
+      this.options.onLeaveLeft();
+      return;
+    }
     this.focusScope.focus(this.focusKey(), 'key');
   }
 
@@ -181,13 +186,14 @@ export class LiveGuide {
 
   render(): void {
     if (!this.shown) return;
-    if (!this.channels.length) this.channels = this.listedChannels();
+    this.syncChannels();
     const now = Date.now();
     const visible = this.visibleRows();
     this.firstRow = firstRowFor(this.firstRow, this.row, visible, this.channels.length);
     const rows = this.channels.slice(this.firstRow, this.firstRow + visible + 1);
     const stride = uiTextPx(ROW_STRIDE);
     const nowLeft = cellBox(now, now + 1, this.windowStart, 100);
+    this.nowInWindow = !!nowLeft;
     const focus = this.focusedCell();
     const focusKey = this.focusKey();
     morph(this.container, html`
@@ -217,6 +223,31 @@ export class LiveGuide {
       </div>
     `);
     this.focusScope.track(focusKey);
+    this.scheduleClock();
+  }
+
+  // The now line, the time pill, and cell states move each minute; a window
+  // that showed the now line follows it past its end.
+  private scheduleClock(): void {
+    if (this.clockTimer !== null || !this.isVisible()) return;
+    this.clockTimer = setTimeout(() => {
+      this.clockTimer = null;
+      if (!this.isVisible()) return;
+      const now = Date.now();
+      if (this.nowInWindow && now >= this.windowStart + GUIDE_SPAN_MS) {
+        this.windowStart = clampWindow(initialWindowStart(now), now, 7, AHEAD_DAYS);
+      }
+      this.render();
+    }, 60000 - Date.now() % 60000 + 50);
+  }
+
+  private stopClock(): void {
+    if (this.clockTimer !== null) clearTimeout(this.clockTimer);
+    this.clockTimer = null;
+  }
+
+  private isVisible(): boolean {
+    return this.shown && (this.options.visible?.() ?? true);
   }
 
   private renderRow(channel: Channel, position: number, top: number, now: number): Safe {
@@ -309,6 +340,34 @@ export class LiveGuide {
   private listedChannels(): Channel[] {
     const scope = this.options.scope();
     return PlaylistService.getByGroup(scope.group ?? 'builtin:all', scope.playlist);
+  }
+
+  private currentScopeKey(): string {
+    const scope = this.options.scope();
+    return `${scope.group ?? 'builtin:all'}\n${scope.playlist ?? ''}`;
+  }
+
+  // Re-read what the Live list shows: a new group or playlist starts at its
+  // first channel; a refresh or a concealment change keeps the focused one.
+  private syncChannels(): void {
+    const list = this.listedChannels();
+    const scopeKey = this.currentScopeKey();
+    if (scopeKey !== this.scopeKey) {
+      this.scopeKey = scopeKey;
+      this.channels = list;
+      this.row = 0;
+      this.firstRow = 0;
+      return;
+    }
+    if (list === this.channels) return;
+    const focused = this.channels[this.row];
+    this.channels = list;
+    if (focused && list[this.row] !== focused) {
+      const resolved = PlaylistService.resolveChannelKey(channelKey(focused));
+      const at = resolved ? list.indexOf(resolved.channel) : -1;
+      if (at >= 0) this.row = at;
+    }
+    this.row = Math.max(0, Math.min(this.row, list.length - 1));
   }
 
   private programsAround(channel: Channel, time: number): Programme[] {

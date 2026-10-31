@@ -58,9 +58,9 @@ export class LivePreview {
   private state: LivePlaybackSnapshot | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly presentation: PlayerPresentation;
+  // The keys of `PlaylistService.allChannels`, built once per array.
   private channelSet: Channel[] | null = null;
-  private channelKey = '';
-  private channelAvailable = true;
+  private channelKeys = new Set<string>();
   // What the last render drew; a tick with the same one touches no DOM.
   private signature = '';
   private progressAt = 0;
@@ -80,7 +80,13 @@ export class LivePreview {
       if (this.state && target instanceof Element && target.closest('.live-preview-slot')) {
         const index = this.options.player.getCurrentIndex();
         if (index >= 0) this.options.onWatch?.(index);
-        this.expand();
+        if (this.state.status === 'error' && index >= 0) {
+          const { channelList } = this.options;
+          this.options.playFullscreen(index, undefined,
+            { group: channelList.group, playlist: channelList.playlist || undefined });
+        } else {
+          this.expand();
+        }
       }
     });
   }
@@ -132,9 +138,9 @@ export class LivePreview {
       && current.channel.url === channel.url;
     if (mode !== 'preview') {
       // OK watches: the preview's own stream goes full screen when it is
-      // this channel, else the channel starts full screen.
+      // this channel, else (or when it failed) the channel starts full screen.
       this.options.onWatch?.(index);
-      if (this.isShowing && same) this.expand();
+      if (this.isShowing && same && current.status !== 'error') this.expand();
       else this.options.playFullscreen(index, catchup, scope);
       return;
     }
@@ -271,14 +277,11 @@ export class LivePreview {
     const enabledSources = StorageService.getPlaylists()
       .filter(isSourceEnabled).map(source => source.id);
     if (!channel.playlistIds.some(id => enabledSources.includes(id))) return false;
-    const key = channelKey(channel);
-    if (this.channelSet !== PlaylistService.allChannels || this.channelKey !== key) {
+    if (this.channelSet !== PlaylistService.allChannels) {
       this.channelSet = PlaylistService.allChannels;
-      this.channelKey = key;
-      this.channelAvailable = PlaylistService.allChannels
-        .some(item => channelKey(item) === key);
+      this.channelKeys = new Set(PlaylistService.allChannels.map(item => channelKey(item)));
     }
-    return this.channelAvailable || PlaylistService.hasFailedSource(
+    return this.channelKeys.has(channelKey(channel)) || PlaylistService.hasFailedSource(
       channel.playlistIds.filter(id => enabledSources.includes(id)),
     );
   }

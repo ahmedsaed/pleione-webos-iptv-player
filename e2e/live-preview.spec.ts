@@ -517,6 +517,27 @@ test('a dead previewed channel shows its failure on its row instead of zapping',
   await expect(page.locator('#view-player')).toBeHidden();
 });
 
+// Regression: OK on a dead preview expanded its black, failed stream full
+// screen, which never retried or moved on.
+test('OK on a dead preview reloads it full screen, which moves on once it fails', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('iptv_live_reconnect_attempts', JSON.stringify(0));
+  });
+  await setup(page);
+  await selectFirst(page);
+  await expect.poll(async () => (await snapshot(page)).source).toBe('http://host/ch1.m3u8');
+  await page.locator('#video-player').evaluate(video => video.dispatchEvent(new Event('error')));
+  await expect(page.locator(`${PANEL} .live-preview-message`)).toHaveText('Unavailable', { timeout: 10_000 });
+  const failed = await snapshot(page);
+
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#view-player')).toBeVisible();
+  await expect.poll(async () => (await snapshot(page)).loads).toBeGreaterThan(failed.loads);
+  await page.locator('#video-player').evaluate(video => video.dispatchEvent(new Event('error')));
+  await expect.poll(async () => (await snapshot(page)).source, { timeout: 10_000 })
+    .toBe('http://host/ch2.m3u8');
+});
+
 test('full screen still moves on from a dead channel once recovery runs out', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('iptv_live_reconnect_attempts', JSON.stringify(0));
