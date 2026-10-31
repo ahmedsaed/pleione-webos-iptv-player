@@ -88,8 +88,8 @@ small setup service that runs **on the TV** while the app is open, and stops whe
 - Through the page, a paired device can add sources, accounts and subtitle or TMDB keys, and upload
   an `.m3u` playlist file. The page never shows saved passwords or keys back.
 - Uploaded playlist files are stored on the TV. Only the app itself, and a device paired with
-  the current code, can list, download or remove them; other websites open on a device on your
-  network cannot read them. Remove an upload when you no longer need it.
+  the current code, can list, download or remove them; no website can read them, including one
+  open in the TV's own browser. Remove an upload when you no longer need it.
 - The service itself makes no requests to the internet.
 
 ### Reminders
@@ -103,7 +103,8 @@ or resetting the app, cancels it with the TV's scheduler too.
 
 None. Pleione contains no analytics, advertising, tracking, crash-reporting or remote-logging
 code, does not check for updates, and does not contact any server of Merope's. Its logs stay in
-the TV's developer console. It requests no special TV permissions.
+the TV's developer console. It asks only for the standard webOS permissions to schedule
+reminders, launch the app, and play DRM-protected video.
 
 This website is static pages; it sets no cookies and runs no analytics either.
 
