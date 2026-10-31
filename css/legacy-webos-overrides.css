@@ -33,6 +33,8 @@
  * replaces the gap instead of adding to it. Restate the sums.
  */
 html.q-no-flex-gap .settings-field > .settings-item-hint { margin-top: 14px; }
+/* The season tabs' -24px margin lets their ring room bleed into the gap. */
+html.q-no-flex-gap .detail-rail-head > .series-seasons { margin-left: 4px; }
 
 /*
  * The quirk class makes each generated margin more specific than the

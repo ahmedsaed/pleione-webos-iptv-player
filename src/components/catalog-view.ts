@@ -1252,10 +1252,12 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   }
 
   // A tile flush with the rail's scrollport would clip its focus ring; keep a
-  // gutter visible beside it. True when the rail scrolled.
+  // gutter visible beside it. The season tabs scroll the same way. True when
+  // the rail scrolled.
   private revealRailGutter(el: HTMLElement, instant: boolean): boolean {
     const track = el.parentElement;
-    if (!track || !track.classList.contains('catalog-rail-track')) return false;
+    if (!track || !(track.classList.contains('catalog-rail-track')
+      || track.classList.contains('series-seasons'))) return false;
     // The tile's box at rest: the focus lift scales it about its center,
     // mid-transition on a key press, and the track's padding leaves room
     // for it.

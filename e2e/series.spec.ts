@@ -131,6 +131,56 @@ test('browse Series, open a detail, and play an episode', async ({ page }) => {
   await expect(page.locator('#view-series .episode-card[data-episode-id="10"]')).toContainText('Episode One');
 });
 
+// Arabic keeps the LTR layout (see main.css), so its row scrolls the same way.
+for (const [size, locale] of [['100', 'en'], ['130', 'en'], ['100', 'ar']] as const) {
+  test(`at Interface size ${size} in ${locale} the focused season of many stays on screen`, async ({ page }) => {
+    const seasons: Record<string, { id: number; title: string; episode_num: number }[]> = {};
+    for (let n = 1; n <= 20; n++) seasons[String(n)] = [{ id: 100 + n, title: `Episode ${n}`, episode_num: 1 }];
+    await seedSeries(page, seasons);
+    await page.addInitScript(([s, l]) => {
+      localStorage.setItem('iptv_interface_size', JSON.stringify(s));
+      localStorage.setItem('iptv_locale', JSON.stringify(l));
+    }, [size, locale]);
+    await page.goto('/');
+    await expect(page.locator('#view-channels')).toBeVisible();
+    await enterTab(page, 'series');
+    await page.locator('.catalog-tile[data-item-id="1"]')
+      .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+    await page.keyboard.press('Enter');
+    const first = page.locator('#view-series .series-season-btn[data-season="1"]');
+    await expect(first).toBeVisible();
+    // One line: a squeezed tab would wrap its label.
+    const lines = await first.evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      // Bidi runs split one line into several boxes; count their rows.
+      const tops = Array.from(range.getClientRects()).map((r) => Math.round(r.top));
+      return tops.filter((top, i) => tops.indexOf(top) === i).length;
+    });
+    expect(lines).toBe(1);
+
+    await first.evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+    await expect(first).toHaveClass(/focused/);
+    const onScreen = async (n: number): Promise<void> => {
+      const tab = page.locator(`#view-series .series-season-btn[data-season="${String(n)}"]`);
+      await expect(tab).toHaveClass(/focused/);
+      await expect.poll(() => tab.evaluate((el) => {
+        const rect = el.getBoundingClientRect();
+        const row = el.parentElement!.getBoundingClientRect();
+        return rect.left >= Math.max(0, row.left) - 1 && rect.right <= Math.min(1920, row.right) + 1;
+      })).toBe(true);
+    };
+    for (let n = 2; n <= 20; n++) {
+      await page.keyboard.press('ArrowRight');
+      await onScreen(n);
+    }
+    for (let n = 19; n >= 1; n--) {
+      await page.keyboard.press('ArrowLeft');
+      await onScreen(n);
+    }
+  });
+}
+
 test('Back walks Series detail -> browse -> Home instead of ejecting', async ({ page }) => {
   await seedSeries(page);
   await routeLiveManifest(page);
