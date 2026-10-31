@@ -80,7 +80,13 @@ export class LivePreview {
       if (this.state && target instanceof Element && target.closest('.live-preview-slot')) {
         const index = this.options.player.getCurrentIndex();
         if (index >= 0) this.options.onWatch?.(index);
-        this.expand();
+        if (this.state.status === 'error' && index >= 0) {
+          const { channelList } = this.options;
+          this.options.playFullscreen(index, undefined,
+            { group: channelList.group, playlist: channelList.playlist || undefined });
+        } else {
+          this.expand();
+        }
       }
     });
   }
@@ -132,9 +138,9 @@ export class LivePreview {
       && current.channel.url === channel.url;
     if (mode !== 'preview') {
       // OK watches: the preview's own stream goes full screen when it is
-      // this channel, else the channel starts full screen.
+      // this channel, else (or when it failed) the channel starts full screen.
       this.options.onWatch?.(index);
-      if (this.isShowing && same) this.expand();
+      if (this.isShowing && same && current.status !== 'error') this.expand();
       else this.options.playFullscreen(index, catchup, scope);
       return;
     }
