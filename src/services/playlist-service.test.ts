@@ -6,7 +6,6 @@ const { storageMock, cacheMock, fetchTextMock } = vi.hoisted(() => ({
   storageMock: {
     getPlaylists: vi.fn(),
     getFavorites: vi.fn(() => [] as string[]),
-    migrateFavoriteKeys: vi.fn(),
     getShowHiddenChannels: vi.fn(() => false),
     getChannelCustomization: vi.fn(() => null),
     getPlaylistRefreshIntervalMs: vi.fn(() => 6 * 60 * 60 * 1000),

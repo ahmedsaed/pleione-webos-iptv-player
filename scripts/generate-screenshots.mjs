@@ -584,7 +584,14 @@ async function setupPage(page, {
   await page.addInitScript(({ favs, playlists }) => {
     localStorage.setItem('iptv_playlists', JSON.stringify(playlists));
     localStorage.setItem('iptv_manual_epg_sources', JSON.stringify([{ url: 'https://demo.local/epg.xml', playlistIds: [] }]));
-    localStorage.setItem('iptv_favorites', JSON.stringify(favs));
+    // Favorites are keyed by stream: the FNV-1a of the stream URL.
+    const channelKey = (url) => {
+      let h = 0x811c9dc5;
+      for (let i = 0; i < url.length; i++) { h ^= url.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+      return (h >>> 0).toString(16).padStart(8, '0');
+    };
+    localStorage.setItem('iptv_favorites', JSON.stringify(
+      favs.map((id) => channelKey(`https://demo.local/stream/${id}.m3u8`))));
   }, {
     favs: FAVORITE_IDS,
     playlists: xtream

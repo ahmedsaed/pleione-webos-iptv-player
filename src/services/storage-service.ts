@@ -1,8 +1,7 @@
 import { CONFIG } from '../config';
 import { DEFAULT_THEME, DEFAULT_OVERLAY, DEFAULT_TEXT_SIZE, DEFAULT_INTERFACE_SIZE, isValidTextSize, isValidInterfaceSize, type OverlayStyle, type TextSize, type InterfaceSize } from '../config/themes';
-import type { AudioPref, CatchupProgressEntry, Channel, ChannelCustomization, ChannelCycleMode, ManualEpgSource, ParentalControlConfig, ParentalPinThrottle, PlaylistEntry, RecentlyWatchedLiveEntry, Reminder, ResumeEntry, ResumeKind, SubtitlePref, TzMode, WatchlistEntry, WatchlistKind, XtreamLiveCategorySnapshot } from '../types';
+import type { AudioPref, CatchupProgressEntry, ChannelCustomization, ChannelCycleMode, ManualEpgSource, ParentalControlConfig, ParentalPinThrottle, PlaylistEntry, RecentlyWatchedLiveEntry, Reminder, ResumeEntry, ResumeKind, SubtitlePref, TzMode, WatchlistEntry, WatchlistKind, XtreamLiveCategorySnapshot } from '../types';
 import type { OnlineSubtitleConfig, PickedOnlineSub } from './subtitle-search/types';
-import { channelKey, legacyChannelKey } from '../utils/channel';
 import { genPlaylistId } from '../utils/playlist';
 import { isCatalogSort, isCatalogSortDirection, type CatalogSortPreference } from '../utils/catalog-sort';
 import { normalizeXtreamBaseUrl } from '../utils/xtream-url';
@@ -1048,29 +1047,6 @@ export const StorageService = {
     }
     this.setFavorites(favs);
     return idx < 0; // true = added
-  },
-
-  // Favorites have used both `id || name` and the query-stripped channelKey.
-  // Re-key every match so migration never silently discards a saved favorite.
-  // TODO(cleanup, post-1.9.0): after a couple of releases, remove this method,
-  // its PlaylistService call sites, and its tests; the flags can remain inert.
-  migrateFavoriteKeys(channels: Channel[]): void {
-    if (get<boolean>('fav_stream_keyed', false)) return;
-    if (!channels.length) return;
-    const urlKeyed = get<boolean>('fav_url_keyed', false);
-    const migrated: string[] = [];
-    for (const oldKey of new Set(this.getFavorites())) {
-      if (channels.some(ch => channelKey(ch) === oldKey)) {
-        migrated.push(oldKey);
-        continue;
-      }
-      const matches = channels.filter(ch =>
-        urlKeyed ? legacyChannelKey(ch) === oldKey : (ch.id || ch.name) === oldKey);
-      migrated.push(...matches.map(channelKey));
-    }
-    if (!this.setFavorites([...new Set(migrated)])) return;
-    if (!set('fav_url_keyed', true)) return;
-    set('fav_stream_keyed', true);
   },
 
   getAnimationMode(): AnimationMode {

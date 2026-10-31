@@ -309,7 +309,6 @@ class PlaylistServiceImpl {
       log.info('Cache hit:', this.allChannels.length, 'channels,', this.epgSources.length, 'epg sources');
       this.applyCustomization();
       this.buildPlaylistTabs();
-      StorageService.migrateFavoriteKeys(this.channels);
       this.logLoadCompleted('cache', enabledIds.size, 0);
       return this.channels;
     }
@@ -635,7 +634,6 @@ class PlaylistServiceImpl {
     }
     this.applyCustomization();
     this.buildPlaylistTabs();
-    StorageService.migrateFavoriteKeys(this.channels);
     log.info('Refresh complete:', allChannels.length, 'total channels,', epgSources.length, 'epg sources');
     this.logLoadCompleted('network', playlists.length, failedPlaylists);
     done();
