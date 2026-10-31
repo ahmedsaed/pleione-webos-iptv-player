@@ -222,11 +222,14 @@ export class Player {
         this.reloadCurrentStream();
       },
       onEscalate: recovery => {
-        log.error('Live stream recovery exhausted; advancing channel',
+        const preview = this.livePreviewMode;
+        log.error('Live stream recovery exhausted',
           'event=playback.recovery.exhausted', this.playbackLabel(),
           `cause=${recovery.cause}`,
+          `outcome=${preview ? 'preview-failed' : 'next-channel'}`,
           this.recoveryState(recovery));
         this.markLiveUnavailable(recovery.cause === 'stall' ? 'stall_exhausted' : 'playback_error');
+        if (this.failLivePreview()) return;
         this.osd.updateMessage(t('player.streamError'));
         this.channelUp();
       },
@@ -1242,11 +1245,22 @@ export class Player {
     }
     this.stallWatchdog.stop();
     this.markLiveUnavailable('playback_error');
+    if (this.failLivePreview()) return;
     this.osd.updateMessage(t('player.streamError'));
     this.errorAdvanceTimer = setTimeout(() => {
       this.errorAdvanceTimer = null;
-      this.channelUp();
+      if (!this.failLivePreview()) this.channelUp();
     }, 2000);
+  }
+
+  // Live's preview follows the focused row, so a dead channel shows its
+  // failure there; moving on to the next channel would leave focus behind.
+  private failLivePreview(): boolean {
+    if (!this.livePreviewMode || !this.liveSessionActive) return false;
+    this.stallWatchdog.stop();
+    this.livePlaybackStatus = 'error';
+    this.onPlaybackStateChanged();
+    return true;
   }
 
   private markLiveUnavailable(reason: string): void {
