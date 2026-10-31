@@ -320,7 +320,6 @@ export const IT_MESSAGES = {
   'settings.timeCorrectionExample': 'Esempio',
   'settings.timeCorrectionHint': 'Sposta solo gli orari della guida; la riproduzione non cambia. Usa + se la guida è in anticipo sulla trasmissione e - se è in ritardo. Ogni passo è di 15 minuti; seleziona il valore centrale per reimpostare.',
   'settings.playback': 'Riproduzione',
-  'settings.autoPlay': 'Riproduci l’ultimo canale guardato all’avvio',
   'settings.channelCycleMode': 'Canale +/−',
   'settings.channelCycleModeHint': 'Con «Tutti i canali», i tasti Canale +/− scorrono l’intero elenco. «Vista di origine» limita il cambio di canale alla vista da cui è iniziata la riproduzione: gruppo, Preferiti o playlist. Se la vista diventa vuota, viene usato automaticamente «Tutti i canali».',
   'settings.channelCycleGlobal': 'Tutti i canali',

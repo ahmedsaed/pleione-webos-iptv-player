@@ -322,7 +322,6 @@ export const FR_MESSAGES = {
   'settings.timeCorrectionExample': 'Exemple',
   'settings.timeCorrectionHint': 'Décale uniquement les heures du guide ; la lecture ne change pas. Utilisez + si le guide est en avance sur la diffusion et - s’il est en retard. Chaque pas vaut 15 minutes ; sélectionnez la valeur horaire centrale pour réinitialiser.',
   'settings.playback': 'Lecture',
-  'settings.autoPlay': 'Lire la dernière chaîne regardée au démarrage',
   'settings.channelCycleMode': 'Chaîne +/−',
   'settings.channelCycleModeHint': 'En mode « Toutes les chaînes », les touches Chaîne +/− parcourent toute la liste. « Vue d’origine » limite le changement de chaîne à la vue depuis laquelle la lecture a commencé : groupe, Favoris ou liste de lecture. Si cette vue devient vide, le mode « Toutes les chaînes » est utilisé automatiquement.',
   'settings.channelCycleGlobal': 'Toutes les chaînes',

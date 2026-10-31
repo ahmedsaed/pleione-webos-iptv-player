@@ -64,5 +64,4 @@ are webOS platform limitations; the rest are design choices.
 
 - **Home page:** a separate home page with section shortcuts is intentionally
   omitted because it adds an extra step before reaching Live TV. The app opens
-  directly into a useful section and can play the last watched channel on
-  startup.
+  directly into a useful section.

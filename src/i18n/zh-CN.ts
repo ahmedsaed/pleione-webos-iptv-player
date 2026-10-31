@@ -316,7 +316,6 @@ export const ZH_CN_MESSAGES = {
   'settings.timeCorrectionExample': '示例',
   'settings.timeCorrectionHint': '仅移动节目指南时间，不影响播放。节目指南比实际播出早时用 +，比实际播出晚时用 -。每次调整 15 分钟；选择中间的时间值可重置。',
   'settings.playback': '播放',
-  'settings.autoPlay': '启动时播放上次观看的频道',
   'settings.channelCycleMode': '频道上/下键',
   'settings.channelCycleModeHint': '“所有频道”按完整频道列表切换；“当前列表”只在开始播放时所在的分组、收藏或播放列表中切换。当前列表为空时，自动切换到所有频道。',
   'settings.channelCycleGlobal': '所有频道',

@@ -618,28 +618,6 @@ test('removing a source with locks asks for the PIN', async ({ page }) => {
   await expect(rows).toHaveCount(0);
 });
 
-test('auto-play skips a locked last channel at startup', async ({ page }) => {
-  await openManagerWithNewPin(page);
-  await page.locator('[data-parental-group]').filter({ hasText: 'News' }).click();
-  await leaveLocked(page);
-  await page.evaluate(() => {
-    const url = 'http://streams.example.com/one.m3u8';
-    let h = 0x811c9dc5;
-    for (let i = 0; i < url.length; i++) { h ^= url.charCodeAt(i); h = Math.imul(h, 0x01000193); }
-    localStorage.setItem('iptv_auto_play', 'true');
-    localStorage.setItem('iptv_last_channel_key', JSON.stringify((h >>> 0).toString(16).padStart(8, '0')));
-  });
-  // seedPlaylist re-seeds without an id on reload; keep the saved one, as a TV would.
-  const saved = await page.evaluate(() => localStorage.getItem('iptv_playlists'));
-  await page.addInitScript(value => localStorage.setItem('iptv_playlists', value!), saved);
-  await page.reload();
-
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await expect(page.locator('.channel-item').first()).toBeVisible();
-  await expect(page.locator('.parental-pin-prompt')).toBeHidden();
-  await expect(page.locator('#view-player')).toBeHidden();
-});
-
 test('turns parental controls off and on from the Options tab', async ({ page }) => {
   await openManagerWithNewPin(page);
   await page.locator('[data-parental-tab="options"]').click();

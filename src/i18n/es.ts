@@ -322,7 +322,6 @@ export const ES_MESSAGES = {
   'settings.timeCorrectionExample': 'Ejemplo',
   'settings.timeCorrectionHint': 'Solo desplaza las horas de la guía; la reproducción no cambia. Usa + si la guía va adelantada respecto a la emisión y - si va atrasada. Cada paso son 15 minutos; selecciona el valor de tiempo central para restablecer.',
   'settings.playback': 'Reproducción',
-  'settings.autoPlay': 'Reproducir el último canal visto al iniciar',
   'settings.channelCycleMode': 'Canal +/−',
   'settings.channelCycleModeHint': 'Con «Todos los canales», las teclas Canal +/− recorren toda la lista. «Vista de origen» limita el cambio al grupo, a Favoritos o a la lista de reproducción desde la que se inició la reproducción. Si esa vista queda vacía, se usa automáticamente «Todos los canales».',
   'settings.channelCycleGlobal': 'Todos los canales',

@@ -1322,11 +1322,7 @@ describe('StorageService channel customization store', () => {
     expect(StorageService.getChannelCustomization()).toBeNull();
   });
 
-  it('round-trips the last channel keys and the show-hidden toggle', () => {
-    expect(StorageService.getLastChannelKey()).toBe('');
-    StorageService.setLastChannelKey('k1');
-    expect(StorageService.getLastChannelKey()).toBe('k1');
-
+  it('round-trips the show-hidden toggle', () => {
     expect(StorageService.getShowHiddenChannels()).toBe(false);
     StorageService.setShowHiddenChannels(true);
     expect(StorageService.getShowHiddenChannels()).toBe(true);

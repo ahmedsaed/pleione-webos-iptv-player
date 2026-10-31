@@ -322,7 +322,6 @@ export const DE_MESSAGES = {
   'settings.timeCorrectionExample': 'Beispiel',
   'settings.timeCorrectionHint': 'Verschiebt nur die Zeiten der Programmübersicht; die Wiedergabe bleibt unverändert. + verwenden, wenn die Übersicht der Ausstrahlung voraus ist, und -, wenn sie zurückliegt. Jeder Schritt beträgt 15 Minuten; der mittlere Zeitwert setzt die Korrektur zurück.',
   'settings.playback': 'Wiedergabe',
-  'settings.autoPlay': 'Beim Start den zuletzt angesehenen Sender abspielen',
   'settings.channelCycleMode': 'Sender +/−',
   'settings.channelCycleModeHint': 'Bei „Alle Sender“ wechseln die Tasten Sender +/− durch die gesamte Senderliste. „Ausgangsansicht“ beschränkt den Wechsel auf die Gruppe, die Favoriten oder die Playlist, aus der die Wiedergabe gestartet wurde. Wird diese Ansicht leer, wird automatisch „Alle Sender“ verwendet.',
   'settings.channelCycleGlobal': 'Alle Sender',

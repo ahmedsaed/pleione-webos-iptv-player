@@ -1007,22 +1007,6 @@ class PlaylistServiceImpl {
     }
     return -1;
   }
-
-  private indexOfUniqueKey(key: string): number {
-    let match = -1;
-    for (let i = 0; i < this.channels.length; i++) {
-      const channel = this.channels[i];
-      if (channelKey(channel) !== key && legacyChannelKey(channel) !== key) continue;
-      if (match >= 0) return -1;
-      match = i;
-    }
-    return match;
-  }
-
-  resolveLastChannelIndex(stableKey: string, legacyIndex: number): number {
-    if (!stableKey) return legacyIndex;
-    return this.indexOfUniqueKey(stableKey);
-  }
 }
 
 export const PlaylistService = new PlaylistServiceImpl();

@@ -324,7 +324,6 @@ export const EN_MESSAGES = {
   'settings.timeCorrectionHint': 'Shifts only program guide times; playback is unchanged. Use + when the guide is earlier than the broadcast, or - when it is later. Each step is 15 minutes; select the middle time value to reset.',
   'settings.manageReminders': 'Manage Reminders ({count})',
   'settings.playback': 'Playback',
-  'settings.autoPlay': 'Play the last watched channel on startup',
   'settings.channelCycleMode': 'Channel Up/Down',
   'settings.channelCycleModeHint': 'Global cycles the entire channel list. Active stays within the group, Favorites, or playlist a channel was tuned from, and returns to Global if that view becomes empty.',
   'settings.channelCycleGlobal': 'Global',

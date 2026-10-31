@@ -937,22 +937,6 @@ export const StorageService = {
     syncUserRecords('reminders', previous, next);
   },
 
-  getLastChannel(): number {
-    return get<number>('last_channel', 0);
-  },
-  setLastChannel(index: number): void {
-    set('last_channel', index);
-  },
-
-  // Companion to last_channel: the channelKey survives a reorder or a provider
-  // reshuffle, where the index does not. The index stays as the fallback for an
-  // install that predates this key.
-  getLastChannelKey(): string {
-    return get<string>('last_channel_key', '');
-  },
-  setLastChannelKey(key: string): void {
-    set('last_channel_key', key);
-  },
   getChannelCustomization(): ChannelCustomization | null {
     const data = userData
       ? cloneValue(userData.channelCustomization)
@@ -1097,13 +1081,6 @@ export const StorageService = {
     if (!this.setFavorites([...new Set(migrated)])) return;
     if (!set('fav_url_keyed', true)) return;
     set('fav_stream_keyed', true);
-  },
-
-  getAutoPlay(): boolean {
-    return get<boolean>('auto_play', false);
-  },
-  setAutoPlay(val: boolean): void {
-    set('auto_play', val);
   },
 
   getAnimationMode(): AnimationMode {

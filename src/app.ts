@@ -927,7 +927,7 @@ class App {
   }
 
   // `launch`: the first load lands on Home, which only checks the connection
-  // (or on Live, by a hidden preference, or when auto-play resumes a channel);
+  // (or on Live, by a hidden preference);
   // a reload stays on Live. `section` loads the channels for the section
   // being opened, and `quiet` for a due reminder, without changing the view.
   // `live` loads them for Live, which shows its own loading state and error.
@@ -972,7 +972,7 @@ class App {
         return;
       }
 
-      if (landing === 'launch' && this.startsOnHome()) {
+      if (landing === 'launch' && !StorageService.getStartOnLive()) {
         this.unloadChannels(forceEpgRefresh);
         this.syncSources();
         this.channelList.render();
@@ -1041,20 +1041,6 @@ class App {
       this.scanReminders();
       ReminderService.reschedulePending();
 
-      if (StorageService.getAutoPlay() && (landing === 'launch' || landing === 'channels')) {
-        // The per-stream key survives customization and provider reshuffles.
-        const lastCh = PlaylistService.resolveLastChannelIndex(
-          StorageService.getLastChannelKey(),
-          StorageService.getLastChannel(),
-        );
-        const last = PlaylistService.channels[lastCh];
-        // A locked channel must not open a PIN prompt over a cold start.
-        if (last && ParentalControlService.decision(liveParentalRequest(last)).allowed) {
-          log.info('Auto-play resuming last channel index', lastCh);
-          this.playChannel(lastCh);
-        }
-      }
-
       if (epgSources.length) {
         if (forceEpgRefresh) {
           EpgService.refresh(() => this.refreshEpgDependentViews(), true)
@@ -1095,11 +1081,6 @@ class App {
       }
       done();
     }
-  }
-
-  // Auto-play resumes a channel at launch, so it needs the channels at once.
-  private startsOnHome(): boolean {
-    return !StorageService.getStartOnLive() && !StorageService.getAutoPlay();
   }
 
   // Home starts with no channels; a reload drops any already loaded.

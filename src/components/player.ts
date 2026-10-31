@@ -669,8 +669,6 @@ export class Player {
     this.videoEl.volume = this.liveVolume;
     this.catchupCheckpointAt = Date.now(); // reset periodic-save timer for the new session
     this.osd.clearFailedIcons();
-    if (channelIndex >= 0) StorageService.setLastChannel(channelIndex);
-    StorageService.setLastChannelKey(channelKey(channel));
 
     const url = this.resolveStreamUrl(channel, catchup || null);
     if (catchup) log.debug('catchup URL:', diagnosticStreamUrl(url));

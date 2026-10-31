@@ -348,7 +348,6 @@ export const AR_MESSAGES = {
   'settings.timeCorrectionHint': 'يزيح أوقات دليل البرامج فقط؛ لا يتغير التشغيل. استخدم + عندما يسبق الدليل البث، أو - عندما يتأخر عنه. كل خطوة 15 دقيقة؛ اختر قيمة الوقت الوسطى لإعادة التعيين.',
   'settings.manageReminders': 'إدارة التذكيرات ({count})',
   'settings.playback': 'التشغيل',
-  'settings.autoPlay': 'تشغيل آخر قناة تمت مشاهدتها عند البدء',
   'settings.channelCycleMode': 'القناة للأعلى/للأسفل',
   'settings.channelCycleModeHint': '«كل القنوات» يتنقل في قائمة القنوات كاملة. «القائمة الحالية» يبقى داخل المجموعة أو المفضلة أو قائمة التشغيل التي بدأت منها القناة، ويعود إلى «كل القنوات» إذا أصبحت فارغة.',
   'settings.channelCycleGlobal': 'كل القنوات',

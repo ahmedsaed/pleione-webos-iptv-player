@@ -334,7 +334,6 @@ export const PL_MESSAGES = {
   'settings.timeCorrectionHint': 'Zmienia tylko godziny w programie TV; nie wpływa na odtwarzanie. Użyj +, gdy godziny w programie TV są wcześniejsze niż rzeczywista emisja, a −, gdy są późniejsze. Krok wynosi 15 minut; wybranie wartości środkowej zeruje korektę.',
   'settings.manageReminders': 'Zarządzaj przypomnieniami ({count})',
   'settings.playback': 'Odtwarzanie',
-  'settings.autoPlay': 'Odtwarzaj ostatnio oglądany kanał po uruchomieniu',
   'settings.channelCycleMode': 'Kanał +/−',
   'settings.channelCycleModeHint': 'Tryb globalny przełącza kanały na całej liście. Tryb „Aktywny widok” ogranicza przełączanie do bieżącej grupy, Ulubionych lub playlisty, z której włączono kanał. Jeśli ten widok jest pusty, aplikacja przechodzi do trybu globalnego.',
   'settings.channelCycleGlobal': 'Globalnie',

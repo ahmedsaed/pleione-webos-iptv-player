@@ -725,7 +725,6 @@ export class Settings {
     this.storedEpgOffsets = StorageService.getEpgOffsets();
     this.epgOffsets = { ...this.storedEpgOffsets };
     const epgSources = this.epgSources(manualEpgSources, allPlaylists);
-    const autoPlay = StorageService.getAutoPlay();
     const channelCycleMode = StorageService.getChannelCycleMode();
     const showHidden = StorageService.getShowHiddenChannels();
     const feedTime = StorageService.getTzMode() === 'feed';
@@ -980,10 +979,6 @@ export class Settings {
             <div class="settings-category ${this.pageClass('playback')}" id="settings-playback" data-settings-category="playback">
               <div class="settings-section">
                 <h3 class="settings-section-title">${t('settings.playback')}</h3>
-                <div class="settings-item">
-                  <div class="settings-item-title">${t('settings.autoPlay')}</div>
-                  ${toggleGroup('auto-play', [{ value: 'on', label: t('settings.on') }, { value: 'off', label: t('settings.off') }], autoPlay ? 'on' : 'off')}
-                </div>
                 <div class="settings-item">
                   <div class="settings-item-title">${t('settings.channelCycleMode')}</div>
                   ${toggleGroup('channel-cycle-mode', [
@@ -2953,9 +2948,6 @@ export class Settings {
     const previousManualEpgSources = StorageService.getManualEpgSources();
     StorageService.setManualEpgSources(manualEpgSources);
 
-    const autoPlayBtn = $('#auto-play .toggle-option.active', this.container);
-    if (autoPlayBtn) StorageService.setAutoPlay(autoPlayBtn.dataset.value === 'on');
-
     const channelCycleBtn = $('#channel-cycle-mode .toggle-option.active', this.container);
     if (channelCycleBtn?.dataset.value) {
       StorageService.setChannelCycleMode(channelCycleBtn.dataset.value as ChannelCycleMode);
@@ -3076,7 +3068,7 @@ export class Settings {
     if ($('#tmdb-key', this.container)) StorageService.setTmdbApiKey(osVal('tmdb-key'));
 
     // Source, EPG URL, and time correction changes rebuild loaded data. Display-only
-    // settings (time zone, auto-play) just re-render in place.
+    // settings (time zone, Channel Up/Down) just re-render in place.
     const sig = (l: PlaylistEntry[]) =>
       JSON.stringify(l.map(pl => [
         pl.id,

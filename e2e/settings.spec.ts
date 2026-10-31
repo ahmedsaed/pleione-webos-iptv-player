@@ -482,7 +482,7 @@ test.describe('Settings navigation', () => {
     await expect(focusedButton).toHaveCSS('transform', 'matrix(1.03, 0, 0, 1.03, 0, 0)');
 
     await page.locator('[data-settings-target="playback"]').click();
-    const toggle = page.locator('#auto-play .toggle-option').first();
+    const toggle = page.locator('#channel-cycle-mode .toggle-option').first();
     await toggle.hover();
     await expect(toggle).toHaveClass(/focused/);
     await expect(toggle).toHaveCSS('transform', 'none');
@@ -1811,19 +1811,19 @@ test.describe('Settings pages', () => {
     await enterTab(page, 'settings');
 
     await page.locator('[data-settings-target="playback"]').click();
-    await page.locator('#auto-play [data-value="on"]').click();
+    await page.locator('#channel-cycle-mode [data-value="active"]').click();
     await page.locator('[data-settings-target="appearance"]').click();
     await page.locator('.theme-swatch[data-theme-id="arctic"]').click();
     await page.locator('[data-settings-target="general"]').click();
     await page.locator('[data-settings-target="playback"]').click();
-    await expect(page.locator('#auto-play .toggle-option.active')).toHaveAttribute('data-value', 'on');
+    await expect(page.locator('#channel-cycle-mode .toggle-option.active')).toHaveAttribute('data-value', 'active');
     await page.locator('[data-settings-target="appearance"]').click();
     await expect(page.locator('.theme-swatch.active')).toHaveAttribute('data-theme-id', 'arctic');
 
     await page.locator('#save-settings').click();
     await expect.poll(() => page.evaluate(() => [
-      localStorage.getItem('iptv_auto_play'), localStorage.getItem('iptv_theme'),
-    ])).toEqual(['true', '"arctic"']);
+      localStorage.getItem('iptv_channel_cycle_mode'), localStorage.getItem('iptv_theme'),
+    ])).toEqual(['"active"', '"arctic"']);
   });
 
   for (const size of ['100', '130']) {

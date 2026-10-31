@@ -92,7 +92,7 @@ by lennylxx, licensed under Apache-2.0. See [NOTICE](NOTICE).
 - **Search** — across channels, EPG programs, movies, and series, with direct live, catch-up, and reminder actions; recent searches drop down under the search box for one-press repeat searches; the search index is prebuilt in the background and cached, so Search is ready almost instantly
 - **Channel sidebar** — switch channels over the video with current-program info, organized by group
 - **Channel customization** — reorder, hide, rename, regroup, manage favorites, and correct per-channel EPG matching or timing
-- **Auto-play and genre group icons** for faster browsing
+- **Genre group icons** for faster browsing
 - **Number-key channel entry** — press the remote's number keys to tune by channel number from the channel list or while watching, with on-screen digit feedback
 - **Full remote & Magic Remote** — spatial D-pad navigation and pointer control across every view
 - **Magic Remote edge scrolling** — rest the pointer near the edge of a catalog or search rail, tab row, or Guide date strip to scroll it, faster the longer it stays
@@ -269,7 +269,7 @@ Open with the **Blue** key or the **Settings** tab in the top bar. Sections:
 - **EPG time correction** — adjust each source independently in 15-minute steps.
 - **Program reminders** — open the date-grouped Reminder Manager to review or remove upcoming reminders.
 - **Appearance** — preview an app-wide color theme, choose Dark or Frosted player overlays, set the interface size from 90% to 130%, and adjust text from 80% to 150%.
-- **Playback** — toggle auto-play and Live preview, and choose whether Channel
+- **Playback** — toggle Live preview, and choose whether Channel
   Up/Down cycles the global list or stays within the active group, Favorites,
   or playlist.
 - **Online Subtitles** — choose a preferred subtitle language and configure SubDL, OpenSubtitles, and Assrt credentials for online search. Optionally add your own TMDB API key (v3 key or v4 read access token) to show cast photos on movie and series pages; without one, the app never contacts TMDB.

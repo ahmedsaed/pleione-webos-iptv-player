@@ -31,7 +31,6 @@ const {
       };
     }[],
     manualEpgSources: [] as ManualEpgSource[],
-    autoPlay: false,
     animationMode: 'reduced' as AnimationMode,
     theme: 'midnight' as string,
     overlayStyle: 'dark' as string,
@@ -86,7 +85,6 @@ const {
         ...source,
         playlistIds: source.playlistIds.slice(),
       }))),
-      getAutoPlay: vi.fn(() => state.autoPlay),
       getAnimationMode: vi.fn(() => state.animationMode),
       getTheme: vi.fn(() => state.theme),
       getOverlayStyle: vi.fn(() => state.overlayStyle),
@@ -122,7 +120,6 @@ const {
         }));
         return true;
       }),
-      setAutoPlay: vi.fn(),
       setAnimationMode: vi.fn((value: AnimationMode) => { state.animationMode = value; }),
       setTheme: vi.fn((id: string) => { state.theme = id; }),
       setOverlayStyle: vi.fn((s: string) => { state.overlayStyle = s; }),
@@ -257,7 +254,6 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   state.playlists = [];
   state.manualEpgSources = [];
-  state.autoPlay = false;
   state.animationMode = 'reduced';
   state.theme = 'midnight';
   state.overlayStyle = 'dark';
@@ -408,7 +404,7 @@ describe('Settings.render', () => {
     await vi.waitFor(() => expect(container.querySelector('#check-channel-health')).not.toBeNull());
   });
 
-  it('groups language and time zone under General, with autoplay under Playback', () => {
+  it('groups language and time zone under General, with Channel Up/Down under Playback', () => {
     settings.render();
     expect(container.querySelectorAll('.settings-section > .settings-section-title'))
       .toHaveLength(container.querySelectorAll('.settings-section').length);
@@ -416,7 +412,7 @@ describe('Settings.render', () => {
       ?.getAttribute('data-settings-category')).toBe('general');
     expect(container.querySelector('#tz-mode')?.closest('[data-settings-category]')
       ?.getAttribute('data-settings-category')).toBe('guide');
-    expect(container.querySelector('#auto-play')?.closest('[data-settings-category]')
+    expect(container.querySelector('#channel-cycle-mode')?.closest('[data-settings-category]')
       ?.getAttribute('data-settings-category')).toBe('playback');
     expect(container.querySelector('#clear-recently-watched')?.closest('[data-settings-category]')
       ?.getAttribute('data-settings-category')).toBe('data');
@@ -526,12 +522,6 @@ describe('Settings.render', () => {
     click('#playlist-entries .source-toggle');
     expect(authorize).toHaveBeenCalledTimes(1);
     expect(entry().classList.contains('source-disabled')).toBe(false);
-  });
-
-  it('reflects the auto-play state on the toggle', () => {
-    state.autoPlay = true;
-    settings.render();
-    expect(container.querySelector('#auto-play .toggle-option.active')!.getAttribute('data-value')).toBe('on');
   });
 
   it('renders animation, reconnect, and refresh controls under Advanced', () => {
@@ -1199,11 +1189,11 @@ describe('Settings editing', () => {
     expect(container.querySelectorAll('#playlist-entries .settings-row:not(.playlist-header-row)')).toHaveLength(1);
   });
 
-  it('selecting On activates auto-play', () => {
-    const activeVal = () => container.querySelector('#auto-play .toggle-option.active')!.getAttribute('data-value');
-    expect(activeVal()).toBe('off');
-    click('#auto-play [data-value="on"]');
-    expect(activeVal()).toBe('on');
+  it('selecting an option activates it in its toggle group', () => {
+    const activeVal = () => container.querySelector('#channel-cycle-mode .toggle-option.active')!.getAttribute('data-value');
+    expect(activeVal()).toBe('global');
+    click('#channel-cycle-mode [data-value="active"]');
+    expect(activeVal()).toBe('active');
   });
 
   it('explains the cache scope and requires confirmation before clearing', async () => {
@@ -1520,7 +1510,7 @@ describe('Settings.save', () => {
     expect(container.querySelector('#live-preview-setting')).toBeNull();
   });
 
-  it('persists trimmed playlists, EPG and auto-play, then reloads', () => {
+  it('persists trimmed playlists and EPG, then reloads', () => {
     const names = container.querySelectorAll<HTMLInputElement>('.playlist-name');
     const urls = container.querySelectorAll<HTMLInputElement>('.playlist-url');
     names[0].value = 'My';
@@ -1529,7 +1519,6 @@ describe('Settings.save', () => {
     urls[1].value = '   '; // blank URL -> dropped
     click('#add-epg-source');
     container.querySelector<HTMLInputElement>('.manual-epg-url')!.value = ' http://epg ';
-    click('#auto-play [data-value="on"]');
 
     click('#save-settings');
 
@@ -1537,7 +1526,6 @@ describe('Settings.save', () => {
     expect(storageMock.setManualEpgSources).toHaveBeenCalledWith([
       { url: 'http://epg', playlistIds: [] },
     ]);
-    expect(storageMock.setAutoPlay).toHaveBeenCalledWith(true);
     expect(onSave).toHaveBeenCalledWith('reload'); // playlist + EPG changed
   });
 
@@ -1986,18 +1974,18 @@ describe('Settings.handleAction', () => {
   });
 
   it('keeps unsaved edits across category pages and saves them all', () => {
-    state.autoPlay = false;
+    state.channelCycleMode = 'global';
     settings.render();
     click('[data-settings-target="playback"]');
-    click('#auto-play [data-value="on"]');
+    click('#channel-cycle-mode [data-value="active"]');
     click('[data-settings-target="appearance"]');
     click('.theme-swatch[data-theme-id="arctic"]');
     click('[data-settings-target="playback"]');
 
-    expect(container.querySelector('#auto-play .toggle-option.active')?.getAttribute('data-value'))
-      .toBe('on');
+    expect(container.querySelector('#channel-cycle-mode .toggle-option.active')?.getAttribute('data-value'))
+      .toBe('active');
     click('#save-settings');
-    expect(storageMock.setAutoPlay).toHaveBeenCalledWith(true);
+    expect(storageMock.setChannelCycleMode).toHaveBeenCalledWith('active');
     expect(storageMock.setTheme).toHaveBeenCalledWith('arctic');
   });
 

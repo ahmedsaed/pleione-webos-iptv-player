@@ -85,11 +85,8 @@ This is the complete active key inventory:
 | --- | --- | --- | --- |
 | `iptv_playlists` | `PlaylistEntry[]` | Stable id, display name, source URL/type, uploaded channel count, and Xtream username, password, and live-output preference | Configuration |
 | `iptv_epg_url` | `string` | Manually configured XMLTV URL | Configuration |
-| `iptv_last_channel` | `number` | Last played channel's array index | Navigation state |
-| `iptv_last_channel_key` | `string` | Stable key of the last played channel; survives source reordering | Navigation state |
 | `iptv_selectedXtream` | `string \| null` | Account id used by Movies, Series, and Search | Navigation state |
 | `iptv_show_hidden_channels` | `boolean` | Whether normal lists reveal hidden channels in a dimmed state | Preference |
-| `iptv_auto_play` | `boolean` | Whether startup automatically plays the selected channel | Preference |
 | `iptv_live_reconnect_attempts` | `number` | Live channel reconnection limit (0–5; default 3) | Preference |
 | `iptv_playlist_refresh_interval_hours` | `number` | Channel-list refresh interval: 0 (off), 1, 3, 6, 12, or 24 hours; default 6 | Preference |
 | `iptv_epg_refresh_interval_hours` | `number` | Program-guide refresh interval: 0 (off), 1, 3, 6, 12, or 24 hours; default 6 | Preference |

@@ -316,7 +316,6 @@ export const TR_MESSAGES = {
   'settings.timeCorrectionHint': 'Yalnızca rehber saatlerini kaydırır; oynatma değişmez. Rehber yayından erkense +, geçse - kullanın. Her adım 15 dakikadır; sıfırlamak için ortadaki saat değerini seçin.',
   'settings.manageReminders': 'Hatırlatıcıları Yönet ({count})',
   'settings.playback': 'Oynatma',
-  'settings.autoPlay': 'Başlangıçta son izlenen kanalı oynat',
   'settings.channelCycleMode': 'Kanal Yukarı/Aşağı',
   'settings.channelCycleModeHint': 'Genel, tüm kanal listesinde gezinir. Etkin, kanalın açıldığı grup, Favoriler veya oynatma listesiyle sınırlıdır; görünüm boşalırsa Genel’e döner.',
   'settings.channelCycleGlobal': 'Genel',

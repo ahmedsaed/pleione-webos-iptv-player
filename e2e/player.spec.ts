@@ -1,4 +1,5 @@
 import {
+  pressKeys,
   test,
   expect,
   type Page,
@@ -77,12 +78,13 @@ test('live playback retries the current channel before switching', async ({ page
     el.dispatchEvent(new Event('error'));
   });
   await expect(page.locator('#view-player')).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem('iptv_last_channel'))).toBe('0');
   await expect(video).not.toHaveAttribute('data-original-stream', 'true');
-  expect(await page.evaluate(() => localStorage.getItem('iptv_last_channel'))).toBe('0');
+  // Still on the same channel: Yellow shows its info.
+  await pressKeys(page, 405);
+  await expect(page.locator('.osd-channel-name')).toHaveText('Channel One');
   await video.dispatchEvent('error');
-  await expect.poll(() =>
-    page.evaluate(() => localStorage.getItem('iptv_last_channel'))).toBe('1');
+  await pressKeys(page, 405);
+  await expect(page.locator('.osd-channel-name')).toHaveText('Channel Two');
 });
 
 test('player sidebar focuses the playing channel; search still filters', async ({ page }) => {
