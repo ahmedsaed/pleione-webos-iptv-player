@@ -952,7 +952,6 @@ try {
     const { context, page } = await newPage({ fakeStream: true });
     await page.addInitScript(() => {
       localStorage.setItem('iptv_theme', JSON.stringify('pastel-latte'));
-      localStorage.setItem('iptv_live_preview', JSON.stringify(true));
     });
     await gotoChannels(page, base);
     await page.keyboard.press('Enter');
