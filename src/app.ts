@@ -1928,7 +1928,8 @@ class App {
         break;
       case 'channels': {
         if (this.livePreview.handleAction(action)) break;
-        if (this.liveMode === 'guide' && this.guideKeys === 'grid') {
+        // Digits tune from the grid as from the groups column.
+        if (this.liveMode === 'guide' && this.guideKeys === 'grid' && action !== 'number') {
           this.liveGuide.handleAction(action);
           break;
         }

@@ -274,6 +274,14 @@ test('a playlist picked with the keys picks the channels the Guide shows', async
   await expect(page.locator('#live-guide .guide-name')).toHaveText(['ch4']);
 });
 
+// Regression: digits in the time grid echoed and did nothing.
+test('digits in the grid tune the channel, as from the groups column', async ({ page }) => {
+  await setup(page);
+  await pressKeys(page, 51);
+  await expect(page.locator('#view-player')).toBeVisible();
+  await expect(page.locator('#view-player')).toContainText('ch3');
+});
+
 // Regression: an empty group left the keys on a grid with nothing to ring.
 test('an empty group leaves the keys on the groups column', async ({ page }) => {
   await setup(page);
