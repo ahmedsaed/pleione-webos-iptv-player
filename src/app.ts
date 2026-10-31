@@ -336,6 +336,8 @@ class App {
     this.search = new Search($('.search-results-host', this.views.search)!, {
       onFocusBox: () => this.searchBox.focus(),
       onReleaseBox: () => this.searchBox.release(),
+      onHoldBox: () => this.searchBox.hold(),
+      boxHeld: () => this.searchBox.held,
       // Step back out to the search box, where a second Back goes Home.
       onBack: () => this.searchBox.focus(),
       onPickRecent: (query) => {

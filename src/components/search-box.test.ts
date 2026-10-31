@@ -82,6 +82,42 @@ describe('SearchBox', () => {
     expect(document.activeElement).toBe(input());
   });
 
+  it('holds the keys with the keyboard shut until OK puts the caret back', () => {
+    box.focus();
+    key('Enter');
+    box.hold();
+    expect(Focus.owner()?.id).toBe('search.box');
+    expect(document.activeElement).not.toBe(input());
+    expect(box.held).toBe(true);
+    expect(host.querySelector('.search-box.active')).not.toBeNull();
+
+    Focus.owner()?.handle('select');
+    expect(document.activeElement).toBe(input());
+    expect(box.held).toBe(false);
+
+    box.hold();
+    Focus.owner()?.handle('down');
+    expect(handlers.onLeave).toHaveBeenCalledTimes(2);
+    box.release();
+    expect(host.querySelector('.search-box.active')).toBeNull();
+    expect(box.held).toBe(false);
+  });
+
+  it('a held box drops its ring under a scope above and keeps the keyboard shut after', () => {
+    box.hold();
+    Focus.owner();
+    const menuRoot = document.createElement('div');
+    document.body.appendChild(menuRoot);
+    const menu = Focus.register({ id: 'test.menu2', root: menuRoot, tier: Tier.menu, restrict: 'self-only' });
+    Focus.push(menu);
+    expect(Focus.owner()?.id).toBe('test.menu2');
+    expect(host.querySelector('.search-box.active')).toBeNull();
+    Focus.pop(menu);
+    expect(Focus.owner()?.id).toBe('search.box');
+    expect(host.querySelector('.search-box.active')).not.toBeNull();
+    expect(document.activeElement).not.toBe(input());
+  });
+
   it('a click into the box takes the keys', () => {
     input().focus();
     expect(Focus.owner()?.id).toBe('search.box');

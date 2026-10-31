@@ -182,7 +182,7 @@ test('shows Resume at the saved position on return and keeps playback actions al
   await expect(page.locator('#view-movies [data-action="resume"]')).toContainText('Resume 0:20');
   const actions = page.locator('#view-movies .detail-btn');
   await expect(actions).toHaveCount(3);
-  await expect(actions.nth(2)).toContainText('Play from start');
+  await expect(actions.nth(1)).toContainText('Play from start');
   const layout = await actions.evaluateAll((buttons) => buttons.map((button) => ({
     height: (button as HTMLElement).offsetHeight,
     top: (button as HTMLElement).offsetTop,

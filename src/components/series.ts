@@ -5,7 +5,7 @@ import { StorageService } from '../services/storage-service';
 import { loadSeriesCategories, loadSeries, loadSeriesInfo } from '../services/xtream-catalog';
 import { xtreamEpisodeUrl, type XtreamCredentials } from '../utils/xtream-url';
 import { CatalogView, type CatalogHandlers, type CollectionKind, type CollectionEntry, type HeroDetails } from './catalog-view';
-import { PLAY_ICON } from './icons';
+import { PLAY_ICON, RESTART_ICON } from './icons';
 import { showToast } from './toast';
 import { t, tp } from '../i18n';
 import { VirtualList } from '../utils/virtual-list';
@@ -132,6 +132,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     if (el.dataset.action === 'watchlist') { this.toggleWatchlist(); return true; }
     if (el.dataset.action === 'resume') { this.resumeSeries(); return true; }
     if (el.dataset.action === 'play') { this.playFirstEpisode(); return true; }
+    if (el.dataset.action === 'restart') { this.restartSeries(); return true; }
     if (el.dataset.resumeEpisode !== undefined) { this.playResume(el.dataset.resumeEpisode); return true; }
     if (el.dataset.season !== undefined) { this.selectSeason(Number(el.dataset.season)); return true; }
     if (el.dataset.episodeId !== undefined) { this.playEpisode(el.dataset.episodeId); return true; }
@@ -234,6 +235,11 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     else this.playResume(resumed.entry.itemId);
   }
 
+  private restartSeries(): void {
+    const episode = this.resumeEpisode()?.episode;
+    if (episode) this.playEpisode(episode.id, true);
+  }
+
   private playFirstEpisode(): void {
     const info = this.currentInfo;
     if (!info) return;
@@ -299,7 +305,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     };
   }
 
-  private playEpisode(episodeId: string): void {
+  private playEpisode(episodeId: string, fromStart = false): void {
     const ep = this.findEpisode(episodeId);
     const series = this.currentSeries;
     const a = this.account;
@@ -308,7 +314,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     const around = this.episodesAround(ep.id, series);
     this.handlers.onPlayVod({
       ...this.episodePlayback(series, ep),
-      resumeSecs: saved ? saved.position : 0,
+      resumeSecs: saved && !fromStart ? saved.position : 0,
       episodeQueue: around.after,
       previousEpisodes: around.before,
     });
@@ -412,7 +418,8 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     `], this.seasonTabs(info), 'episode-track');
   }
 
-  private primaryAction(): Safe {
+  // Resume, then Play from start for the episode it resumes.
+  private primaryActions(): Safe {
     const resumed = this.resumeEpisode();
     if (!resumed) {
       return this.detailButton({ key: 'play', label: t('catalog.play'), icon: PLAY_ICON, primary: true });
@@ -421,15 +428,17 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     const code = episode ? null : RESUME_CODE.exec(entry.name);
     const season = episode ? episode.season : code ? Number(code[1]) : 0;
     const number = episode ? episode.episode : code ? Number(code[2]) : 0;
-    return this.detailButton({
-      key: 'resume',
-      label: t('catalog.resumeAt', {
-        position: season > 0 || number > 0 ? `S${season} · E${number}` : formatPosition(entry.position),
-      }),
-      icon: PLAY_ICON,
-      primary: true,
-      progress: entry.duration > 0 ? entry.position / entry.duration : undefined,
-    });
+    return html`
+      ${this.detailButton({
+        key: 'resume',
+        label: t('catalog.resumeAt', {
+          position: season > 0 || number > 0 ? `S${season} · E${number}` : formatPosition(entry.position),
+        }),
+        icon: PLAY_ICON,
+        primary: true,
+      })}
+      ${episode ? this.detailButton({ key: 'restart', label: t('catalog.playFromStart'), icon: RESTART_ICON }) : ''}
+    `;
   }
 
   protected renderDetail(restoreFocus = true): void {
@@ -452,7 +461,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       genre: info?.genre || series.genre || '',
       rating: info?.rating || series.rating,
       plot: info?.plot || series.plot || '',
-      actions: html`${this.primaryAction()}${this.watchlistButton(watchlisted)}`,
+      actions: html`${this.primaryActions()}${this.watchlistButton(watchlisted)}`,
       rows: [
         this.episodesRail(a.id),
         this.castRail(parseCast(info?.cast ?? '', info?.director ?? ''), this.castPhotos),
