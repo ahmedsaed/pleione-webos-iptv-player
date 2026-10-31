@@ -583,7 +583,7 @@ async function setupPage(page, {
   // to the full channel set; the first account (My Xtream) is the active one.
   await page.addInitScript(({ favs, playlists }) => {
     localStorage.setItem('iptv_playlists', JSON.stringify(playlists));
-    localStorage.setItem('iptv_epg_url', JSON.stringify('https://demo.local/epg.xml'));
+    localStorage.setItem('iptv_manual_epg_sources', JSON.stringify([{ url: 'https://demo.local/epg.xml', playlistIds: [] }]));
     localStorage.setItem('iptv_favorites', JSON.stringify(favs));
   }, {
     favs: FAVORITE_IDS,

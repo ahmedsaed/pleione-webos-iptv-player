@@ -124,7 +124,7 @@ async function prepareM3U(page: Page): Promise<void> {
       startMs: Date.now() + 3600_000,
       stopMs: Date.now() + 7200_000,
     }]));
-    localStorage.setItem('iptv_epg_url', JSON.stringify('http://epg.example.com/guide.xml'));
+    localStorage.setItem('iptv_manual_epg_sources', JSON.stringify([{ url: 'http://epg.example.com/guide.xml', playlistIds: [] }]));
     localStorage.setItem('iptv_favorites', JSON.stringify(['one']));
     // A half-watched past program, so the EPG offers to resume it.
     const start = Date.now() - 2 * 3600_000;

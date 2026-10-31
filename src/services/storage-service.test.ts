@@ -280,14 +280,7 @@ describe('StorageService', () => {
     ]);
   });
 
-  it('migrates the legacy EPG URL and sanitizes manual EPG sources', () => {
-    localStorage.setItem('iptv_epg_url', JSON.stringify('http://host/legacy.xml'));
-    expect(StorageService.getManualEpgSources()).toEqual([
-      { url: 'http://host/legacy.xml', playlistIds: [] },
-    ]);
-    expect(localStorage.getItem('iptv_epg_url')).toBeNull();
-    expect(localStorage.getItem('iptv_manual_epg_sources')).not.toBeNull();
-
+  it('sanitizes manual EPG sources', () => {
     StorageService.setManualEpgSources([
       { url: ' http://host/a.xml ', playlistIds: ['p1', 'p1'] },
       { url: 'http://host/a.xml', playlistIds: ['p2'] },

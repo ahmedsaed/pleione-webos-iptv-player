@@ -84,7 +84,6 @@ This is the complete active key inventory:
 | Key | Type | Stored content | Classification |
 | --- | --- | --- | --- |
 | `iptv_playlists` | `PlaylistEntry[]` | Stable id, display name, source URL/type, uploaded channel count, and Xtream username, password, and live-output preference | Configuration |
-| `iptv_epg_url` | `string` | Manually configured XMLTV URL | Configuration |
 | `iptv_selectedXtream` | `string \| null` | Account id used by Movies, Series, and Search | Navigation state |
 | `iptv_show_hidden_channels` | `boolean` | Whether normal lists reveal hidden channels in a dimmed state | Preference |
 | `iptv_live_reconnect_attempts` | `number` | Live channel reconnection limit (0–5; default 3) | Preference |

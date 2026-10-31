@@ -878,20 +878,10 @@ export const StorageService = {
 
   getManualEpgSources(): ManualEpgSource[] {
     const stored = get<unknown>('manual_epg_sources', null);
-    if (Array.isArray(stored)) return sanitizeManualEpgSources(stored);
-    // TODO(post-1.16.0): Remove this migration and all `epg_url` access.
-    const legacy = get<string>('epg_url', '').trim();
-    if (!legacy) return [];
-    const migrated = [{ url: legacy, playlistIds: [] }];
-    if (set('manual_epg_sources', migrated)) remove('epg_url');
-    return migrated;
+    return Array.isArray(stored) ? sanitizeManualEpgSources(stored) : [];
   },
   setManualEpgSources(sources: ManualEpgSource[]): boolean {
-    const sanitized = sanitizeManualEpgSources(sources);
-    if (!set('manual_epg_sources', sanitized)) return false;
-    // TODO(post-1.16.0): Remove with the legacy `epg_url` migration.
-    remove('epg_url');
-    return true;
+    return set('manual_epg_sources', sanitizeManualEpgSources(sources));
   },
 
   getEpgOffsets(): Record<string, number> {
