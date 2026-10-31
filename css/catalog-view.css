@@ -27,6 +27,16 @@
 
 .catalog-loading,
 .catalog-empty { display: flex; align-items: center; justify-content: center; height: 100%; }
+.catalog-load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+}
+.catalog-load-error .catalog-hint { color: var(--text-primary); }
+.catalog-load-retry { margin-top: 32px; }
 
 /* Browse splits the view: the focused title's hero on top, and below it the
    rails, the only part that scrolls. The rail area is half the view, or one
@@ -419,8 +429,21 @@ html[data-animation="reduced"] .detail-btn { transition: transform var(--transit
 
 /* Series: season tabs beside the Episodes title over a sideways row of
    episode cards, which renders only the cards near the view. */
-.series-seasons { display: flex; gap: 10px; }
+/* Many seasons scroll sideways; the padding fits the focused tab's ring
+   inside the scrollport. */
+.series-seasons {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 12px 24px;
+  margin: -12px -24px;
+}
 .series-season-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
   min-height: var(--control-height);
   padding: 0 28px;
   border: 2px solid transparent;

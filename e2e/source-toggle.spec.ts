@@ -139,3 +139,41 @@ test('disabling the only Xtream account hides its sections until re-enabled', as
   await expect(page.locator('#view-home .home-card[data-section="series"]')).toHaveCount(1);
   await expect(page.locator('.home-account .account-avatar')).toHaveCount(1);
 });
+
+test.describe('a reload during a channel load', () => {
+  test.use({ startOn: 'home' });
+
+  test('Refresh all in Settings drops the channel load Settings started', async ({ page }) => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let requests = 0;
+    const third = '#EXTINF:-1 tvg-id="ch3" group-title="Group 1",ch3\nhttp://host/ch3.m3u8';
+    await page.route('**/playlist.m3u', async (route) => {
+      requests++;
+      const first = requests === 1;
+      if (first) await held;
+      // The source changed between the two loads: it gained a channel.
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/x-mpegurl',
+        body: first ? SAMPLE_M3U : `${SAMPLE_M3U}\n${third}`,
+      });
+    });
+    await routeLiveManifest(page);
+    await seedPlaylist(page);
+    await page.goto('/');
+
+    // Settings loads the channels behind it; that load is still in flight.
+    await enterTab(page, 'settings');
+    await expect.poll(() => requests).toBe(1);
+    await page.locator('[data-settings-target="data"]').click();
+    await page.locator('#refresh-data').click();
+    await expect(page.locator('#view-home')).toBeVisible();
+
+    // The old load finishes after the reload.
+    release();
+    await page.waitForTimeout(300);
+    await liveAfterSave(page);
+    await expect(page.locator('.channel-main .channel-item')).toHaveCount(3);
+  });
+});

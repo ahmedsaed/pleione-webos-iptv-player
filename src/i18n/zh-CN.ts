@@ -153,6 +153,8 @@ export const ZH_CN_MESSAGES = {
   'catalog.clearWatchlistMessage': '这将移除“{account}”（{section}）此列表中的所有内容，不影响播放进度。',
   'catalog.watchlistFull': '稍后观看已满，请先移除内容再添加。',
   'catalog.loadEpisodesFailed': '无法加载分集信息。',
+  'catalog.loadMoviesFailed': '无法加载电影。',
+  'catalog.loadSeriesFailed': '无法加载剧集。',
   'catalog.noEpisodes': '暂无可播放单集。',
   'catalog.noSeasonEpisodes': '本季暂无可播放单集。',
   'catalog.season': '第 {number} 季',

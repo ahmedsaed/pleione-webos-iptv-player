@@ -175,6 +175,8 @@ export const AR_MESSAGES = {
   'catalog.clearWatchlistMessage': 'سيؤدي هذا إلى إزالة كل العناوين في هذه القائمة للحساب «{account}» ({section}). لن يتأثر تقدم التشغيل.',
   'catalog.watchlistFull': 'قائمة المشاهدة ممتلئة. أزل عنوانًا قبل إضافة آخر.',
   'catalog.loadEpisodesFailed': 'تعذّر تحميل الحلقات.',
+  'catalog.loadMoviesFailed': 'تعذّر تحميل الأفلام.',
+  'catalog.loadSeriesFailed': 'تعذّر تحميل المسلسلات.',
   'catalog.noEpisodes': 'لا تتوفر حلقات.',
   'catalog.noSeasonEpisodes': 'لا توجد حلقات في هذا الموسم.',
   'catalog.season': 'الموسم {number}',

@@ -829,6 +829,27 @@ describe('Series detail', () => {
     expect(container.textContent).toContain('Unable to load episodes.');
     expect(container.textContent).not.toContain('Loading…');
   });
+
+  it('Play on a series whose episodes failed to load asks again, then plays', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    catalogMock.loadSeriesInfo.mockRejectedValueOnce(new Error('timeout'));
+    const { view, handlers } = await openWith();
+    await openDetail(view);
+    errors.mockRestore();
+    expect(container.textContent).toContain('Unable to load episodes.');
+    Focus.flush();
+    expect(container.querySelector('.focused')?.getAttribute('data-action')).toBe('play');
+
+    catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+    view.handleAction('select');
+    expect(catalogMock.loadSeriesInfo).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => {
+      expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
+        itemId: SERIES_INFO.episodesBySeason[1][0].id,
+      }));
+    });
+    expect(container.querySelector('.episode-card')).not.toBeNull();
+  });
 });
 
 describe('Series deep-link (openItem)', () => {

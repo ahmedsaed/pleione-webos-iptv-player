@@ -653,6 +653,30 @@ test('Back from a channel played from Search returns to Search', async ({ page }
   await expect(page.locator('#view-home')).toBeVisible();
 });
 
+test('Red from Search releases Search, while a title it opens keeps it for Back', async ({ page }) => {
+  const logs: string[] = [];
+  page.on('console', (message) => logs.push(message.text()));
+  await seedSearch(page);
+  await routeLiveManifest(page);
+  await page.goto('/');
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await enterSearch(page);
+  // A title Search opens keeps Search beneath it: Back finds the results.
+  await openMovieResult(page, 'one');
+  await pressBack(page);
+  await expect(page.locator('#view-search .catalog-tile[data-stream-id="10"]')).toBeVisible();
+
+  // Search holds the shared worker while it is the page shown.
+  await page.waitForTimeout(1500);
+  const terminated = () => logs.filter((line) => line.includes('event=worker.lifecycle.terminated')).length;
+  const before = terminated();
+  await page.locator('.search-box-input').press('ArrowDown');
+  // Red opens the Guide and releases Search, which lets the worker go idle.
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 403, bubbles: true })));
+  await expect(page.locator('#view-channels')).toBeVisible();
+  await expect.poll(terminated, { timeout: 8000 }).toBeGreaterThan(before);
+});
+
 test('opening a search result records the query as a recent search', async ({ page }) => {
   await seedSearch(page);
   await routeLiveManifest(page);

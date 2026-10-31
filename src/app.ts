@@ -80,6 +80,8 @@ class App {
   private viewStack: ViewName[] = ['channels'];
   // Where Back from live playback returns: the page it started on.
   private playerReturn: PlayedFrom = 'channels';
+  // A title Search opened keeps Search live beneath it, for Back.
+  private searchBeneathDetail = false;
   private channelList!: ChannelList;
   private player!: Player;
   private livePreview!: LivePreview;
@@ -141,6 +143,8 @@ class App {
   // Home loads no channels: the first surface that needs them loads them.
   private channelsLoaded = false;
   private channelLoad: Promise<void> | null = null;
+  // Bumped by each reload; a load from an older generation drops its result.
+  private loadGeneration = 0;
   // A reload Home deferred still owes its forced guide refresh.
   private forceEpgOnLoad = false;
   // Search opened before the channels: it opens its index once they load.
@@ -235,7 +239,12 @@ class App {
       const request = liveParentalRequest(channel, preview ? 'preview' : 'play');
       if (!ask && !ParentalControlService.decision(request).allowed) return false;
       return ParentalControlService.authorize(request, () => {
-        if (!preview && !this.isCurrentView('player')) this.showView('player');
+        if (!preview && !this.isCurrentView('player')) {
+          // Live playback returns to Home, Search, or Live, never a page
+          // left beneath it.
+          this.releaseSections(this.playerReturn);
+          this.showView('player');
+        }
         action();
       });
     },
@@ -359,6 +368,7 @@ class App {
       onPlayChannel: (idx, catchup) => { this.searchBox.release(); this.playChannel(idx, catchup); },
       onOpenMovie: (account, vod) => {
         this.searchBox.release();
+        this.searchBeneathDetail = true;
         this.showView('movies');
         this.movies.openItem(account, vod, () => this.showView('search'))
           .catch((err) => log.error(
@@ -370,6 +380,7 @@ class App {
       },
       onOpenSeries: (account, series) => {
         this.searchBox.release();
+        this.searchBeneathDetail = true;
         this.showView('series');
         this.series.openItem(account, series, () => this.showView('search'))
           .catch((err) => log.error(
@@ -946,6 +957,9 @@ class App {
     landing: ChannelLanding,
   ): Promise<void> {
     const done = log.time('loadData');
+    if (landing === 'launch') this.dropChannelLoad();
+    const generation = this.loadGeneration;
+    const stale = (): boolean => generation !== this.loadGeneration;
     const quiet = landing === 'quiet';
     this.loadingData = !quiet;
     if (landing === 'launch') show(this.views.loading);
@@ -956,6 +970,7 @@ class App {
     this.applyDisplayTz();
 
     try {
+      if (stale()) return;
       const playlists = StorageService.getPlaylists();
       log.info('Configured playlists:', playlists.length);
       const firstRun = firstRunLanding(playlists, landing);
@@ -1007,6 +1022,7 @@ class App {
         loadingText.textContent = text;
         this.channelList.showLoadProgress(text);
       });
+      if (stale()) return;
       // Live shows the failure with Try again instead of an empty list, and
       // the next view to need the channels tries again.
       if (PlaylistService.loadFailed) {
@@ -1014,6 +1030,7 @@ class App {
       }
       this.player.syncCurrentIndex();
       await ChannelHealthService.initialize();
+      if (stale()) return;
       log.info('Channels loaded:', PlaylistService.channels.length,
         '| groups:', PlaylistService.groups.length,
         '| epgSources:', PlaylistService.epgSources);
@@ -1026,6 +1043,7 @@ class App {
       const epgChannels = PlaylistService.getEpgEligibleChannels();
       if (epgSources.length) {
         await EpgService.restoreCached(epgSources, epgChannels);
+        if (stale()) return;
       }
 
       this.channelsLoaded = true;
@@ -1066,7 +1084,7 @@ class App {
       this.searchPrewarm.schedule('startup');
     } catch (err) {
       log.error('loadData failed:', err);
-      if (landing !== 'launch') return;
+      if (landing !== 'launch' || stale()) return;
       this.showView('settings');
       this.settings.render();
       showToast(t('app.loadFailed'));
@@ -1088,6 +1106,13 @@ class App {
     }
     this.channelsLoaded = false;
     this.forceEpgOnLoad = this.forceEpgOnLoad || forceEpgRefresh;
+    this.dropChannelLoad();
+  }
+
+  // A load still in flight finishes into nothing; the next one starts fresh.
+  private dropChannelLoad(): void {
+    this.loadGeneration++;
+    this.channelLoad = null;
   }
 
   private ensureChannels(landing: 'live' | 'quiet'): Promise<void> {
@@ -1095,8 +1120,9 @@ class App {
     if (!this.channelLoad) {
       const force = this.forceEpgOnLoad;
       this.forceEpgOnLoad = false;
-      this.channelLoad = this.loadData(force, landing)
-        .then(() => { this.channelLoad = null; });
+      const load: Promise<void> = this.loadData(force, landing)
+        .then(() => { if (this.channelLoad === load) this.channelLoad = null; });
+      this.channelLoad = load;
     }
     return this.channelLoad;
   }
@@ -1275,6 +1301,9 @@ class App {
       this.viewStack = ['settings'];
     }
     this.livePreview?.beforeViewChange(name);
+    // The player sits over the page it returns to; live playback releases
+    // the rest as it starts.
+    if (name !== 'player') this.releaseSections(name);
     // Leaving Live while it loads drops what it was to land on.
     if (name !== 'channels') this.livePending = null;
     if (name !== 'channels' && this.channelList.isEditing) this.channelList.exitEditMode();
@@ -1340,6 +1369,19 @@ class App {
     if (name === 'channels') this.showLiveCategoryNotices();
   }
 
+  // Every page but the one shown lets go of its requests and rendered
+  // content, so a page left behind never works in the background.
+  private releaseSections(shown: ViewName): void {
+    const beneath = this.searchBeneathDetail && (shown === 'movies' || shown === 'series');
+    this.searchBeneathDetail = beneath;
+    if (shown !== 'movies') this.movies.deactivate();
+    if (shown !== 'series') this.series.deactivate();
+    if (shown !== 'search' && !beneath) this.search.deactivate();
+    if (shown !== 'settings' && shown !== 'reminders' && shown !== 'parental-controls') {
+      this.settings.release();
+    }
+  }
+
   // Show a section's view (Live = the channels view).
   private switchSection(section: Section): void {
     if (section === 'home') {
@@ -1347,10 +1389,7 @@ class App {
       return;
     }
     if (section !== 'live' && this.channelList.isEditing) this.channelList.exitEditMode();
-    if (section !== 'movies') this.movies.deactivate();
-    if (section !== 'series') this.series.deactivate();
-    if (section !== 'search') this.search.deactivate();
-    if (section !== 'settings') this.settings.release();
+    this.searchBeneathDetail = false;
     if (section === 'live') {
       if (!this.livePreview.returnFromFullscreen(false)) {
         this.player.stop();
@@ -1531,10 +1570,6 @@ class App {
   // Show Home; `focus` picks a destination to land on.
   private goHome(focus: Section | null = null): void {
     if (this.channelList.isEditing) this.channelList.exitEditMode();
-    this.movies.deactivate();
-    this.series.deactivate();
-    this.search.deactivate();
-    this.settings.release();
     this.player.stop();
     const fresh = this.home.focusScope.focusKey === null;
     this.showView('home');

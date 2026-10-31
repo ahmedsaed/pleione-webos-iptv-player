@@ -733,6 +733,28 @@ describe('Movies browse + grid', () => {
     expect(container.querySelector('.catalog-grid .catalog-tile[data-item-id="20"]')).not.toBeNull();
   });
 
+  it('shows a failed catalog load with Try again, which loads it again', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    catalogMock.loadVodCategories.mockRejectedValue(new Error('timeout'));
+    const view = new Movies(container, { onBack: vi.fn(), onPlayVod: vi.fn() });
+    Focus.setBase(() => view.focusScope);
+    await view.open(account);
+    errors.mockRestore();
+    expect(container.querySelector('.catalog-empty')).toBeNull();
+    expect(container.querySelector('.catalog-load-error')?.textContent).toContain('Unable to load movies.');
+    const retry = container.querySelector<HTMLElement>('.catalog-load-retry')!;
+    expect(retry.textContent).toBe('Try again');
+    expect(retry.classList.contains('focused')).toBe(true);
+
+    catalogMock.loadVodCategories.mockResolvedValue([{ id: '1', name: 'Cat A' }]);
+    catalogMock.loadVodStreams.mockResolvedValue([vod('10', 'Movie One')]);
+    pressKey(view, 'select');
+    await vi.waitFor(() => {
+      expect(container.querySelector('.catalog-tile[data-item-id="10"]')).not.toBeNull();
+    });
+    expect(container.querySelector('.catalog-load-error')).toBeNull();
+  });
+
   it('drills into a non-rail category grid and back to browse', async () => {
     // 7 categories: the first RAIL_CATEGORIES (6) become poster rails; the 7th
     // is a non-rail tile in the "All Categories" rail — the drill-in target.

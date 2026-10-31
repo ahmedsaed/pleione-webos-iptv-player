@@ -57,3 +57,30 @@ test('Settings releases its pages on leave and renders them again on return', as
   await enterTab(page, 'settings');
   await expect(page.locator('#view-settings .settings-view')).toBeVisible();
 });
+
+test('Red and Blue from Movies and Series release the page they leave', async ({ page }) => {
+  await seedXtream(page, { catalog: 'large', posters: true });
+  await page.goto('/');
+  await enterTab(page, 'movies');
+  await expect(page.locator('#view-movies .catalog-layer-browse .catalog-tile').first()).toBeVisible();
+  // Red opens the Guide.
+  await pressKeys(page, 403);
+  await expect(page.locator('#view-channels')).toBeVisible();
+  const movies = await viewCounts(page, 'view-movies');
+  expect(movies.images).toBe(0);
+  expect(movies.nodes).toBeLessThan(10);
+
+  await enterTab(page, 'series');
+  await expect(page.locator('#view-series .catalog-layer-browse .catalog-tile').first()).toBeVisible();
+  // Blue opens Settings.
+  await pressKeys(page, 406);
+  await expect(page.locator('#view-settings .settings-view')).toBeVisible();
+  const series = await viewCounts(page, 'view-series');
+  expect(series.images).toBe(0);
+  expect(series.nodes).toBeLessThan(10);
+
+  // Red from Settings releases it too.
+  await pressKeys(page, 403);
+  await expect(page.locator('#view-channels')).toBeVisible();
+  expect((await viewCounts(page, 'view-settings')).nodes).toBeLessThan(10);
+});

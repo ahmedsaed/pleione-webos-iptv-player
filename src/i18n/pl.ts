@@ -165,6 +165,8 @@ export const PL_MESSAGES = {
   'catalog.clearWatchlistMessage': 'Usuwa wszystkie tytuły z tej listy dla konta „{account}” ({section}). Nie wpływa na postęp odtwarzania.',
   'catalog.watchlistFull': 'Lista do obejrzenia jest pełna. Usuń tytuł, zanim dodasz kolejny.',
   'catalog.loadEpisodesFailed': 'Nie udało się wczytać odcinków.',
+  'catalog.loadMoviesFailed': 'Nie udało się wczytać filmów.',
+  'catalog.loadSeriesFailed': 'Nie udało się wczytać seriali.',
   'catalog.noEpisodes': 'Brak odcinków.',
   'catalog.noSeasonEpisodes': 'Brak odcinków w tym sezonie.',
   'catalog.season': 'Sezon {number}',

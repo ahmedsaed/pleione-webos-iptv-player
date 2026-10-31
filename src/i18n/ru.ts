@@ -165,6 +165,8 @@ export const RU_MESSAGES = {
   'catalog.clearWatchlistMessage': 'Все элементы этого списка для «{account}» ({section}) будут удалены. Прогресс просмотра не изменится.',
   'catalog.watchlistFull': 'Список «Смотреть позже» заполнен. Удалите из него что-нибудь, чтобы добавить новое.',
   'catalog.loadEpisodesFailed': 'Не удалось загрузить серии.',
+  'catalog.loadMoviesFailed': 'Не удалось загрузить фильмы.',
+  'catalog.loadSeriesFailed': 'Не удалось загрузить сериалы.',
   'catalog.noEpisodes': 'Нет доступных серий.',
   'catalog.noSeasonEpisodes': 'В этом сезоне нет серий.',
   'catalog.season': 'Сезон {number}',
