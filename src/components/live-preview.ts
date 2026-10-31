@@ -25,6 +25,10 @@ import { showToast } from './toast';
 
 type PreviewHostView = 'channels' | 'player' | string;
 
+const programSignature = (program: Programme | null): string => (program
+  ? `${program.start.getTime()}|${program.stop.getTime()}|${program.title}|${program.description}`
+  : '');
+
 export interface LivePreviewOptions {
   channelView: HTMLElement;
   player: Player;
@@ -57,6 +61,10 @@ export class LivePreview {
   private channelSet: Channel[] | null = null;
   private channelKey = '';
   private channelAvailable = true;
+  // What the last render drew; a tick with the same one touches no DOM.
+  private signature = '';
+  private progressAt = 0;
+  private progressMinutes = -1;
 
   constructor(
     private readonly container: HTMLElement,
@@ -178,6 +186,7 @@ export class LivePreview {
   }
 
   refresh(): void {
+    this.signature = '';
     const { channelView, player } = this.options;
     const currentView = this.options.getCurrentView();
     const state = player.getLivePlaybackSnapshot();
@@ -205,18 +214,40 @@ export class LivePreview {
   private applyState(state: LivePlaybackSnapshot | null): void {
     this.state = state;
     if (!state) {
+      this.signature = '';
       hide(this.container);
       this.stopRefreshTimer();
       return;
     }
     show(this.container);
     this.render();
-    if (this.timer === null && !document.hidden) {
-      this.timer = setTimeout(() => {
-        this.timer = null;
-        this.refresh();
-      }, CONFIG.PLAYER.LIVE_PREVIEW_REFRESH_MS - Date.now() % CONFIG.PLAYER.LIVE_PREVIEW_REFRESH_MS);
+    this.scheduleTick();
+  }
+
+  private scheduleTick(): void {
+    if (this.timer !== null || document.hidden) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.tick();
+    }, CONFIG.PLAYER.LIVE_PREVIEW_REFRESH_MS - Date.now() % CONFIG.PLAYER.LIVE_PREVIEW_REFRESH_MS);
+  }
+
+  // The status poll: the same channel still previewing in Live re-renders
+  // only what changed. Anything else takes the full refresh.
+  private tick(): void {
+    const { player } = this.options;
+    const previous = this.state;
+    const state = player.getLivePlaybackSnapshot();
+    if (!previous || !state || !player.isInLivePreview() || this.suppressed
+        || this.options.getCurrentView() !== 'channels'
+        || channelKey(state.channel) !== channelKey(previous.channel)
+        || state.channel.url !== previous.channel.url) {
+      this.refresh();
+      return;
     }
+    this.state = state;
+    this.render();
+    this.scheduleTick();
   }
 
   suspend(): void {
@@ -316,6 +347,18 @@ export class LivePreview {
     const remaining = program
       ? Math.max(0, Math.ceil((program.stop.getTime() - now.getTime()) / 60000)) : 0;
     const favorite = this.options.isFavorite(state.channel);
+    const signature = [
+      state.status, channelKey(state.channel), state.channel.url, state.channel.name,
+      favorite, displayDayKey(now), programSignature(program),
+      ...upcoming.map(programSignature),
+    ].join('\n');
+    if (signature === this.signature) {
+      if (program && length > 0) this.updateProgress(program, length, now);
+      return;
+    }
+    this.signature = signature;
+    this.progressAt = now.getTime();
+    this.progressMinutes = remaining;
     const message = state.status === 'loading' ? t('common.loading')
       : state.status === 'buffering' ? t('preview.connecting')
       // The preview stays on a dead channel rather than moving on.
@@ -353,6 +396,25 @@ export class LivePreview {
       </div>
     `);
     this.fitPrograms();
+  }
+
+  // Moves the bar and the minutes left in place: their size never changes
+  // which programs fit.
+  private updateProgress(program: Programme, length: number, now: Date): void {
+    const remaining = Math.max(0, Math.ceil((program.stop.getTime() - now.getTime()) / 60000));
+    if (remaining === this.progressMinutes
+        && now.getTime() - this.progressAt < CONFIG.PLAYER.LIVE_PREVIEW_PROGRESS_MS) return;
+    this.progressAt = now.getTime();
+    this.progressMinutes = remaining;
+    const fraction = Math.max(0, Math.min(1, (now.getTime() - program.start.getTime()) / length));
+    const bar = this.container.querySelector<HTMLElement>('.live-preview-progress');
+    const fill = bar?.firstElementChild as HTMLElement | null | undefined;
+    const left = this.container.querySelector<HTMLElement>('.live-preview-remaining');
+    if (!bar || !fill || !left) return;
+    bar.setAttribute('aria-valuenow', String(Math.round(fraction * 100)));
+    fill.style.width = `${fraction * 100}%`;
+    const text = t('preview.timeLeft', { minutes: remaining });
+    if (left.textContent !== text) left.textContent = text;
   }
 
   private fitPrograms(): void {

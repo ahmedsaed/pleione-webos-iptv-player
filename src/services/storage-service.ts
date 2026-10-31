@@ -571,6 +571,9 @@ async function initUserData(): Promise<void> {
   userData = loadedUserData;
 }
 
+let favoritesRaw: string | null = null;
+let favoritesParsed: string[] = [];
+
 function get<T>(key: string, defaultValue: T): T {
   try {
     const raw = localStorage.getItem(PREFIX + key);
@@ -1025,6 +1028,18 @@ export const StorageService = {
 
   getFavorites(): string[] {
     return userData ? userData.favorites.slice() : get<string[]>('favorites', []);
+  },
+  // Live's preview asks every second: no copy, and no parse unless the
+  // stored list changed.
+  isFavorite(key: string): boolean {
+    if (userData) return userData.favorites.indexOf(key) >= 0;
+    let raw: string | null = null;
+    try { raw = localStorage.getItem(`${PREFIX}favorites`); } catch { /* none */ }
+    if (raw !== favoritesRaw) {
+      favoritesRaw = raw;
+      favoritesParsed = get<string[]>('favorites', []);
+    }
+    return favoritesParsed.indexOf(key) >= 0;
   },
   setFavorites(favs: string[]): boolean {
     if (!userData) return set('favorites', favs);

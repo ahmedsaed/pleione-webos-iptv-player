@@ -54,7 +54,10 @@ export const CONFIG = {
   },
   PLAYER: {
     LIVE_PREVIEW_UPCOMING_COUNT: 4,
+    // Polls the stream status; an unchanged tick touches no DOM.
     LIVE_PREVIEW_REFRESH_MS: 1000,
+    // The progress bar moves on its own at most this often, or on the minute.
+    LIVE_PREVIEW_PROGRESS_MS: 15000,
     // Pleione's Live preview retunes to the focused row once focus rests this
     // long. Remote auto-repeat steps every ~100-150 ms and a deliberate press
     // a little slower, so scrolling never tunes the rows it passes; a tune

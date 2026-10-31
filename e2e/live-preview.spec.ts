@@ -3,6 +3,7 @@ import {
   test,
   expect,
   enterTab,
+  isChromium53,
   LIVE_MANIFEST,
   routeLiveManifest,
   routePlaylist,
@@ -688,4 +689,22 @@ test('essential animation mode preserves geometry and continuity', async ({ page
   await expect(page.locator(PANEL)).toBeVisible();
   await expectPreviewGeometry(page);
   expect(await snapshot(page)).toEqual(before);
+});
+
+test('an idle preview lays out at most twice in 10 seconds', async ({ page }) => {
+  test.skip(isChromium53(), 'reads Blink counters through CDP, which the simulation adds nothing to');
+  await setup(page, { epg: true });
+  await selectFirst(page);
+  await expect(page.locator(`${PANEL} .live-preview-title`)).toHaveText('Program 1');
+  // Let the tune and the first fit settle.
+  await page.waitForTimeout(1500);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Performance.enable');
+  const layouts = async () => (await cdp.send('Performance.getMetrics')).metrics
+    .find(m => m.name === 'LayoutCount')?.value ?? 0;
+  const before = await layouts();
+  await page.waitForTimeout(10_000);
+  const grown = await layouts() - before;
+  test.info().annotations.push({ type: 'layouts', description: String(grown) });
+  expect(grown).toBeLessThanOrEqual(2);
 });

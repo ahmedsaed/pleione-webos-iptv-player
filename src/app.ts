@@ -288,7 +288,7 @@ class App {
       showPlayer: () => this.showView('player'),
       playFullscreen: (index, catchup, scope) => this.playChannel(index, catchup, scope),
       expansionBlocked: () => this.reminderPrompt.visible,
-      isFavorite: channel => StorageService.getFavorites().includes(channelKey(channel)),
+      isFavorite: channel => StorageService.isFavorite(channelKey(channel)),
       suppressed: () => this.liveMode === 'guide',
       onWatch: index => this.channelList.setWatching(index),
     });
