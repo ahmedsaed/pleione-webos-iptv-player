@@ -407,6 +407,23 @@ describe('PlaylistService.refresh', () => {
     expect(cacheMock.scheduleCachedPlaylist).toHaveBeenCalledOnce();
   });
 
+  it('reports a failed load only when no source brought channels', async () => {
+    fetchTextMock.mockImplementation((url: string) =>
+      url.includes('p1') ? Promise.reject(new Error('boom')) : Promise.resolve(P2),
+    );
+    await PlaylistService.refresh();
+    expect(PlaylistService.loadFailed).toBe(false);
+
+    fetchTextMock.mockRejectedValue(new Error('offline'));
+    await PlaylistService.refresh();
+    expect(PlaylistService.loadFailed).toBe(true);
+
+    fetchTextMock.mockResolvedValue('#EXTM3U\n');
+    await PlaylistService.refresh();
+    expect(PlaylistService.allChannels).toEqual([]);
+    expect(PlaylistService.loadFailed).toBe(false);
+  });
+
   it('clears unresolved source state when the catalog is reset', async () => {
     fetchTextMock.mockRejectedValue(new Error('offline'));
     await PlaylistService.refresh();

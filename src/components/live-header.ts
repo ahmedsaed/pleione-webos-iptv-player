@@ -27,7 +27,8 @@ export class LiveHeader {
   private readonly el: HTMLElement;
   private readonly scope: FocusScope;
   private mode: LiveMode = 'list';
-  private count = 0;
+  // Null while the channels load: no count, and nothing to edit yet.
+  private count: number | null = 0;
   private active = false;
   private clockTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -72,7 +73,7 @@ export class LiveHeader {
     this.clockTimer = null;
   }
 
-  setCount(count: number): void {
+  setCount(count: number | null): void {
     if (count === this.count) return;
     this.count = count;
     this.render();
@@ -123,7 +124,7 @@ export class LiveHeader {
   }
 
   private keys(): string[] {
-    return this.mode === 'list'
+    return this.mode === 'list' && this.count !== null
       ? [EDIT_KEY, MODE_KEYS.list, MODE_KEYS.guide]
       : [MODE_KEYS.list, MODE_KEYS.guide];
   }
@@ -164,9 +165,10 @@ export class LiveHeader {
       </button>`;
     morph(this.el, html`
       <div class="live-header-title">${t('nav.live')}</div>
-      <div class="live-header-count">${tp('channel.count', this.count)}</div>
+      ${this.count === null ? ''
+        : html`<div class="live-header-count">${tp('channel.count', this.count)}</div>`}
       <div class="live-header-spacer"></div>
-      ${this.mode === 'list' ? html`
+      ${this.mode === 'list' && this.count !== null ? html`
         <button type="button" class="live-header-edit" data-key="${EDIT_KEY}" data-focusable
                 data-edit-channels aria-label="${t('settings.editChannelList')}"
                 title="${t('settings.editChannelList')}">${raw(PENCIL_ICON)}</button>` : ''}

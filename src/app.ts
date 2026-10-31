@@ -71,6 +71,7 @@ import { getLocale, initLocale, resolveLocale, setLocale, t, tp } from './i18n';
 
 const log = createLogger('App');
 
+type ChannelLanding = 'launch' | 'channels' | 'section' | 'live' | 'quiet';
 type ViewName = 'home' | 'channels' | 'player' | 'settings' | 'parental-controls' | 'reminders'
   | 'loading' | 'movies' | 'series' | 'search';
 
@@ -142,6 +143,9 @@ class App {
   private forceEpgOnLoad = false;
   // Only the latest action waiting on the channels runs.
   private channelWaiter = 0;
+  // Live shown before its channels: the mode it lands in once they load, and
+  // what then runs. Leaving Live drops it.
+  private livePending: { mode: LiveMode; then?: () => void; from: PlayedFrom } | null = null;
   // Home's sign-in check, behind its connection banner.
   private readonly connection = new StartupConnection(
     () => StorageService.getPlaylists(),
@@ -193,6 +197,7 @@ class App {
         guideMode: () => this.liveMode === 'guide',
         onRowFocus: (index) => this.onLiveRowFocus(index),
         onCount: (count) => this.liveHeader.setCount(count),
+        onRetry: () => this.retryLive(),
         onChannelSelect: (idx, catchup, scope, mode) =>
           this.livePreview.selectChannel(idx, catchup, scope, mode),
         onChannelsChanged: () => {
@@ -383,7 +388,7 @@ class App {
     });
     this.home = new Home(this.views.home, {
       onOpenSection: (section, via) => this.selectSection(section, via),
-      onPlayNumber: (number) => this.withChannels(() => {
+      onPlayNumber: (number) => this.whenLive(() => {
         const index = number - 1;
         if (index >= 0 && index < PlaylistService.channels.length) this.playChannel(index);
       }),
@@ -925,14 +930,15 @@ class App {
   // (or on Live, by a hidden preference, or when auto-play resumes a channel);
   // a reload stays on Live. `section` loads the channels for the section
   // being opened, and `quiet` for a due reminder, without changing the view.
+  // `live` loads them for Live, which shows its own loading state and error.
   private async loadData(
     forceEpgRefresh = false,
-    landing: 'launch' | 'channels' | 'section' | 'quiet' = 'channels',
+    landing: ChannelLanding = 'channels',
   ): Promise<void> {
     const done = log.time('loadData');
     const quiet = landing === 'quiet';
     this.loadingData = !quiet;
-    if (!quiet) show(this.views.loading);
+    if (!quiet && landing !== 'live') show(this.views.loading);
     this.stopEpgRefresh();
     this.stopPlaylistRefresh();
     if (this.playlistRefreshPromise) await this.playlistRefreshPromise;
@@ -984,11 +990,17 @@ class App {
         const now = Date.now();
         if (now - lastProgressAt < 250) return;
         lastProgressAt = now;
-        loadingText.textContent = t('app.loadingChannelsProgress', {
+        const text = t('app.loadingChannelsProgress', {
           processed: progress.channelsProcessed,
           kept: progress.channelsKept,
         });
+        loadingText.textContent = text;
+        this.channelList.showLoadProgress(text);
       });
+      // Live shows the failure with Try again instead of an empty list.
+      if (landing === 'live' && PlaylistService.loadFailed) {
+        throw new Error('Every playlist source failed to load');
+      }
       this.player.syncCurrentIndex();
       await ChannelHealthService.initialize();
       log.info('Channels loaded:', PlaylistService.channels.length,
@@ -1006,9 +1018,10 @@ class App {
       }
 
       this.channelsLoaded = true;
+      this.channelList.setLoadState(null);
       this.syncSources();
 
-      if (landing === 'section' || quiet) {
+      if (landing === 'section' || landing === 'live' || quiet) {
         this.channelList.render();
       } else if (landing === 'launch' && !StorageService.getStartOnLive()) {
         this.channelList.render();
@@ -1018,7 +1031,10 @@ class App {
         this.channelList.render();
       }
 
-      if (!quiet) showToast(tp('app.channelsLoaded', PlaylistService.channels.length));
+      // Live's header shows the count, so a load it shows needs no toast.
+      if (!quiet && landing !== 'live') {
+        showToast(tp('app.channelsLoaded', PlaylistService.channels.length));
+      }
       // Let the load confirmation finish before a new-category notice replaces it.
       setTimeout(() => this.showLiveCategoryNotices(), 3000);
 
@@ -1068,7 +1084,7 @@ class App {
       this.searchPrewarm.schedule('startup');
     } catch (err) {
       log.error('loadData failed:', err);
-      if (quiet) return;
+      if (quiet || landing === 'live') return;
       this.showView('settings');
       this.settings.render();
       showToast(t('app.loadFailed'));
@@ -1097,12 +1113,12 @@ class App {
     this.forceEpgOnLoad = this.forceEpgOnLoad || forceEpgRefresh;
   }
 
-  private ensureChannels(quiet = false): Promise<void> {
+  private ensureChannels(landing: 'section' | 'live' | 'quiet' = 'section'): Promise<void> {
     if (this.channelsLoaded) return Promise.resolve();
     if (!this.channelLoad) {
       const force = this.forceEpgOnLoad;
       this.forceEpgOnLoad = false;
-      this.channelLoad = this.loadData(force, quiet ? 'quiet' : 'section')
+      this.channelLoad = this.loadData(force, landing)
         .then(() => { this.channelLoad = null; });
     }
     return this.channelLoad;
@@ -1120,6 +1136,60 @@ class App {
     void this.ensureChannels().then(() => {
       if (this.channelsLoaded && waiter === this.channelWaiter && this.isCurrentView(view)) action();
     });
+  }
+
+  // Run `action` in Live: at once with the channels, else after Live has
+  // shown its loading state and the channels have loaded.
+  private whenLive(action: () => void): void {
+    if (this.channelsLoaded) action();
+    else this.openLiveLoading('list', action);
+  }
+
+  // Live before its channels: it shows at once, the header over a loading
+  // state, and lands in `mode` once they load, unless it was left meanwhile.
+  // A failed load shows the error with Try again in place. Playback `then`
+  // starts still returns where it was asked for, such as Home.
+  private openLiveLoading(
+    mode: LiveMode,
+    then?: () => void,
+    from: PlayedFrom = this.playerReturn,
+  ): void {
+    const pending = { mode, then, from };
+    this.livePending = pending;
+    this.sidebar.hide();
+    this.player.stop();
+    this.liveMode = 'list';
+    this.liveGuide.hide();
+    this.channelList.setLoadState('loading');
+    this.channelList.render();
+    this.showView('channels');
+    void this.ensureChannels('live').then(() => {
+      if (this.livePending !== pending || !this.isCurrentView('channels')) return;
+      if (!this.channelsLoaded) {
+        this.channelList.setLoadState('failed');
+        this.channelList.render();
+        return;
+      }
+      this.livePending = null;
+      if (pending.mode === 'guide') {
+        this.setLiveMode('guide');
+      } else {
+        this.placeLiveHeader('channels');
+        this.channelList.render();
+        this.channelList.highlightEntryPoint();
+        this.livePreview.refresh();
+        this.onLiveRowFocus(this.channelList.focusedChannel);
+      }
+      pending.then?.();
+      if (this.isCurrentView('player')) this.playerReturn = pending.from;
+    });
+  }
+
+  private retryLive(): void {
+    const pending = this.livePending;
+    if (pending && !this.channelsLoaded) {
+      this.openLiveLoading(pending.mode, pending.then, pending.from);
+    }
   }
 
   // Home's only request: does each Xtream account still sign in? A failure
@@ -1182,6 +1252,12 @@ class App {
   // Live's switch: the list (with the preview) or the Guide, on the same group.
   private setLiveMode(mode: LiveMode): void {
     this.liveDwell.cancel();
+    // Loading, the switch only picks the mode Live lands in.
+    if (this.livePending && this.isCurrentView('channels')) {
+      this.livePending.mode = mode;
+      this.placeLiveHeader('channels');
+      return;
+    }
     if (mode === 'list') {
       this.liveMode = 'list';
       this.liveGuide.hide();
@@ -1189,19 +1265,21 @@ class App {
       this.showView('channels', false, true);
       return;
     }
-    this.withChannels(() => {
-      const index = this.player.getCurrentIndex();
-      this.liveMode = 'guide';
-      this.guideKeys = 'grid';
-      this.sidebar.hide();
-      this.player.stop();
-      this.channelList.render(false);
-      this.liveGuide.show(index);
-      this.showView('channels', true);
-      this.liveGuide.enter();
-      EpgService.refresh(() => this.refreshEpgDependentViews())
-        .then(() => this.refreshEpgDependentViews());
-    });
+    if (!this.channelsLoaded) {
+      this.openLiveLoading('guide');
+      return;
+    }
+    const index = this.player.getCurrentIndex();
+    this.liveMode = 'guide';
+    this.guideKeys = 'grid';
+    this.sidebar.hide();
+    this.player.stop();
+    this.channelList.render(false);
+    this.liveGuide.show(index);
+    this.showView('channels', true);
+    this.liveGuide.enter();
+    EpgService.refresh(() => this.refreshEpgDependentViews())
+      .then(() => this.refreshEpgDependentViews());
   }
 
   // In the Guide: the groups column takes the keys.
@@ -1224,14 +1302,17 @@ class App {
       return;
     }
     const guide = this.liveMode === 'guide';
+    // Loading, the header already shows the mode Live lands in.
+    const mode = this.livePending?.mode ?? this.liveMode;
     this.views.channels.classList.toggle('live-guide-mode', guide);
+    this.views.channels.classList.toggle('live-loading', !!this.livePending);
     // The Guide keeps the Guide card's tint, the list the Live card's.
-    this.views.channels.dataset.backdrop = guide ? 'epg' : 'live';
+    this.views.channels.dataset.backdrop = mode === 'guide' ? 'epg' : 'live';
     const grid = $('#live-guide');
     if (guide) show(grid);
     else hide(grid);
     this.liveHeader.leave(false);
-    this.liveHeader.attach(this.views.channels, this.liveMode);
+    this.liveHeader.attach(this.views.channels, mode);
   }
 
   private showView(name: ViewName, preserveChannelFocus = false, resumeChannelFocus = false): void {
@@ -1244,6 +1325,8 @@ class App {
       this.viewStack = ['settings'];
     }
     this.livePreview?.beforeViewChange(name);
+    // Leaving Live while it loads drops what it was to land on.
+    if (name !== 'channels') this.livePending = null;
     if (name !== 'channels' && this.channelList.isEditing) this.channelList.exitEditMode();
     if (name !== 'channels') this.liveDwell.cancel();
     this.placeLiveHeader(name);
@@ -1482,8 +1565,12 @@ class App {
   private selectSection(section: Section, via: 'key' | 'pointer'): void {
     if (this.currentSection() === section) return;
     // Settings lists the guide sources and saves offsets by channel.
-    if (!this.channelsLoaded
-      && (section === 'live' || section === 'search' || section === 'settings')) {
+    if (!this.channelsLoaded && section === 'live') {
+      this.openLiveLoading('list');
+      if (via === 'pointer') FocusRing.defer('channels');
+      return;
+    }
+    if (!this.channelsLoaded && (section === 'search' || section === 'settings')) {
       this.withChannels(() => this.selectSection(section, via));
       return;
     }
@@ -1620,7 +1707,7 @@ class App {
   private handleLaunchParams(raw: unknown): void {
     if (!ReminderService.isReminderLaunch(raw)) return;
     if (!this.channelsLoaded) {
-      this.withChannels(() => this.handleLaunchParams(raw));
+      this.openLiveLoading('list', () => this.handleLaunchParams(raw));
       return;
     }
     const idx = ReminderService.resolveLaunchChannel(raw);
@@ -1654,7 +1741,7 @@ class App {
     // them first rather than letting prune drop them all.
     if (!this.channelsLoaded) {
       if (ReminderService.anyDueNow()) {
-        void this.ensureChannels(true).then(() => {
+        void this.ensureChannels('quiet').then(() => {
           if (this.channelsLoaded) this.scanReminders();
         });
       }
@@ -1765,7 +1852,8 @@ class App {
     // Red flips Live between the list and the Guide, and opens the Guide
     // from anywhere else.
     if (action === 'red' && !editingChannels) {
-      this.setLiveMode(currentView === 'channels' && this.liveMode === 'guide' ? 'list' : 'guide');
+      const mode = this.livePending?.mode ?? this.liveMode;
+      this.setLiveMode(currentView === 'channels' && mode === 'guide' ? 'list' : 'guide');
       return;
     }
     if (action === 'blue' && currentView !== 'settings' && !editingChannels) {

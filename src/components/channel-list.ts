@@ -53,6 +53,9 @@ type SyncVia = Via | 'render';
 
 let liveList: ChannelList | null = null;
 type ChannelSelectionMode = 'expand-current' | 'fullscreen';
+// Live shown before its channels: still loading, or the load failed.
+export type ChannelLoadState = 'loading' | 'failed' | null;
+const RETRY_KEY = 'live-retry';
 
 export interface ChannelListOptions {
   onChannelSelect: (
@@ -69,7 +72,10 @@ export interface ChannelListOptions {
   guideMode?: () => boolean;
   // A channel row took focus (null: something else did).
   onRowFocus?: (index: number | null) => void;
-  onCount?: (count: number) => void;
+  // The channel count, or null while the channels load.
+  onCount?: (count: number | null) => void;
+  // Try again after a failed load.
+  onRetry?: () => void;
   authorizeEdit?: (proceed: () => void) => void;
 }
 
@@ -84,7 +90,11 @@ export class ChannelList {
   private onChannelsChanged: () => void;
   private readonly guideMode: () => boolean;
   private readonly onRowFocus: (index: number | null) => void;
-  private readonly onCount: (count: number) => void;
+  private readonly onCount: (count: number | null) => void;
+  private readonly onRetry: () => void;
+  private loadState: ChannelLoadState = null;
+  // How far a long load has got, in place of the plain loading label.
+  private loadProgress: string | null = null;
   // Pleione: the channel the player shows full screen, where OK returns to.
   // By key: a reorder or a catalog rebuild moves the index, not the channel.
   private watchingKey: string | null = null;
@@ -141,10 +151,12 @@ export class ChannelList {
       guideMode = () => false,
       onRowFocus = () => {},
       onCount = () => {},
+      onRetry = () => {},
     } = options;
     this.guideMode = guideMode;
     this.onRowFocus = onRowFocus;
     this.onCount = onCount;
+    this.onRetry = onRetry;
     this.authorizeEdit = authorizeEdit;
     this.container = container;
     this.onChannelSelect = onChannelSelect;
@@ -281,6 +293,10 @@ export class ChannelList {
   }
 
   render(ensureFocus = true): void {
+    if (this.loadState) {
+      this.renderLoadState(this.loadState);
+      return;
+    }
     const tabs = PlaylistService.playlistTabs;
     // The selected playlist may have just been deleted in settings — fall back to All.
     if (this.currentPlaylist && !tabs.some(t => t.id === this.currentPlaylist)) this.currentPlaylist = '';
@@ -448,6 +464,53 @@ export class ChannelList {
     this.syncScope(ensureFocus ? 'key' : 'render');
   }
 
+  setLoadState(state: ChannelLoadState): void {
+    this.loadState = state;
+    this.loadProgress = null;
+  }
+
+  showLoadProgress(text: string): void {
+    if (this.loadState !== 'loading') return;
+    this.loadProgress = text;
+    this.render(false);
+  }
+
+  get isLoading(): boolean {
+    return this.loadState !== null;
+  }
+
+  // In place of the groups and rows: the loading ring, or the failure and
+  // Try again, the only target.
+  private renderLoadState(state: 'loading' | 'failed'): void {
+    this.onCount(null);
+    morph(this.container, html`
+      <div class="channel-view channel-load-view">
+        <div class="channel-main" data-nav-container>
+          ${state === 'loading' ? html`
+            <div class="live-load-status" role="status">
+              <div class="live-load-mark"><div class="loading-spinner"></div></div>
+              <div class="live-load-text">${this.loadProgress ?? t('app.loadingChannels')}</div>
+            </div>` : html`
+            <div class="live-load-status live-load-error" role="alert">
+              <div class="live-load-text">${t('app.loadFailed')}</div>
+              <button type="button" class="btn btn-primary live-load-retry" data-focusable
+                      data-key="${RETRY_KEY}">${t('liveCategories.tryAgain')}</button>
+            </div>`}
+        </div>
+      </div>
+    `);
+    const retry = this.container.querySelector<HTMLElement>(`[data-key="${RETRY_KEY}"]`);
+    this.nav.focus(retry);
+    if (retry) this.syncScope('key');
+    else this.focusScope.track(null);
+  }
+
+  // While loading, the keys move nothing; OK on the error tries again.
+  private loadStateAction(action: Action): boolean {
+    if (action === 'select' && this.nav.focused?.dataset.key === RETRY_KEY) this.onRetry();
+    return true;
+  }
+
   /** The Guide hands the keys back: focus the selected group. */
   focusGroups(): void {
     this.ringHidden = false;
@@ -535,6 +598,7 @@ export class ChannelList {
   }
 
   private dispatchAction(action: Action, event?: NumberEvent): boolean {
+    if (this.loadState) return this.loadStateAction(action);
     // Before the editor too: it applies these to whichever row holds focus.
     // Up also precedes the row-0 edge; Down would move a grabbed row.
     const resumeFirst = action === 'select' || action === 'left' || action === 'right'
