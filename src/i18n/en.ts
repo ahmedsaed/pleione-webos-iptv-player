@@ -502,10 +502,6 @@ export const EN_MESSAGES = {
   'app.welcome': 'Welcome! Add a playlist URL to get started.',
   'app.loadingChannels': 'Loading channels…',
   'app.loadingChannelsProgress': 'Loading channels… {processed} processed, {kept} kept',
-  'app.channelsLoaded': {
-    one: '{count} channel loaded',
-    other: '{count} channels loaded',
-  },
   'app.loadFailed': 'Unable to load the playlist. Check the URL and try again.',
   'app.saveFailed': 'Unable to save changes. Please try again.',
   'settings.storageLimited': 'This TV limits how much the app can store. Your progress and favorites are still saved, but the cache isn’t kept between launches.',

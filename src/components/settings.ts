@@ -528,6 +528,10 @@ export class Settings {
   private healthProgress: ChannelHealthProgress | null = null;
   private healthPaused = false;
   private healthResume: (() => void) | null = null;
+  // Settings opens before the channels load; the parts that need them wait.
+  private channelsLoading = false;
+  private saveWhenChannelsLoad = false;
+  private channelsReady: () => boolean = () => true;
 
   constructor(
     container: HTMLElement,
@@ -938,14 +942,7 @@ export class Settings {
                   </div>
                   <div class="settings-item-hint">${t('settings.timeCorrectionHint')}</div>
                 </div>
-                <div class="settings-item settings-item--action">
-                  <div class="settings-item-title">${t('reminderManager.title')}</div>
-                  <button class="btn btn-secondary" data-focusable id="manage-reminders">
-                    ${t('settings.manageReminders', {
-                      count: ReminderService.listManageable().length,
-                    })}
-                  </button>
-                </div>
+                ${this.reminderItem()}
               </div>
             </div>
 
@@ -1309,6 +1306,8 @@ export class Settings {
     playlists: PlaylistEntry[],
     selectedUrl?: string,
   ): Safe {
+    // The playlists' own guide sources arrive with the channels.
+    if (this.channelsLoading) return this.channelsLoadingHint();
     const selected = sources.some(source => source.url === selectedUrl)
       ? selectedUrl as string
       : sources[0]?.url;
@@ -1694,7 +1693,56 @@ export class Settings {
     }
   }
 
+  // The channels Settings opened before: the guide sources they bring, the
+  // health check, and Save wait for them, each showing so in place.
+  setChannelsLoading(loading: boolean): void {
+    if (this.channelsLoading === loading) return;
+    this.channelsLoading = loading;
+    if (this.container.querySelector('.epg-offset-editor')) {
+      this.refreshEpgOffsetEditor(this.manualEpgSourcesFromEditor(), this.currentEpgOffsetSource());
+      this.updateChannelHealthPanel();
+      const reminders = $('.reminders-item', this.container);
+      if (reminders) morph(reminders, this.reminderItem());
+    }
+    if (loading || !this.saveWhenChannelsLoad) return;
+    this.saveWhenChannelsLoad = false;
+    if (!this.container.classList.contains('hidden')) this.save();
+  }
+
+  setChannelsReady(ready: () => boolean): void {
+    this.channelsReady = ready;
+  }
+
+  // Without the channels every reminder looks orphaned, and counting them
+  // would prune them all, so the entry waits for the channels.
+  private reminderItem(): Safe {
+    return html`
+      <div class="settings-item settings-item--action reminders-item">
+        <div class="settings-item-title">${t('reminderManager.title')}</div>
+        ${!this.channelsReady()
+          ? this.channelsLoading ? this.channelsLoadingHint() : ''
+          : html`
+            <button class="btn btn-secondary" data-focusable id="manage-reminders">
+              ${t('settings.manageReminders', {
+                count: ReminderService.listManageable().length,
+              })}
+            </button>`}
+      </div>`;
+  }
+
+  private channelsLoadingHint(): Safe {
+    return html`<div class="settings-item-hint settings-channels-loading" role="status">${
+      t('app.loadingChannels')}</div>`;
+  }
+
   private channelHealthPanel(): Safe {
+    if (this.channelsLoading) {
+      return html`
+        <div class="settings-item settings-item--action channel-health-panel">
+          <div class="settings-item-title">${t('settings.channelHealth')}</div>
+          ${this.channelsLoadingHint()}
+        </div>`;
+    }
     const channels = PlaylistService.allChannels;
     const summary = ChannelHealthService.getSummary(channels);
     return html`
@@ -2849,6 +2897,13 @@ export class Settings {
   }
 
   private save(): void {
+    // Saving keys time corrections to the channels' guide sources, so it
+    // waits for the channels Settings opened before.
+    if (this.channelsLoading) {
+      this.saveWhenChannelsLoad = true;
+      showToast(t('app.loadingChannels'));
+      return;
+    }
     // Read row-by-row so each row's stable id (data-id) is preserved; a row
     // added before this build has none, so mint one.
     const rows = $$('#playlist-entries .settings-row:not(.playlist-header-row)', this.container) as HTMLElement[];

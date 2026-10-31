@@ -500,10 +500,6 @@ export const DE_MESSAGES = {
   'app.welcome': 'Willkommen! Fügen Sie zum Starten die URL einer Wiedergabeliste hinzu.',
   'app.loadingChannels': 'Sender werden geladen…',
   'app.loadingChannelsProgress': 'Sender werden geladen… Verarbeitet: {processed}, übernommen: {kept}',
-  'app.channelsLoaded': {
-    one: '{count} Sender geladen',
-    other: '{count} Sender geladen',
-  },
   'app.loadFailed': 'Die Wiedergabeliste konnte nicht geladen werden. URL überprüfen und erneut versuchen.',
   'app.saveFailed': 'Änderungen konnten nicht gespeichert werden. Bitte erneut versuchen.',
   'settings.storageLimited': 'Dieser Fernseher begrenzt den Speicher für Apps. Ihr Fortschritt und Ihre Favoriten werden weiterhin gespeichert, der Cache bleibt aber nicht bis zum nächsten Start erhalten.',

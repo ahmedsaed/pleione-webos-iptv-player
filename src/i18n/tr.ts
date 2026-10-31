@@ -488,9 +488,6 @@ export const TR_MESSAGES = {
   'app.welcome': 'Başlamak için bir oynatma listesi URL’si ekleyin.',
   'app.loadingChannels': 'Kanallar yükleniyor…',
   'app.loadingChannelsProgress': 'Kanallar yükleniyor… {processed} işlendi, {kept} tutuldu',
-  'app.channelsLoaded': {
-    other: '{count} kanal yüklendi',
-  },
   'app.loadFailed': 'Oynatma listesi yüklenemedi. URL’yi kontrol edip tekrar deneyin.',
   'app.saveFailed': 'Değişiklikler kaydedilemedi. Tekrar deneyin.',
   'settings.storageLimited': 'Bu TV, uygulamaların depolama alanını sınırlıyor. İzleme ilerlemeniz ve favorileriniz kaydedilmeye devam eder ancak önbellek uygulama kapatıldığında silinir.',

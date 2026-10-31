@@ -12,7 +12,7 @@ export type FirstRunLanding = 'home' | 'settings';
 // a later channel load opens Settings.
 export function firstRunLanding(
   playlists: readonly PlaylistEntry[],
-  landing: 'launch' | 'section' | 'live' | 'quiet',
+  landing: 'launch' | 'live' | 'quiet',
 ): FirstRunLanding | null {
   if (playlists.length) return null;
   return landing === 'launch' ? 'home' : 'settings';

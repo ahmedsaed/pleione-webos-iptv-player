@@ -500,10 +500,6 @@ export const PT_BR_MESSAGES = {
   'app.welcome': 'Boas-vindas! Adicione a URL de uma lista para começar.',
   'app.loadingChannels': 'Carregando canais…',
   'app.loadingChannelsProgress': 'Carregando canais… Processados: {processed}; mantidos: {kept}',
-  'app.channelsLoaded': {
-    one: '{count} canal carregado',
-    other: '{count} canais carregados',
-  },
   'app.loadFailed': 'Não foi possível carregar a lista. Verifique a URL e tente novamente.',
   'app.saveFailed': 'Não foi possível salvar as alterações. Tente novamente.',
   'settings.storageLimited': 'Esta TV limita o armazenamento dos apps. Seu progresso e seus favoritos continuam salvos, mas o cache não é mantido entre as sessões.',

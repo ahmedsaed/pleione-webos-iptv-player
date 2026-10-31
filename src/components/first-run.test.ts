@@ -15,7 +15,7 @@ describe('firstRunLanding', () => {
   });
 
   it('opens Settings for a later load', () => {
-    expect(firstRunLanding([], 'section')).toBe('settings');
+    expect(firstRunLanding([], 'quiet')).toBe('settings');
     expect(firstRunLanding([], 'live')).toBe('settings');
   });
 });

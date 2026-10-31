@@ -500,10 +500,6 @@ export const FR_MESSAGES = {
   'app.welcome': 'Bienvenue ! Ajoutez l’URL d’une liste de lecture pour commencer.',
   'app.loadingChannels': 'Chargement des chaînes…',
   'app.loadingChannelsProgress': 'Chargement des chaînes… Entrées traitées : {processed} ; conservées : {kept}',
-  'app.channelsLoaded': {
-    one: '{count} chaîne chargée',
-    other: '{count} chaînes chargées',
-  },
   'app.loadFailed': 'Impossible de charger la liste. Vérifiez l’URL et réessayez.',
   'app.saveFailed': 'Impossible d’enregistrer les modifications. Réessayez.',
   'settings.storageLimited': 'Ce téléviseur limite le stockage des apps. Votre progression et vos favoris restent enregistrés, mais le cache n’est pas conservé d’un lancement à l’autre.',

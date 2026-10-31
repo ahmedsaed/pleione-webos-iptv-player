@@ -524,12 +524,6 @@ export const PL_MESSAGES = {
   'app.welcome': 'Dodaj URL playlisty, aby rozpocząć.',
   'app.loadingChannels': 'Wczytywanie kanałów…',
   'app.loadingChannelsProgress': 'Wczytywanie kanałów… Przetworzono: {processed}; dodano: {kept}',
-  'app.channelsLoaded': {
-    one: 'Wczytano {count} kanał',
-    few: 'Wczytano {count} kanały',
-    many: 'Wczytano {count} kanałów',
-    other: 'Wczytano {count} kanału',
-  },
   'app.loadFailed': 'Nie udało się wczytać playlisty. Sprawdź URL i spróbuj ponownie.',
   'app.saveFailed': 'Nie udało się zapisać zmian. Spróbuj ponownie.',
   'settings.storageLimited': 'Ten telewizor ogranicza miejsce na dane aplikacji. Postęp oglądania i ulubione są nadal zapisywane, ale pamięć podręczna nie jest zachowywana między uruchomieniami.',
