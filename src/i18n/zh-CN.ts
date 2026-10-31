@@ -297,7 +297,6 @@ export const ZH_CN_MESSAGES = {
   'settings.interfaceSizeHint': '同时缩放文字、图片和控件。',
   'settings.textSize': '文字大小',
   'settings.textSizeDefault': '{percent}%（默认）',
-  'settings.display': '显示',
   'settings.timeZone': '节目指南时区',
   'settings.device': '设备',
   'settings.feed': '节目源',

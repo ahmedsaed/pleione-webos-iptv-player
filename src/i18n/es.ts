@@ -304,7 +304,6 @@ export const ES_MESSAGES = {
   'settings.interfaceSizeHint': 'Ajusta el tamaño del texto, las imágenes y los controles a la vez.',
   'settings.textSize': 'Tamaño del texto',
   'settings.textSizeDefault': '{percent} % (Predeterminado)',
-  'settings.display': 'Pantalla',
   'settings.timeZone': 'Zona horaria de la guía',
   'settings.device': 'Dispositivo',
   'settings.feed': 'Fuente',

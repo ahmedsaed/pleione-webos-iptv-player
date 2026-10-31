@@ -316,7 +316,6 @@ export const UK_MESSAGES = {
   'settings.interfaceSizeHint': 'Одночасно масштабує текст, зображення та елементи керування.',
   'settings.textSize': 'Розмір тексту',
   'settings.textSizeDefault': '{percent} % (за замовчуванням)',
-  'settings.display': 'Відображення',
   'settings.timeZone': 'Часовий пояс телепрограми',
   'settings.device': 'Пристрій',
   'settings.feed': 'Джерело',

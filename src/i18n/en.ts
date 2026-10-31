@@ -305,7 +305,6 @@ export const EN_MESSAGES = {
   'settings.interfaceSizeHint': 'Scales text, images, and controls together.',
   'settings.textSize': 'Text size',
   'settings.textSizeDefault': '{percent}% (Default)',
-  'settings.display': 'Display',
   'settings.timeZone': 'Program guide time zone',
   'settings.device': 'Device',
   'settings.feed': 'Feed',

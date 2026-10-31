@@ -302,7 +302,6 @@ export const IT_MESSAGES = {
   'settings.interfaceSizeHint': 'Ridimensiona insieme testo, immagini e controlli.',
   'settings.textSize': 'Dimensione del testo',
   'settings.textSizeDefault': '{percent}% (Predefinito)',
-  'settings.display': 'Visualizzazione',
   'settings.timeZone': 'Fuso orario della guida TV',
   'settings.device': 'Dispositivo',
   'settings.feed': 'Sorgente',

@@ -329,7 +329,6 @@ export const AR_MESSAGES = {
   'settings.interfaceSizeHint': 'يغيّر حجم النصوص والصور وعناصر التحكم معًا.',
   'settings.textSize': 'حجم النص',
   'settings.textSizeDefault': '{percent}% (افتراضي)',
-  'settings.display': 'العرض',
   'settings.timeZone': 'المنطقة الزمنية لدليل البرامج',
   'settings.device': 'الجهاز',
   'settings.feed': 'الخلاصة',

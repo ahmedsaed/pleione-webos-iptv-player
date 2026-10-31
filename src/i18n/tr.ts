@@ -297,7 +297,6 @@ export const TR_MESSAGES = {
   'settings.interfaceSizeHint': 'Metni, görselleri ve kontrolleri birlikte ölçeklendirir.',
   'settings.textSize': 'Metin boyutu',
   'settings.textSizeDefault': '%{percent} (Varsayılan)',
-  'settings.display': 'Ekran',
   'settings.timeZone': 'TV rehberi saat dilimi',
   'settings.device': 'Cihaz',
   'settings.feed': 'Kaynak',

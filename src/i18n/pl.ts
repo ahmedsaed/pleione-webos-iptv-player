@@ -315,7 +315,6 @@ export const PL_MESSAGES = {
   'settings.interfaceSizeHint': 'Skaluje jednocześnie tekst, obrazy i elementy sterujące.',
   'settings.textSize': 'Rozmiar tekstu',
   'settings.textSizeDefault': '{percent}% (Domyślny)',
-  'settings.display': 'Ekran',
   'settings.timeZone': 'Strefa czasowa Programu TV',
   'settings.device': 'Urządzenie',
   'settings.feed': 'Źródło',

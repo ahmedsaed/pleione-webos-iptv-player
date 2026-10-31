@@ -303,7 +303,6 @@ export const DE_MESSAGES = {
   'settings.interfaceSizeHint': 'Skaliert Text, Bilder und Bedienelemente gemeinsam.',
   'settings.textSize': 'Textgröße',
   'settings.textSizeDefault': '{percent} % (Standard)',
-  'settings.display': 'Anzeige',
   'settings.timeZone': 'Zeitzone der Programmübersicht',
   'settings.device': 'Gerät',
   'settings.feed': 'Quelle',

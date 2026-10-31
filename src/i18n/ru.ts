@@ -316,7 +316,6 @@ export const RU_MESSAGES = {
   'settings.interfaceSizeHint': 'Одновременно масштабирует текст, изображения и элементы управления.',
   'settings.textSize': 'Размер текста',
   'settings.textSizeDefault': '{percent} % (по умолчанию)',
-  'settings.display': 'Отображение',
   'settings.timeZone': 'Часовой пояс телепрограммы',
   'settings.device': 'Устройство',
   'settings.feed': 'Источник',

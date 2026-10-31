@@ -304,7 +304,6 @@ export const FR_MESSAGES = {
   'settings.interfaceSizeHint': 'Met à l\'échelle le texte, les images et les commandes ensemble.',
   'settings.textSize': 'Taille du texte',
   'settings.textSizeDefault': '{percent} % (Par défaut)',
-  'settings.display': 'Affichage',
   'settings.timeZone': 'Fuseau horaire du guide',
   'settings.device': 'Appareil',
   'settings.feed': 'Source',
