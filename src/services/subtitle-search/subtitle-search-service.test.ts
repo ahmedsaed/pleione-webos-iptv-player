@@ -48,8 +48,7 @@ describe('subtitleSearchService', () => {
     expect(out[0].providerId).toBe('opensubtitles');
   });
 
-  // Assrt is always "configured" — it falls back to a public token — so an
-  // unreachable endpoint must not hold the whole search on "Searching…".
+  // An unreachable endpoint must not hold the whole search on "Searching…".
   it('drops a provider that never answers and keeps the rest', async () => {
     vi.useFakeTimers();
     try {

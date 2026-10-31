@@ -111,10 +111,10 @@ a factory reading its config from `StorageService`.
 - **OpenSubtitles** — `api.opensubtitles.com` (REST). Needs an `Api-Key` header **and**
   username/password: the provider logs in for a token, caches it, and does one silent re-login +
   retry on `401`. Its results include a **download count**.
-- **Assrt** — `api.assrt.net`, a Chinese-subtitle community with a JSON API and no WAF. Ships a
-  built-in shared token (`DEFAULT_ASSRT_TOKEN`), so `isConfigured()` is always true and Assrt is
-  **on by default** (the "Search online…" entry therefore shows for every VOD); a personal token
-  in Settings overrides it. Chinese subs are often GB18030, so it decodes raw bytes via
+- **Assrt** — `api.assrt.net`, a Chinese-subtitle community with a JSON API and no WAF. Needs
+  the user's own token from Settings, like the other providers; the app ships no built-in token,
+  so with every field blank no provider is configured and the "Search online…" entry stays
+  hidden. Chinese subs are often GB18030, so it decodes raw bytes via
   `decodeSubtitleBytes` (UTF-8 strict, then GB18030).
 
 The aggregator `subtitleSearchService` runs every configured provider in parallel, merges the
@@ -161,7 +161,7 @@ re-downloads on a cache miss.
 
 The **"Online Subtitles"** block has a **Preferred subtitle language** custom dropdown (D-pad
 friendly, no native `<select>`) plus per-provider credential fields: SubDL API key, OpenSubtitles
-API key + username/password, and an optional Assrt token (blank = shared token). The preferred
+API key + username/password, and an Assrt token (blank = Assrt off). The preferred
 language bumps matching results to the top and is stored as a language code (e.g. `zh-CN`); the
 OpenSubtitles password lives only in the TV's `localStorage`.
 

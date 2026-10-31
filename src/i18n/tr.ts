@@ -334,7 +334,7 @@ export const TR_MESSAGES = {
   'settings.any': 'Tümü',
   'settings.apiKey': 'API anahtarı',
   'settings.assrtToken': 'API belirteci',
-  'settings.assrtDescription': 'Assrt.net ağırlıklı olarak Çince altyazı sunar. Belirteç isteğe bağlıdır; ortak belirteci kullanmak için boş bırakın.',
+  'settings.assrtDescription': 'Assrt.net ağırlıklı olarak Çince altyazı sunar. Kendi API belirtecinizi girin; kapatmak için boş bırakın.',
   'settings.castPhotos': 'Oyuncu fotoğrafları',
   'settings.tmdbHint': 'Film ve dizi sayfalarında TMDB’den oyuncu fotoğrafları gösterir. Kendi API anahtarınızı veya okuma erişim belirtecinizi girin; kapatmak için boş bırakın.',
   'settings.username': 'Kullanıcı adı',

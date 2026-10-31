@@ -35,9 +35,9 @@ function langMatches(resultLang: string, preferred: string): boolean {
 }
 
 // The providers are searched together, so the slowest one decides when results
-// appear. Assrt in particular is always "configured" (it has a default token),
-// so an unreachable endpoint would otherwise hold the overlay on "Searching…"
-// for the whole 30s fetch timeout while the others already have answers.
+// appear, so an unreachable endpoint would otherwise hold the overlay on
+// "Searching…" for the whole 30s fetch timeout while the others already have
+// answers.
 function withTimeout(
   run: () => Promise<OnlineSubtitleResult[]>,
   id: string,

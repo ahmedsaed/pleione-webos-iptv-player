@@ -340,7 +340,7 @@ export const ES_MESSAGES = {
   'settings.any': 'Cualquier idioma',
   'settings.apiKey': 'Clave de API',
   'settings.assrtToken': 'Token de API',
-  'settings.assrtDescription': 'Assrt.net ofrece principalmente subtítulos en chino. El token es opcional; déjalo en blanco para usar el token compartido.',
+  'settings.assrtDescription': 'Assrt.net ofrece principalmente subtítulos en chino. Usa tu propio token de API; déjalo en blanco para desactivarlo.',
   'settings.castPhotos': 'Fotos del reparto',
   'settings.tmdbHint': 'Muestra fotos del reparto de TMDB en las páginas de películas y series. Usa tu propia clave de API o token de acceso de lectura; déjalo en blanco para desactivarlo.',
   'settings.username': 'Usuario',

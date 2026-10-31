@@ -9,10 +9,6 @@ const log = createLogger('Assrt');
 const BASE = 'https://api.assrt.net/v1';
 const SUB_EXT = /\.(srt|vtt|ass|ssa)$/i;
 
-// Public OSS token published in AssrtOSS/mpv-assrt (src/assrt.lua) for OSS
-// clients — a shared zero-config fallback, overridden by a user token.
-export const DEFAULT_ASSRT_TOKEN = 'tNjXZUnOJWcHznHDyalNMYqqP6IdDdpQ';
-
 // Assrt reports language as Chinese descriptions; map to a code for ranking.
 function assrtLang(desc: string): string {
   if (desc.includes('简')) return 'zh-CN';
@@ -41,12 +37,12 @@ function buildQuery(q: SubtitleQuery): string {
 }
 
 export function createAssrtProvider(getApiKey: () => string): SubtitleProvider {
-  const token = (): string => getApiKey().trim() || DEFAULT_ASSRT_TOKEN;
+  const token = (): string => getApiKey().trim();
 
   return {
     id: 'assrt',
     label: 'Assrt',
-    isConfigured: () => true, // a token always exists (default), so Assrt is always available
+    isConfigured: () => token() !== '',
 
     async search(q: SubtitleQuery): Promise<OnlineSubtitleResult[]> {
       const query = buildQuery(q);

@@ -581,7 +581,7 @@ describe('setup page forms', () => {
       opensubtitles: { password: 'p1' },
     });
     expect(dom.window.document.querySelector('#subtitle-state')!.textContent)
-      .toBe('SubDL: Configured · Assrt: Built-in access · OpenSubtitles: Configured · TMDB: Configured');
+      .toBe('SubDL: Configured · Assrt: Not configured · OpenSubtitles: Configured · TMDB: Configured');
     expect(form.querySelector<HTMLInputElement>('[name="tmdbApiKey"]')!.value).toBe('********');
     expect(password.value).toBe('********');
     dom.window.close();

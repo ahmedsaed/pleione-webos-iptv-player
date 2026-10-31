@@ -340,7 +340,7 @@ export const PT_BR_MESSAGES = {
   'settings.any': 'Qualquer idioma',
   'settings.apiKey': 'Chave da API',
   'settings.assrtToken': 'Token da API',
-  'settings.assrtDescription': 'O Assrt.net oferece principalmente legendas em chinês. O token é opcional; deixe em branco para usar o token compartilhado.',
+  'settings.assrtDescription': 'O Assrt.net oferece principalmente legendas em chinês. Use seu próprio token da API; deixe em branco para desativar.',
   'settings.castPhotos': 'Fotos do elenco',
   'settings.tmdbHint': 'Mostra fotos do elenco do TMDB nas páginas de filmes e séries. Use sua própria chave da API ou token de acesso de leitura; deixe em branco para desativar.',
   'settings.username': 'Nome de usuário',

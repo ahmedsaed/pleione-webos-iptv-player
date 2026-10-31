@@ -5,8 +5,8 @@ import { seedXtream } from './fixtures/xtream';
 test.use({ startOn: 'live' });
 
 // Online-subtitle search for Xtream VOD. The player's "Search online…" subtitle
-// entry (always present for VOD — Assrt is a zero-config provider) opens a
-// results overlay backed by the aggregator. We route the Assrt API so the whole
+// entry (present for VOD once a provider has the user's key; here an Assrt
+// token) opens a results overlay backed by the aggregator. We route the Assrt API so the whole
 // menu → overlay → pick/apply path runs without any real network.
 
 const MOVIE_ID = 10;
@@ -68,6 +68,12 @@ async function seedVod(page: Page): Promise<void> {
       { id: 'x1', name: 'X Account', url: 'http://host.example.com:8080',
         source: 'xtream', xtream: { username: 'u', password: 'p' } },
     ]));
+    localStorage.setItem('iptv_online_subtitles', JSON.stringify({
+      preferredLanguage: '',
+      opensubtitles: { apiKey: '', username: '', password: '', token: '', tokenTs: 0 },
+      subdl: { apiKey: '' },
+      assrt: { apiKey: 'token-a' },
+    }));
   });
   // Keep VOD alive: the empty mock file must not fire `error` and eject.
   await page.addInitScript(() => {
