@@ -1063,7 +1063,7 @@ describe('ChannelList edit mode', () => {
 
       expect(container.querySelectorAll('[data-epg-position]').length).toBeLessThan(20);
       expect(container.querySelector<HTMLElement>('.epg-mapping-spacer')?.style.height)
-        .toBe(`${String(121 * 72)}px`);
+        .toBe(`${String(121 * 76)}px`);
 
       const input = container.querySelector<HTMLInputElement>('.epg-mapping-search')!;
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));

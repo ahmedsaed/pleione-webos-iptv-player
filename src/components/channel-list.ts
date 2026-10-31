@@ -41,9 +41,9 @@ import { VirtualScrollGuard } from '../utils/virtual-scroll';
 import { uiTextPx } from '../utils/ui-scale';
 
 // Row strides mirror css/live-panes.css: .channel-item is 116px plus a 6px
-// gap, and .group-item 64px plus 6px; both grow with the text size.
+// gap, and .group-item 76px plus 6px; both grow with the text size.
 const CHANNEL_ROW_STRIDE = 122;
-const GROUP_ROW_STRIDE = 70;
+const GROUP_ROW_STRIDE = 82;
 const CHANNEL_OVERSCAN = 12;
 const CHANNEL_VIEWPORT_FALLBACK = 900;
 
