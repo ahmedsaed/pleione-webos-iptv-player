@@ -1348,6 +1348,7 @@ class App {
     if (section !== 'movies') this.movies.deactivate();
     if (section !== 'series') this.series.deactivate();
     if (section !== 'search') this.search.deactivate();
+    if (section !== 'settings') this.settings.release();
     if (section === 'live') {
       if (!this.livePreview.returnFromFullscreen(false)) {
         this.player.stop();
@@ -1531,6 +1532,7 @@ class App {
     this.movies.deactivate();
     this.series.deactivate();
     this.search.deactivate();
+    this.settings.release();
     this.player.stop();
     const fresh = this.home.focusScope.focusKey === null;
     this.showView('home');

@@ -1976,6 +1976,14 @@ export class Settings {
     this.liveCategoryPicker.hide();
   }
 
+  // Leaving Settings drops its pages: every entry renders them again, and
+  // the focus scope keeps the remembered control.
+  release(): void {
+    if (!this.container.firstChild) return;
+    this.dismissPrompt();
+    morph(this.container, html``);
+  }
+
   // Live theme preview: focusing (D-pad) or hovering (pointer) a swatch previews
   // that theme app-wide; anything else falls back to the currently selected theme.
   private confirmResetCustomization(): void {

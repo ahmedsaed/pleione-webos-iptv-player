@@ -774,6 +774,11 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     this.requestController?.abort();
     this.requestController = null;
     this.onRequestSessionReset();
+    // open() rebuilds every layer, so a left section keeps no tiles or
+    // decoded posters. The focus scope still remembers the tile.
+    this.clearLayer('grid');
+    this.clearLayer('detail');
+    this.clearLayer('browse');
   }
 
   async open(account: PlaylistEntry): Promise<void> {
