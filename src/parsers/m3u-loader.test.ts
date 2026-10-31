@@ -588,6 +588,24 @@ describe('fetchAndParseM3U transient failure retries', () => {
     );
   });
 
+  it('does not retry a download that timed out', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchMock = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_, reject) => {
+      init.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = fetchAndParseM3U('http://host/list.m3u', 5000);
+    const settled = expect(result).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(5000);
+    await settled;
+    await vi.advanceTimersByTimeAsync(20000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('does not retry a missing playlist', async () => {
     vi.useFakeTimers();
     vi.spyOn(console, 'log').mockImplementation(() => {});

@@ -820,6 +820,34 @@ describe('XtreamClient transient failure retries', () => {
       .toHaveLength(1);
   });
 
+  it('fails a timed-out catalog list at once but retries its server errors', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    fetchTextMock.mockRejectedValueOnce(new FetchTextError('timeout', 'Request timed out'));
+    await expect(createXtreamClient(creds).getVodStreams())
+      .rejects.toMatchObject({ code: 'timeout' });
+    expect(fetchTextMock).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+
+    fetchTextMock.mockRejectedValueOnce(new FetchTextError('timeout', 'Request timed out'));
+    await expect(createXtreamClient(creds).getSeriesCategories())
+      .rejects.toMatchObject({ code: 'timeout' });
+    expect(fetchTextMock).toHaveBeenCalledTimes(2);
+
+    fetchTextMock.mockRejectedValueOnce(new FetchTextError('timeout', 'Request timed out'));
+    await expect(createXtreamClient(creds).getLiveStreamsResult())
+      .resolves.toEqual({ available: false, streams: [] });
+    expect(fetchTextMock).toHaveBeenCalledTimes(3);
+
+    fetchTextMock
+      .mockRejectedValueOnce(new FetchTextError('http', 'HTTP 429', 429))
+      .mockResolvedValueOnce(vodList);
+    const result = createXtreamClient(creds).getVodStreams();
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(result).resolves.toHaveLength(1);
+    expect(fetchTextMock).toHaveBeenCalledTimes(5);
+  });
+
   it.each([401, 403, 404])('does not retry HTTP %i', async status => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     fetchTextMock.mockRejectedValue(new FetchTextError('http', `HTTP ${status}`, status));

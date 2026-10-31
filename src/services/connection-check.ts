@@ -24,7 +24,7 @@ export async function checkConnections(playlists: PlaylistEntry[]): Promise<Conn
   const states = await Promise.all(accounts.map(async (account): Promise<ConnectionState> => {
     try {
       const info = await createXtreamClient({ baseUrl: account.url, ...account.xtream! }, account.id)
-        .getAccountInfo();
+        .getAccountInfo(undefined, { retryTimeouts: false });
       return !info ? 'unreachable' : info.auth ? 'ok' : 'rejected';
     } catch {
       return 'unreachable';

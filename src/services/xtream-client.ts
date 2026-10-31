@@ -3,7 +3,7 @@ import {
   fetchLimitedText,
   fetchTextTransientFailure,
 } from '../utils/fetch-helper';
-import { retryTransient } from '../utils/retry';
+import { finalTimeout, retryTransient } from '../utils/retry';
 import { xtreamPlayerApi, type XtreamCredentials } from '../utils/xtream-url';
 import { createLogger } from '../utils/logger';
 import type { VodCategory, VodItem, VodInfo, SeriesCategory, SeriesItem, SeriesInfo, Episode, SidecarSubtitle } from '../types';
@@ -237,9 +237,7 @@ async function fetchJsonStrict(
         kind: 'xtream',
         classify: error => {
           const failure = fetchTextTransientFailure(error);
-          return failure?.reason === 'timeout' && options.retryTimeouts === false
-            ? null
-            : failure;
+          return options.retryTimeouts === false ? finalTimeout(failure) : failure;
         },
         signal,
         abortError: () => new FetchTextError('aborted', 'Request was cancelled'),
@@ -277,13 +275,16 @@ async function fetchJson(
   }
 }
 
+// A catalog list's timeout already covers its whole transfer.
+const WHOLE_LIST: XtreamRequestOptions = { retryTimeouts: false };
+
 async function fetchCatalogArray(
   url: string,
   maxBytes: number,
   idField: 'category_id' | 'stream_id' | 'series_id',
   signal?: AbortSignal,
 ): Promise<Record<string, unknown>[]> {
-  const data = await fetchJsonStrict(url, CATALOG_TIMEOUT, maxBytes, signal);
+  const data = await fetchJsonStrict(url, CATALOG_TIMEOUT, maxBytes, signal, WHOLE_LIST);
   const items = asArray(data);
   if (!Array.isArray(data) || (data.length && !items.some(item => toStr(item[idField]) !== ''))) {
     const error = new XtreamRequestError('request_failed', 'Xtream catalog response was not a valid list');
@@ -395,6 +396,7 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
         CATALOG_TIMEOUT,
         CONFIG.XTREAM.CATALOG_MAX_BYTES,
         signal,
+        WHOLE_LIST,
       ));
     },
 
@@ -405,6 +407,7 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
           CATALOG_TIMEOUT,
           CONFIG.XTREAM.CATALOG_MAX_BYTES,
           signal,
+          WHOLE_LIST,
         );
         return {
           available: Array.isArray(value),
@@ -422,6 +425,7 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
         CATALOG_TIMEOUT,
         CONFIG.XTREAM.CATEGORY_MAX_BYTES,
         signal,
+        WHOLE_LIST,
       ));
       return arr
         .map((category) => ({
