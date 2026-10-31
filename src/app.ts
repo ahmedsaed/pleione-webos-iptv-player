@@ -141,6 +141,8 @@ class App {
   // Home loads no channels: the first surface that needs them loads them.
   private channelsLoaded = false;
   private channelLoad: Promise<void> | null = null;
+  // Bumped by each reload; a load from an older generation drops its result.
+  private loadGeneration = 0;
   // A reload Home deferred still owes its forced guide refresh.
   private forceEpgOnLoad = false;
   // Search opened before the channels: it opens its index once they load.
@@ -946,6 +948,9 @@ class App {
     landing: ChannelLanding,
   ): Promise<void> {
     const done = log.time('loadData');
+    if (landing === 'launch') this.dropChannelLoad();
+    const generation = this.loadGeneration;
+    const stale = (): boolean => generation !== this.loadGeneration;
     const quiet = landing === 'quiet';
     this.loadingData = !quiet;
     if (landing === 'launch') show(this.views.loading);
@@ -956,6 +961,7 @@ class App {
     this.applyDisplayTz();
 
     try {
+      if (stale()) return;
       const playlists = StorageService.getPlaylists();
       log.info('Configured playlists:', playlists.length);
       const firstRun = firstRunLanding(playlists, landing);
@@ -1007,6 +1013,7 @@ class App {
         loadingText.textContent = text;
         this.channelList.showLoadProgress(text);
       });
+      if (stale()) return;
       // Live shows the failure with Try again instead of an empty list, and
       // the next view to need the channels tries again.
       if (PlaylistService.loadFailed) {
@@ -1014,6 +1021,7 @@ class App {
       }
       this.player.syncCurrentIndex();
       await ChannelHealthService.initialize();
+      if (stale()) return;
       log.info('Channels loaded:', PlaylistService.channels.length,
         '| groups:', PlaylistService.groups.length,
         '| epgSources:', PlaylistService.epgSources);
@@ -1026,6 +1034,7 @@ class App {
       const epgChannels = PlaylistService.getEpgEligibleChannels();
       if (epgSources.length) {
         await EpgService.restoreCached(epgSources, epgChannels);
+        if (stale()) return;
       }
 
       this.channelsLoaded = true;
@@ -1066,7 +1075,7 @@ class App {
       this.searchPrewarm.schedule('startup');
     } catch (err) {
       log.error('loadData failed:', err);
-      if (landing !== 'launch') return;
+      if (landing !== 'launch' || stale()) return;
       this.showView('settings');
       this.settings.render();
       showToast(t('app.loadFailed'));
@@ -1088,6 +1097,13 @@ class App {
     }
     this.channelsLoaded = false;
     this.forceEpgOnLoad = this.forceEpgOnLoad || forceEpgRefresh;
+    this.dropChannelLoad();
+  }
+
+  // A load still in flight finishes into nothing; the next one starts fresh.
+  private dropChannelLoad(): void {
+    this.loadGeneration++;
+    this.channelLoad = null;
   }
 
   private ensureChannels(landing: 'live' | 'quiet'): Promise<void> {
@@ -1095,8 +1111,9 @@ class App {
     if (!this.channelLoad) {
       const force = this.forceEpgOnLoad;
       this.forceEpgOnLoad = false;
-      this.channelLoad = this.loadData(force, landing)
-        .then(() => { this.channelLoad = null; });
+      const load: Promise<void> = this.loadData(force, landing)
+        .then(() => { if (this.channelLoad === load) this.channelLoad = null; });
+      this.channelLoad = load;
     }
     return this.channelLoad;
   }
