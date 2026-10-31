@@ -552,6 +552,18 @@ describe('SpatialNav', () => {
       expect(nav.focused).toBe(listTop);
     });
 
+    // A host that picks the target itself (Settings' row steps) still lands
+    // where focus left the container.
+    it('entry() names the remembered element for a host-picked target', () => {
+      const { nav, sidebarTop, listTop, listBottom } = makeTwoContainers('last-focused');
+      expect(nav.entry(listTop)).toBe(listTop);
+      nav.focus(listBottom);
+      expect(nav.entry(listTop)).toBe(listTop);
+      nav.focus(sidebarTop);
+      expect(nav.entry(listTop)).toBe(listBottom);
+      expect(nav.entry(sidebarTop)).toBe(sidebarTop);
+    });
+
     it('falls back to geometry when the remembered element is gone', () => {
       const { nav, sidebarTop, listTop, listBottom } = makeTwoContainers('last-focused');
       nav.focus(listBottom);

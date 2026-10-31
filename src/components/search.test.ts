@@ -173,6 +173,8 @@ function mkHandlers() {
   return {
     onFocusBox: vi.fn(),
     onReleaseBox: vi.fn(),
+    onHoldBox: vi.fn(),
+    boxHeld: vi.fn(() => false),
     onBack: vi.fn(),
     onPlayChannel: vi.fn(),
     onOpenMovie: vi.fn(),
@@ -1556,8 +1558,8 @@ describe('Search', () => {
     await view.open(account, 'alpha');
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const hint = container.querySelector('.search-results .search-hint');
-    expect(hint?.textContent).toBe('Preparing search…');
+    await vi.waitFor(() => expect(container.querySelector('.search-results .search-busy')?.textContent)
+      .toContain('Preparing search…'));
     expect(container.textContent).not.toContain('No results');
     // No partial results: the channel already indexed stays hidden.
     expect(container.querySelector('.catalog-tile')).toBeNull();
@@ -1582,26 +1584,26 @@ describe('Search', () => {
     let finishVod!: (items: unknown[]) => void;
     catalogMock.loadAllVodStreams.mockReturnValue(new Promise((resolve) => { finishVod = resolve; }));
     catalogMock.loadAllSeries.mockResolvedValue([]);
-    const box = document.createElement('input');
-    box.className = 'search-box-input';
-    document.body.appendChild(box);
     const handlers = mkHandlers();
-    handlers.onFocusBox.mockImplementation(() => box.focus());
-    handlers.onReleaseBox.mockImplementation(() => box.blur());
+    let held = false;
+    handlers.onHoldBox.mockImplementation(() => { held = true; });
+    handlers.boxHeld.mockImplementation(() => held);
+    handlers.onReleaseBox.mockImplementation(() => { held = false; });
     const view = new Search(container, handlers);
     Focus.setBase(() => view.focusScope);
     await view.open(account, 'alpha');
     await new Promise((resolve) => setTimeout(resolve, 50));
     view.focusFirstResult();
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(document.activeElement).toBe(box);
+    // The box keeps the keys with the keyboard shut, never the caret.
+    expect(handlers.onHoldBox).toHaveBeenCalledTimes(1);
+    expect(handlers.onFocusBox).not.toHaveBeenCalled();
     expect(container.querySelector('.focused')).toBeNull();
 
     finishVod([vod('10', 'Movie Two')]);
     await vi.waitFor(() => expect(handlers.onReleaseBox).toHaveBeenCalledTimes(1));
     expect(container.querySelector('.search-channel-card[data-channel-index="0"]')?.classList.contains('focused'))
       .toBe(true);
-    box.remove();
   });
 
   it('marks the index ready when the catalog fails to load', async () => {
@@ -1812,12 +1814,11 @@ describe('Search', () => {
     let finishVod!: (items: unknown[]) => void;
     catalogMock.loadAllVodStreams.mockReturnValue(new Promise((resolve) => { finishVod = resolve; }));
     catalogMock.loadAllSeries.mockResolvedValue([]);
-    const box = document.createElement('input');
-    box.className = 'search-box-input';
-    document.body.appendChild(box);
     const handlers = mkHandlers();
-    handlers.onFocusBox.mockImplementation(() => box.focus());
-    handlers.onReleaseBox.mockImplementation(() => box.blur());
+    let held = false;
+    handlers.onHoldBox.mockImplementation(() => { held = true; });
+    handlers.boxHeld.mockImplementation(() => held);
+    handlers.onReleaseBox.mockImplementation(() => { held = false; });
     const view = new Search(container, handlers);
     Focus.setBase(() => view.focusScope);
     const opening = view.open(account);
@@ -1826,47 +1827,46 @@ describe('Search', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(container.querySelector('.catalog-tile')).toBeNull();
     // The remote waits in the box rather than on nothing.
-    expect(document.activeElement).toBe(box);
+    expect(held).toBe(true);
 
     finishVod([vod('10', 'Movie One')]);
     await opening;
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(handlers.onReleaseBox).toHaveBeenCalledTimes(1);
     expect(container.querySelector('.catalog-tile[data-stream-id="10"]')?.classList.contains('focused')).toBe(true);
-    box.remove();
   });
 
   it('leaves the remote where it went while the catalog loaded', async () => {
     let finishVod!: (items: unknown[]) => void;
     catalogMock.loadAllVodStreams.mockReturnValue(new Promise((resolve) => { finishVod = resolve; }));
     catalogMock.loadAllSeries.mockResolvedValue([]);
-    const box = document.createElement('input');
-    box.className = 'search-box-input';
-    document.body.appendChild(box);
     const handlers = mkHandlers();
-    handlers.onFocusBox.mockImplementation(() => box.focus());
+    let held = false;
+    handlers.onHoldBox.mockImplementation(() => { held = true; });
+    handlers.boxHeld.mockImplementation(() => held);
     const view = new Search(container, handlers);
     Focus.setBase(() => view.focusScope);
     const opening = view.open(account);
     view.scheduleQuery('movie');
     view.focusFirstResult();
     await new Promise((resolve) => setTimeout(resolve, 50));
-    box.blur();
+    // The remote went elsewhere (the box gave up its keys).
+    held = false;
 
     finishVod([vod('10', 'Movie One')]);
     await opening;
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(handlers.onFocusBox).toHaveBeenCalledTimes(1);
+    expect(handlers.onHoldBox).toHaveBeenCalledTimes(1);
     expect(handlers.onReleaseBox).not.toHaveBeenCalled();
     expect(container.querySelector('.catalog-tile.focused')).toBeNull();
-    box.remove();
   });
 
-  it('hands focus back to the search box when the query matches nothing', async () => {
+  it('keeps the keys in the search box, keyboard shut, when the query matches nothing', async () => {
     const { view, handlers } = await openWith({ vod: [vod('10', 'Movie One')] });
     await view.setQuery('zzz');
     view.focusFirstResult();
-    expect(handlers.onFocusBox).toHaveBeenCalledTimes(1);
+    expect(handlers.onHoldBox).toHaveBeenCalledTimes(1);
+    expect(handlers.onFocusBox).not.toHaveBeenCalled();
   });
 
   it('records the query when a result is opened', async () => {
@@ -2119,8 +2119,7 @@ describe('Search', () => {
       const view = new Search(container, mkHandlers());
       void view.open(account, 'alpha');
       await vi.waitFor(() => expect(rejected).toBe(true));
-      await new Promise(resolve => setTimeout(resolve, 50));
-      expect(container.textContent).toContain('Preparing search…');
+      await vi.waitFor(() => expect(container.textContent).toContain('Preparing search…'));
       expect(container.textContent).not.toContain('No results found.');
 
       finishVod([vod('10', 'Alpha Movie')]);

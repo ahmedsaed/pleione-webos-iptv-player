@@ -178,3 +178,23 @@ export function isQuotaExceededError(err: unknown): boolean {
     || code === 22
     || code === 1014;
 }
+
+// Set once IndexedDB refuses writes for good this session (free disk below
+// Chromium's system reserve): reads still work, user data goes to the localStorage fallback,
+// and caches stay in memory.
+let refusedReason: string | null = null;
+
+export function idbWritesRefused(): boolean {
+  return refusedReason !== null;
+}
+
+// True only for the call that switched the session to read-only.
+export function refuseIdbWrites(reason: string): boolean {
+  if (refusedReason !== null) return false;
+  refusedReason = reason;
+  return true;
+}
+
+export function resetIdbWriteStateForTests(): void {
+  refusedReason = null;
+}

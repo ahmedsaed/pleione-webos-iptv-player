@@ -155,6 +155,7 @@ const {
       setLocalePreference: vi.fn(),
       setOnlineSubtitleConfig: vi.fn((cfg: any) => { state.onlineSubtitles = cfg; }),
       getTmdbApiKey: vi.fn(() => state.tmdbApiKey),
+      isStorageLimited: vi.fn(() => false),
       setTmdbApiKey: vi.fn((key: string) => { state.tmdbApiKey = key.trim(); return true; }),
       remove: vi.fn(),
       clearRecentlyWatched: vi.fn(),
@@ -1313,6 +1314,20 @@ describe('Settings Recently Watched clearing', () => {
     ]);
   });
 
+  it('notes limited storage under the cache usage only while IndexedDB refuses writes', () => {
+    expect(container.querySelector('#storage-limited-note')).toBeNull();
+
+    storageMock.isStorageLimited.mockReturnValue(true);
+    settings.render();
+    const note = container.querySelector('#storage-limited-note')!;
+    expect(note.className).toBe('settings-item-hint');
+    expect(note.textContent).toBe(
+      'This TV limits how much the app can store. Your progress and favorites are still saved, but the cache isn’t kept between launches.',
+    );
+    expect(note.previousElementSibling?.id).toBe('cache-usage');
+    storageMock.isStorageLimited.mockReturnValue(false);
+  });
+
   it('places maintenance actions after history settings', () => {
     const section = container.querySelector('#settings-data .settings-section')!;
     const recent = section.querySelector('.settings-item--action')!;
@@ -1918,13 +1933,15 @@ describe('Settings.handleAction', () => {
     expect(storageMock.setPlaylists).toHaveBeenCalled();
   });
 
-  it('names the shown category beside the page title', () => {
+  // The highlighted category already names the page; the header holds the title alone.
+  it('shows the page title without a category subtitle', () => {
     settings.render();
-    const subtitle = () => container.querySelector('.settings-header .page-subtitle')?.textContent;
-    expect(container.querySelector('.settings-header .settings-title')?.textContent).toBe('Settings');
-    expect(subtitle()).toBe('General');
+    const header = () => container.querySelector('.settings-header');
+    expect(header()?.querySelector('.settings-title')?.textContent).toBe('Settings');
+    expect(header()?.children).toHaveLength(1);
     click('[data-settings-target="appearance"]');
-    expect(subtitle()).toBe('Appearance');
+    expect(header()?.children).toHaveLength(1);
+    expect(header()?.textContent?.trim()).toBe('Settings');
   });
 
   it('moves right from a category to its first control', () => {
@@ -2313,14 +2330,15 @@ describe('Settings listener lifecycle', () => {
     const spy = vi.spyOn(c, 'addEventListener');
     settings.focusScope.dispose();
     const s = new Settings(c, vi.fn());
-    s.render();
-    s.render();
-    s.render();
     const count = (type: string) =>
       spy.mock.calls.filter(([t]) => t === type).length;
+    const bound = ['nav:hover', 'keydown', 'click', 'input'].map(count);
+    s.render();
+    s.render();
+    s.render();
     expect(count('nav:hover')).toBe(1);
-    expect(count('keydown')).toBe(1);
     expect(count('click')).toBe(1);
+    expect(['nav:hover', 'keydown', 'click', 'input'].map(count)).toEqual(bound);
   });
 });
 

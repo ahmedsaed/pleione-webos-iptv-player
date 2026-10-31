@@ -735,11 +735,32 @@ describe('Series detail', () => {
 
     const resume = container.querySelector<HTMLElement>('[data-action="resume"]')!;
     expect(resume.textContent).toContain('Resume S2 · E1');
-    expect(resume.querySelector<HTMLElement>('.detail-btn-progress-fill')?.style.width).toBe('25%');
+    expect(resume.querySelector('.detail-btn-progress')).toBeNull();
+    expect(Array.from(container.querySelectorAll<HTMLElement>('.detail-actions [data-action]'))
+      .map(el => el.dataset.action)).toEqual(['resume', 'restart', 'watchlist']);
     expect(container.querySelector('.series-season-btn.active')?.getAttribute('data-season')).toBe('2');
     expect(container.querySelector('.focused')?.getAttribute('data-key')).toBe('resume');
     view.handleAction('select');
     expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e2', resumeSecs: 400 }));
+  });
+
+  it('plays the resumed episode from the start with Play from start', async () => {
+    catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+    const saved = {
+      accountId: 'x1', kind: 'episode', itemId: 'e2', name: 'Series One — S2E1 — Episode Two',
+      poster: '', ext: 'mkv', position: 400, duration: 1600, updatedAt: 2,
+      watchlistOwner: { kind: 'series', itemId: 's1' },
+    };
+    storageMock.getResumeList.mockReturnValue([saved]);
+    storageMock.getResume.mockImplementation((_a: string, _k: string, id: string) => (id === 'e2' ? saved : null));
+    const { view, handlers } = await openWith();
+    await openDetail(view);
+
+    const restart = container.querySelector<HTMLElement>('[data-action="restart"]')!;
+    expect(restart.textContent).toContain('Play from start');
+    restart.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e2', resumeSecs: 0 }));
   });
 
   it('fills the progress bar of a watched episode', async () => {

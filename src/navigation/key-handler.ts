@@ -4,6 +4,7 @@ import { createLogger } from '../utils/logger';
 import { Focus, type FocusScope } from './focus-scope';
 import { InputMode, setCursorHidden, setInputMode, setKeyRepeat } from './input-mode';
 import { edgeScrollTrackAt, installEdgeScroll } from './edge-scroll';
+import { caretAtEdge, caretSideOf } from './caret-edge';
 import type { Action, NumberEvent } from '../types';
 
 type ActionHandler = (action: Action, event?: NumberEvent) => void;
@@ -147,6 +148,10 @@ export const KeyHandler = {
       // the app — see INPUT_PASSTHROUGH_KEYS.
       const tag = (e.target as HTMLElement).tagName;
       if ((tag === 'INPUT' || tag === 'TEXTAREA') && !INPUT_PASSTHROUGH_KEYS.has(e.keyCode)) {
+        // Left at the start of a field (Right at its end) keeps the caret
+        // there; on the TV it wrapped around to the other end.
+        const side = caretSideOf(e);
+        if (side && caretAtEdge(e.target as HTMLInputElement, side)) e.preventDefault();
         // No code here on purpose: it would spell out what is being typed.
         log.debug('Key ignored', 'event=key.ignored', 'reason=text_input');
         return;

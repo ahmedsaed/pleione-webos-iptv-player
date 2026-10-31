@@ -28,6 +28,7 @@ import { formatDayLabel, formatTime } from '../utils/time';
 import { showToast } from './toast';
 import { CLOCK_ICON, TRASH_ICON } from './icons';
 import { CatchupResumePrompt } from './catchup-resume-prompt';
+import { SearchIndicator } from './search-indicator';
 import { CONFIG } from '../config';
 import { createLogger } from '../utils/logger';
 import { t } from '../i18n';
@@ -91,6 +92,11 @@ export interface SearchHandlers {
   onFocusBox: () => void;
   // A result arrived after the remote waited in the box: let it go.
   onReleaseBox: () => void;
+  // A submitted query has nothing to focus yet, or matched nothing: the box
+  // keeps the keys with the on-screen keyboard closed.
+  onHoldBox: () => void;
+  // Whether the box still holds the keys it was given while waiting.
+  boxHeld: () => boolean;
   onBack: () => void;
   // OK on a recent search: run it.
   onPickRecent: (query: string) => void;
@@ -206,6 +212,7 @@ export class Search {
   // Down/Enter handed focus over before the results existed; focus them once a query renders.
   private focusPending = false;
   private focusWaitingInBox = false;
+  private readonly indicator = new SearchIndicator(() => { if (this.active) this.render(); });
   private catalogController: AbortController | null = null;
   // Shared by a reopen, so closing Search does not restart the load.
   private catalogLoad: { accountId: string; promise: Promise<CatalogSources> } | null = null;
@@ -487,6 +494,7 @@ export class Search {
     this.releaseWorker?.();
     this.releaseWorker = null;
     this.queryPending = false;
+    this.indicator.reset();
   }
 
   handleAction(action: Action): void {
@@ -826,7 +834,7 @@ export class Search {
       // Wait in the search box, not on a blank screen, for the catalog.
       if (!this.focusWaitingInBox) {
         this.focusWaitingInBox = true;
-        this.handlers.onFocusBox();
+        this.handlers.onHoldBox();
       }
       return;
     }
@@ -835,12 +843,12 @@ export class Search {
     this.focusPending = false;
     // Nothing matched: keep the remote in the search box, not on a blank screen.
     if (!first) {
-      if (!waited) this.handlers.onFocusBox();
+      if (!waited) this.handlers.onHoldBox();
       return;
     }
     if (waited) {
       // The remote moved on from the box meanwhile: don't pull it back.
-      if (!document.activeElement?.classList.contains('search-box-input')) return;
+      if (!this.handlers.boxHeld()) return;
       this.handlers.onReleaseBox();
     }
     this.nav.focus(first);
@@ -1695,13 +1703,12 @@ export class Search {
     const q = this.query.trim();
     const hasResults = this.visibleChannels.length > 0 || this.visiblePrograms.length > 0
       || this.visibleMovies.length > 0 || this.visibleSeries.length > 0;
+    this.indicator.set(!q ? null : this.pendingIndex ? 'preparing' : this.queryPending ? 'searching' : null);
     const resultsBody = !q
       ? this.recentSection()
-      : this.pendingIndex
-        ? html`<p class="search-hint">${t('search.preparing')}</p>`
-        : this.queryPending
-          ? html``
-          : !hasResults
+      : this.pendingIndex || this.queryPending
+        ? this.busyIndicator()
+        : !hasResults
             ? html`<p class="search-hint">${t('search.empty')}</p>`
             : html`
                 ${this.visibleChannels.length
@@ -1730,6 +1737,19 @@ export class Search {
       </div>
     `);
     this.restoreVirtualOffsets();
+  }
+
+  // A spinner where the results will be, after a short delay; preparing
+  // the index says so beside it.
+  private busyIndicator(): Safe {
+    const busy = this.indicator.shown;
+    if (!busy) return html``;
+    return html`
+      <div class="search-busy" role="status" data-search-busy="${busy}">
+        <span class="search-busy-spinner" aria-hidden="true"></span>
+        ${busy === 'preparing' ? html`<span class="search-busy-text">${t('search.preparing')}</span>` : ''}
+      </div>
+    `;
   }
 
   private createVirtualizer(itemSize: number): VirtualList {

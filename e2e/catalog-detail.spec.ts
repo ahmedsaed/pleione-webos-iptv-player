@@ -172,7 +172,7 @@ test('opens the full description over the page; Back closes it and the focus sta
   expect(await focusedKey(page)).toBe('play');
 });
 
-test('toggles the Watchlist and shows the meta line, Resume, and its progress', async ({ page }) => {
+test('toggles the Watchlist and shows the meta line, then Resume and Play from start', async ({ page }) => {
   await seed(page, { resume: { 'x1|vod|10': {
     accountId: 'x1', kind: 'vod', itemId: '10', name: 'Movie One', poster: '', ext: 'mp4',
     categoryId: '1', position: 2530, duration: 6720, updatedAt: 1,
@@ -184,8 +184,13 @@ test('toggles the Watchlist and shows the meta line, Resume, and its progress', 
   await expect(detail.locator('.detail-meta-part')).toHaveText(['2021', '1h 52m', 'Drama', '7.4']);
   const resume = detail.locator('[data-action="resume"]');
   await expect(resume).toContainText('Resume 42:10');
-  expect(await resume.locator('.detail-btn-progress-fill').evaluate(el => (el as HTMLElement).style.width)).toBe('38%');
+  await expect(resume.locator('.detail-btn-progress')).toHaveCount(0);
   expect(await focusedKey(page)).toBe('resume');
+  await expect(detail.locator('.detail-actions [data-action]'))
+    .toHaveText(['Resume 42:10', 'Play from start', 'Watchlist']);
+  await page.keyboard.press('ArrowRight');
+  expect(await focusedKey(page)).toBe('play');
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
 
   const watchlist = detail.locator('[data-action="watchlist"]');
   await expect(watchlist).toHaveAttribute('aria-pressed', 'false');
@@ -272,6 +277,14 @@ test('series: season tabs, episode cards, and Resume on the last-watched episode
   await expect(detail.locator('.episode-card .episode-title')).toHaveText(['E1 · Episode 1', 'E2 · Episode 2']);
   await expect(detail.locator('.episode-card[data-episode-id="202"] .catalog-progress-fill')).toHaveCount(1);
   await expect(detail.locator('.episode-card .episode-meta').first()).toHaveText('42 min');
+  expect(await focusedKey(page, 'series')).toBe('resume');
+  await expect(detail.locator('[data-action="resume"] .detail-btn-progress')).toHaveCount(0);
+  await expect(detail.locator('.detail-actions [data-action]'))
+    .toHaveText(['Resume S2 · E2', 'Play from start', 'Watchlist']);
+  await page.keyboard.press('ArrowRight');
+  expect(await focusedKey(page, 'series')).toBe('restart');
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+  await page.keyboard.press('ArrowLeft');
   expect(await focusedKey(page, 'series')).toBe('resume');
 
   // Down walks line by line: season tabs, then the cards.
@@ -377,3 +390,90 @@ test('a movie or episode played to its end shows a full progress bar, also after
   await expect(detail.locator('.episode-card[data-episode-id="202"] .catalog-progress-fill'))
     .toHaveAttribute('style', full);
 });
+
+// Left and Right stay in the action row while a neighbor exists (Arabic
+// keeps the row's left-to-right layout); Down and Up move between the rows,
+// and Up returns to the action Down left.
+for (const locale of ['en', 'ar'] as const) {
+  const next = 'ArrowRight';
+  const previous = 'ArrowLeft';
+  const resume = {
+    'x1|vod|10': {
+      accountId: 'x1', kind: 'vod', itemId: '10', name: 'Movie One', poster: '', ext: 'mp4',
+      categoryId: '1', position: 2530, duration: 6720, updatedAt: 1,
+    },
+    'x1|episode|202': {
+      accountId: 'x1', kind: 'episode', itemId: '202', name: 'Series One — S2E2 — Episode 2', poster: '',
+      ext: 'mp4', categoryId: '2', position: 630, duration: 2520, updatedAt: 1,
+      watchlistOwner: { kind: 'series', itemId: '1' },
+    },
+  };
+
+  const walkRow = async (page: Page, section: 'movies' | 'series', keys: string[]): Promise<void> => {
+    expect(await focusedKey(page, section)).toBe(keys[0]);
+    for (const key of keys.slice(1)) {
+      await page.keyboard.press(next);
+      expect(await focusedKey(page, section)).toBe(key);
+      await expect(page.locator('.focused:visible')).toHaveCount(1);
+    }
+    // The row's end holds; the way back walks the same buttons.
+    await page.keyboard.press(next);
+    expect(await focusedKey(page, section)).toBe(keys[keys.length - 1]);
+    for (const key of keys.slice(0, -1).reverse()) {
+      await page.keyboard.press(previous);
+      expect(await focusedKey(page, section)).toBe(key);
+      await expect(page.locator('.focused:visible')).toHaveCount(1);
+    }
+  };
+
+  test(`${locale}: series detail actions walk along their row, then Down to the seasons and Up`, async ({ page }) => {
+    await routeLiveManifest(page);
+    await neuterVideo(page);
+    await seed(page, { locale });
+    await page.goto('/');
+    await enterTab(page, 'series');
+    await openTitle(page, 'series', '2');
+    await expect(page.locator('#view-series .series-season-btn').first()).toBeVisible();
+    await walkRow(page, 'series', ['play', 'watchlist']);
+
+    await page.keyboard.press('ArrowDown');
+    expect(await focusedKey(page, 'series')).toBe('season:1');
+    await expect(page.locator('.focused:visible')).toHaveCount(1);
+    await page.keyboard.press('ArrowUp');
+    expect(await focusedKey(page, 'series')).toBe('play');
+    await expect(page.locator('.focused:visible')).toHaveCount(1);
+
+    await page.keyboard.press(next);
+    expect(await focusedKey(page, 'series')).toBe('watchlist');
+    await page.keyboard.press('ArrowDown');
+    expect(await focusedKey(page, 'series')).toMatch(/^season:/);
+    await page.keyboard.press('ArrowUp');
+    expect(await focusedKey(page, 'series')).toBe('watchlist');
+    await expect(page.locator('.focused:visible')).toHaveCount(1);
+  });
+
+  test(`${locale}: resumed series and movie actions walk along their row`, async ({ page }) => {
+    await routeLiveManifest(page);
+    await neuterVideo(page);
+    await seed(page, { locale, resume });
+    await page.goto('/');
+    await enterTab(page, 'series');
+    await openTitle(page, 'series', '1');
+    await expect(page.locator('#view-series .series-season-btn').first()).toBeVisible();
+    await walkRow(page, 'series', ['resume', 'restart', 'watchlist']);
+    await page.keyboard.press('ArrowDown');
+    expect(await focusedKey(page, 'series')).toBe('season:1');
+    await page.keyboard.press('ArrowUp');
+    expect(await focusedKey(page, 'series')).toBe('resume');
+    await expect(page.locator('.focused:visible')).toHaveCount(1);
+
+    await enterTab(page, 'movies');
+    await openTitle(page, 'movies', '10');
+    await walkRow(page, 'movies', ['resume', 'play', 'watchlist']);
+    await page.keyboard.press('ArrowDown');
+    expect(await focusedKey(page, 'movies')).toBe('person:0');
+    await page.keyboard.press('ArrowUp');
+    expect(await focusedKey(page, 'movies')).toBe('resume');
+    await expect(page.locator('.focused:visible')).toHaveCount(1);
+  });
+}

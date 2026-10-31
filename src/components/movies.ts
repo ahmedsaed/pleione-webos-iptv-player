@@ -310,10 +310,9 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
         label: t('catalog.resumeAt', { position: formatPosition(saved.position) }),
         icon: PLAY_ICON,
         primary: true,
-        progress: saved.duration > 0 ? saved.position / saved.duration : undefined,
       })}
-      ${this.watchlistButton(watchlisted)}
       ${this.detailButton({ key: 'play', label: t('catalog.playFromStart'), icon: RESTART_ICON })}
+      ${this.watchlistButton(watchlisted)}
     ` : html`
       ${this.detailButton({
         key: 'play', label: t('catalog.play'), icon: PLAY_ICON, primary: true,
