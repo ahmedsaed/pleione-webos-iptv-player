@@ -127,9 +127,13 @@ export class LiveGuide {
     this.stopClock();
   }
 
-  /** Take the keys on the focused cell. */
+  /** Take the keys on the focused cell; an empty group leaves them to the groups. */
   enter(): void {
     this.render();
+    if (!this.channels.length) {
+      this.options.onLeaveLeft();
+      return;
+    }
     this.focusScope.focus(this.focusKey(), 'key');
   }
 

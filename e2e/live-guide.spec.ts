@@ -273,3 +273,13 @@ test('a playlist picked with the keys picks the channels the Guide shows', async
   await press(page, 'ok');
   await expect(page.locator('#live-guide .guide-name')).toHaveText(['ch4']);
 });
+
+// Regression: an empty group left the keys on a grid with nothing to ring.
+test('an empty group leaves the keys on the groups column', async ({ page }) => {
+  await setup(page);
+  await press(page, 'back');
+  await page.locator('#channel-browser [data-key="g:builtin:favorites"]').click();
+  await expect(page.locator('#live-guide .guide-row')).toHaveCount(0);
+  await press(page, 'right');
+  expect(await focused(page)).toEqual(['g:builtin:favorites']);
+});

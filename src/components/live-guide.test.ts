@@ -320,6 +320,15 @@ describe('LiveGuide', () => {
     expect(focusedKey()).toBe(`cell:2:e${at(20, 30).getTime()}`);
   });
 
+  // Regression: an empty group (empty Favorites) left the keys on a grid
+  // with no ring.
+  it('hands the keys to the groups when the group is empty', () => {
+    data.groups['builtin:favorites'] = [];
+    scope = { group: 'builtin:favorites' };
+    guide.enter();
+    expect(handlers.onLeaveLeft).toHaveBeenCalledOnce();
+  });
+
   // Regression: the now line, time pill, and cell states moved only on a key.
   it('ticks each minute while shown, following the now line past the window', () => {
     vi.advanceTimersByTime(60_100);
