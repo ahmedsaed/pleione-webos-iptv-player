@@ -436,8 +436,10 @@ export class Home {
     return keys;
   }
 
+  // A card a lost Xtream account took away falls back to Live.
   private lastCard(): Card {
-    return this.lastFocusedCard ?? 'live';
+    const card = this.lastFocusedCard;
+    return card && this.grid.some((row) => row.indexOf(card) >= 0) ? card : 'live';
   }
 
   private focusKey(key: string): boolean {

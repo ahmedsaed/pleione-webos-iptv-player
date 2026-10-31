@@ -172,6 +172,21 @@ describe('Home', () => {
     expect(handlers.onLockNow).toHaveBeenCalledTimes(1);
   });
 
+  it('sends Down from the header to Live when the last card left the bento', () => {
+    home.setSources(true, [account], account);
+    home.setParentalSession(true);
+    home.render();
+    home.focusEntry('movies');
+    key('up', 'left');
+    expect(focused()).toBe('lock-now');
+    // The Xtream account goes, and Movies with it.
+    home.setSources(false, [], null);
+    home.render();
+    expect(focused()).toBe('lock-now');
+    key('down');
+    expect(focused()).toBe('section:live');
+  });
+
   it('tints the glow toward the focused card', () => {
     home.setSources(true, [account], account);
     home.render();
