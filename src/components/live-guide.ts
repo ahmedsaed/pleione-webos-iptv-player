@@ -49,6 +49,8 @@ export interface LiveGuideOptions {
   onLeaveLeft: () => void;
   // Up off the first row: the Live header.
   onLeaveUp: () => void;
+  // The Guide is on screen, so its clock ticks.
+  visible?: () => boolean;
 }
 
 interface Cell {
@@ -72,6 +74,9 @@ export class LiveGuide {
   private shown = false;
   // The group and playlist `channels` lists.
   private scopeKey = '';
+  private clockTimer: ReturnType<typeof setTimeout> | null = null;
+  // The now line showed at the last render.
+  private nowInWindow = false;
 
   constructor(private readonly container: HTMLElement, private readonly options: LiveGuideOptions) {
     this.focusScope = Focus.register({
@@ -119,6 +124,7 @@ export class LiveGuide {
   hide(): void {
     this.shown = false;
     this.dismissPrompt();
+    this.stopClock();
   }
 
   /** Take the keys on the focused cell. */
@@ -183,6 +189,7 @@ export class LiveGuide {
     const rows = this.channels.slice(this.firstRow, this.firstRow + visible + 1);
     const stride = uiTextPx(ROW_STRIDE);
     const nowLeft = cellBox(now, now + 1, this.windowStart, 100);
+    this.nowInWindow = !!nowLeft;
     const focus = this.focusedCell();
     const focusKey = this.focusKey();
     morph(this.container, html`
@@ -212,6 +219,31 @@ export class LiveGuide {
       </div>
     `);
     this.focusScope.track(focusKey);
+    this.scheduleClock();
+  }
+
+  // The now line, the time pill, and cell states move each minute; a window
+  // that showed the now line follows it past its end.
+  private scheduleClock(): void {
+    if (this.clockTimer !== null || !this.isVisible()) return;
+    this.clockTimer = setTimeout(() => {
+      this.clockTimer = null;
+      if (!this.isVisible()) return;
+      const now = Date.now();
+      if (this.nowInWindow && now >= this.windowStart + GUIDE_SPAN_MS) {
+        this.windowStart = clampWindow(initialWindowStart(now), now, 7, AHEAD_DAYS);
+      }
+      this.render();
+    }, 60000 - Date.now() % 60000 + 50);
+  }
+
+  private stopClock(): void {
+    if (this.clockTimer !== null) clearTimeout(this.clockTimer);
+    this.clockTimer = null;
+  }
+
+  private isVisible(): boolean {
+    return this.shown && (this.options.visible?.() ?? true);
   }
 
   private renderRow(channel: Channel, position: number, top: number, now: number): Safe {

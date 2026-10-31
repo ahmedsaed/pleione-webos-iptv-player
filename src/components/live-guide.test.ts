@@ -69,6 +69,7 @@ const prog = (title: string, from: Date, to: Date): Programme =>
 let container: HTMLElement;
 let guide: LiveGuide;
 let scope: ChannelScope;
+let visible: boolean;
 let handlers: {
   play: ReturnType<typeof vi.fn>;
   onLeaveLeft: ReturnType<typeof vi.fn>;
@@ -92,6 +93,7 @@ beforeEach(() => {
   toast.mockClear();
   data.groups = {};
   scope = { group: 'builtin:all' };
+  visible = true;
   data.programmes = {
     ch1: [
       prog('Program 1', at(19), at(20)),
@@ -111,6 +113,7 @@ beforeEach(() => {
     watching: () => 1,
     onLeaveLeft: handlers.onLeaveLeft,
     onLeaveUp: handlers.onLeaveUp,
+    visible: () => visible,
   });
   Focus.setBase(() => guide.focusScope);
   Focus.install();
@@ -234,12 +237,12 @@ describe('LiveGuide', () => {
   it('sets and clears a future program reminder on OK', async () => {
     guide.handleAction('right');
     guide.handleAction('select');
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(0);
     expect(reminders.size).toBe(1);
     expect(toast).toHaveBeenLastCalledWith('Reminder set');
     expect(cell('Program 3')!.classList.contains('reminder')).toBe(true);
     guide.handleAction('select');
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(0);
     expect(reminders.size).toBe(0);
     expect(toast).toHaveBeenLastCalledWith('Reminder removed');
     expect(handlers.play).not.toHaveBeenCalled();
@@ -248,7 +251,7 @@ describe('LiveGuide', () => {
   it('plays a past program catch-up on OK', async () => {
     guide.handleAction('left');
     guide.handleAction('select');
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(0);
     expect(handlers.play).toHaveBeenCalledOnce();
     const [index, catchup] = handlers.play.mock.calls[0];
     expect(index).toBe(0);
@@ -315,5 +318,30 @@ describe('LiveGuide', () => {
     guide.render();
     expect(rowKeys()).toEqual(['row:0', 'row:2']);
     expect(focusedKey()).toBe(`cell:2:e${at(20, 30).getTime()}`);
+  });
+
+  // Regression: the now line, time pill, and cell states moved only on a key.
+  it('ticks each minute while shown, following the now line past the window', () => {
+    vi.advanceTimersByTime(60_100);
+    expect(container.querySelector('.guide-now-pill')?.textContent).toBe('20:43');
+    // 22:30 ends the window; the now line was in it, so the window follows.
+    vi.advanceTimersByTime((22 * 60 + 30 - (20 * 60 + 43)) * 60_000);
+    expect(container.querySelector('.guide-now-pill')?.textContent).toBe('22:30');
+    expect(times()[0]).toBe('22:00');
+    expect(cell('Program 4')!.classList.contains('live')).toBe(true);
+    // Hidden, the clock stops.
+    visible = false;
+    vi.advanceTimersByTime(60_000);
+    expect(container.querySelector('.guide-now-pill')?.textContent).toBe('22:30');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('leaves a window paged away from the now line where it is', () => {
+    guide.handleAction('right');
+    guide.handleAction('right');
+    guide.handleAction('right');
+    expect(times()[0]).toBe('22:00');
+    vi.advanceTimersByTime(60_100);
+    expect(times()[0]).toBe('22:00');
   });
 });

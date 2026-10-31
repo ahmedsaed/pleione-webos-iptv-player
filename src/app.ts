@@ -262,6 +262,7 @@ class App {
       watching: () => this.channelList.watching,
       onLeaveLeft: () => this.focusGuideGroups(),
       onLeaveUp: () => this.liveHeader.enter(),
+      visible: () => this.isCurrentView('channels') && this.liveMode === 'guide',
     });
     this.reminderManager = new ReminderManager(this.views.reminders, () => this.goUp('reminders'));
     this.settings = new Settings(
