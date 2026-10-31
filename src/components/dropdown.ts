@@ -1,4 +1,4 @@
-import { html, type Safe } from '../utils/dom';
+import { html, withInstantScroll, type Safe } from '../utils/dom';
 import type { SpatialNav } from '../navigation/spatial-nav';
 
 /** Custom single-select dropdown — remote/D-pad friendly and app-styled (the app
@@ -45,9 +45,53 @@ export function toggleDropdown(
   }
   dd.classList.add('open');
   dd.querySelector('.dropdown-trigger')?.setAttribute('aria-expanded', 'true');
+  placeDropdownMenu(dd);
   const opt = dd.querySelector<HTMLElement>('.dropdown-option.active')
     ?? dd.querySelector<HTMLElement>('.dropdown-option');
   if (opt) nav.focus(opt);
+}
+
+interface Box { top: number; bottom: number }
+
+// The part of the screen `el` can paint in: the window, cut by every
+// ancestor that clips its overflow (the Settings pane above its action bar).
+function visibleBox(el: HTMLElement): { box: Box; scroller: HTMLElement | null } {
+  const box: Box = { top: 0, bottom: window.innerHeight };
+  let scroller: HTMLElement | null = null;
+  for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowY;
+    if (overflow === 'visible') continue;
+    const r = node.getBoundingClientRect();
+    const top = r.top + node.clientTop;
+    box.top = Math.max(box.top, top);
+    box.bottom = Math.min(box.bottom, top + node.clientHeight);
+    if (!scroller && (overflow === 'auto' || overflow === 'scroll')) scroller = node;
+  }
+  return { box, scroller };
+}
+
+/**
+ * Open the menu where it shows whole: below the trigger when it fits, above
+ * it when only that side has room, and otherwise below with the pane
+ * scrolled just enough to show it, the trigger kept in view.
+ */
+export function placeDropdownMenu(dd: HTMLElement): void {
+  dd.classList.remove('drop-up');
+  const menu = dd.querySelector<HTMLElement>('.dropdown-menu');
+  const trigger = dd.querySelector<HTMLElement>('.dropdown-trigger');
+  if (!menu || !trigger) return;
+  const { box, scroller } = visibleBox(dd);
+  const t = trigger.getBoundingClientRect();
+  const m = menu.getBoundingClientRect();
+  if (m.height <= 0 || m.bottom <= box.bottom) return;
+  const gap = m.top - t.bottom;
+  if (t.top - gap - m.height >= box.top) {
+    dd.classList.add('drop-up');
+    return;
+  }
+  if (!scroller) return;
+  const delta = Math.min(m.bottom - box.bottom, t.top - box.top);
+  if (delta > 0) withInstantScroll([scroller], () => { scroller.scrollTop += delta; });
 }
 
 export function closeDropdown(nav: SpatialNav, dd: HTMLElement): void {

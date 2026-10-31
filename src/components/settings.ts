@@ -3,6 +3,7 @@ import { $, $$, html, raw, withInstantScroll, type Safe } from '../utils/dom';
 import { TMDB_LOGO, TMDB_NOTICE } from './tmdb-attribution';
 import { morph } from '../utils/morph';
 import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
+import { caretAtEdge, caretSideOf } from '../navigation/caret-edge';
 import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
 import {
   NUMBER_ENTRY_OSD_TIMEOUT_MS_OPTIONS,
@@ -46,6 +47,7 @@ import {
   dropdown,
   toggleDropdown,
 } from './dropdown';
+import { installPasswordReveal, passwordField } from './password-reveal';
 import { qrDataUrl } from './setup-qr';
 import { createLogger } from '../utils/logger';
 import { ParentalControlService, isResumeConcealed, isWatchlistConcealed } from '../services/parental-control';
@@ -80,6 +82,12 @@ import {
 } from './icons';
 
 const log = createLogger('Settings');
+
+// The rows Left and Right move along; outside them, a control moves to the
+// page's control beside it on the same line.
+const ROW_GROUPS = '.toggle-group, .theme-swatch-rail, .settings-row, .xtream-fields, '
+  + '.xtream-card-foot, .settings-actions, .epg-offset-controls, .manual-epg-source-head, '
+  + '.manual-epg-scope-options';
 
 type EpgScopePlaylist = Pick<PlaylistEntry, 'id' | 'name' | 'url'>;
 
@@ -279,10 +287,6 @@ const SETTINGS_CATEGORIES: readonly {
   },
 ];
 
-function categoryLabel(id: SettingsCategory): TextMessageKey {
-  return SETTINGS_CATEGORIES.find(category => category.id === id)!.label;
-}
-
 function settingsNavItem(category: typeof SETTINGS_CATEGORIES[number], active: boolean): Safe {
   return html`
     <button class="settings-nav-item ${active ? 'active' : ''}" data-focusable
@@ -376,8 +380,8 @@ function xtreamCard(pl: Partial<PlaylistEntry>) {
         </div>
         <div class="settings-field">
           <label>${t('settings.password')}</label>
-          <input type="password" class="settings-input xtream-password" data-focusable
-                 aria-label="${t('settings.password')}" placeholder="password" value="${pl.xtream?.password || ''}">
+          ${passwordField(html`<input type="password" class="settings-input xtream-password" data-focusable
+                 aria-label="${t('settings.password')}" placeholder="password" value="${pl.xtream?.password || ''}">`)}
         </div>
         <div class="settings-field xtream-output">
           <label>${t('settings.streamFormat')}</label>
@@ -563,6 +567,7 @@ export class Settings {
     // Marked `data-self-activate` so the global click handler skips this subtree
     // (this local handler is the "OK" action).
     this.container.setAttribute('data-self-activate', '');
+    installPasswordReveal(this.container);
     this.container.addEventListener('click', (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const openDropdown = this.container.querySelector<HTMLElement>('.dropdown.open');
@@ -585,6 +590,20 @@ export class Settings {
       const back = e.key === 'Escape' || e.keyCode === CONFIG.KEYS.BACK;
       const up = e.key === 'ArrowUp' || e.keyCode === CONFIG.KEYS.UP;
       const down = e.key === 'ArrowDown' || e.keyCode === CONFIG.KEYS.DOWN;
+      // Left at the start (Right at the end) leaves for the control beside the
+      // field on its row, or keeps the caret where it is.
+      const side = caretSideOf(e);
+      if (side) {
+        if (!caretAtEdge(input, side)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const peer = this.rowPeer(input, side);
+        if (!peer) return;
+        this.notedKey = null;
+        this.pick(peer, 'key');
+        input.blur();
+        return;
+      }
       if (e.key !== 'Enter' && !up && !down && !back) return;
       e.preventDefault();
       e.stopPropagation();
@@ -746,7 +765,6 @@ export class Settings {
       <div class="settings-view">
         <header class="page-header settings-header">
           <h1 class="page-title settings-title">${t('common.settings')}</h1>
-          <span class="page-subtitle settings-header-category">${t(categoryLabel(this.category))}</span>
         </header>
         <div class="settings-body">
         <nav class="settings-sidebar" data-nav-container aria-label="${t('common.settings')}">
@@ -1012,8 +1030,8 @@ export class Settings {
                   </div>
                   <div class="settings-field">
                     <label>${t('settings.password')}</label>
-                    <input type="password" class="settings-input" data-focusable id="os-pass"
-                           value="${os.opensubtitles.password}" placeholder="password">
+                    ${passwordField(html`<input type="password" class="settings-input" data-focusable id="os-pass"
+                           value="${os.opensubtitles.password}" placeholder="password">`)}
                   </div>
                 </div>
               </div>
@@ -1378,8 +1396,10 @@ export class Settings {
   // after: the pane is re-morphed on every render, so a held element goes stale.
   // Up walks the category column on its own, so Up from the first
   // category stays put rather than reaching the pane beside it.
-  // Up and Down on a page stay on it, so they never land on the sidebar beside
-  // it (and switch pages); Down past its end goes to the action bar. The theme
+  // Up and Down on a page stay on it, a row at a time, so they never land on
+  // the sidebar beside it (and switch pages); Down past its end goes to the
+  // action bar, and Up from the bar returns to the control just above it.
+  // Left and Right stay on the focused control's row. The theme
   // rail is wider than anything above or below it, so Up and Down leave it for
   // the page's neighboring control in reading order rather than whatever sits
   // nearest the focused swatch, and Right stops at its end.
@@ -1393,8 +1413,19 @@ export class Settings {
       this.nav.setRestrict(null);
       return true;
     }
+    const focused = this.nav.focused;
+    if (!open && action === 'right' && focused?.closest('.settings-category, .settings-actions')) {
+      const peer = this.rowPeer(focused, 'right');
+      if (peer) this.nav.focus(peer);
+      return true;
+    }
+    if (!open && action === 'up' && focused?.closest('.settings-actions')) {
+      const above = this.controlAboveActions();
+      if (above) this.nav.focus(above);
+      return true;
+    }
     const page = open || (action !== 'up' && action !== 'down') ? null
-      : this.nav.focused?.closest<HTMLElement>('.settings-category') ?? null;
+      : focused?.closest<HTMLElement>('.settings-category') ?? null;
     if (page) {
       const next = rail ? this.pageNeighbor(rail, action === 'down') : null;
       if (next) {
@@ -1402,7 +1433,11 @@ export class Settings {
         return true;
       }
       let moved = false;
-      if (!rail) {
+      if (!rail && focused?.isConnected) {
+        const row = this.adjacentRow(focused, page, action === 'down');
+        if (row) this.nav.focus(this.nav.entry(row));
+        moved = !!row;
+      } else if (!rail) {
         this.nav.setRestrict(page);
         moved = this.nav.move(action);
       }
@@ -1475,7 +1510,7 @@ export class Settings {
         {
           const openDropdown = this.container.querySelector<HTMLElement>('.dropdown.open');
           if (openDropdown) this.closeDropdown(openDropdown);
-          const peer = this.leftPeer(this.nav.focused);
+          const peer = this.rowPeer(this.nav.focused, 'left');
           if (peer) this.nav.focus(peer);
           else this.focusActiveCategory();
         }
@@ -2161,8 +2196,6 @@ export class Settings {
     });
     const changed = category !== this.category;
     this.category = category;
-    const heading = this.container.querySelector('.settings-header-category');
-    if (heading) heading.textContent = t(categoryLabel(category));
     let shown: HTMLElement | null = null;
     this.container.querySelectorAll<HTMLElement>('.settings-category').forEach((page) => {
       const active = page.dataset.settingsCategory === category;
@@ -2177,21 +2210,24 @@ export class Settings {
     if (swatch) this.revealSwatch(swatch, true);
   }
 
-  private leftPeer(el: HTMLElement | null): HTMLElement | null {
+  // Left and Right stay on the focused control's row: the nearest control
+  // of its group that shares its line. A row's controls sit side by side in
+  // every locale (Arabic keeps the left-to-right layout), so a control below
+  // and to the side never wins over the next one on the line.
+  private rowPeer(el: HTMLElement | null, side: 'left' | 'right'): HTMLElement | null {
     if (!el) return null;
-    const group = el.closest<HTMLElement>(
-      '.toggle-group, .theme-swatch-rail, .settings-row, .xtream-fields, .xtream-card-foot, .settings-actions, .epg-offset-controls',
-    );
+    const group = el.closest<HTMLElement>(ROW_GROUPS) ?? el.closest<HTMLElement>('.settings-category');
     if (!group) return null;
     const rect = el.getBoundingClientRect();
     let best: HTMLElement | null = null;
     let bestScore = Infinity;
     for (const candidate of group.querySelectorAll<HTMLElement>('[data-focusable]')) {
-      if (candidate === el) continue;
+      if (candidate === el || !this.nav.navigable(candidate)) continue;
       const other = candidate.getBoundingClientRect();
       const overlap = Math.min(rect.bottom, other.bottom) - Math.max(rect.top, other.top);
-      if (other.left >= rect.left - 5 || overlap <= 5) continue;
-      const score = rect.left - other.right
+      if (overlap <= 5) continue;
+      if (side === 'left' ? other.left >= rect.left - 5 : other.right <= rect.right + 5) continue;
+      const score = (side === 'left' ? rect.left - other.right : other.left - rect.right)
         + Math.abs((rect.top + rect.bottom) - (other.top + other.bottom));
       if (score < bestScore) {
         best = candidate;
@@ -2199,6 +2235,62 @@ export class Settings {
       }
     }
     return best;
+  }
+
+  // Up and Down step a row at a time: to the nearest line of controls above
+  // or below, then the control on it nearest the focused one's column, the
+  // one aligned with its start first. A control further along a wide form
+  // never wins over the next line.
+  private adjacentRow(el: HTMLElement, page: HTMLElement, down: boolean): HTMLElement | null {
+    const rect = el.getBoundingClientRect();
+    const candidates: { el: HTMLElement; rect: DOMRect }[] = [];
+    for (const candidate of Array.from(page.querySelectorAll<HTMLElement>('[data-focusable]'))) {
+      if (candidate === el || candidate.closest('.dropdown-menu') || !this.nav.navigable(candidate)) continue;
+      const r = candidate.getBoundingClientRect();
+      if (down ? r.top >= rect.bottom - 5 : r.bottom <= rect.top + 5) candidates.push({ el: candidate, rect: r });
+    }
+    if (!candidates.length) return null;
+    const edge = candidates.reduce((a, b) => (down ? b.rect.top < a.rect.top : b.rect.bottom > a.rect.bottom) ? b : a);
+    let best: HTMLElement | null = null;
+    let bestScore = Infinity;
+    for (const { el: candidate, rect: r } of candidates) {
+      const overlap = Math.min(edge.rect.bottom, r.bottom) - Math.max(edge.rect.top, r.top);
+      if (overlap <= 5) continue;
+      const gap = Math.max(r.left - rect.right, rect.left - r.right, 0);
+      const score = gap * 1000 + Math.abs(r.left - rect.left);
+      if (score < bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  // Up from the action bar lands on the page's control nearest above it in
+  // view, not on whatever the geometry of the whole view favors.
+  private controlAboveActions(): HTMLElement | null {
+    const page = this.container.querySelector<HTMLElement>('.settings-category.active');
+    const pane = this.container.querySelector<HTMLElement>('.settings-scroll');
+    if (!page || !pane) return null;
+    const view = pane.getBoundingClientRect();
+    const from = this.nav.focused?.getBoundingClientRect() ?? null;
+    let best: HTMLElement | null = null;
+    let bestBottom = -Infinity;
+    let bestGap = Infinity;
+    let last: HTMLElement | null = null;
+    for (const el of Array.from(page.querySelectorAll<HTMLElement>('[data-focusable]'))) {
+      if (el.closest('.dropdown-menu') || !this.nav.navigable(el)) continue;
+      last = el;
+      const r = el.getBoundingClientRect();
+      if (r.bottom > view.bottom + 1 || r.top < view.top - 1) continue;
+      const gap = from ? Math.max(r.left - from.right, from.left - r.right, 0) : 0;
+      if (r.bottom > bestBottom + 5 || (Math.abs(r.bottom - bestBottom) <= 5 && gap < bestGap)) {
+        best = el;
+        bestBottom = Math.max(r.bottom, bestBottom);
+        bestGap = gap;
+      }
+    }
+    return best ?? last;
   }
 
   private focusActiveCategory(): void {
