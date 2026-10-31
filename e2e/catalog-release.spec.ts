@@ -7,26 +7,8 @@ const viewCounts = (page: Page, id: string) => page.locator(`#${id}`).evaluate(v
   images: view.querySelectorAll('img').length,
 }));
 
-// A 1x1 PNG, so the rails decode real posters.
-const PIXEL = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
-  'base64');
-
 test('Movies releases its pages on leave and restores the remembered tile on return', async ({ page }) => {
-  await seedXtream(page, { catalog: 'large' });
-  // Registered last, so it answers first: the same titles, with posters.
-  await page.route('**/player_api.php*action=get_vod_streams*', (route) => {
-    const category = new URL(route.request().url()).searchParams.get('category_id') ?? '1';
-    return route.fulfill({ json: Array.from({ length: 50 }, (_, i) => {
-      const id = category === '1' && i === 0 ? 10 : Number(category) * 1000 + i;
-      return {
-        stream_id: id, name: `Movie ${String(id)}`, stream_icon: `http://host/p/${String(id)}.png`,
-        container_extension: 'mp4', category_id: category,
-      };
-    }) });
-  });
-  await page.route('http://host/p/**', route =>
-    route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL }));
+  await seedXtream(page, { catalog: 'large', posters: true });
   await page.goto('/');
   await enterTab(page, 'movies');
   const tiles = page.locator('#view-movies .catalog-layer-browse .catalog-tile');

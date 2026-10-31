@@ -11,15 +11,31 @@ const largeStreams = (categoryId: string) => Array.from({ length: 50 }, (_, i) =
     stream_id: Number(categoryId) * 1000 + i, name: `Movie ${categoryId}-${String(i)}`,
     stream_icon: '', container_extension: 'mp4', category_id: categoryId,
   }));
+const POSTER_HOST = 'http://host/p/';
+// A 1x1 PNG, so the rails decode real posters.
+const PIXEL = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+  'base64');
 
 /**
  * A one-account Xtream portal: one movie, one series with one episode, a
  * playable VOD stream and a stubbed online-subtitle provider. Enough to reach
  * every catalog and VOD-player screen. `catalog: 'large'` adds more movie
- * categories and titles around Movie One. Call before `page.goto`.
+ * categories and titles around Movie One. `posters` gives every title a
+ * poster that decodes. Call before `page.goto`.
  */
-export async function seedXtream(page: Page, opts: { catalog?: 'large' } = {}): Promise<void> {
+export async function seedXtream(
+  page: Page,
+  opts: { catalog?: 'large'; posters?: boolean } = {},
+): Promise<void> {
   const large = opts.catalog === 'large';
+  const withPosters = <T extends { stream_id: number }>(items: T[]) => (opts.posters
+    ? items.map(item => ({ ...item, stream_icon: `${POSTER_HOST}${String(item.stream_id)}.png` }))
+    : items);
+  if (opts.posters) {
+    await page.route(`${POSTER_HOST}**`, route =>
+      route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL }));
+  }
   await page.route('**/get.php*', (r) => r.fulfill({
     status: 200,
     contentType: 'application/x-mpegurl',
@@ -36,9 +52,9 @@ export async function seedXtream(page: Page, opts: { catalog?: 'large' } = {}): 
       return json(large ? LARGE_CATEGORIES : [{ category_id: '1', category_name: 'Cat A' }]);
     }
     if (url.includes('get_vod_streams')) {
-      return json(large
+      return json(withPosters(large
         ? largeStreams(new URL(url).searchParams.get('category_id') ?? '1')
-        : [MOVIE_ONE]);
+        : [MOVIE_ONE]));
     }
     if (url.includes('get_vod_info')) {
       return json({ info: { plot: 'A plot.', duration_secs: 3600,
@@ -53,7 +69,8 @@ export async function seedXtream(page: Page, opts: { catalog?: 'large' } = {}): 
       });
     }
     if (url.includes('get_series')) {
-      return json([{ series_id: 20, name: 'Series One', cover: '', category_id: '2' }]);
+      return json([{ series_id: 20, name: 'Series One', category_id: '2',
+        cover: opts.posters ? `${POSTER_HOST}s20.png` : '' }]);
     }
     // The sign-in check Home makes: player_api.php with no action.
     if (!new URL(url).searchParams.has('action')) return json({ user_info: { auth: 1, status: 'Active' } });
