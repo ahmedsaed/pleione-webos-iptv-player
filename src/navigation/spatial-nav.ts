@@ -41,7 +41,8 @@ export class SpatialNav {
   private lastScrollFocusAt = 0;
   // Per-container memory for `data-nav-enter="last-focused"`: re-entering a
   // container returns to where focus left it instead of the nearest edge item.
-  private lastFocusedIn = new Map<HTMLElement, HTMLElement>();
+  // Weak, so a container a re-render replaced is freed with its whole subtree.
+  private lastFocusedIn = new WeakMap<HTMLElement, HTMLElement>();
   // Where focus last sat, to recover near it once a re-render removes the
   // element; null once the view swapped its content.
   private lastRect: DOMRect | null = null;
@@ -337,6 +338,10 @@ export class SpatialNav {
     if (!container || container.getAttribute('data-nav-enter') !== 'last-focused'
         || (this.focused && container.contains(this.focused))) return el;
     const remembered = this.lastFocusedIn.get(container);
+    if (remembered && !remembered.isConnected) {
+      this.lastFocusedIn.delete(container);
+      return el;
+    }
     return remembered && remembered !== el && this.navigable(remembered) ? remembered : el;
   }
 
