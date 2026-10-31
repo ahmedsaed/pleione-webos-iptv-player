@@ -50,8 +50,8 @@ import { uiPx } from '../utils/ui-scale';
 
 const log = createLogger('ParentalControls');
 
-// A 58px row plus its 6px bottom margin; the list's 4px top padding sits above row 0.
-const ROW_STRIDE = 64;
+// A 76px row plus its 6px bottom margin; the list's 4px top padding sits above row 0.
+const ROW_STRIDE = 82;
 const LIST_PADDING = 4;
 const LIST_OVERSCAN = 8;
 const FALLBACK_LIST_HEIGHT = 600;

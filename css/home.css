@@ -43,7 +43,7 @@
   /* The avatar's ring box is 5px wider than the avatar on each side; the
      header sits that much higher and further right to keep it on the grid. */
   position: absolute;
-  top: 51px;
+  top: 41px;
   right: 75px;
   left: 80px;
   z-index: 1;
@@ -90,17 +90,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 66px;
-  height: 66px;
+  width: 86px;
+  height: 86px;
   border: 3px solid transparent;
   border-radius: 50%;
 }
 
 .home-account .account-avatar {
-  width: 56px;
-  height: 56px;
-  font-size: 28px;
-  line-height: 56px;
+  width: var(--control-height);
+  height: var(--control-height);
+  line-height: var(--control-height);
 }
 
 /* The bento sits in the middle of the screen. Its columns shrink together
@@ -506,7 +505,6 @@ html[data-theme="paper-light"] .home-view {
 
 .home-alert-action {
   flex-shrink: 0;
-  min-height: 54px;
   margin-left: 24px;
   white-space: nowrap;
 }

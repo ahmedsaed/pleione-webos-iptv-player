@@ -33,6 +33,11 @@
   --catalog-sort-selected-bg: #007e9e;
   --focus-ring: var(--accent);
   --radius: 8px;
+  /* LG's minimum for a remote or pointer target: every focusable control is
+     at least this tall (and wide, when it is not a wide button). */
+  --control-height: 76px;
+  /* The bottom key legend; tall enough for the actions it holds. */
+  --legend-height: 80px;
   --transition: 0.2s ease;
   --font-scale: 1;
   /* The screen itself; Interface size scales every other px length. */
@@ -67,20 +72,20 @@
 .live-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px 3px 8px;
+  gap: 8px;
+  padding: 4px 14px 4px 12px;
   border-radius: 999px;
   color: #fff;
   background: var(--danger);
   box-shadow: 0 0 12px rgba(255, 71, 87, 0.55);
-  font-size: 12px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: 1px;
 }
 
 .live-badge-dot {
-  width: 7px;
-  height: 7px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: #fff;
   animation: liveBadgeDotPulse 1.2s ease-in-out infinite;
@@ -342,6 +347,7 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-height: var(--control-height);
   padding: 10px 24px;
   font-size: 22px;
   border: 2px solid var(--border);
@@ -566,6 +572,7 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
 .catchup-resume-btn,
 .confirmation-btn {
   min-width: 160px;
+  min-height: var(--control-height);
   padding: 14px 32px;
   font-size: 26px;
   color: var(--text-primary);

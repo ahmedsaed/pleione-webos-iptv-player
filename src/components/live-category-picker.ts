@@ -19,7 +19,7 @@ const log = createLogger('LiveCategories');
 
 // Rows and headers are absolutely positioned at fixed heights (see
 // css/live-category-picker.css), so thousands of categories mount only a window.
-const ROW_STRIDE = 64;
+const ROW_STRIDE = 82;
 const HEAD_HEIGHT = 44;
 const HEAD_GAP = 10;
 const HEAD_STRIDE = HEAD_HEIGHT + 8;
