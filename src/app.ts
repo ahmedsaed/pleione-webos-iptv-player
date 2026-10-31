@@ -80,6 +80,8 @@ class App {
   private viewStack: ViewName[] = ['channels'];
   // Where Back from live playback returns: the page it started on.
   private playerReturn: PlayedFrom = 'channels';
+  // A title Search opened keeps Search live beneath it, for Back.
+  private searchBeneathDetail = false;
   private channelList!: ChannelList;
   private player!: Player;
   private livePreview!: LivePreview;
@@ -237,7 +239,12 @@ class App {
       const request = liveParentalRequest(channel, preview ? 'preview' : 'play');
       if (!ask && !ParentalControlService.decision(request).allowed) return false;
       return ParentalControlService.authorize(request, () => {
-        if (!preview && !this.isCurrentView('player')) this.showView('player');
+        if (!preview && !this.isCurrentView('player')) {
+          // Live playback returns to Home, Search, or Live, never a page
+          // left beneath it.
+          this.releaseSections(this.playerReturn);
+          this.showView('player');
+        }
         action();
       });
     },
@@ -361,6 +368,7 @@ class App {
       onPlayChannel: (idx, catchup) => { this.searchBox.release(); this.playChannel(idx, catchup); },
       onOpenMovie: (account, vod) => {
         this.searchBox.release();
+        this.searchBeneathDetail = true;
         this.showView('movies');
         this.movies.openItem(account, vod, () => this.showView('search'))
           .catch((err) => log.error(
@@ -372,6 +380,7 @@ class App {
       },
       onOpenSeries: (account, series) => {
         this.searchBox.release();
+        this.searchBeneathDetail = true;
         this.showView('series');
         this.series.openItem(account, series, () => this.showView('search'))
           .catch((err) => log.error(
@@ -1292,6 +1301,9 @@ class App {
       this.viewStack = ['settings'];
     }
     this.livePreview?.beforeViewChange(name);
+    // The player sits over the page it returns to; live playback releases
+    // the rest as it starts.
+    if (name !== 'player') this.releaseSections(name);
     // Leaving Live while it loads drops what it was to land on.
     if (name !== 'channels') this.livePending = null;
     if (name !== 'channels' && this.channelList.isEditing) this.channelList.exitEditMode();
@@ -1357,6 +1369,19 @@ class App {
     if (name === 'channels') this.showLiveCategoryNotices();
   }
 
+  // Every page but the one shown lets go of its requests and rendered
+  // content, so a page left behind never works in the background.
+  private releaseSections(shown: ViewName): void {
+    const beneath = this.searchBeneathDetail && (shown === 'movies' || shown === 'series');
+    this.searchBeneathDetail = beneath;
+    if (shown !== 'movies') this.movies.deactivate();
+    if (shown !== 'series') this.series.deactivate();
+    if (shown !== 'search' && !beneath) this.search.deactivate();
+    if (shown !== 'settings' && shown !== 'reminders' && shown !== 'parental-controls') {
+      this.settings.release();
+    }
+  }
+
   // Show a section's view (Live = the channels view).
   private switchSection(section: Section): void {
     if (section === 'home') {
@@ -1364,10 +1389,7 @@ class App {
       return;
     }
     if (section !== 'live' && this.channelList.isEditing) this.channelList.exitEditMode();
-    if (section !== 'movies') this.movies.deactivate();
-    if (section !== 'series') this.series.deactivate();
-    if (section !== 'search') this.search.deactivate();
-    if (section !== 'settings') this.settings.release();
+    this.searchBeneathDetail = false;
     if (section === 'live') {
       if (!this.livePreview.returnFromFullscreen(false)) {
         this.player.stop();
@@ -1548,10 +1570,6 @@ class App {
   // Show Home; `focus` picks a destination to land on.
   private goHome(focus: Section | null = null): void {
     if (this.channelList.isEditing) this.channelList.exitEditMode();
-    this.movies.deactivate();
-    this.series.deactivate();
-    this.search.deactivate();
-    this.settings.release();
     this.player.stop();
     const fresh = this.home.focusScope.focusKey === null;
     this.showView('home');
