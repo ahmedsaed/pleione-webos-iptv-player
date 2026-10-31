@@ -9,6 +9,7 @@ request as the app it describes.
 | App icon (400 × 400), launcher background, 6 screenshots (1920 × 1080) | built by the website: `https://pleione.merope.dev/store/<file>` |
 | Full-resolution captures the graphics come from | [`screenshots/`](screenshots) — written by `npm run screenshots:store` |
 | The UX scenario LG's testers follow | [`ux-scenario.md`](ux-scenario.md) |
+| Self-checklist answers, row by row | [`self-checklist.md`](self-checklist.md) |
 | Privacy policy, terms, support pages | [`site/content/`](../site/content) |
 
 ## Regenerating
@@ -49,14 +50,16 @@ LG lays the app's title and buttons over it.
    `site/content/privacy.md`, and create the app with id `com.merope.pleione`.
 2. **The reviewers' test account.** Host the demo Xtream server
    (`scripts/xtream-demo-server.mjs`; its content is synthetic, ffmpeg-generated media) on a
-   server LG's testers can reach, with its own username and password, and fill in
-   `[DEMO XTREAM URL]`, `[DEMO USERNAME]` and `[DEMO PASSWORD]` in `ux-scenario.md`. **It must
+   server LG's testers can reach, with its own username and password, and give them in Seller
+   Lounge for `[DEMO XTREAM URL]`, `[DEMO USERNAME]` and `[DEMO PASSWORD]` in `ux-scenario.md`.
+   Never commit the real address or credentials to this repository. **It must
    stay up for the whole review**, including any re-review after a rejection, and for later
    update reviews; if LG's testers cannot reach it, the app fails review as "does not work".
    Check from outside your network that `player_api.php` answers before submitting.
-3. **The self-checklist.** Download the current self-checklist template from Seller Lounge, fill
-   it in for this build, and upload it with the package. It is not kept here because LG changes
-   the template.
+3. **The self-checklist.** [`self-checklist.md`](self-checklist.md) holds the answers for every
+   row of LG's self-checklist v5.0, with evidence. Download the current template from Seller
+   Lounge, copy the answers in, finish the rows still marked "pending TV check", and upload it
+   with the package.
 4. **Paste and upload.** Copy `listing.md` into Seller Lounge, save down the files from
    `https://pleione.merope.dev/store/`, and upload the `.ipk` from the GitHub release.
 
