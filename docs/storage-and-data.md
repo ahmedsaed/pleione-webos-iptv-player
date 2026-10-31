@@ -470,7 +470,10 @@ processed again.
 ### Reset App
 
 **Reset App** permanently removes the app's local setup, personal data, and
-managed cache, then restarts at initial setup.
+managed cache, then restarts at initial setup. Each step runs even when an
+earlier one fails, so an IndexedDB that cannot open or clear still leaves
+no accounts or passwords in localStorage; a failed step logs
+`persistence.reset.step.failed` with its `step`.
 
 Original LAN-uploaded M3U files belong to the separate LAN service and are
 not part of the browser database or cache meter. They should be removed through
