@@ -564,6 +564,32 @@ describe('SpatialNav', () => {
       expect(nav.entry(sidebarTop)).toBe(sidebarTop);
     });
 
+    it('returns to the remembered element after a re-render of its container', () => {
+      const host = document.createElement('div');
+      const draw = (label: string) => morph(host, html`
+        <div class="list" data-key="list" data-nav-container data-nav-enter="last-focused">
+          <div data-focusable data-key="r1">${label} 1</div>
+          <div data-focusable data-key="r2">${label} 2</div>
+        </div>`);
+      draw('Row');
+      const side = focusable({ x: 200, y: 0 }, 'side');
+      const nav = new SpatialNav(makeContainer(host, side));
+      const rows = Array.from(host.querySelectorAll<HTMLElement>('[data-focusable]'));
+      rows.forEach((row, i) => {
+        const y = i * 100;
+        row.getBoundingClientRect = () =>
+          ({ left: 0, top: y, width: 100, height: 40, right: 100, bottom: y + 40, x: 0, y, toJSON() {} }) as DOMRect;
+      });
+      nav.focus(rows[1]);
+      nav.move('right');
+      expect(nav.focused).toBe(side);
+
+      draw('Renamed');
+      expect(host.querySelector('[data-key="r2"]')).toBe(rows[1]);
+      nav.move('left');
+      expect(nav.focused).toBe(rows[1]); // not the geometrically nearer r1
+    });
+
     it('falls back to geometry when the remembered element is gone', () => {
       const { nav, sidebarTop, listTop, listBottom } = makeTwoContainers('last-focused');
       nav.focus(listBottom);
