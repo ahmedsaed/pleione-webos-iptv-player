@@ -72,20 +72,22 @@ async function remote(page, keyCode, times = 1) {
   }
 }
 
-// Enter a section the Magic Remote way: the Home button, then its card.
+// Enter a section from Home with the remote, so no pointer-only control
+// (the Home button) shows and the focus ring lands on the content.
+const HOME_PATH = {
+  movies: [KEY.RIGHT],
+  series: [KEY.RIGHT, KEY.RIGHT],
+  search: [KEY.RIGHT, KEY.DOWN],
+  settings: [KEY.RIGHT, KEY.RIGHT, KEY.DOWN],
+};
+
 async function enterSection(page, section) {
-  // The first move only seeds the pointer; the second hands over to it.
-  await page.mouse.move(900, 2);
-  await page.mouse.move(960, 2);
   const home = page.locator('#view-home');
-  if (!(await home.isVisible())) {
-    await page.locator('.home-button').click();
-    await home.waitFor({ state: 'visible' });
-  }
-  if (section !== 'home') await home.locator(`[data-key="section:${section}"]`).first().click();
-  // Park the pointer, then go back to keys so the focus ring shows.
-  await page.mouse.move(1919, 1079);
-  await remote(page, 1537);
+  await home.waitFor({ state: 'visible' });
+  for (const key of HOME_PATH[section]) await remote(page, key);
+  const focused = await home.locator('.focused').getAttribute('data-section');
+  if (focused !== section) throw new Error(`Home focus is on ${focused}, not ${section}`);
+  await remote(page, KEY.ENTER);
 }
 
 async function shoot(page, name) {
@@ -259,7 +261,8 @@ try {
     await enterSection(page, 'settings');
     await page.waitForTimeout(2500);
     await shoot(page, 'settings.png');
-    await remote(page, KEY.DOWN, 4); // Home button, General, Sources, Program Guide -> Appearance
+    await remote(page, KEY.LEFT); // the page list, on General
+    await remote(page, KEY.DOWN, 3); // Sources, Program Guide -> Appearance
     await page.waitForTimeout(1500);
     await shoot(page, 'appearance.png');
     await context.close();

@@ -6,7 +6,7 @@
 
 # Pleione — Privacy Policy
 
-**Effective October 30, 2026** · Pleione is made by Merope ([merope.dev](https://merope.dev)).
+**Effective October 31, 2026** · Pleione is made by Merope ([merope.dev](https://merope.dev)).
 
 ## The short version
 
@@ -31,8 +31,9 @@ never see them.
 - **Caches**: downloaded playlists, guides, catalogs and subtitles, kept so the app opens
   quickly. They can be deleted at any time.
 
-These are kept in the TV's storage for the app, which other ordinary TV apps cannot read.
-Pleione does not add its own encryption on top. Nothing is synced to a cloud or backed up
+These are kept in the TV's storage for the app, which other ordinary TV apps cannot read. On a TV
+whose app database refuses to save, Pleione keeps your library and history in the app's other
+local storage on the same TV instead. Pleione does not add its own encryption on top. Nothing is synced to a cloud or backed up
 anywhere else.
 
 ## Who Pleione talks to
@@ -54,10 +55,11 @@ It runs only when you press it, and only against your own providers.
 From the player's subtitle menu on a movie or an episode, **Search online…** looks for subtitles
 with the services you choose, and downloads the one you pick:
 
-- **OpenSubtitles** and **SubDL** work only with **your own** API key (and, for OpenSubtitles,
-  your account's username and password, which are sent to OpenSubtitles to sign in before a
-  download).
-- **Assrt** works without setup, using a shared public key unless you enter your own.
+- Each service works only with **your own** key, entered in Settings: an API key for
+  **OpenSubtitles** and **SubDL**, an API token for **Assrt**. Pleione ships no shared key. For
+  OpenSubtitles, your account's username and password are also sent to OpenSubtitles to sign in
+  before a download.
+- Without any key, Pleione contacts none of them, and **Search online…** does not appear.
 
 A search sends the title — or the IMDb or TMDB id your provider lists for it — and, where known,
 the year or the season and episode number. It never sends the video, a file fingerprint, or
@@ -85,17 +87,17 @@ small setup service that runs **on the TV** while the app is open, and stops whe
   is made each time the service starts, and repeated wrong codes are locked out.
 - Through the page, a paired device can add sources, accounts and subtitle or TMDB keys, and upload
   an `.m3u` playlist file. The page never shows saved passwords or keys back.
-- Uploaded playlist files are stored on the TV, and **any device on the same network** can list
-  and download them while the app is open. If an uploaded playlist contains a username or
-  password, keep that in mind on a shared network, and remove the upload when you no longer need
-  it.
+- Uploaded playlist files are stored on the TV. Only the app itself, and a device paired with
+  the current code, can list, download or remove them; other websites open on a device on your
+  network cannot read them. Remove an upload when you no longer need it.
 - The service itself makes no requests to the internet.
 
 ### Reminders
 
 When you set a reminder for a program, Pleione schedules it with the TV's own scheduler, which
 keeps the program's title, channel and time so it can notify you even while the app is closed.
-For content locked by parental controls, the title and channel are left out.
+For content locked by parental controls, the title and channel are left out. Removing a reminder,
+or resetting the app, cancels it with the TV's scheduler too.
 
 ## Analytics and tracking
 
@@ -108,7 +110,8 @@ This website is static pages; it sets no cookies and runs no analytics either.
 ## Deleting your data
 
 - **Settings › Data Management › Reset App** removes your accounts, sources, preferences,
-  favorites, history and caches from the TV and restarts the app.
+  favorites, history and caches from the TV, cancels your scheduled reminders, and restarts the
+  app.
 - **Clear Cache** removes only downloaded data; separate buttons clear Recently Watched, Continue
   Watching and the Watchlist.
 - **Uploaded playlists** belong to the setup service: remove them from **Settings › Sources ›

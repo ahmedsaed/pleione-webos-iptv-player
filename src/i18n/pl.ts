@@ -352,7 +352,7 @@ export const PL_MESSAGES = {
   'settings.any': 'Dowolny',
   'settings.apiKey': 'Klucz API',
   'settings.assrtToken': 'Token API',
-  'settings.assrtDescription': 'Assrt.net udostępnia głównie chińskie napisy. Token jest opcjonalny; pozostaw puste pole, aby użyć wspólnego tokenu.',
+  'settings.assrtDescription': 'Assrt.net udostępnia głównie chińskie napisy. Użyj własnego tokenu API; pozostaw puste, aby wyłączyć.',
   'settings.castPhotos': 'Zdjęcia obsady',
   'settings.tmdbHint': 'Pokazuje zdjęcia obsady z TMDB na stronach filmów i seriali. Użyj własnego klucza API lub tokenu dostępu do odczytu; pozostaw puste, aby wyłączyć.',
   'settings.username': 'Nazwa użytkownika',

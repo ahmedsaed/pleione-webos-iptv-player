@@ -352,7 +352,7 @@ export const UK_MESSAGES = {
   'settings.any': 'Будь-яка',
   'settings.apiKey': 'Ключ API',
   'settings.assrtToken': 'Токен API',
-  'settings.assrtDescription': 'Assrt.net пропонує переважно китайські субтитри. Токен необов’язковий; залиште поле порожнім, щоб використовувати спільний токен.',
+  'settings.assrtDescription': 'Assrt.net пропонує переважно китайські субтитри. Укажіть власний токен API; залиште поле порожнім, щоб вимкнути.',
   'settings.castPhotos': 'Фото акторів',
   'settings.tmdbHint': 'Показує фото акторів із TMDB на сторінках фільмів і серіалів. Укажіть власний ключ API або токен доступу на читання; залиште поле порожнім, щоб вимкнути.',
   'settings.username': 'Ім’я користувача',

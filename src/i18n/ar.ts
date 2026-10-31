@@ -366,7 +366,7 @@ export const AR_MESSAGES = {
   'settings.any': 'أي لغة',
   'settings.apiKey': 'مفتاح API',
   'settings.assrtToken': 'رمز API',
-  'settings.assrtDescription': 'يوفّر Assrt.net ترجمات صينية بشكل أساسي. الرمز اختياري؛ اتركه فارغًا لاستخدام الرمز المشترك.',
+  'settings.assrtDescription': 'يوفّر Assrt.net ترجمات صينية بشكل أساسي. استخدم رمز API الخاص بك؛ اتركه فارغًا لإيقافه.',
   'settings.castPhotos': 'صور طاقم التمثيل',
   'settings.tmdbHint': 'يعرض صور طاقم التمثيل من TMDB في صفحات الأفلام والمسلسلات. استخدم مفتاح API أو رمز الوصول للقراءة الخاص بك؛ اتركه فارغًا لإيقافه.',
   'settings.username': 'اسم المستخدم',

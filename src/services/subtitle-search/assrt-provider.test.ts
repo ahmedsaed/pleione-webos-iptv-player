@@ -1,8 +1,8 @@
 // src/services/subtitle-search/assrt-provider.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createAssrtProvider, DEFAULT_ASSRT_TOKEN } from './assrt-provider';
+import { createAssrtProvider } from './assrt-provider';
 
-const provider = createAssrtProvider(() => '');
+const provider = createAssrtProvider(() => 'user-token');
 
 function jsonResponse(body: unknown): Response {
   return { ok: true, status: 200, json: async () => body } as Response;
@@ -14,11 +14,13 @@ function bytesResponse(bytes: Uint8Array): Response {
 beforeEach(() => { vi.restoreAllMocks(); });
 
 describe('assrt provider', () => {
-  it('is always configured (uses the default token when none supplied)', async () => {
+  it('is configured only with the user\'s own token', async () => {
+    expect(createAssrtProvider(() => '').isConfigured()).toBe(false);
+    expect(createAssrtProvider(() => '  ').isConfigured()).toBe(false);
     expect(provider.isConfigured()).toBe(true);
     const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ status: 0, sub: { subs: [] } }));
     await provider.search({ type: 'movie', title: 'Alpha' });
-    expect(String(spy.mock.calls[0][0])).toContain(`token=${DEFAULT_ASSRT_TOKEN}`);
+    expect(String(spy.mock.calls[0][0])).toContain('token=user-token');
   });
 
   it('builds a title+year query for a movie and maps language + downloads', async () => {

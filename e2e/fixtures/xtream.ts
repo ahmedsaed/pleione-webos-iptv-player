@@ -87,12 +87,6 @@ export async function seedXtream(
     const real = window.fetch;
     window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
       const url = typeof input === 'string' ? input : String((input as Request).url ?? input);
-      // Assrt reports itself configured unconditionally, so answer it too:
-      // otherwise the merged search waits out its timeout on every run.
-      if (url.indexOf('api.assrt.net') !== -1) {
-        return Promise.resolve(new Response(JSON.stringify({ sub: { subs: [] } }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }));
-      }
       if (url.indexOf('api.opensubtitles.com') === -1) return real.call(window, input, init);
       const body = { token: 't', data: [
         { attributes: { language: 'l1', release: 'Release One', download_count: 12345,

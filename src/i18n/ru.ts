@@ -352,7 +352,7 @@ export const RU_MESSAGES = {
   'settings.any': 'Любой',
   'settings.apiKey': 'Ключ API',
   'settings.assrtToken': 'Токен API',
-  'settings.assrtDescription': 'Assrt.net предлагает в основном китайские субтитры. Токен необязателен; оставьте поле пустым, чтобы использовать общий токен.',
+  'settings.assrtDescription': 'Assrt.net предлагает в основном китайские субтитры. Укажите свой токен API; оставьте поле пустым, чтобы отключить.',
   'settings.castPhotos': 'Фото актёров',
   'settings.tmdbHint': 'Показывает фото актёров из TMDB на страницах фильмов и сериалов. Укажите свой ключ API или токен доступа на чтение; оставьте поле пустым, чтобы отключить.',
   'settings.username': 'Имя пользователя',

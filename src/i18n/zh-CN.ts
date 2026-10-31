@@ -334,7 +334,7 @@ export const ZH_CN_MESSAGES = {
   'settings.any': '不限',
   'settings.apiKey': 'API 密钥',
   'settings.assrtToken': 'API 令牌',
-  'settings.assrtDescription': 'Assrt.net 主要提供中文字幕，令牌可选，留空时使用共享令牌。',
+  'settings.assrtDescription': 'Assrt.net 主要提供中文字幕。请使用你自己的 API 令牌；留空则关闭。',
   'settings.castPhotos': '演员照片',
   'settings.tmdbHint': '在电影和剧集页面显示来自 TMDB 的演员照片。请使用你自己的 API 密钥或读取访问令牌；留空则关闭。',
   'settings.username': '用户名',

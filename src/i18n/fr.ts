@@ -340,7 +340,7 @@ export const FR_MESSAGES = {
   'settings.any': 'Toutes les langues',
   'settings.apiKey': 'Clé API',
   'settings.assrtToken': 'Jeton API',
-  'settings.assrtDescription': 'Assrt.net propose principalement des sous-titres chinois. Le jeton est facultatif ; laissez vide pour utiliser le jeton partagé.',
+  'settings.assrtDescription': 'Assrt.net propose principalement des sous-titres chinois. Utilisez votre propre jeton API ; laissez vide pour désactiver.',
   'settings.castPhotos': 'Photos de la distribution',
   'settings.tmdbHint': 'Affiche les photos de la distribution depuis TMDB sur les pages des films et des séries. Utilisez votre propre clé API ou jeton d’accès en lecture ; laissez vide pour désactiver.',
   'settings.username': 'Nom d’utilisateur',

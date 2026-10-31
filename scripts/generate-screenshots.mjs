@@ -703,7 +703,7 @@ async function setupPage(page, {
       localStorage.setItem('iptv_online_subtitles', JSON.stringify({
         preferredLanguage: 'en',
         subdl: { apiKey: 'demo' },
-        assrt: { apiKey: '' },
+        assrt: { apiKey: 'demo' },
         opensubtitles: { apiKey: 'demo', username: 'demo', password: 'demo', token: '', tokenTs: 0 },
       }));
     });
