@@ -1473,7 +1473,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private fitRails(rails: HTMLElement): void {
     let tallest = 0;
     Array.from(rails.querySelectorAll<HTMLElement>('.catalog-rail')).forEach((rail) => {
-      tallest = Math.max(tallest, rail.offsetHeight);
+      // A rail can be a fractional height, and the snap rounds its fractional
+      // offset: one spare pixel keeps it whole.
+      tallest = Math.max(tallest, Math.ceil(rail.getBoundingClientRect().height) + 1);
     });
     const fit = `${tallest}px`;
     const layer = this.layers[this.mode];

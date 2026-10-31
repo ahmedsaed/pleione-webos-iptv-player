@@ -367,8 +367,8 @@ test('keeps the independent red-and-white remove icon aligned in every theme and
           clipping: clear.scrollWidth - clear.clientWidth,
         };
       });
-      expect(style.width).toBe(44);
-      expect(style.height).toBe(44);
+      expect(style.width).toBe(76);
+      expect(style.height).toBe(76);
       expect(style.fill).toBe(style.danger);
       expect(style.stroke).toBe('rgb(255, 255, 255)');
       expect(style.background).toBe('rgba(0, 0, 0, 0)');
