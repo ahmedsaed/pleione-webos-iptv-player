@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Channel, Programme } from '../types';
+import type { Channel, ChannelScope, Programme } from '../types';
+import { channelKey } from '../utils/channel';
 
 const { data, reminders, toast } = vi.hoisted(() => {
   const mk = (id: string, name: string, catchupSource = ''): Channel => ({
@@ -11,6 +12,7 @@ const { data, reminders, toast } = vi.hoisted(() => {
     data: {
       channels: [mk('ch1', 'ch1', 'http://host/ch1?utc={utc}'), mk('ch2', 'ch2'), mk('ch3', 'ch3')],
       programmes: {} as Record<string, Programme[]>,
+      groups: {} as Record<string, Channel[]>,
     },
     reminders: new Set<string>(),
     toast: vi.fn(),
@@ -19,8 +21,12 @@ const { data, reminders, toast } = vi.hoisted(() => {
 
 vi.mock('../services/playlist-service', () => ({
   PlaylistService: {
-    getByGroup: () => data.channels,
+    getByGroup: (group: string) => data.groups[group] ?? data.channels,
     indexOf: (ch: Channel) => data.channels.indexOf(ch),
+    resolveChannelKey: (key: string) => {
+      const channel = data.channels.find(ch => channelKey(ch) === key);
+      return channel ? { channel, channelIndex: data.channels.indexOf(channel) } : null;
+    },
   },
 }));
 vi.mock('../services/epg-service', () => ({
@@ -62,6 +68,7 @@ const prog = (title: string, from: Date, to: Date): Programme =>
 
 let container: HTMLElement;
 let guide: LiveGuide;
+let scope: ChannelScope;
 let handlers: {
   play: ReturnType<typeof vi.fn>;
   onLeaveLeft: ReturnType<typeof vi.fn>;
@@ -72,6 +79,8 @@ const focusedKey = () => {
   Focus.flush();
   return container.querySelector<HTMLElement>('.guide-cell.focused')?.dataset.key ?? null;
 };
+const rowKeys = () => Array.from(container.querySelectorAll<HTMLElement>('.guide-row'))
+  .map(el => el.dataset.key);
 const times = () => Array.from(container.querySelectorAll('.guide-time')).map(el => el.textContent);
 const cell = (title: string) => Array.from(container.querySelectorAll<HTMLElement>('.guide-cell'))
   .find(el => el.querySelector('.guide-cell-title')?.textContent?.includes(title)) ?? null;
@@ -81,6 +90,8 @@ beforeEach(() => {
   vi.setSystemTime(at(20, 42));
   reminders.clear();
   toast.mockClear();
+  data.groups = {};
+  scope = { group: 'builtin:all' };
   data.programmes = {
     ch1: [
       prog('Program 1', at(19), at(20)),
@@ -95,7 +106,7 @@ beforeEach(() => {
   container = document.getElementById('g')!;
   handlers = { play: vi.fn(), onLeaveLeft: vi.fn(), onLeaveUp: vi.fn() };
   guide = new LiveGuide(container, {
-    scope: () => ({ group: 'builtin:all' }),
+    scope: () => scope,
     play: handlers.play,
     watching: () => 1,
     onLeaveLeft: handlers.onLeaveLeft,
@@ -162,7 +173,7 @@ describe('LiveGuide', () => {
       ...saved[1], id: `c${String(i)}`, name: `Channel ${String(i)}`, url: `http://host/c${String(i)}`,
     }));
     try {
-      guide.groupChanged();
+      guide.render();
       const rows = container.querySelectorAll('.guide-row').length;
       expect(rows).toBeGreaterThan(0);
       expect(rows).toBeLessThan(60);
@@ -257,7 +268,52 @@ describe('LiveGuide', () => {
 
   it('starts a changed group at its first channel', () => {
     guide.handleAction('down');
-    guide.groupChanged();
+    scope = { group: 'source:Group 1' };
+    guide.render();
     expect(focusedKey()).toBe(`cell:0:${at(20).getTime()}`);
+  });
+
+  // Regression: the grid refilled its channels only when it had none, so a
+  // pointer-picked group or another playlist kept the old rows.
+  it('shows the channels of a group or playlist picked since the last render', () => {
+    guide.handleAction('down');
+    data.groups['source:Group 2'] = [data.channels[2]];
+    scope = { group: 'source:Group 2' };
+    guide.render();
+    expect(rowKeys()).toEqual(['row:2']);
+    expect(focusedKey()).toBe(`cell:2:e${at(20, 30).getTime()}`);
+    data.groups['builtin:all'] = [data.channels[1]];
+    scope = { group: 'builtin:all', playlist: 'p2' };
+    guide.render();
+    expect(rowKeys()).toEqual(['row:1']);
+  });
+
+  // Regression: a refresh's new channel objects drew every row as "row:-1"
+  // numbered 0, and OK played index -1.
+  it('keeps the focused channel by key across a refresh that rebuilds and reorders channels', () => {
+    const saved = data.channels;
+    guide.handleAction('down');
+    data.channels = [saved[1], saved[0], saved[2]].map(ch => ({ ...ch }));
+    try {
+      guide.render();
+      expect(rowKeys()).toEqual(['row:0', 'row:1', 'row:2']);
+      expect(Array.from(container.querySelectorAll('.guide-number')).map(el => el.textContent))
+        .toEqual(['1', '2', '3']);
+      expect(focusedKey()).toBe(`cell:0:${at(20, 30).getTime()}`);
+      guide.handleAction('select');
+      expect(handlers.play).toHaveBeenCalledWith(0, undefined, { group: 'builtin:all' });
+    } finally {
+      data.channels = saved;
+    }
+  });
+
+  // Regression: a channel concealed while the Guide was open stayed listed.
+  it('drops a channel the list no longer shows, such as one concealed again', () => {
+    guide.handleAction('down');
+    guide.handleAction('down');
+    data.groups['builtin:all'] = [data.channels[0], data.channels[2]];
+    guide.render();
+    expect(rowKeys()).toEqual(['row:0', 'row:2']);
+    expect(focusedKey()).toBe(`cell:2:e${at(20, 30).getTime()}`);
   });
 });

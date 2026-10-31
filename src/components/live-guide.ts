@@ -70,6 +70,8 @@ export class LiveGuide {
   private windowStart = 0;
   private firstRow = 0;
   private shown = false;
+  // The group and playlist `channels` lists.
+  private scopeKey = '';
 
   constructor(private readonly container: HTMLElement, private readonly options: LiveGuideOptions) {
     this.focusScope = Focus.register({
@@ -106,6 +108,7 @@ export class LiveGuide {
     const now = Date.now();
     this.windowStart = initialWindowStart(now);
     this.time = now;
+    this.scopeKey = this.currentScopeKey();
     this.channels = this.listedChannels();
     const at = this.channels.findIndex(ch => PlaylistService.indexOf(ch) === index);
     this.row = at >= 0 ? at : Math.min(this.row, Math.max(0, this.channels.length - 1));
@@ -116,14 +119,6 @@ export class LiveGuide {
   hide(): void {
     this.shown = false;
     this.dismissPrompt();
-  }
-
-  /** The Live list's group changed: start at its first channel. */
-  groupChanged(): void {
-    this.channels = this.listedChannels();
-    this.row = 0;
-    this.firstRow = 0;
-    this.render();
   }
 
   /** Take the keys on the focused cell. */
@@ -181,7 +176,7 @@ export class LiveGuide {
 
   render(): void {
     if (!this.shown) return;
-    if (!this.channels.length) this.channels = this.listedChannels();
+    this.syncChannels();
     const now = Date.now();
     const visible = this.visibleRows();
     this.firstRow = firstRowFor(this.firstRow, this.row, visible, this.channels.length);
@@ -309,6 +304,34 @@ export class LiveGuide {
   private listedChannels(): Channel[] {
     const scope = this.options.scope();
     return PlaylistService.getByGroup(scope.group ?? 'builtin:all', scope.playlist);
+  }
+
+  private currentScopeKey(): string {
+    const scope = this.options.scope();
+    return `${scope.group ?? 'builtin:all'}\n${scope.playlist ?? ''}`;
+  }
+
+  // Re-read what the Live list shows: a new group or playlist starts at its
+  // first channel; a refresh or a concealment change keeps the focused one.
+  private syncChannels(): void {
+    const list = this.listedChannels();
+    const scopeKey = this.currentScopeKey();
+    if (scopeKey !== this.scopeKey) {
+      this.scopeKey = scopeKey;
+      this.channels = list;
+      this.row = 0;
+      this.firstRow = 0;
+      return;
+    }
+    if (list === this.channels) return;
+    const focused = this.channels[this.row];
+    this.channels = list;
+    if (focused && list[this.row] !== focused) {
+      const resolved = PlaylistService.resolveChannelKey(channelKey(focused));
+      const at = resolved ? list.indexOf(resolved.channel) : -1;
+      if (at >= 0) this.row = at;
+    }
+    this.row = Math.max(0, Math.min(this.row, list.length - 1));
   }
 
   private programsAround(channel: Channel, time: number): Programme[] {

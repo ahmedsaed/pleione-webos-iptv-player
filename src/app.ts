@@ -200,6 +200,7 @@ class App {
         onRowFocus: (index) => this.onLiveRowFocus(index),
         onCount: (count) => this.liveHeader.setCount(count),
         onRetry: () => this.retryLive(),
+        onScopeChange: () => this.liveGuide?.render(),
         onChannelSelect: (idx, catchup, scope, mode) =>
           this.livePreview.selectChannel(idx, catchup, scope, mode),
         onChannelsChanged: () => {
@@ -1930,10 +1931,8 @@ class App {
           this.liveGuide.handleAction(action);
           break;
         }
-        const group = this.channelList.group;
         const moved = this.channelList.handleAction(action, event);
         if (this.liveMode === 'guide') {
-          if (this.channelList.group !== group) this.liveGuide.groupChanged();
           if (action === 'right' && !moved) {
             this.focusGuideGrid();
             break;

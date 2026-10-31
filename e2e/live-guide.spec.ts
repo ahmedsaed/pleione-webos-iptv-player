@@ -41,7 +41,13 @@ const CELL = '#live-guide .guide-cell';
 
 test.use({ timezoneId: 'UTC' });
 
-async function setup(page: Page): Promise<void> {
+const SECOND = [
+  '#EXTM3U',
+  '#EXTINF:-1 tvg-id="ch4" group-title="Group 1",ch4',
+  'http://host/ch4.m3u8',
+].join('\n');
+
+async function setup(page: Page, options: { second?: boolean } = {}): Promise<void> {
   await page.clock.setFixedTime(new Date('2026-09-15T12:00:00Z'));
   await routePlaylist(page, CHANNELS);
   await routeLiveManifest(page);
@@ -51,9 +57,15 @@ async function setup(page: Page): Promise<void> {
   await page.route('http://host/guide.xml', route => route.fulfill({
     contentType: 'application/xml', body: EPG,
   }));
-  await page.addInitScript(() => {
+  if (options.second) {
+    await page.route('http://host/second.m3u', route => route.fulfill({
+      contentType: 'application/x-mpegurl', body: SECOND,
+    }));
+  }
+  await page.addInitScript((second) => {
     localStorage.setItem('iptv_playlists', JSON.stringify([
       { id: 'p1', name: 'P1', url: 'http://host/playlist.m3u' },
+      ...second ? [{ id: 'p2', name: 'P2', url: 'http://host/second.m3u' }] : [],
     ]));
     localStorage.setItem('iptv_manual_epg_sources', JSON.stringify([{ url: 'http://host/guide.xml', playlistIds: [] }]));
     localStorage.setItem('iptv_tz_mode', JSON.stringify('device'));
@@ -63,9 +75,9 @@ async function setup(page: Page): Promise<void> {
     document.addEventListener('error', event => {
       if (event.isTrusted && event.target instanceof HTMLMediaElement) event.stopImmediatePropagation();
     }, true);
-  });
+  }, !!options.second);
   await page.goto('/');
-  await expect(page.locator('#channel-browser .channel-item')).toHaveCount(3);
+  await expect(page.locator('#channel-browser .channel-item')).toHaveCount(options.second ? 4 : 3);
   await openGuide(page);
 }
 
@@ -239,4 +251,25 @@ test('the pointer lights a cell and a click acts on it', async ({ page }) => {
   await expect(future).toHaveClass(/focused/);
   await future.click();
   await expect(page.locator('.toast')).toContainText('Reminder set');
+});
+
+// Regression: a group clicked with the pointer left the grid on the old
+// group's channels.
+test('a group clicked with the pointer picks the channels the Guide shows', async ({ page }) => {
+  await setup(page);
+  await page.locator('#channel-browser .group-item', { hasText: 'Group 2' }).click();
+  await expect(page.locator('#live-guide .guide-name')).toHaveText(['ch3']);
+});
+
+// Regression: another playlist picked with the keys kept the grid on the
+// old one's channels while the group stayed All.
+test('a playlist picked with the keys picks the channels the Guide shows', async ({ page }) => {
+  await setup(page, { second: true });
+  await expect(page.locator('#live-guide .guide-name')).toHaveText(['ch1', 'ch2', 'ch3', 'ch4']);
+  await press(page, 'back', 'up');
+  expect(await focused(page)).toEqual(['tab:']);
+  await press(page, 'right', 'right');
+  expect(await focused(page)).toEqual(['tab:p2']);
+  await press(page, 'ok');
+  await expect(page.locator('#live-guide .guide-name')).toHaveText(['ch4']);
 });

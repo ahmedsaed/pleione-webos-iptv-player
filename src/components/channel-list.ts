@@ -76,6 +76,8 @@ export interface ChannelListOptions {
   onCount?: (count: number | null) => void;
   // Try again after a failed load.
   onRetry?: () => void;
+  // The group or playlist the list shows changed, by key or pointer.
+  onScopeChange?: () => void;
   authorizeEdit?: (proceed: () => void) => void;
 }
 
@@ -92,6 +94,9 @@ export class ChannelList {
   private readonly onRowFocus: (index: number | null) => void;
   private readonly onCount: (count: number | null) => void;
   private readonly onRetry: () => void;
+  private readonly onScopeChange: () => void;
+  // The group and playlist the last render showed.
+  private renderedScope = '';
   private loadState: ChannelLoadState = null;
   // How far a long load has got, in place of the plain loading label.
   private loadProgress: string | null = null;
@@ -152,11 +157,13 @@ export class ChannelList {
       onRowFocus = () => {},
       onCount = () => {},
       onRetry = () => {},
+      onScopeChange = () => {},
     } = options;
     this.guideMode = guideMode;
     this.onRowFocus = onRowFocus;
     this.onCount = onCount;
     this.onRetry = onRetry;
+    this.onScopeChange = onScopeChange;
     this.authorizeEdit = authorizeEdit;
     this.container = container;
     this.onChannelSelect = onChannelSelect;
@@ -462,6 +469,11 @@ export class ChannelList {
     if (Focus.owner() === this.focusScope) this.editor.focusTextInput();
     if (ensureFocus && showingRecent) this.recentToReveal = this.nav.focused?.dataset.key ?? null;
     this.syncScope(ensureFocus ? 'key' : 'render');
+    const scope = `${this.currentGroup}\n${this.currentPlaylist}`;
+    if (scope !== this.renderedScope) {
+      this.renderedScope = scope;
+      this.onScopeChange();
+    }
   }
 
   setLoadState(state: ChannelLoadState): void {
