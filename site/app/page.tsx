@@ -135,11 +135,18 @@ export default function Home() {
             eyebrow="Live TV"
             title="Channels, a guide, and what you missed."
             shot="guide"
-            alt="The program guide: channels on the left, a day's programs on the right with the live one marked"
+            alt="The Guide inside Live: the groups on the left, and a timeline of every channel's programs with the current time marked"
           >
             <ul>
               <li>M3U and M3U8 playlists, and Xtream Codes accounts — several at once, each switchable on and off.</li>
-              <li>A program guide (XMLTV) found from your playlist or added by hand, with per-source time correction.</li>
+              <li>
+                Live in three panes: groups, channels with what is on now and next, and a preview that plays the
+                channel you rest on.
+              </li>
+              <li>
+                The Guide, one press of Red inside Live: a timeline of every channel from XMLTV, found from your
+                playlist or added by hand, with per-source time correction.
+              </li>
               <li>Catch-up for programs that already aired, and pause and rewind on live streams that allow it.</li>
               <li>Favorites, Recently Watched, reminders that fire even with the app closed, and number-key tuning.</li>
             </ul>
@@ -239,9 +246,10 @@ export default function Home() {
             alt="Settings with a QR code, a local network address and a four-digit pairing code for phone setup"
           >
             <p>
-              Long addresses and passwords are miserable with a remote. Scan the QR code in Settings with your phone,
-              enter the pairing code, and add your accounts, playlists and guides from there — or upload an{' '}
-              <code>.m3u</code> file. It works on your home network, only while Pleione is open.
+              Long addresses and passwords are miserable with a remote. The first time you open Pleione, Home shows
+              a QR code beside the Add cards; later it is in Settings. Scan it with your phone, or enter the pairing
+              code, and add your accounts, playlists and guides from there — or upload an <code>.m3u</code> file. It
+              works on your home network, only while Pleione is open.
             </p>
             <p>
               <Link href="/setup/">Read the setup guide</Link>
