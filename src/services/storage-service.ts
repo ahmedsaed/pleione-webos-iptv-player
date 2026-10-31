@@ -560,12 +560,14 @@ async function initUserData(): Promise<void> {
       replaceExisting: false,
     });
   }
-  await migrateUserRecordSets(pending);
+  const unsaved = await migrateUserRecordSets(pending);
   // After the legacy migration, which may replace whole stores.
   await restoreFallbackUserData();
   const loadedUserData = await loadUserDataState();
-  for (const [key] of migrations) remove(key);
-  remove('parental_control');
+  for (const [key] of migrations) {
+    if (unsaved.indexOf(key) < 0) remove(key);
+  }
+  if (unsaved.indexOf('parental_control') < 0) remove('parental_control');
   const trimmed = trimResume(loadedUserData.resume);
   if (trimmed.length) persistUserChanges('playback-progress', [], trimmed.map(resumeKey));
   userData = loadedUserData;

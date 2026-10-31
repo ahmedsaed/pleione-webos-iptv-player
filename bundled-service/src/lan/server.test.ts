@@ -15,6 +15,12 @@ let setupUrl: string;
 let setupToken: string;
 let pairingCode: string;
 let dataDir: string;
+let appKey: string;
+
+// A local-only route as the TV app calls it, with the key it gets over Luna.
+function app(url: string, key = appKey): string {
+  return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'key=' + key;
+}
 
 const VALID_M3U = [
   '#EXTM3U url-tvg="http://epg.example.com/guide.xml"',
@@ -38,8 +44,9 @@ beforeAll(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'upload-svc-test-'));
   const result = await startServer(0, dataDir);
   server = result.server;
+  appKey = result.appKey;
   baseUrl = `http://127.0.0.1:${result.port}`;
-  const info = (await (await fetch(`${baseUrl}/info`)).json()) as {
+  const info = (await (await fetch(app(`${baseUrl}/info`))).json()) as {
     setupUrl: string;
     pairingCode: string;
   };
@@ -56,15 +63,15 @@ afterAll(async () => {
 
 beforeEach(async () => {
   for (const f of fs.readdirSync(dataDir)) fs.rmSync(path.join(dataDir, f));
-  const actions = (await (await fetch(`${baseUrl}/setup-actions`)).json()) as Array<{ id: number }>;
+  const actions = (await (await fetch(app(`${baseUrl}/setup-actions`))).json()) as Array<{ id: number }>;
   for (const action of actions) {
-    await fetch(`${baseUrl}/setup-actions/${action.id}`, { method: 'DELETE' });
+    await fetch(app(`${baseUrl}/setup-actions/${action.id}`), { method: 'DELETE' });
   }
 });
 
 describe('GET /info', () => {
   it('returns the service ip/port and the setup page URL', async () => {
-    const res = await fetch(`${baseUrl}/info`);
+    const res = await fetch(app(`${baseUrl}/info`));
     expect(res.status).toBe(200);
     const info = (await res.json()) as {
       ip: string;
@@ -178,7 +185,7 @@ describe('setup state', () => {
   };
 
   it('accepts a loopback snapshot and returns it only with the setup token', async () => {
-    const put = await fetch(`${baseUrl}/setup-state`, {
+    const put = await fetch(app(`${baseUrl}/setup-state`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(state),
@@ -191,7 +198,7 @@ describe('setup state', () => {
   });
 
   it('strips credential fields from snapshots', async () => {
-    const put = await fetch(`${baseUrl}/setup-state`, {
+    const put = await fetch(app(`${baseUrl}/setup-state`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -212,7 +219,7 @@ describe('setup state', () => {
   });
 
   it('rejects duplicate program guide URLs in setup snapshots', async () => {
-    const put = await fetch(`${baseUrl}/setup-state`, {
+    const put = await fetch(app(`${baseUrl}/setup-state`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -264,7 +271,7 @@ describe('setup actions', () => {
       opensubtitles: { apiKey: 'k2', username: 'u2', password: 'p2' },
     })).status).toBe(201);
 
-    const actions = await (await fetch(`${baseUrl}/setup-actions`)).json();
+    const actions = await (await fetch(app(`${baseUrl}/setup-actions`))).json();
     expect(actions).toEqual([
       { id: expect.any(Number), type: 'playlist', name: 'Alpha', url: 'http://host/a.m3u' },
       {
@@ -309,7 +316,7 @@ describe('setup actions', () => {
       }),
     });
     expect(res.status).toBe(403);
-    expect(await (await fetch(`${baseUrl}/setup-actions`)).json()).toEqual([]);
+    expect(await (await fetch(app(`${baseUrl}/setup-actions`))).json()).toEqual([]);
   });
 
   it('validates setup action fields and URL protocols', async () => {
@@ -351,17 +358,17 @@ describe('setup actions', () => {
     const token = new URL(setupUrl).search;
     expect(await (await fetch(`${baseUrl}/setup-actions/${id}${token}`)).json())
       .toEqual({ id, pending: true });
-    const removed = await fetch(`${baseUrl}/setup-actions/${id}`, { method: 'DELETE' });
+    const removed = await fetch(app(`${baseUrl}/setup-actions/${id}`), { method: 'DELETE' });
     expect(removed.status).toBe(200);
     expect(await (await fetch(`${baseUrl}/setup-actions/${id}${token}`)).json())
       .toEqual({ id, pending: false });
-    expect(await (await fetch(`${baseUrl}/setup-actions`)).json()).toEqual([]);
+    expect(await (await fetch(app(`${baseUrl}/setup-actions`))).json()).toEqual([]);
   });
 });
 
 describe('GET /uploads (empty)', () => {
   it('returns an empty JSON array when no uploads exist', async () => {
-    const res = await fetch(`${baseUrl}/uploads`);
+    const res = await fetch(app(`${baseUrl}/uploads`));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
   });
@@ -430,11 +437,11 @@ describe('GET /uploads (populated)', () => {
   it('lists every saved upload with a serve-back URL', async () => {
     await postUpload('one.m3u', VALID_M3U);
     await postUpload('two.m3u', '#EXTM3U\n#EXTINF:-1,A\nhttp://x/a.m3u8');
-    const res = await fetch(`${baseUrl}/uploads`);
+    const res = await fetch(app(`${baseUrl}/uploads`));
     const items = (await res.json()) as Array<{ id: string; url: string; count: number }>;
     expect(items.map((i) => i.id).sort()).toEqual(['one', 'two']);
     for (const it of items) {
-      expect(it.url).toMatch(new RegExp(`^${baseUrl}/uploads/${it.id}\\.m3u$`));
+      expect(it.url).toBe(`${baseUrl}/uploads/${it.id}.m3u?key=${appKey}`);
     }
   });
 });
@@ -442,14 +449,14 @@ describe('GET /uploads (populated)', () => {
 describe('GET /uploads/:id.m3u', () => {
   it('serves the original M3U bytes with the audio/mpegurl content type', async () => {
     await postUpload('mine.m3u', VALID_M3U);
-    const res = await fetch(`${baseUrl}/uploads/mine.m3u`);
+    const res = await fetch(app(`${baseUrl}/uploads/mine.m3u`));
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/audio\/mpegurl/);
     expect(await res.text()).toBe(VALID_M3U);
   });
 
   it('returns 404 when the upload does not exist', async () => {
-    const res = await fetch(`${baseUrl}/uploads/missing.m3u`);
+    const res = await fetch(app(`${baseUrl}/uploads/missing.m3u`));
     expect(res.status).toBe(404);
   });
 
@@ -457,7 +464,7 @@ describe('GET /uploads/:id.m3u', () => {
     const outside = path.join(path.dirname(dataDir), 'outside.m3u');
     fs.writeFileSync(outside, VALID_M3U);
     try {
-      const res = await fetch(`${baseUrl}/uploads/..%2Foutside.m3u`);
+      const res = await fetch(app(`${baseUrl}/uploads/..%2Foutside.m3u`));
       expect(res.status).toBe(400);
       expect(fs.readFileSync(outside, 'utf-8')).toBe(VALID_M3U);
     } finally {
@@ -475,7 +482,7 @@ describe('upload reads from a LAN client', () => {
     const result = await startServer(0, dataDir);
     remote = result.server;
     remoteBase = `http://127.0.0.1:${result.port}`;
-    const info = (await (await fetch(`${remoteBase}/info`)).json()) as { setupUrl: string };
+    const info = (await (await fetch(app(`${remoteBase}/info`, result.appKey))).json()) as { setupUrl: string };
     remoteToken = new URL(info.setupUrl).searchParams.get('token')!;
     // Every later request looks like a phone on the LAN, not the TV app.
     remote.prependListener('request', (req: http.IncomingMessage) => {
@@ -520,13 +527,45 @@ describe('upload reads from a LAN client', () => {
   });
 });
 
-describe('upload reads from the TV app', () => {
-  it('lists and downloads over loopback without a token, with CORS for the app', async () => {
+describe('local-only routes', () => {
+  // A web page in the TV's own browser connects over loopback too, so the
+  // loopback address alone must not unlock anything or grant CORS.
+  it.each([
+    ['without the app key', ''],
+    ['with a wrong app key', '?key=00000000000000000000000000000000'],
+  ])('refuses a loopback caller %s', async (_label, search) => {
     await postUpload('local.m3u', VALID_M3U);
-    const list = await fetch(`${baseUrl}/uploads`);
+    for (const [method, route] of [
+      ['GET', '/info'],
+      ['GET', '/uploads'],
+      ['GET', '/uploads/local.m3u'],
+      ['GET', '/setup-actions'],
+      ['PUT', '/setup-state'],
+      ['DELETE', '/uploads/local'],
+      ['DELETE', '/setup-actions/1'],
+    ]) {
+      const res = await fetch(`${baseUrl}${route}${search}`, {
+        method,
+        headers: { Origin: 'http://host' },
+        ...(method === 'PUT' ? { body: '{}' } : {}),
+      });
+      expect(res.status, `${method} ${route}`).toBe(403);
+      expect(res.headers.get('access-control-allow-origin'), route).toBeNull();
+      const body = await res.text();
+      expect(body, route).not.toContain('EXTINF');
+      expect(body, route).not.toContain(setupToken);
+    }
+    expect(fs.existsSync(path.join(dataDir, 'local.m3u'))).toBe(true);
+  });
+});
+
+describe('upload reads from the TV app', () => {
+  it('lists and downloads with the app key, with CORS for the app', async () => {
+    await postUpload('local.m3u', VALID_M3U);
+    const list = await fetch(app(`${baseUrl}/uploads`));
     expect(list.status).toBe(200);
     expect(list.headers.get('access-control-allow-origin')).toBe('*');
-    const file = await fetch(`${baseUrl}/uploads/local.m3u`);
+    const file = await fetch(app(`${baseUrl}/uploads/local.m3u`));
     expect(file.status).toBe(200);
     expect(file.headers.get('access-control-allow-origin')).toBe('*');
     expect(await file.text()).toBe(VALID_M3U);
@@ -537,7 +576,7 @@ describe('DELETE /uploads/:id', () => {
   it('removes both the .m3u and .json files', async () => {
     await postUpload('gone.m3u', VALID_M3U);
     expect(fs.existsSync(path.join(dataDir, 'gone.m3u'))).toBe(true);
-    const res = await fetch(`${baseUrl}/uploads/gone`, { method: 'DELETE' });
+    const res = await fetch(app(`${baseUrl}/uploads/gone`), { method: 'DELETE' });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ deleted: true, id: 'gone' });
     expect(fs.existsSync(path.join(dataDir, 'gone.m3u'))).toBe(false);
@@ -545,7 +584,7 @@ describe('DELETE /uploads/:id', () => {
   });
 
   it('returns 404 for an id that has no upload', async () => {
-    const res = await fetch(`${baseUrl}/uploads/does-not-exist`, { method: 'DELETE' });
+    const res = await fetch(app(`${baseUrl}/uploads/does-not-exist`), { method: 'DELETE' });
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ deleted: false, id: 'does-not-exist' });
   });
@@ -554,7 +593,7 @@ describe('DELETE /uploads/:id', () => {
     const outside = path.join(path.dirname(dataDir), 'outside.m3u');
     fs.writeFileSync(outside, VALID_M3U);
     try {
-      const res = await fetch(`${baseUrl}/uploads/..%2Foutside`, { method: 'DELETE' });
+      const res = await fetch(app(`${baseUrl}/uploads/..%2Foutside`), { method: 'DELETE' });
       expect(res.status).toBe(400);
       expect(fs.existsSync(outside)).toBe(true);
     } finally {
@@ -575,8 +614,8 @@ describe('startServer onChange callback (Luna push fan-out source)', () => {
   // The webOS entry (index.ts) passes a callback into startServer that
   // broadcasts to all Luna `serviceEvents` subscribers. Verify the server
   // fires it exactly when the upload set actually mutates.
-  async function tokenFor(port: number): Promise<string> {
-    const info = (await (await fetch(`http://127.0.0.1:${port}/info`)).json()) as {
+  async function tokenFor(port: number, key: string): Promise<string> {
+    const info = (await (await fetch(app(`http://127.0.0.1:${port}/info`, key))).json()) as {
       setupUrl: string;
     };
     return new URL(info.setupUrl).searchParams.get('token')!;
@@ -585,10 +624,10 @@ describe('startServer onChange callback (Luna push fan-out source)', () => {
   it('fires onChange after a successful POST /uploads', async () => {
     const onChange = vi.fn();
     const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'upload-svc-cb-'));
-    const { server: s } = await startServer(0, localDir, onChange);
+    const { server: s, appKey: key } = await startServer(0, localDir, onChange);
     const port = (s.address() as { port: number }).port;
     try {
-      const token = await tokenFor(port);
+      const token = await tokenFor(port, key);
       const res = await fetch(
         `http://127.0.0.1:${port}/uploads?name=on-change.m3u&token=${token}`, {
         method: 'POST', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: VALID_M3U,
@@ -606,11 +645,11 @@ describe('startServer onChange callback (Luna push fan-out source)', () => {
   it('fires a setup change after an authenticated source submission', async () => {
     const onChange = vi.fn();
     const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'upload-svc-cb-'));
-    const { server: s } = await startServer(0, localDir, onChange);
+    const { server: s, appKey: key } = await startServer(0, localDir, onChange);
     const port = (s.address() as { port: number }).port;
     const localBase = `http://127.0.0.1:${port}`;
     try {
-      const info = (await (await fetch(`${localBase}/info`)).json()) as { setupUrl: string };
+      const info = (await (await fetch(app(`${localBase}/info`, key))).json()) as { setupUrl: string };
       const token = new URL(info.setupUrl).search;
       const res = await fetch(`${localBase}/setup-actions${token}`, {
         method: 'POST',
@@ -631,10 +670,10 @@ describe('startServer onChange callback (Luna push fan-out source)', () => {
   it('does NOT fire onChange when POST /uploads is rejected as invalid M3U', async () => {
     const onChange = vi.fn();
     const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'upload-svc-cb-'));
-    const { server: s } = await startServer(0, localDir, onChange);
+    const { server: s, appKey: key } = await startServer(0, localDir, onChange);
     const port = (s.address() as { port: number }).port;
     try {
-      const token = await tokenFor(port);
+      const token = await tokenFor(port, key);
       const res = await fetch(`http://127.0.0.1:${port}/uploads?name=bad.m3u&token=${token}`, {
         method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: 'no m3u header here',
       });
@@ -649,17 +688,17 @@ describe('startServer onChange callback (Luna push fan-out source)', () => {
   it('fires onChange after a successful DELETE /uploads/:id (file existed)', async () => {
     const onChange = vi.fn();
     const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'upload-svc-cb-'));
-    const { server: s } = await startServer(0, localDir, onChange);
+    const { server: s, appKey: key } = await startServer(0, localDir, onChange);
     const port = (s.address() as { port: number }).port;
     try {
       // First a POST to create something to delete (fires onChange once).
-      const token = await tokenFor(port);
+      const token = await tokenFor(port, key);
       await fetch(`http://127.0.0.1:${port}/uploads?name=to-delete.m3u&token=${token}`, {
         method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: VALID_M3U,
       });
       expect(onChange).toHaveBeenCalledTimes(1);
 
-      const del = await fetch(`http://127.0.0.1:${port}/uploads/to-delete`, { method: 'DELETE' });
+      const del = await fetch(app(`http://127.0.0.1:${port}/uploads/to-delete`, key), { method: 'DELETE' });
       expect(del.status).toBe(200);
       expect(onChange).toHaveBeenCalledTimes(2);
       expect(onChange).toHaveBeenLastCalledWith('uploads-changed');
@@ -672,10 +711,10 @@ describe('startServer onChange callback (Luna push fan-out source)', () => {
   it('does NOT fire onChange when DELETE targets a missing id (404, nothing changed)', async () => {
     const onChange = vi.fn();
     const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'upload-svc-cb-'));
-    const { server: s } = await startServer(0, localDir, onChange);
+    const { server: s, appKey: key } = await startServer(0, localDir, onChange);
     const port = (s.address() as { port: number }).port;
     try {
-      const del = await fetch(`http://127.0.0.1:${port}/uploads/does-not-exist`, { method: 'DELETE' });
+      const del = await fetch(app(`http://127.0.0.1:${port}/uploads/does-not-exist`, key), { method: 'DELETE' });
       expect(del.status).toBe(404);
       expect(onChange).not.toHaveBeenCalled();
     } finally {
@@ -686,10 +725,10 @@ describe('startServer onChange callback (Luna push fan-out source)', () => {
 
   it('startServer works without an onChange callback (callback is optional)', async () => {
     const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'upload-svc-cb-'));
-    const { server: s } = await startServer(0, localDir);
+    const { server: s, appKey: key } = await startServer(0, localDir);
     const port = (s.address() as { port: number }).port;
     try {
-      const token = await tokenFor(port);
+      const token = await tokenFor(port, key);
       const res = await fetch(`http://127.0.0.1:${port}/uploads?name=no-cb.m3u&token=${token}`, {
         method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: VALID_M3U,
       });
@@ -703,10 +742,10 @@ describe('startServer onChange callback (Luna push fan-out source)', () => {
   it('a throwing onChange does not break the response (POST still returns 200)', async () => {
     const onChange = vi.fn(() => { throw new Error('boom'); });
     const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'upload-svc-cb-'));
-    const { server: s } = await startServer(0, localDir, onChange);
+    const { server: s, appKey: key } = await startServer(0, localDir, onChange);
     const port = (s.address() as { port: number }).port;
     try {
-      const token = await tokenFor(port);
+      const token = await tokenFor(port, key);
       const res = await fetch(`http://127.0.0.1:${port}/uploads?name=throws.m3u&token=${token}`, {
         method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: VALID_M3U,
       });

@@ -26,6 +26,7 @@ export const CONFIG = {
   REMINDER_SCAN_INTERVAL: 30 * 1000,
   // Provider requests (Xtream API, playlist, XMLTV) retry transient failures
   // after 1 s, 2 s, then 4 s; a numeric Retry-After replaces the step, capped.
+  // A timeout is final for whole downloads and the Home connection check.
   NETWORK: {
     RETRIES: 3,
     RETRY_BASE_DELAY_MS: 1000,

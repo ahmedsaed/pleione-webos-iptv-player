@@ -260,12 +260,15 @@ result is not written to the cache.
 
 Every request to the provider (a channel-list or guide download, or an Xtream
 API call) retries a transient failure up to three times, after 1, 2, then 4
-seconds: a timeout, a network error, or HTTP 408, 429, or 5xx. A numeric
+seconds: a network error, HTTP 408, 429, or 5xx, or a timeout. A numeric
 `Retry-After` replaces the step, up to 10 seconds. Other failures, such as a
 rejected login, a missing list, or an unreadable response, surface at once,
-and canceling the request stops a pending retry. The sign-in check in
-Settings does not retry a timeout, so an unresponsive portal reports quickly. A retried download starts
-over, so a failed attempt never adds partial data. Stream playback and
+and canceling the request stops a pending retry. A timeout is final for a
+whole download (an M3U playlist, an XMLTV guide, or an Xtream catalog list),
+whose timeout already covers the full transfer, and for the sign-in checks
+on Home and in Settings, so an unresponsive server fails after one timeout
+instead of four. A retried download starts over, so a failed attempt never
+adds partial data. Stream playback and
 online subtitle searches do not use these retries.
 
 An incomplete automatic channel-list refresh keeps the previous complete list
@@ -412,37 +415,37 @@ already holds. From then on:
 - **Personal records** go to localStorage, one `iptv_fb_<store>` key per
   user-data store, holding the records written and the keys deleted since.
   Reads merge them over the IndexedDB records, so nothing stored before
-  disappears. Each store keeps its most recent records and as many deletions:
-
-  | Store | Records kept |
-  | --- | --- |
-  | `favorites` | 500 |
-  | `reminders` | 200 |
-  | `channel-state` | 1000 |
-  | `watchlist` | 400 |
-  | `playback-progress` | 1000 |
-  | `recently-watched` | 30 |
-  | `online-sub-picks` | 200 |
-  | `parental-control` | 1 |
+  disappears. No store has a record cap of its own beyond the app's caps.
+  A deletion of a key IndexedDB holds is kept as a small marker, so a
+  cleared record never comes back; a deletion of any other key leaves none.
 
   All fallback keys together hold at most 1 Mi characters (2 MiB as UTF-16,
-  of Chromium's 5 Mi-character localStorage), and the oldest records across
-  stores go first; the parental-control record is never evicted. When a
-  setup or preference key cannot be saved even after the derived caches are
-  evicted, the oldest half of the fallback is dropped to make room for it.
-  Fallback writes never evict any other key.
+  of Chromium's 5 Mi-character localStorage). Past that, the oldest records
+  across stores go first, but never a deletion marker or the
+  parental-control record, and the write is reported as failed. A single
+  record over half the budget is refused outright and the other records stay.
+  A failed fallback write logs `persistence.user.fallback.write.failed` once
+  per session with its `reason` (`evicted`, `too_large`, or `full`) and
+  shows the save-failure message. When a setup or preference key cannot be
+  saved even after the derived caches are evicted, the oldest half of the
+  fallback records is dropped to make room for it.
+  Fallback writes never evict any other key. Older localStorage data
+  moved into the fallback at startup is never capped and never evicts
+  anything: if it does not fit, its legacy keys stay for a later launch.
 - **Caches** (playlists, guides, catalogs, subtitles, stream MIME types,
   channel health) are kept in memory for the session only, up to 32 MiB of
   counted size, and Search indexes are not stored. They never use
   localStorage.
-- No save-failure message is shown, on exit or otherwise. While the
-  session is read-only, **Settings → Data Management** notes under the
-  cache total that the TV limits app storage and the cache is not kept
+- No save-failure message is shown while the fallback holds every write.
+  While the session is read-only, **Settings → Data Management** notes
+  under the cache total that the TV limits app storage and the cache is not kept
   between launches.
 
 In a later session where the startup write succeeds, the app writes the
 fallback records into IndexedDB, removes the `iptv_fb_*` keys, and logs
-`storage.idb.restored`.
+`storage.idb.restored`. Legacy localStorage values saved after the fallback,
+in a session that could not open IndexedDB at all, are newer and win over
+the fallback's copy of the same records.
 
 The category order is implemented after a global expired-record pass. Within
 each category, candidates sort by ascending `lastAccessedAt`, giving LRU
@@ -470,7 +473,10 @@ processed again.
 ### Reset App
 
 **Reset App** permanently removes the app's local setup, personal data, and
-managed cache, then restarts at initial setup.
+managed cache, then restarts at initial setup. Each step runs even when an
+earlier one fails, so an IndexedDB that cannot open or clear still leaves
+no accounts or passwords in localStorage; a failed step logs
+`persistence.reset.step.failed` with its `step`.
 
 Original LAN-uploaded M3U files belong to the separate LAN service and are
 not part of the browser database or cache meter. They should be removed through

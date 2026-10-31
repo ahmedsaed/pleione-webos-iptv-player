@@ -7,6 +7,7 @@ vi.mock('../utils/fetch-helper', async (importOriginal) => ({
   fetchLimitedText: fetchTextMock,
 }));
 
+import { FetchTextError } from '../utils/fetch-helper';
 import { checkConnections, StartupConnection, type ConnectionIssue } from './connection-check';
 
 const xtream = (id: string, extra: Partial<PlaylistEntry> = {}): PlaylistEntry => ({
@@ -23,6 +24,15 @@ describe('checkConnections', () => {
     expect(await checkConnections([m3u, xtream('x1')])).toBeNull();
     expect(fetchTextMock).toHaveBeenCalledTimes(1);
     expect(fetchTextMock.mock.calls[0][0]).toBe('http://host/x1/player_api.php?username=u1&password=p1');
+  });
+
+  it('reports a timed-out server without retrying the timeout', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchTextMock.mockRejectedValueOnce(new FetchTextError('timeout', 'Request timed out'));
+    expect(await checkConnections([xtream('x1')]))
+      .toEqual({ state: 'unreachable', accountId: 'x1', accountName: 'x1' });
+    expect(fetchTextMock).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 
   it('skips turned-off accounts and asks nothing of an M3U-only setup', async () => {

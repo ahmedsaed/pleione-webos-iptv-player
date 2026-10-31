@@ -164,6 +164,64 @@ describe('StorageService when IndexedDB refuses every write', () => {
     expect(app.storage.isStorageLimited()).toBe(false);
   });
 
+  it('keeps Continue Watching cleared across a relaunch, however much was watched', async () => {
+    let app = await relaunch();
+    const watched = Array.from({ length: 1500 }, (_, i) => ({
+      key: `watched:x1|vod|${i}`,
+      value: { accountId: 'x1', kind: 'vod', itemId: String(i), watchedAt: i },
+    }));
+    await app.userData.applyUserChanges('playback-progress', watched);
+
+    origin = fillOrigin([]);
+    app = await relaunch();
+    expect(app.storage.isWatched('x1', 'vod', '0')).toBe(true);
+    app.storage.clearResumeList('x1');
+    await app.storage.flush();
+
+    app = await relaunch();
+    expect(app.storage.isWatched('x1', 'vod', '0')).toBe(false);
+    expect(app.storage.isWatched('x1', 'vod', '1499')).toBe(false);
+  });
+
+  it('reports a record the fallback cannot hold as a save failure', async () => {
+    origin = fillOrigin([]);
+    let app = await relaunch();
+    const onFailure = vi.fn();
+    app.storage.setWriteFailureHandler(onFailure);
+    app.storage.setFavorites(['ch1']);
+    app.storage.setChannelCustomization({
+      version: 1,
+      overrides: {},
+      order: Array.from({ length: 60000 }, (_, i) => `channel-${i}-xx`),
+      groupOrder: [],
+      groupOverrides: {},
+      customGroups: [],
+    });
+    await expect(app.storage.flush()).rejects.toThrow();
+
+    expect(onFailure).toHaveBeenCalledTimes(1);
+    const failed = events(error, 'persistence.user.fallback.write.failed');
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatch(/store=channel-state .*reason=too_large$/);
+    app = await relaunch();
+    expect(app.storage.getFavorites()).toEqual(['ch1']);
+  });
+
+  it('keeps legacy records in localStorage when the fallback cannot hold them', async () => {
+    origin = fillOrigin([]);
+    const favorites = Array.from({ length: 40000 }, (_, i) => `channel-${i}-xxxxxxxx`);
+    localStorage.setItem('iptv_favorites', JSON.stringify(favorites));
+    localStorage.setItem('iptv_reminders', JSON.stringify([reminder]));
+
+    const app = await relaunch();
+
+    expect(localStorage.getItem('iptv_favorites')).toBe(JSON.stringify(favorites));
+    expect(localStorage.getItem('iptv_reminders')).toBeNull();
+    expect(app.storage.getReminders()).toEqual([reminder]);
+    expect(events(error, 'persistence.user.fallback.write.failed')[0])
+      .toMatch(/store=favorites .*reason=full$/);
+  });
+
   it('moves the fallback back into IndexedDB once writes work again', async () => {
     origin = fillOrigin([]);
     let app = await relaunch();
@@ -186,6 +244,26 @@ describe('StorageService when IndexedDB refuses every write', () => {
     const restored = events(info, 'storage.idb.restored');
     expect(restored).toHaveLength(1);
     expect(restored[0]).toMatch(/event=storage\.idb\.restored records=2$/);
+  });
+
+  it('lets a legacy value saved after the fallback win the restore', async () => {
+    let app = await relaunch();
+    app.storage.setAudioPref('ch1', { name: 'Track 1', lang: 'l1' });
+    await app.storage.flush();
+
+    origin = fillOrigin([]);
+    app = await relaunch();
+    app.storage.setAudioPref('ch1', { name: 'Track 2', lang: 'l2' });
+    await app.storage.flush();
+    origin.restore();
+    origin = null;
+    // A later session that could not open IndexedDB saved the newest choice.
+    localStorage.setItem('iptv_audio_prefs', JSON.stringify({ ch1: { name: 'Track 3', lang: 'l1' } }));
+
+    app = await relaunch();
+    expect(app.storage.getAudioPref('ch1')).toEqual({ name: 'Track 3', lang: 'l1' });
+    app = await relaunch();
+    expect(app.storage.getAudioPref('ch1')).toEqual({ name: 'Track 3', lang: 'l1' });
   });
 });
 

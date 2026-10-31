@@ -5,27 +5,30 @@ import type { UserDataRecord } from './idb-user-data';
 // Durable user records written to localStorage while IndexedDB refuses
 // writes, read back merged over the IndexedDB records. One key per store:
 // `r` holds puts and `d` deletions of keys IndexedDB may still hold, each
-// with the time it was written so the oldest go first.
+// with the time it was written so the oldest records go first.
 export const FALLBACK_KEY_PREFIX = `${CONFIG.STORAGE_PREFIX}fb_`;
-
-// The most recent N records (and as many deletions) kept per store.
-export const FALLBACK_STORE_CAPS: Readonly<Record<UserDataStore, number>> = {
-  favorites: 500,
-  reminders: 200,
-  'channel-state': 1000,
-  watchlist: 400,
-  'playback-progress': 1000,
-  'recently-watched': CONFIG.RECENTLY_WATCHED.MAX_LIVE_ENTRIES,
-  'online-sub-picks': 200,
-  'parental-control': 1,
-};
 
 // Serialized characters across every fallback key (2 MiB as UTF-16, of the
 // 5 Mi characters Chromium allows), so boot configuration keeps the rest.
 export const FALLBACK_TOTAL_CHARS = 1024 * 1024;
 
+// A record this large would push most others out, so it is refused.
+export const FALLBACK_RECORD_MAX_CHARS = FALLBACK_TOTAL_CHARS / 2;
+
 // Never evicted for room: losing it would lift the parental lock.
 const PINNED_STORE: UserDataStore = 'parental-control';
+
+// `evicted`: the write kept, but older records were dropped for room.
+export type FallbackWriteResult = 'ok' | 'evicted' | 'too_large' | 'full';
+
+export interface FallbackWriteOptions {
+  // Keys IndexedDB holds: a deletion of any other key needs no marker.
+  storedKeys?: readonly string[];
+  // Records already in the fallback are newer and stay.
+  keepExisting?: boolean;
+  // Fails instead of evicting other records for room.
+  noEvict?: boolean;
+}
 
 interface FallbackState {
   r: Record<string, { v: UserDataRecord; t: number }>;
@@ -35,7 +38,6 @@ interface FallbackState {
 interface FallbackEntry {
   store: UserDataStore;
   key: string;
-  deleted: boolean;
   t: number;
   size: number;
 }
@@ -82,35 +84,19 @@ function serialize(state: FallbackState): string {
   return JSON.stringify(state);
 }
 
-function capStore(store: UserDataStore, state: FallbackState): void {
-  const cap = FALLBACK_STORE_CAPS[store];
-  const recordKeys = Object.keys(state.r);
-  if (recordKeys.length > cap) {
-    recordKeys.sort((a, b) => state.r[b].t - state.r[a].t);
-    for (const key of recordKeys.slice(cap)) delete state.r[key];
-  }
-  const deleteKeys = Object.keys(state.d);
-  if (deleteKeys.length > cap) {
-    deleteKeys.sort((a, b) => state.d[b] - state.d[a]);
-    for (const key of deleteKeys.slice(cap)) delete state.d[key];
-  }
+function recordSize(key: string, entry: { v: UserDataRecord; t: number }): number {
+  return key.length + JSON.stringify(entry).length + 4;
 }
 
-function entriesOf(store: UserDataStore, state: FallbackState): FallbackEntry[] {
-  const entries: FallbackEntry[] = [];
-  for (const key of Object.keys(state.r)) {
-    entries.push({
-      store,
-      key,
-      deleted: false,
-      t: state.r[key].t,
-      size: key.length + JSON.stringify(state.r[key]).length + 4,
-    });
-  }
-  for (const key of Object.keys(state.d)) {
-    entries.push({ store, key, deleted: true, t: state.d[key], size: key.length + 20 });
-  }
-  return entries;
+// Deletion markers are never evicted: dropping one would bring the deleted
+// record back from IndexedDB.
+function recordEntries(store: UserDataStore, state: FallbackState): FallbackEntry[] {
+  return Object.keys(state.r).map(key => ({
+    store,
+    key,
+    t: state.r[key].t,
+    size: recordSize(key, state.r[key]),
+  }));
 }
 
 function loadStates(changed: UserDataStore, next: FallbackState): Record<UserDataStore, FallbackState> {
@@ -121,7 +107,7 @@ function loadStates(changed: UserDataStore, next: FallbackState): Record<UserDat
   return states;
 }
 
-// Drops the oldest unpinned entries across every store until `limit`
+// Drops the oldest unpinned records across every store until `limit`
 // characters remain; returns the stores it changed.
 function evictOldest(
   states: Record<UserDataStore, FallbackState>,
@@ -134,14 +120,13 @@ function evictOldest(
   if (total <= limit) return [];
   const entries: FallbackEntry[] = [];
   for (const store of USER_DATA_STORES) {
-    if (store !== PINNED_STORE) entries.push(...entriesOf(store, states[store]));
+    if (store !== PINNED_STORE) entries.push(...recordEntries(store, states[store]));
   }
   entries.sort((a, b) => a.t - b.t);
   const touched: UserDataStore[] = [];
   for (const entry of entries) {
     if (total <= limit) break;
-    if (entry.deleted) delete states[entry.store].d[entry.key];
-    else delete states[entry.store].r[entry.key];
+    delete states[entry.store].r[entry.key];
     total -= entry.size;
     if (touched.indexOf(entry.store) < 0) touched.push(entry.store);
   }
@@ -165,36 +150,64 @@ function writeStates(
   }
 }
 
-function persist(store: UserDataStore, next: FallbackState): boolean {
-  capStore(store, next);
+function usage(states: Record<UserDataStore, FallbackState>): number {
+  return USER_DATA_STORES.reduce((sum, item) =>
+    sum + (isEmpty(states[item]) ? 0 : serialize(states[item]).length), 0);
+}
+
+function persist(store: UserDataStore, next: FallbackState, noEvict = false): FallbackWriteResult {
   const states = loadStates(store, next);
-  const touched = evictOldest(states, FALLBACK_TOTAL_CHARS);
-  if (touched.indexOf(store) < 0) touched.push(store);
-  if (writeStates(states, touched)) return true;
+  if (noEvict) {
+    if (usage(states) > FALLBACK_TOTAL_CHARS) return 'full';
+    return writeStates(states, [store]) ? 'ok' : 'full';
+  }
+  const evicted = evictOldest(states, FALLBACK_TOTAL_CHARS);
+  const touched = evicted.indexOf(store) < 0 ? evicted.concat(store) : evicted;
+  if (writeStates(states, touched)) return evicted.length ? 'evicted' : 'ok';
   // localStorage itself is full: give up the oldest half of the fallback,
   // never another key, and try once more.
-  const usage = USER_DATA_STORES.reduce((sum, item) =>
-    sum + (isEmpty(states[item]) ? 0 : serialize(states[item]).length), 0);
-  const more = evictOldest(states, Math.floor(usage / 2));
+  const more = evictOldest(states, Math.floor(usage(states) / 2));
   return writeStates(states, USER_DATA_STORES.filter(item =>
-    touched.indexOf(item) >= 0 || more.indexOf(item) >= 0));
+    touched.indexOf(item) >= 0 || more.indexOf(item) >= 0)) ? 'evicted' : 'full';
+}
+
+function tooLarge(state: FallbackState, puts: UserDataRecord[]): boolean {
+  return puts.some(record =>
+    recordSize(record.key, state.r[record.key]) > FALLBACK_RECORD_MAX_CHARS);
+}
+
+// A deletion marker only matters for a key IndexedDB holds.
+function collapseDeletes(state: FallbackState, storedKeys: readonly string[] | undefined): void {
+  if (!storedKeys) return;
+  const stored = new Set(storedKeys);
+  for (const key of Object.keys(state.d)) {
+    if (!stored.has(key)) delete state.d[key];
+  }
 }
 
 export function applyFallbackChanges(
   store: UserDataStore,
   puts: UserDataRecord[],
   deletes: string[],
-): boolean {
+  options: FallbackWriteOptions = {},
+): FallbackWriteResult {
   const state = readState(store);
   for (const key of deletes) {
     delete state.r[key];
     state.d[key] = stamp();
   }
+  const written: UserDataRecord[] = [];
   for (const record of puts) {
+    if (options.keepExisting && (state.r[record.key] || state.d[record.key] !== undefined)) {
+      continue;
+    }
     delete state.d[record.key];
     state.r[record.key] = { v: record, t: stamp() };
+    written.push(record);
   }
-  return persist(store, state);
+  if (tooLarge(state, written)) return 'too_large';
+  collapseDeletes(state, options.storedKeys);
+  return persist(store, state, options.noEvict);
 }
 
 // Makes `records` the whole store: every key IndexedDB holds that is not
@@ -203,13 +216,14 @@ export function replaceFallbackStore(
   store: UserDataStore,
   records: UserDataRecord[],
   storedKeys: string[],
-): boolean {
+): FallbackWriteResult {
   const state: FallbackState = { r: {}, d: {} };
   const keep = new Set(records.map(item => item.key));
   for (const key of storedKeys) {
     if (!keep.has(key)) state.d[key] = stamp();
   }
   for (const record of records) state.r[record.key] = { v: record, t: stamp() };
+  if (tooLarge(state, records)) return 'too_large';
   return persist(store, state);
 }
 

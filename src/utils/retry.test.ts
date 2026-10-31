@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   httpRetryReason,
+  finalTimeout,
   loaderTransientFailure,
   parseRetryAfterMs,
   retryTransient,
@@ -161,8 +162,8 @@ describe('retry classification', () => {
   });
 
   it('classifies loader failures from their details', () => {
-    expect(loaderTransientFailure({ stage: 'fetch', reason: 'timeout' }))
-      .toEqual({ reason: 'timeout' });
+    // A whole download that timed out is not tried again.
+    expect(loaderTransientFailure({ stage: 'fetch', reason: 'timeout' })).toBeNull();
     expect(loaderTransientFailure({ stage: 'fetch', reason: 'http', status: 503, retryAfterMs: 2000 }))
       .toEqual({ reason: 'http_5xx', retryAfterMs: 2000 });
     expect(loaderTransientFailure({ stage: 'fetch', reason: 'http', status: 404 })).toBeNull();
@@ -171,5 +172,15 @@ describe('retry classification', () => {
     expect(loaderTransientFailure({ stage: 'read', reason: 'exception' }))
       .toEqual({ reason: 'network' });
     expect(loaderTransientFailure({ stage: 'decode_parse', reason: 'exception' })).toBeNull();
+  });
+
+  it('makes only a timeout final for a whole download', () => {
+    expect(finalTimeout({ reason: 'timeout' })).toBeNull();
+    expect(finalTimeout({ reason: 'network' })).toEqual({ reason: 'network' });
+    expect(finalTimeout({ reason: 'http_408' })).toEqual({ reason: 'http_408' });
+    expect(finalTimeout({ reason: 'http_429', retryAfterMs: 5000 }))
+      .toEqual({ reason: 'http_429', retryAfterMs: 5000 });
+    expect(finalTimeout({ reason: 'http_5xx' })).toEqual({ reason: 'http_5xx' });
+    expect(finalTimeout(null)).toBeNull();
   });
 });

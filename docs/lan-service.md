@@ -33,9 +33,9 @@ Luna (called by the app's LAN/reminder clients and by Activity Manager):
 
 | Method | Subscribe? | Purpose |
 |---|---|---|
-| `start` | no | Bind the HTTP server; returns the bound port. Idempotent. |
+| `start` | no | Bind the HTTP server; returns `{running, port, key}`, the bound port and the app key. Idempotent. |
 | `stop` | no | Close the HTTP server and release the keepAlive activity. |
-| `heartbeat` | no | Liveness probe; returns `{running, port}`. |
+| `heartbeat` | no | Liveness probe; returns `{running, port, key}`. |
 | `serviceEvents` | **yes** | Push channel for `uploads-changed` and `setup-changed` events. |
 | `getDevMode` | no | Report whether Developer Mode is available for interactive reminder alerts. |
 | `fireReminderAlert` | no | Raise the Developer Mode reminder alert requested by Activity Manager. |
@@ -44,20 +44,20 @@ HTTP (called by phones, and by the app for reconcile):
 
 | Route | Method | Purpose |
 |---|---|---|
-| `/info` | GET | Loopback-only metadata, including setup URLs and the pairing code. |
+| `/info?key=…` | GET | App-only metadata, including setup URLs and the pairing code. |
 | `/` or `/setup` | GET | Public setup page; asks for the TV pairing code. |
 | `/setup?token=…` | GET | QR entry that opens the same page already authorized. |
 | `/pair` | POST | Rate-limited exchange of the four-digit code for the setup token. |
-| `/setup-state` | PUT | Loopback-only sanitized source state, including enabled flags, published by the TV. |
+| `/setup-state?key=…` | PUT | App-only sanitized source state, including enabled flags, published by the TV. |
 | `/setup-state?token=…` | GET | Sanitized source and online-subtitle state for the setup page. |
 | `/setup-actions?token=…` | POST | Validate and queue a source or online-subtitle change. |
-| `/setup-actions` | GET | Loopback-only list consumed by the TV app. |
-| `/setup-actions/:id` | DELETE | Loopback-only acknowledgement from the TV app. |
+| `/setup-actions?key=…` | GET | App-only list consumed by the TV app. |
+| `/setup-actions/:id?key=…` | DELETE | App-only acknowledgement from the TV app. |
 | `/setup-actions/:id?token=…` | GET | Phone-facing application status. |
-| `/uploads?token=…` | GET | List stored uploads with serve-back URLs; loopback callers do not need the token. |
+| `/uploads?token=…` | GET | List stored uploads with serve-back URLs; the app sends its key instead. |
 | `/uploads?name=foo.m3u&token=…` | POST | Save a playlist; fires `serviceEvents`. |
-| `/uploads/:id[.m3u]?token=…` | GET | Serve a stored playlist; loopback callers do not need the token. |
-| `/uploads/:id?token=…` | DELETE | Remove an upload; loopback callers do not need the token. |
+| `/uploads/:id[.m3u]?token=…` | GET | Serve a stored playlist; the app sends its key instead. |
+| `/uploads/:id?token=…` | DELETE | Remove an upload; the app sends its key instead. |
 
 ## Event-driven updates
 
@@ -96,24 +96,28 @@ bundled-service initialization consumes the queue after reconnecting.
 
 ## Setup authorization
 
-Every HTTP bind generates a random 12-character token. `/info` is available
-only over loopback, so only the TV app can obtain the tokenized setup URL for
-the QR code. It also returns a random four-digit code for computers that open
+Every HTTP bind generates a random 12-character setup token and a random
+32-character app key. The service hands the app key to the TV app only in
+its Luna `start` and `heartbeat` responses, which no web page can call. The
+app-only routes need a loopback caller that sends the key: a loopback
+address alone is not enough, because a web page open in the TV's own
+browser connects over loopback too. `/info` is app-only, so only the TV app
+can obtain the tokenized setup URL for the QR code. It also returns a random four-digit code for computers that open
 the short root URL manually. The public page exchanges that code for the full
 token; five failures from one client lock pairing for one minute.
 
 The token is required to submit source changes, query their status, upload M3U
 files, read the sanitized setup state, or remotely list, download, or delete
 uploads, because a playlist often embeds provider credentials. The TV app reads
-uploads over loopback without the token. Upload reads answer with
-`Access-Control-Allow-Origin: *` only to loopback callers, so a web page on
-another LAN device cannot read them cross-origin; the setup page is
-same-origin and needs no CORS. Publishing
-state and reading or acknowledging queued actions is loopback-only, which
-prevents another LAN client from injecting state or reading Xtream
-credentials. Upload identifiers are validated before file access so requests
+uploads with its key instead, and the upload URLs it lists carry the key so
+the playlist loader can fetch them. Only responses to keyed app requests
+carry `Access-Control-Allow-Origin: *`, so no other website, on the TV or on
+another device, can read them cross-origin; the setup page is same-origin and
+needs no CORS. Publishing state and reading or acknowledging queued actions
+is app-only, which prevents any other client from injecting state or reading
+Xtream credentials. Upload identifiers are validated before file access so requests
 cannot escape the upload directory. A new foreground bind creates a new token,
-pairing code, and URL, invalidating the old values.
+app key, pairing code, and URL, invalidating the old values.
 
 ## Foreground / background lifecycle
 

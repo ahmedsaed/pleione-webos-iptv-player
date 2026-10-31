@@ -318,7 +318,7 @@ describe('fetchAndParseXMLTV transient failure retries', () => {
     vi.stubGlobal('document', { baseURI: 'http://host/app/index.html' });
     vi.stubGlobal('Worker', FakeWorker);
     FakeWorker.failures = [1, 2, 3, 4, 5].map(() =>
-      failure({ stage: 'fetch', reason: 'timeout' }));
+      failure({ stage: 'fetch', reason: 'exception' }));
 
     const result = fetchAndParseXMLTV('http://host/a');
     const settled = expect(result).rejects.toThrow('failed');
@@ -333,17 +333,18 @@ describe('fetchAndParseXMLTV transient failure retries', () => {
       'event=network.retry.exhausted',
       'kind=epg',
       'attempts=4',
-      'reason=timeout',
+      'reason=network',
     );
   });
 
-  it('does not retry a missing guide or a parse failure', async () => {
+  it('does not retry a missing guide, a timed-out download, or a parse failure', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubGlobal('document', { baseURI: 'http://host/app/index.html' });
     vi.stubGlobal('Worker', FakeWorker);
     FakeWorker.failures = [
       failure({ stage: 'fetch', reason: 'http', status: 404, retryAfterMs: null }),
+      failure({ stage: 'fetch', reason: 'timeout' }),
       failure({ stage: 'decode_parse', reason: 'exception' }),
     ];
 
@@ -351,5 +352,7 @@ describe('fetchAndParseXMLTV transient failure retries', () => {
     expect(FakeWorker.requests).toBe(1);
     await expect(fetchAndParseXMLTV('http://host/a')).rejects.toThrow('failed');
     expect(FakeWorker.requests).toBe(2);
+    await expect(fetchAndParseXMLTV('http://host/a')).rejects.toThrow('failed');
+    expect(FakeWorker.requests).toBe(3);
   });
 });

@@ -41,6 +41,12 @@ export function retryDelayMs(retry: number, retryAfterMs?: number | null): numbe
   return network.RETRY_BASE_DELAY_MS * Math.pow(network.RETRY_BACKOFF_FACTOR, retry);
 }
 
+// A whole download (playlist, guide, catalog list) that timed out took its
+// full budget already; retrying it would multiply the wait on a dead server.
+export function finalTimeout(failure: TransientFailure | null): TransientFailure | null {
+  return failure?.reason === 'timeout' ? null : failure;
+}
+
 /** Classifies a playlist or XMLTV worker failure from its diagnostic details. */
 export function loaderTransientFailure(details: {
   stage: string;
@@ -48,7 +54,7 @@ export function loaderTransientFailure(details: {
   status?: number;
   retryAfterMs?: number | null;
 }): TransientFailure | null {
-  if (details.reason === 'timeout') return { reason: 'timeout' };
+  if (details.reason === 'timeout') return null;
   if (details.reason === 'http') {
     const reason = httpRetryReason(details.status);
     return reason ? { reason, retryAfterMs: details.retryAfterMs } : null;
