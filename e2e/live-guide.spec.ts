@@ -8,6 +8,9 @@ import {
   type Page,
 } from './helpers';
 
+// Opened from Home's Live card after every load (see `startOn`).
+test.use({ startOn: 'live' });
+
 // The Guide inside Live: the groups column, the header, and a time grid of
 // two and a half hours; Left and Right move through time, Up and Down
 // through channels, and OK watches, reminds, or plays catch-up.

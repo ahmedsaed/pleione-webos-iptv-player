@@ -583,8 +583,6 @@ async function setupPage(page, {
   // to the full channel set; the first account (My Xtream) is the active one.
   await page.addInitScript(({ favs, playlists }) => {
     localStorage.setItem('iptv_playlists', JSON.stringify(playlists));
-    // The views below are shot from Live, as before Home.
-    localStorage.setItem('iptv_start_on_live', 'true');
     localStorage.setItem('iptv_epg_url', JSON.stringify('https://demo.local/epg.xml'));
     localStorage.setItem('iptv_favorites', JSON.stringify(favs));
   }, {
@@ -892,15 +890,22 @@ async function openPlayerPicker(page, control) {
   throw new Error(`Player control did not become ready: ${control}`);
 }
 
+// The views below are shot from Live, opened from Home's Live card.
+async function openLive(page) {
+  await page.locator('#view-home [data-key="section:live"].focused').waitFor({ state: 'visible' });
+  await page.keyboard.press('Enter');
+  await page.locator('#view-channels').waitFor({ state: 'visible' });
+}
+
 async function gotoChannels(page, base, { health = false } = {}) {
   await page.goto(base + '/', { waitUntil: 'domcontentloaded' });
-  await page.locator('#view-channels').waitFor({ state: 'visible' });
+  await openLive(page);
   await page.locator('.channel-main .channel-now').first().waitFor({ state: 'visible', timeout: 20_000 });
   await page.locator('.group-icon .group-logo').first().waitFor({ state: 'visible' });
   if (health) {
     await seedChannelHealth(page);
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.locator('#view-channels').waitFor({ state: 'visible' });
+    await openLive(page);
     await page.locator('.channel-health-dot.unavailable').first()
       .waitFor({ state: 'visible', timeout: 20_000 });
   }

@@ -1,4 +1,5 @@
 import {
+  liveAfterSave,
   test,
   expect,
   enterTab,
@@ -8,6 +9,9 @@ import {
   type Page,
 } from './helpers';
 import { THEMES, TEXT_SIZES } from '../src/config/themes';
+
+// Opened from Home's Live card after every load (see `startOn`).
+test.use({ startOn: 'live' });
 
 const CHANNELS = [
   '#EXTM3U',
@@ -596,7 +600,7 @@ test('disabling the playing source in Settings leaves no preview', async ({ page
   await page.locator('[data-settings-target="sources"]').click();
   await page.locator('#playlist-entries .source-toggle').click();
   await page.locator('#save-settings').click();
-  await expect(page.locator('#view-channels')).toBeVisible();
+  await liveAfterSave(page);
   await expect(page.locator(PANEL)).toBeHidden();
   await expect(page.locator(ROW)).toHaveCount(0);
   await expect(page.locator('#view-channels')).not.toHaveClass(/has-live-preview/);
@@ -619,6 +623,7 @@ test.describe('display timezone', () => {
     await page.locator('[data-settings-target="guide"]').click();
     await page.locator('#tz-mode [data-value="feed"]').click();
     await page.locator('#save-settings').click();
+    await liveAfterSave(page);
     await selectFirst(page);
     await expect(page.locator(`${PANEL} .live-preview-program time`).first())
       .toHaveText('13:00–14:00');

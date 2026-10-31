@@ -5,6 +5,9 @@ import {
 import { POLYFILLED_APIS } from '../scripts/polyfilled-apis.mjs';
 import { seedXtream } from './fixtures/xtream';
 
+// Opened from Home's Live card after every load (see `startOn`).
+test.use({ startOn: 'live' });
+
 // The webOS 4 fallbacks are only correct if they are *inert* on a modern TV
 // (webOS 6/22/23/24/25). A leaked fallback is not a no-op: it double-applies —
 // an unguarded `:focus` ring once stacked a second glow inside the modern
@@ -135,24 +138,29 @@ test('the simulated engine measures both engine quirks', async ({ page }) => {
     .filter((name) => /^q-/.test(name)).sort())).toEqual(['q-no-flex-gap', 'q-scroll-end-padding']);
 });
 
-test('the loading view keeps its spacing before the quirks are measured', async ({ page }) => {
-  // The paint before app.js runs: no script, so no q-* class yet.
-  await page.route('**/js/app.js', (route) => route.abort());
-  await page.goto('/');
-  // Layout offsets, since the spinning spinner's bounding box grows. A
-  // string, because without app.js the simulation lacks the polyfills
-  // Playwright needs to return an object.
-  const spacing = JSON.parse(await page.evaluate(() => {
-    const mark = document.querySelector<HTMLElement>('.loading-mark')!;
-    const title = document.querySelector<HTMLElement>('.loading-title')!;
-    const text = document.querySelector<HTMLElement>('.loading-text')!;
-    return JSON.stringify({
-      quirks: document.documentElement.className,
-      title: title.offsetTop - mark.offsetTop - mark.offsetHeight,
-      text: text.offsetTop - title.offsetTop - title.offsetHeight,
-    });
-  }));
-  expect(spacing).toEqual({ quirks: '', title: 36, text: 12 });
+// No app.js, so no launch onto Home to open Live from.
+test.describe('before the app runs', () => {
+  test.use({ startOn: 'home' });
+
+  test('the loading view keeps its spacing before the quirks are measured', async ({ page }) => {
+    // The paint before app.js runs: no script, so no q-* class yet.
+    await page.route('**/js/app.js', (route) => route.abort());
+    await page.goto('/');
+    // Layout offsets, since the spinning spinner's bounding box grows. A
+    // string, because without app.js the simulation lacks the polyfills
+    // Playwright needs to return an object.
+    const spacing = JSON.parse(await page.evaluate(() => {
+      const mark = document.querySelector<HTMLElement>('.loading-mark')!;
+      const title = document.querySelector<HTMLElement>('.loading-title')!;
+      const text = document.querySelector<HTMLElement>('.loading-text')!;
+      return JSON.stringify({
+        quirks: document.documentElement.className,
+        title: title.offsetTop - mark.offsetTop - mark.offsetHeight,
+        text: text.offsetTop - title.offsetTop - title.offsetHeight,
+      });
+    }));
+    expect(spacing).toEqual({ quirks: '', title: 36, text: 12 });
+  });
 });
 
 // addInitScript reaches page realms only, so the worker is degraded by a

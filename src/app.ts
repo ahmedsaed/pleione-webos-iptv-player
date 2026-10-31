@@ -71,7 +71,7 @@ import { getLocale, initLocale, resolveLocale, setLocale, t, tp } from './i18n';
 
 const log = createLogger('App');
 
-type ChannelLanding = 'launch' | 'channels' | 'section' | 'live' | 'quiet';
+type ChannelLanding = 'launch' | 'section' | 'live' | 'quiet';
 type ViewName = 'home' | 'channels' | 'player' | 'settings' | 'parental-controls' | 'reminders'
   | 'loading' | 'movies' | 'series' | 'search';
 
@@ -637,7 +637,13 @@ class App {
     if (this.enterChannelsAfterUploadSync &&
         StorageService.getPlaylists().length > 0) {
       this.enterChannelsAfterUploadSync = false;
-      await this.loadData(false, this.isCurrentView('home') ? 'launch' : 'channels');
+      if (this.isCurrentView('home')) {
+        await this.loadData(false, 'launch');
+      } else {
+        this.unloadChannels(false);
+        this.syncSources();
+        this.openLiveLoading('list');
+      }
     }
   }
 
@@ -926,14 +932,13 @@ class App {
     this.searchBox.setPlaceholder(!!account);
   }
 
-  // `launch`: the first load lands on Home, which only checks the connection
-  // (or on Live, by a hidden preference);
-  // a reload stays on Live. `section` loads the channels for the section
-  // being opened, and `quiet` for a due reminder, without changing the view.
-  // `live` loads them for Live, which shows its own loading state and error.
+  // `launch` lands on Home, which loads no channels and only checks the
+  // connection. `section` loads the channels for the section being opened,
+  // and `quiet` for a due reminder, without changing the view. `live` loads
+  // them for Live, which shows its own loading state and error.
   private async loadData(
-    forceEpgRefresh = false,
-    landing: ChannelLanding = 'channels',
+    forceEpgRefresh: boolean,
+    landing: ChannelLanding,
   ): Promise<void> {
     const done = log.time('loadData');
     const quiet = landing === 'quiet';
@@ -948,7 +953,7 @@ class App {
     try {
       const playlists = StorageService.getPlaylists();
       log.info('Configured playlists:', playlists.length);
-      const firstRun = firstRunLanding(playlists, landing, StorageService.getStartOnLive());
+      const firstRun = firstRunLanding(playlists, landing);
       if (firstRun) {
         log.info('No playlists configured — opening', firstRun);
         this.connection.clear();
@@ -961,7 +966,7 @@ class App {
         // account avatars.
         this.syncSources();
         this.channelList.render();
-        // Home shows the first run; started on Live, Settings opens instead.
+        // Home shows the first run; a later load opens Settings instead.
         if (firstRun === 'home') {
           this.goHome();
         } else {
@@ -972,7 +977,7 @@ class App {
         return;
       }
 
-      if (landing === 'launch' && !StorageService.getStartOnLive()) {
+      if (landing === 'launch') {
         this.unloadChannels(forceEpgRefresh);
         this.syncSources();
         this.channelList.render();
@@ -1021,15 +1026,7 @@ class App {
       this.channelList.setLoadState(null);
       this.syncSources();
 
-      if (landing === 'section' || landing === 'live' || quiet) {
-        this.channelList.render();
-      } else if (landing === 'launch' && !StorageService.getStartOnLive()) {
-        this.channelList.render();
-        this.goHome();
-      } else {
-        this.showView('channels');
-        this.channelList.render();
-      }
+      this.channelList.render();
 
       // Live's header shows the count, so a load it shows needs no toast.
       if (!quiet && landing !== 'live') {
@@ -2053,8 +2050,6 @@ class App {
     if (action === 'reload') {
       this.search.invalidateCatalog();
       await Promise.all([clearCachedPlaylist(), clearCachedCatalog()]);
-      this.showView('channels');
-      // 'launch' lands on the start screen (Home), as Settings was opened from it.
       await this.loadData(true, 'launch');
       return;
     }
@@ -2066,8 +2061,7 @@ class App {
       this.schedulePlaylistRefresh();
     }
     this.channelList.render();
-    if (StorageService.getStartOnLive()) this.showView('channels');
-    else this.goHome();
+    this.goHome();
   }
 }
 

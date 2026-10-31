@@ -3,6 +3,9 @@ import {
   pressStepsAndReadPlayer,
 } from './helpers';
 
+// Opened from Home's Live card after every load (see `startOn`).
+test.use({ startOn: 'live' });
+
 // Catch-up resume markers + resume prompt. A fixed clock and a UTC device zone
 // keep wall-clock == absolute time so the past/live/future split is unambiguous.
 test.use({ timezoneId: 'UTC' });

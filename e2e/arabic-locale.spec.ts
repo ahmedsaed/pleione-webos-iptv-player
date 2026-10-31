@@ -10,6 +10,9 @@ import {
   type Page,
 } from './helpers';
 
+// Opened from Home's Live card after every load (see `startOn`).
+test.use({ startOn: 'live' });
+
 const PLAYLIST_URL = 'http://host/playlist.m3u';
 const GUIDE_URL = 'http://host/guide.xml';
 const CHANNELS = [

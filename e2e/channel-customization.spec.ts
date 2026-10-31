@@ -1,4 +1,5 @@
 import {
+  liveAfterSave,
   test,
   expect,
   routePlaylist,
@@ -8,6 +9,9 @@ import {
   enterTab,
   type Page,
 } from './helpers';
+
+// Opened from Home's Live card after every load (see `startOn`).
+test.use({ startOn: 'live' });
 
 // Channel customization: the in-place edit mode on the Live channel list —
 // reorder, hide, rename, regroup, EPG mapping — plus its Settings entry point,
@@ -589,7 +593,7 @@ test('Settings enters edit mode, reveals hidden channels, and resets everything'
   // Show hidden reveals the hidden channel in the normal list, marked.
   await page.locator('#show-hidden [data-value="on"]').click();
   await page.locator('#save-settings').click();
-  await expect(page.locator('#view-channels')).toBeVisible();
+  await liveAfterSave(page);
   await expect(page.locator('.channel-main .channel-item')).toHaveCount(4);
   await expect(page.locator('.channel-main .hidden-entry')).toHaveCount(1);
 
@@ -600,7 +604,7 @@ test('Settings enters edit mode, reveals hidden channels, and resets everything'
   await expect(page.locator('.confirmation-prompt')).toBeVisible();
   await page.locator('.confirmation-btn').first().click();
   await page.locator('#save-settings').click();
-  await expect(page.locator('#view-channels')).toBeVisible();
+  await liveAfterSave(page);
   await expect(page.locator('.channel-main .hidden-entry')).toHaveCount(0);
   await expect(page.locator('.channel-main .channel-item')).toHaveCount(4);
 });

@@ -1129,11 +1129,6 @@ export const StorageService = {
     set('text_size', size);
   },
 
-  // Hidden (no UI): open Live instead of Home at launch.
-  getStartOnLive(): boolean {
-    return get<boolean>('start_on_live', false) === true;
-  },
-
   getInterfaceSize(): InterfaceSize {
     const size = get<unknown>('interface_size', DEFAULT_INTERFACE_SIZE);
     return isValidInterfaceSize(size as string) ? (size as InterfaceSize) : DEFAULT_INTERFACE_SIZE;

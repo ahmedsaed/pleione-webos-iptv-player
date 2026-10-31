@@ -8,6 +8,9 @@ import {
   openGuide,
 } from './helpers';
 
+// Opened from Home's Live card after every load (see `startOn`).
+test.use({ startOn: 'live' });
+
 function xmltvDate(date: Date): string {
   return date.toISOString().replace(/[-:T]/g, '').slice(0, 14) + ' +0000';
 }

@@ -1,7 +1,6 @@
 import {
   test,
   expect,
-  showHome,
   seedPlaylist,
   pressKeys,
   enterTab,
@@ -39,7 +38,6 @@ function holdPlaylist(page: Page): { release: () => void; fail: boolean; request
 
 async function openHome(page: Page): Promise<void> {
   await seedPlaylist(page);
-  await showHome(page);
   await page.goto('/');
   await expect(page.locator('#view-home .focused')).toHaveAttribute('data-section', 'live');
 }

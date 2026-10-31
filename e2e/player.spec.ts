@@ -1,5 +1,6 @@
 import {
   pressKeys,
+  liveAfterSave,
   test,
   expect,
   type Page,
@@ -12,6 +13,9 @@ import {
   SEARCH_M3U,
   pressStepsAndReadPlayer,
 } from './helpers';
+
+// Opened from Home's Live card after every load (see `startOn`).
+test.use({ startOn: 'live' });
 
 // The player view: playback start, sidebar, controls, track pickers, OSD, and live DVR.
 
@@ -68,8 +72,8 @@ test('live playback retries the current channel before switching', async ({ page
   await attempts.locator('.dropdown-trigger').click();
   await attempts.locator('[data-dropdown-value="1"]').click();
   await page.locator('#save-settings').click();
-  await expect(page.locator('#view-channels')).toBeVisible();
-  await page.keyboard.press('Enter');
+  await liveAfterSave(page);
+  await page.locator('.channel-main .channel-item').first().click();
   await expect(page.locator('.osd-channel-name')).toHaveText('Channel One');
 
   const video = page.locator('#video-player');

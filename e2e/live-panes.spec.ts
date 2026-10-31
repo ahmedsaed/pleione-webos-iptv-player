@@ -6,6 +6,9 @@ import {
   type Page,
 } from './helpers';
 
+// Opened from Home's Live card after every load (see `startOn`).
+test.use({ startOn: 'live' });
+
 // Live: a header over three panes (groups | rows | preview), with the Guide
 // inside Live behind a List | Guide switch (e2e/live-guide.spec.ts).
 
