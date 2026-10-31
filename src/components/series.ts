@@ -176,22 +176,46 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     void this.ensureCategoryItems(series.categoryId, signal).then((loaded) => {
       if (loaded && this.mode === 'detail' && this.currentSeries === series) this.renderDetail();
     });
+    if (await this.loadDetailInfo(account, series, signal)) await this.loadCastPhotos(series, signal);
+  }
+
+  // True when the detail still shows `series`, with or without its info.
+  private async loadDetailInfo(
+    account: PlaylistEntry,
+    series: SeriesItem,
+    signal: AbortSignal,
+  ): Promise<boolean> {
     try {
       this.currentInfo = await loadSeriesInfo(account, series.seriesId, signal);
     } catch (err) {
-      if (!this.requestFailed('Series detail load', err, signal)) return;
+      if (!this.requestFailed('Series detail load', err, signal)) return false;
       this.currentInfo = null;
     }
-    if (this.mode === 'detail' && this.currentSeries === series) {
-      this.detailLoading = false;
-      // The row opens on the season and episode Resume plays.
-      const resumed = this.resumeEpisode();
-      this.selectedSeason = resumed?.episode?.season ?? this.currentInfo?.seasons[0] ?? 0;
-      const index = resumed?.episode ? this.episodeIndexOf(`ep:${resumed.episode.id}`) : -1;
-      if (index > 0) this.episodeVirtualizer.ensureVisible(index, this.episodeViewport());
-      this.renderDetail();
-      await this.loadCastPhotos(series, signal);
-    }
+    if (this.mode !== 'detail' || this.currentSeries !== series) return false;
+    this.detailLoading = false;
+    // The row opens on the season and episode Resume plays.
+    const resumed = this.resumeEpisode();
+    this.selectedSeason = resumed?.episode?.season ?? this.currentInfo?.seasons[0] ?? 0;
+    const index = resumed?.episode ? this.episodeIndexOf(`ep:${resumed.episode.id}`) : -1;
+    if (index > 0) this.episodeVirtualizer.ensureVisible(index, this.episodeViewport());
+    this.renderDetail();
+    return true;
+  }
+
+  // Play on a series whose episodes failed to load asks for them again,
+  // then plays the first one.
+  private retryDetailInfo(): void {
+    const account = this.account;
+    const series = this.currentSeries;
+    const signal = this.detailController?.signal;
+    if (!account || !series || !signal || signal.aborted) return;
+    this.detailLoading = true;
+    this.renderDetail();
+    void this.loadDetailInfo(account, series, signal).then((shown) => {
+      if (!shown || !this.currentInfo) return;
+      this.playFirstEpisode();
+      void this.loadCastPhotos(series, signal);
+    });
   }
 
   // Opt-in TMDB photos for the provider's cast; nothing is asked without a key.
@@ -243,7 +267,10 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
 
   private playFirstEpisode(): void {
     const info = this.currentInfo;
-    if (!info) return;
+    if (!info) {
+      if (!this.detailLoading) this.retryDetailInfo();
+      return;
+    }
     for (const season of info.seasons) {
       const first = (info.episodesBySeason[season] ?? [])[0];
       if (first) {
