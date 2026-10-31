@@ -200,6 +200,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   protected mode: Mode = 'browse';
   protected categories: C[] = [];
   protected railGroups: { category: C; items: I[] }[] = [];
+  // The categories failed to load: browse shows the error with Try again.
+  private browseLoadFailed = false;
   protected resume: ResumeEntry[] = [];
   protected itemsByCategory: Record<string, I[]> = {};
   private serverItemsByCategory: Record<string, I[]> = {};
@@ -350,6 +352,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   protected abstract readonly kicker: string;             // hero/grid label, e.g. 'Movies'
   protected abstract readonly resumeKind: ResumeKind;     // which resume entries this section owns
   protected abstract readonly emptyMessage: string;       // no catalog on the account
+  protected abstract readonly loadFailedMessage: string;  // the catalog failed to load
   protected abstract readonly gridEmptyMessage: string;   // empty category grid
   protected abstract loadCategories(
     account: PlaylistEntry,
@@ -795,6 +798,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     this.clearLayer('detail');
     this.categories = [];
     this.railGroups = [];
+    this.browseLoadFailed = false;
     this.itemsByCategory = {};
     this.serverItemsByCategory = {};
     this.sort = StorageService.getCatalogSort(this.parentalKind);
@@ -860,7 +864,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
         'operation=browse',
         err,
       );
-      if (this.account?.id === account.id) this.renderBrowse();
+      if (this.account?.id !== account.id) return;
+      this.browseLoadFailed = true;
+      this.renderBrowse();
     }
   }
 
@@ -1074,6 +1080,10 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     }
     if (el.dataset.action === 'plot') {
       this.openPlot();
+      return;
+    }
+    if (el.dataset.action === 'retry') {
+      void this.open(this.account);
       return;
     }
     if (this.selectExtra(el)) return;
@@ -2045,7 +2055,13 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
 
     morph(browse, html`
       <div class="catalog-view catalog-browse" data-nav-container>
-        ${!hasContent
+        ${!hasContent && this.browseLoadFailed ? html`
+          <div class="catalog-load-error" role="alert">
+            <p class="catalog-hint">${this.loadFailedMessage}</p>
+            <button type="button" class="btn btn-primary catalog-load-retry" data-focusable
+                    data-key="browse:retry" data-action="retry">${t('liveCategories.tryAgain')}</button>
+          </div>`
+        : !hasContent
           ? html`<p class="catalog-hint catalog-empty">${this.emptyMessage}</p>`
           : html`
             <div class="catalog-hero">${this.heroMarkup()}</div>

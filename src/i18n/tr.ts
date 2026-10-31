@@ -153,6 +153,8 @@ export const TR_MESSAGES = {
   'catalog.clearWatchlistMessage': '“{account}” ({section}) için bu listedeki tüm içerikler kaldırılır. Oynatma ilerlemesi etkilenmez.',
   'catalog.watchlistFull': 'İzleme Listesi dolu. Yeni içerik eklemeden önce bir içeriği kaldırın.',
   'catalog.loadEpisodesFailed': 'Bölümler yüklenemedi.',
+  'catalog.loadMoviesFailed': 'Filmler yüklenemedi.',
+  'catalog.loadSeriesFailed': 'Diziler yüklenemedi.',
   'catalog.noEpisodes': 'Bölüm yok.',
   'catalog.noSeasonEpisodes': 'Bu sezonda bölüm yok.',
   'catalog.season': '{number}. Sezon',

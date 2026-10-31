@@ -27,6 +27,16 @@
 
 .catalog-loading,
 .catalog-empty { display: flex; align-items: center; justify-content: center; height: 100%; }
+.catalog-load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+}
+.catalog-load-error .catalog-hint { color: var(--text-primary); }
+.catalog-load-retry { margin-top: 32px; }
 
 /* Browse splits the view: the focused title's hero on top, and below it the
    rails, the only part that scrolls. The rail area is half the view, or one

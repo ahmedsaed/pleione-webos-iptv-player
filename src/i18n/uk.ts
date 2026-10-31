@@ -165,6 +165,8 @@ export const UK_MESSAGES = {
   'catalog.clearWatchlistMessage': 'Усі елементи цього списку для «{account}» ({section}) буде видалено. Прогрес перегляду не зміниться.',
   'catalog.watchlistFull': 'Список «Переглянути пізніше» заповнено. Видаліть із нього щось, щоб додати нове.',
   'catalog.loadEpisodesFailed': 'Не вдалося завантажити епізоди.',
+  'catalog.loadMoviesFailed': 'Не вдалося завантажити фільми.',
+  'catalog.loadSeriesFailed': 'Не вдалося завантажити серіали.',
   'catalog.noEpisodes': 'Немає доступних епізодів.',
   'catalog.noSeasonEpisodes': 'У цьому сезоні немає епізодів.',
   'catalog.season': 'Сезон {number}',

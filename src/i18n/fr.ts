@@ -157,6 +157,8 @@ export const FR_MESSAGES = {
   'catalog.clearWatchlistMessage': 'Cette action supprime tous les titres de cette liste pour « {account} » ({section}). La progression de lecture n’est pas affectée.',
   'catalog.watchlistFull': 'Ma liste est pleine. Retirez un titre avant d’en ajouter un autre.',
   'catalog.loadEpisodesFailed': 'Impossible de charger les épisodes.',
+  'catalog.loadMoviesFailed': 'Impossible de charger les films.',
+  'catalog.loadSeriesFailed': 'Impossible de charger les séries.',
   'catalog.noEpisodes': 'Aucun épisode disponible.',
   'catalog.noSeasonEpisodes': 'Aucun épisode dans cette saison.',
   'catalog.season': 'Saison {number}',

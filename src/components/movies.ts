@@ -22,6 +22,7 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
   protected readonly parentalKind = 'vod' as const;
   protected scopeName(): string { return 'movies'; }
   protected get emptyMessage(): string { return t('catalog.noMovies'); }
+  protected get loadFailedMessage(): string { return t('catalog.loadMoviesFailed'); }
   protected get gridEmptyMessage(): string { return t('catalog.noMoviesCategory'); }
   protected itemCount(count: number): string { return tp('catalog.movieCount', count); }
 

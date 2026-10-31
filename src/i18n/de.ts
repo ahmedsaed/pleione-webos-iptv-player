@@ -157,6 +157,8 @@ export const DE_MESSAGES = {
   'catalog.clearWatchlistMessage': 'Dadurch werden alle Titel in dieser Liste für „{account}“ ({section}) entfernt. Der Wiedergabefortschritt bleibt erhalten.',
   'catalog.watchlistFull': 'Die Merkliste ist voll. Entfernen Sie einen Titel, bevor Sie einen weiteren hinzufügen.',
   'catalog.loadEpisodesFailed': 'Folgen konnten nicht geladen werden.',
+  'catalog.loadMoviesFailed': 'Filme konnten nicht geladen werden.',
+  'catalog.loadSeriesFailed': 'Serien konnten nicht geladen werden.',
   'catalog.noEpisodes': 'Keine Folgen verfügbar.',
   'catalog.noSeasonEpisodes': 'Keine Folgen in dieser Staffel.',
   'catalog.season': 'Staffel {number}',
