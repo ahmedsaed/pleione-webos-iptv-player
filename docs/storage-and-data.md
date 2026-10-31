@@ -426,7 +426,9 @@ already holds. From then on:
   shows the save-failure message. When a setup or preference key cannot be
   saved even after the derived caches are evicted, the oldest half of the
   fallback records is dropped to make room for it.
-  Fallback writes never evict any other key.
+  Fallback writes never evict any other key. Older localStorage data
+  moved into the fallback at startup is never capped and never evicts
+  anything: if it does not fit, its legacy keys stay for a later launch.
 - **Caches** (playlists, guides, catalogs, subtitles, stream MIME types,
   channel health) are kept in memory for the session only, up to 32 MiB of
   counted size, and Search indexes are not stored. They never use
@@ -438,7 +440,9 @@ already holds. From then on:
 
 In a later session where the startup write succeeds, the app writes the
 fallback records into IndexedDB, removes the `iptv_fb_*` keys, and logs
-`storage.idb.restored`.
+`storage.idb.restored`. Legacy localStorage values saved after the fallback,
+in a session that could not open IndexedDB at all, are newer and win over
+the fallback's copy of the same records.
 
 The category order is implemented after a global expired-record pass. Within
 each category, candidates sort by ascending `lastAccessedAt`, giving LRU

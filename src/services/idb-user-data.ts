@@ -295,8 +295,10 @@ export interface UserDataMigration {
 }
 
 // TODO: Remove this migration writer once all supported installs have upgraded to IndexedDB v4.
-export function migrateUserRecordSets(migrations: UserDataMigration[]): Promise<void> {
-  if (!migrations.length) return Promise.resolve();
+// Resolves to the legacy keys whose records were not kept anywhere, which
+// must stay in localStorage for a later session.
+export function migrateUserRecordSets(migrations: UserDataMigration[]): Promise<string[]> {
+  if (!migrations.length) return Promise.resolve([]);
   return enqueueWrite(async () => {
     const db = await openPersistenceDb();
     if (!db) {
@@ -308,16 +310,20 @@ export function migrateUserRecordSets(migrations: UserDataMigration[]): Promise<
       throw new Error('IndexedDB unavailable');
     }
     // Read-only: the fallback keeps the records; markers wait for a later
-    // session, which migrates again only what is still in localStorage.
-    const toFallback = async () => {
+    // session, which migrates again only what is still in localStorage. A
+    // full baseline is older than the fallback, and nothing is evicted for it.
+    const toFallback = async (): Promise<string[]> => {
+      const kept: string[] = [];
       for (const migration of migrations) {
-        await writeFallback(migration.storeName, migration.records, []);
+        const written = await writeFallback(migration.storeName, migration.records, [], {
+          keepExisting: migration.replaceExisting,
+          noEvict: true,
+        });
+        if (!written) kept.push(migration.legacyKey);
       }
+      return kept;
     };
-    if (idbWritesRefused()) {
-      await toFallback();
-      return;
-    }
+    if (idbWritesRefused()) return toFallback();
     try {
       const storeNames = [...new Set(migrations.map(item => item.storeName))];
       const existingKeys = new Map<UserDataStore, string[]>();
@@ -350,17 +356,23 @@ export function migrateUserRecordSets(migrations: UserDataMigration[]): Promise<
         });
       }
       await transactionDone(tx);
+      // A partial set was saved after the fallback was, so it is newer.
+      for (const migration of migrations) {
+        if (!migration.replaceExisting) {
+          forgetFallbackKeys(migration.storeName, migration.records.map(record => record.key));
+        }
+      }
       log.info(
         'User data migration completed',
         'event=persistence.user.migration.completed',
         `datasets=${migrations.length}`,
         `records=${migrations.reduce((count, item) => count + item.records.length, 0)}`,
       );
+      return [];
     } catch (err) {
       if (isQuotaExceededError(err)) {
         engageFallback('quota');
-        await toFallback();
-        return;
+        return toFallback();
       }
       log.error(
         'User data migration failed',
