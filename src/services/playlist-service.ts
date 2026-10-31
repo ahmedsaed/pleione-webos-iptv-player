@@ -224,6 +224,12 @@ class PlaylistServiceImpl {
     return playlistIds.some(id => this.failedSourceIds.has(id));
   }
 
+  // The last load came back empty because a source failed, not because the
+  // sources hold no channels.
+  get loadFailed(): boolean {
+    return this.failedSourceIds.size > 0 && this.allChannels.length === 0;
+  }
+
   get allSourcesDisabled(): boolean {
     const sources = StorageService.getPlaylists();
     return sources.length > 0 && !sources.some(isSourceEnabled);

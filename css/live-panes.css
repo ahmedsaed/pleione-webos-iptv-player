@@ -449,3 +449,42 @@
   margin-top: 20px;
 }
 
+
+/* Before the channels: the app's loading ring and what loads, or the
+   failure and Try again, centered under the header in place of the panes
+   (App sets .live-loading, which also drops the empty preview pane). */
+#view-channels.live-panes.live-loading #live-preview {
+  display: none !important;
+}
+
+.live-panes .live-load-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 80px 64px;
+  text-align: center;
+}
+
+.live-load-mark {
+  position: relative;
+  width: 72px;
+  height: 72px;
+}
+
+.live-load-text {
+  margin-top: 24px;
+  color: var(--text-secondary);
+  font-size: 26px;
+}
+
+.live-load-error .live-load-text {
+  margin-top: 0;
+  color: var(--text-primary);
+}
+
+.live-load-retry {
+  min-height: 54px;
+  margin-top: 32px;
+}

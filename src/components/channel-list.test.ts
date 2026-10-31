@@ -1365,3 +1365,61 @@ describe('ChannelList rich rows', () => {
     expect(channelItems().map(row => row.querySelector('.channel-name')?.textContent)).toEqual(['Bravo']);
   });
 });
+
+describe('ChannelList load state', () => {
+  it('shows the loading ring in place of the groups and rows, with nothing to focus', () => {
+    const onCount = vi.fn();
+    list = new ChannelList(container, { onChannelSelect: onSelect, onCount });
+    list.setLoadState('loading');
+    list.render();
+    expect(onCount).toHaveBeenLastCalledWith(null);
+    expect(container.querySelector('.live-load-status')?.textContent?.trim()).toBe('Loading channels…');
+    expect(container.querySelector('.loading-spinner')).not.toBeNull();
+    expect(container.querySelector('.group-item, .channel-item, [data-focusable]')).toBeNull();
+    expect(list.handleAction('down')).toBe(true);
+    expect(list.handleAction('up')).toBe(true);
+    expect(list.handleAction('select')).toBe(true);
+    expect(onSelect).not.toHaveBeenCalled();
+    Focus.flush();
+    expect(container.querySelector('.focused')).toBeNull();
+  });
+
+  it('shows how far a long load has got, only while loading', () => {
+    list.setLoadState('loading');
+    list.render();
+    list.showLoadProgress('Loading channels… 10 processed, 8 kept');
+    expect(container.querySelector('.live-load-text')?.textContent).toBe('Loading channels… 10 processed, 8 kept');
+    list.setLoadState('failed');
+    list.showLoadProgress('Loading channels… 20 processed, 16 kept');
+    list.render();
+    expect(container.textContent).not.toContain('20 processed');
+  });
+
+  it('shows the failure with Try again focused, and OK tries again', () => {
+    const onRetry = vi.fn();
+    list = new ChannelList(container, { onChannelSelect: onSelect, onRetry });
+    Focus.setBase(() => list.focusScope);
+    list.setLoadState('failed');
+    list.render();
+    expect(container.querySelector('.live-load-error')?.textContent)
+      .toContain('Unable to load the playlist. Check the URL and try again.');
+    const retry = container.querySelector<HTMLElement>('[data-key="live-retry"]');
+    expect(retry?.textContent).toBe('Try again');
+    expect(ringed(retry)).toBe(true);
+    list.handleAction('up');
+    list.handleAction('left');
+    expect(ringed(retry)).toBe(true);
+    list.handleAction('select');
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the rows again once loaded', () => {
+    list.setLoadState('loading');
+    list.render();
+    list.setLoadState(null);
+    list.render();
+    expect(container.querySelector('.live-load-status')).toBeNull();
+    expect(channelItems()).toHaveLength(3);
+    expect(ringed(channelItems()[0])).toBe(true);
+  });
+});

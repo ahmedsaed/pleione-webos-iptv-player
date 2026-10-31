@@ -94,6 +94,22 @@ describe('LiveHeader', () => {
     expect(header.element.querySelector('[data-key="live-edit"]')).toBeNull();
   });
 
+  it('shows no count and no Edit while the channels load', () => {
+    header.attach(view, 'list');
+    header.setCount(null);
+    expect(header.element.querySelector('.live-header-count')).toBeNull();
+    expect(header.element.querySelector('[data-key="live-edit"]')).toBeNull();
+    // Left from List has nowhere to go.
+    header.enter();
+    header.handleAction('left');
+    Focus.flush();
+    expect(focusedKey()).toBe('live-mode:list');
+    header.leave(false);
+    header.setCount(2);
+    expect(header.element.querySelector('.live-header-count')?.textContent).toBe('2 channels');
+    expect(header.element.querySelector('[data-key="live-edit"]')).not.toBeNull();
+  });
+
   it('switches on a pointer click', () => {
     header.attach(view, 'guide');
     option('list').click();

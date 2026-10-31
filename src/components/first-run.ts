@@ -12,7 +12,7 @@ export type FirstRunLanding = 'home' | 'settings';
 // started on Live, or reloaded from Settings, it opens Settings.
 export function firstRunLanding(
   playlists: readonly PlaylistEntry[],
-  landing: 'launch' | 'channels' | 'section' | 'quiet',
+  landing: 'launch' | 'channels' | 'section' | 'live' | 'quiet',
   startOnLive: boolean,
 ): FirstRunLanding | null {
   if (playlists.length) return null;
