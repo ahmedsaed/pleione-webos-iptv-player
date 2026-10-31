@@ -240,6 +240,29 @@ describe('LivePreview', () => {
     expect(actions.onExpand).not.toHaveBeenCalled();
   });
 
+  it('checks a retuned channel against the playlist without rehashing every channel', () => {
+    const reads = { count: 0 };
+    const counted = (id: string) => {
+      const channel = { ...state().channel, id };
+      let url = `http://host/${id}`;
+      Object.defineProperty(channel, 'url', {
+        get: () => { reads.count++; return url; },
+        set: (value: string) => { url = value; },
+      });
+      return channel;
+    };
+    localStorage.setItem('iptv_playlists', JSON.stringify([{ id: 'p1', name: 'P1', url: 'http://host/p1' }]));
+    PlaylistService.allChannels = Array.from({ length: 100 }, (_, i) => counted(`c${String(i)}`));
+    const internals = preview as unknown as { isChannelAvailable(channel: unknown): boolean };
+    const target = { ...state().channel, url: 'http://host/c5' };
+    expect(internals.isChannelAvailable(target)).toBe(true);
+    reads.count = 0;
+    expect(internals.isChannelAvailable({ ...target, url: 'http://host/c6' })).toBe(true);
+    expect(internals.isChannelAvailable({ ...target, url: 'http://host/x' })).toBe(false);
+    expect(reads.count).toBe(0);
+    localStorage.removeItem('iptv_playlists');
+  });
+
   it('routes a numbered channel straight to full screen', () => {
     preview.selectChannel(1, undefined, { group: 'builtin:all' }, 'fullscreen');
     expect(actions.onPlayFullscreen).toHaveBeenCalledWith(1, undefined, { group: 'builtin:all' });
