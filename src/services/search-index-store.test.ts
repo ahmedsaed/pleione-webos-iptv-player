@@ -37,6 +37,7 @@ vi.mock('./epg-service', () => ({
 }));
 
 import { persistSearchIndexes, SearchIndexPrewarmer } from './search-index-store';
+import { refuseIdbWrites, resetIdbWriteStateForTests } from './idb-database';
 
 const candidate = (key: string): SearchIndexCandidate => ({ key, prefix: `${key}|`, bytes: 10 });
 const reservation = { generation: 0, evicted: 1, fields: { cacheCategory: 'search', byteSize: 10 } };
@@ -221,6 +222,18 @@ describe('SearchIndexPrewarmer', () => {
     await vi.waitFor(() => expect(idle).toHaveLength(1));
     await flushIdle();
     expect(mocks.run.mock.calls.filter(call => call[0] === 'search.prewarm')).toHaveLength(2);
+  });
+
+  it('builds nothing while IndexedDB refuses writes', async () => {
+    refuseIdbWrites('quota');
+    try {
+      const prewarm = new SearchIndexPrewarmer(() => [SOURCE]);
+      prewarm.schedule('startup');
+      await flushIdle();
+      expect(mocks.run).not.toHaveBeenCalled();
+    } finally {
+      resetIdbWriteStateForTests();
+    }
   });
 
   it('does not wake the worker without sources', async () => {
