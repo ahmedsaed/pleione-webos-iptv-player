@@ -412,32 +412,28 @@ already holds. From then on:
 - **Personal records** go to localStorage, one `iptv_fb_<store>` key per
   user-data store, holding the records written and the keys deleted since.
   Reads merge them over the IndexedDB records, so nothing stored before
-  disappears. Each store keeps its most recent records and as many deletions:
-
-  | Store | Records kept |
-  | --- | --- |
-  | `favorites` | 500 |
-  | `reminders` | 200 |
-  | `channel-state` | 1000 |
-  | `watchlist` | 400 |
-  | `playback-progress` | 1000 |
-  | `recently-watched` | 30 |
-  | `online-sub-picks` | 200 |
-  | `parental-control` | 1 |
+  disappears. No store has a record cap of its own beyond the app's caps.
+  A deletion of a key IndexedDB holds is kept as a small marker, so a
+  cleared record never comes back; a deletion of any other key leaves none.
 
   All fallback keys together hold at most 1 Mi characters (2 MiB as UTF-16,
-  of Chromium's 5 Mi-character localStorage), and the oldest records across
-  stores go first; the parental-control record is never evicted. When a
-  setup or preference key cannot be saved even after the derived caches are
-  evicted, the oldest half of the fallback is dropped to make room for it.
+  of Chromium's 5 Mi-character localStorage). Past that, the oldest records
+  across stores go first, but never a deletion marker or the
+  parental-control record, and the write is reported as failed. A single
+  record over half the budget is refused outright and the other records stay.
+  A failed fallback write logs `persistence.user.fallback.write.failed` once
+  per session with its `reason` (`evicted`, `too_large`, or `full`) and
+  shows the save-failure message. When a setup or preference key cannot be
+  saved even after the derived caches are evicted, the oldest half of the
+  fallback records is dropped to make room for it.
   Fallback writes never evict any other key.
 - **Caches** (playlists, guides, catalogs, subtitles, stream MIME types,
   channel health) are kept in memory for the session only, up to 32 MiB of
   counted size, and Search indexes are not stored. They never use
   localStorage.
-- No save-failure message is shown, on exit or otherwise. While the
-  session is read-only, **Settings → Data Management** notes under the
-  cache total that the TV limits app storage and the cache is not kept
+- No save-failure message is shown while the fallback holds every write.
+  While the session is read-only, **Settings → Data Management** notes
+  under the cache total that the TV limits app storage and the cache is not kept
   between launches.
 
 In a later session where the startup write succeeds, the app writes the

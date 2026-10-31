@@ -19,6 +19,8 @@ import {
   forgetFallbackKeys,
   mergeFallbackRecords,
   replaceFallbackStore,
+  type FallbackWriteOptions,
+  type FallbackWriteResult,
 } from './user-data-fallback';
 
 const log = createLogger('UserDataStorage');
@@ -34,7 +36,7 @@ export interface UserDataRecord<T = unknown> {
 let writeChain: Promise<void> = Promise.resolve();
 let writeFailure: unknown = null;
 
-function enqueueWrite(operation: () => Promise<void>): Promise<void> {
+function enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
   const result = writeChain.then(operation, operation);
   writeChain = result.then(
     () => {},
@@ -57,15 +59,59 @@ function engageFallback(reason: string): void {
 
 let fallbackWriteFailed = false;
 
-function writeFallback(store: UserDataStore, puts: UserDataRecord[], deletes: string[]): void {
-  if (applyFallbackChanges(store, puts, deletes) || fallbackWriteFailed) return;
+function reportFallbackFailure(store: UserDataStore, records: number, reason: FallbackWriteResult): void {
+  if (fallbackWriteFailed) return;
   fallbackWriteFailed = true;
   log.error(
     'User data fallback write failed',
     'event=persistence.user.fallback.write.failed',
     `store=${store}`,
-    `records=${String(puts.length + deletes.length)}`,
+    `records=${String(records)}`,
+    `reason=${reason}`,
   );
+}
+
+// IndexedDB is read-only for the session, so its keys stay as first read
+// until a clear.
+const storedKeyCache: Partial<Record<UserDataStore, string[]>> = {};
+
+async function storedKeysOf(store: UserDataStore): Promise<string[] | undefined> {
+  const cached = storedKeyCache[store];
+  if (cached) return cached;
+  const db = await openPersistenceDb();
+  if (!db) return undefined;
+  try {
+    const tx = db.transaction(store, 'readonly');
+    const keys = await requestResult(tx.objectStore(store).getAllKeys());
+    const stored = keys.filter((key): key is string => typeof key === 'string');
+    storedKeyCache[store] = stored;
+    return stored;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeFallback(
+  store: UserDataStore,
+  puts: UserDataRecord[],
+  deletes: string[],
+  options: FallbackWriteOptions = {},
+): Promise<boolean> {
+  const storedKeys = deletes.length ? await storedKeysOf(store) : undefined;
+  const result = applyFallbackChanges(store, puts, deletes, { ...options, storedKeys });
+  if (result === 'ok') return true;
+  reportFallbackFailure(store, puts.length + deletes.length, result);
+  return false;
+}
+
+async function writeFallbackOrThrow(
+  store: UserDataStore,
+  puts: UserDataRecord[],
+  deletes: string[],
+): Promise<void> {
+  if (!await writeFallback(store, puts, deletes)) {
+    throw new Error('User data fallback write failed');
+  }
 }
 
 async function replaceFallback(
@@ -75,12 +121,16 @@ async function replaceFallback(
   const tx = db.transaction(USER_DATA_STORES, 'readonly');
   const keys = await Promise.all(USER_DATA_STORES.map(storeName =>
     requestResult(tx.objectStore(storeName).getAllKeys())));
+  let failed = false;
   USER_DATA_STORES.forEach((storeName, index) => {
     const stored = keys[index].filter((key): key is string => typeof key === 'string');
-    if (!replaceFallbackStore(storeName, records[storeName] ?? [], stored)) {
-      writeFallback(storeName, records[storeName] ?? [], []);
-    }
+    const items = records[storeName] ?? [];
+    const result = replaceFallbackStore(storeName, items, stored);
+    if (result === 'ok') return;
+    reportFallbackFailure(storeName, items.length, result);
+    failed = true;
   });
+  if (failed) throw new Error('User data fallback write failed');
 }
 
 // User data outranks every cache: a write the origin quota rejects evicts
@@ -259,13 +309,13 @@ export function migrateUserRecordSets(migrations: UserDataMigration[]): Promise<
     }
     // Read-only: the fallback keeps the records; markers wait for a later
     // session, which migrates again only what is still in localStorage.
-    const toFallback = () => {
+    const toFallback = async () => {
       for (const migration of migrations) {
-        writeFallback(migration.storeName, migration.records, []);
+        await writeFallback(migration.storeName, migration.records, []);
       }
     };
     if (idbWritesRefused()) {
-      toFallback();
+      await toFallback();
       return;
     }
     try {
@@ -309,7 +359,7 @@ export function migrateUserRecordSets(migrations: UserDataMigration[]): Promise<
     } catch (err) {
       if (isQuotaExceededError(err)) {
         engageFallback('quota');
-        toFallback();
+        await toFallback();
         return;
       }
       log.error(
@@ -332,7 +382,7 @@ export function applyUserChanges(
   if (!puts.length && !deletes.length) return Promise.resolve();
   return enqueueWrite(async () => {
     if (idbWritesRefused()) {
-      writeFallback(storeName, puts, deletes);
+      await writeFallbackOrThrow(storeName, puts, deletes);
       return;
     }
     const db = await openPersistenceDb();
@@ -353,7 +403,7 @@ export function applyUserChanges(
         for (const record of puts) store.put(record);
         await transactionDone(tx);
         forgetFallbackKeys(storeName, [...deletes, ...puts.map(record => record.key)]);
-      }, () => writeFallback(storeName, puts, deletes));
+      }, () => writeFallbackOrThrow(storeName, puts, deletes));
     } catch (err) {
       log.error(
         'User data write failed',
@@ -423,6 +473,7 @@ export function clearAllUserData(): Promise<void> {
       for (const storeName of USER_DATA_STORES) tx.objectStore(storeName).clear();
       tx.objectStore(USER_META_STORE).clear();
       await transactionDone(tx);
+      for (const storeName of USER_DATA_STORES) delete storedKeyCache[storeName];
       clearFallback();
       writeFailure = null;
       log.info(

@@ -164,6 +164,49 @@ describe('StorageService when IndexedDB refuses every write', () => {
     expect(app.storage.isStorageLimited()).toBe(false);
   });
 
+  it('keeps Continue Watching cleared across a relaunch, however much was watched', async () => {
+    let app = await relaunch();
+    const watched = Array.from({ length: 1500 }, (_, i) => ({
+      key: `watched:x1|vod|${i}`,
+      value: { accountId: 'x1', kind: 'vod', itemId: String(i), watchedAt: i },
+    }));
+    await app.userData.applyUserChanges('playback-progress', watched);
+
+    origin = fillOrigin([]);
+    app = await relaunch();
+    expect(app.storage.isWatched('x1', 'vod', '0')).toBe(true);
+    app.storage.clearResumeList('x1');
+    await app.storage.flush();
+
+    app = await relaunch();
+    expect(app.storage.isWatched('x1', 'vod', '0')).toBe(false);
+    expect(app.storage.isWatched('x1', 'vod', '1499')).toBe(false);
+  });
+
+  it('reports a record the fallback cannot hold as a save failure', async () => {
+    origin = fillOrigin([]);
+    let app = await relaunch();
+    const onFailure = vi.fn();
+    app.storage.setWriteFailureHandler(onFailure);
+    app.storage.setFavorites(['ch1']);
+    app.storage.setChannelCustomization({
+      version: 1,
+      overrides: {},
+      order: Array.from({ length: 60000 }, (_, i) => `channel-${i}-xx`),
+      groupOrder: [],
+      groupOverrides: {},
+      customGroups: [],
+    });
+    await expect(app.storage.flush()).rejects.toThrow();
+
+    expect(onFailure).toHaveBeenCalledTimes(1);
+    const failed = events(error, 'persistence.user.fallback.write.failed');
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatch(/store=channel-state .*reason=too_large$/);
+    app = await relaunch();
+    expect(app.storage.getFavorites()).toEqual(['ch1']);
+  });
+
   it('moves the fallback back into IndexedDB once writes work again', async () => {
     origin = fillOrigin([]);
     let app = await relaunch();
