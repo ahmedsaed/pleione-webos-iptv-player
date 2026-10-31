@@ -135,6 +135,8 @@ class App {
   private epgRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private epgRefreshIntervalMs: number | null | undefined;
   private epgChannelReloadTimer: ReturnType<typeof setTimeout> | null = null;
+  // Live missed a refresh while hidden; it renders on its next show.
+  private liveStale = false;
   private readonly searchPrewarm = new SearchIndexPrewarmer(() => this.searchPrewarmSources());
   // Home loads no channels: the first surface that needs them loads them.
   private channelsLoaded = false;
@@ -288,7 +290,7 @@ class App {
       showPlayer: () => this.showView('player'),
       playFullscreen: (index, catchup, scope) => this.playChannel(index, catchup, scope),
       expansionBlocked: () => this.reminderPrompt.visible,
-      isFavorite: channel => StorageService.getFavorites().includes(channelKey(channel)),
+      isFavorite: channel => StorageService.isFavorite(channelKey(channel)),
       suppressed: () => this.liveMode === 'guide',
       onWatch: index => this.channelList.setWatching(index),
     });
@@ -780,14 +782,11 @@ class App {
       this.epgChannelReloadTimer = null;
       const sources = this.epgSources();
       if (!sources.length) return;
-      void EpgService.load(
+      void this.withEpgViews(publish => EpgService.load(
         sources,
         PlaylistService.getEpgEligibleChannels(),
-        () => this.refreshEpgDependentViews(),
-      )
-        .then(() => {
-          this.refreshEpgDependentViews();
-        })
+        publish,
+      ))
         .catch(err => log.error('EPG reload after a channel change failed:', err));
     }, CONFIG.EPG.CHANNEL_CHANGE_RELOAD_DELAY);
   }
@@ -822,9 +821,15 @@ class App {
     const delayMs = delayOverride ?? EpgService.getNextRefreshDelayMs(intervalMs);
     this.epgRefreshTimer = setTimeout(() => {
       this.epgRefreshTimer = null;
-      EpgService.refresh(() => this.refreshEpgDependentViews())
+      // A playlist refresh in flight refreshes the guide too; re-arm after it.
+      const playlistRefresh = this.playlistRefreshPromise;
+      if (playlistRefresh) {
+        const rearm = () => this.scheduleEpgRefresh(true);
+        playlistRefresh.then(rearm, rearm);
+        return;
+      }
+      this.withEpgViews(publish => EpgService.refresh(publish))
         .then((complete) => {
-          this.refreshEpgDependentViews();
           this.scheduleEpgRefresh(
             true,
             complete ? undefined : StorageService.getEpgRefreshIntervalMs() ?? undefined,
@@ -895,13 +900,11 @@ class App {
 
       const epgSources = this.epgSources();
       if (epgSources.length) {
-        await EpgService.load(
+        await this.withEpgViews(publish => EpgService.load(
           epgSources,
           PlaylistService.getEpgEligibleChannels(),
-          () => this.refreshEpgDependentViews(),
-        );
-        await EpgService.refresh(() => this.refreshEpgDependentViews());
-        this.refreshEpgDependentViews();
+          publish,
+        ).then(() => EpgService.refresh(publish)));
       } else {
         EpgService.reset();
         this.refreshEpgDependentViews();
@@ -910,9 +913,8 @@ class App {
 
       this.syncSources();
       if (this.isCurrentView('home')) this.home.render();
-      this.channelList.render();
+      this.renderLive();
       this.sidebar.refresh();
-      this.livePreview?.refresh();
       this.showLiveCategoryNotices();
     } catch (err) {
       log.error('Automatic playlist refresh failed:', err);
@@ -1038,9 +1040,8 @@ class App {
 
       if (epgSources.length) {
         if (forceEpgRefresh) {
-          EpgService.refresh(() => this.refreshEpgDependentViews(), true)
+          this.withEpgViews(publish => EpgService.refresh(publish, true))
             .then(() => {
-              this.refreshEpgDependentViews();
               this.scheduleEpgRefresh(
                 true,
                 StorageService.getEpgRefreshIntervalMs() ?? undefined,
@@ -1053,10 +1054,8 @@ class App {
               );
             });
         } else if (StorageService.getEpgRefreshIntervalMs() === null) {
-          EpgService.refresh(() => this.refreshEpgDependentViews())
-            .then(() => {
-              this.refreshEpgDependentViews();
-            }, err => log.error('Initial EPG load failed:', err));
+          this.withEpgViews(publish => EpgService.refresh(publish))
+            .catch(err => log.error('Initial EPG load failed:', err));
         } else {
           this.scheduleEpgRefresh(true);
         }
@@ -1228,8 +1227,7 @@ class App {
     this.liveGuide.show(index);
     this.showView('channels', true);
     this.liveGuide.enter();
-    EpgService.refresh(() => this.refreshEpgDependentViews())
-      .then(() => this.refreshEpgDependentViews());
+    void this.withEpgViews(publish => EpgService.refresh(publish));
   }
 
   // In the Guide: the groups column takes the keys.
@@ -1316,6 +1314,10 @@ class App {
     else if (name !== 'player') this.playerReturn = 'channels';
     if (name !== 'search') this.searchBox?.release();
 
+    if (name === 'channels' && this.liveStale) {
+      this.liveStale = false;
+      this.channelList.render();
+    }
     // Focus the channel entry point on entry. No-op on first load (render runs after).
     if (name === 'channels' && this.liveMode === 'guide') {
       if (!this.liveGuide.isShown) this.liveGuide.show(this.player.getCurrentIndex());
@@ -1346,6 +1348,7 @@ class App {
     if (section !== 'movies') this.movies.deactivate();
     if (section !== 'series') this.series.deactivate();
     if (section !== 'search') this.search.deactivate();
+    if (section !== 'settings') this.settings.release();
     if (section === 'live') {
       if (!this.livePreview.returnFromFullscreen(false)) {
         this.player.stop();
@@ -1443,11 +1446,36 @@ class App {
 
   private refreshEpgDependentViews(): void {
     this.applyDisplayTz();
+    this.renderLive();
+    void this.search.refreshPrograms();
+    this.searchPrewarm.schedule('epg');
+  }
+
+  // Renders the EPG views on each publish, and once more when the work
+  // settles only if it published nothing or changed the guide since.
+  private withEpgViews<T>(run: (publish: () => void) => Promise<T>): Promise<T> {
+    let rendered = -1;
+    const publish = () => {
+      rendered = EpgService.mappingRevision;
+      this.refreshEpgDependentViews();
+    };
+    return run(publish).then((result) => {
+      if (rendered !== EpgService.mappingRevision) this.refreshEpgDependentViews();
+      return result;
+    });
+  }
+
+  // A hidden Live is not rendered: a display:none list reads no scroll
+  // position or height. It renders on its next show instead.
+  private renderLive(): void {
+    if (!this.isCurrentView('channels')) {
+      this.liveStale = true;
+      return;
+    }
+    this.liveStale = false;
     this.channelList.render();
     this.livePreview.refresh();
     this.liveGuide.render();
-    void this.search.refreshPrograms();
-    this.searchPrewarm.schedule('epg');
   }
 
   private openReminderManager(): void {
@@ -1504,6 +1532,7 @@ class App {
     this.movies.deactivate();
     this.series.deactivate();
     this.search.deactivate();
+    this.settings.release();
     this.player.stop();
     const fresh = this.home.focusScope.focusKey === null;
     this.showView('home');

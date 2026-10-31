@@ -8,6 +8,12 @@ import type { LivePlaybackSnapshot, Programme } from '../types';
 import { setDisplayTz } from '../utils/time';
 import type { ChannelList } from './channel-list';
 import type { Player } from './player';
+import { morph } from '../utils/morph';
+
+vi.mock('../utils/morph', async (original) => {
+  const actual = await original<typeof import('../utils/morph')>();
+  return { ...actual, morph: vi.fn(actual.morph) };
+});
 
 vi.mock('../services/epg-service', () => ({
   EpgService: {
@@ -370,6 +376,7 @@ describe('LivePreview', () => {
     const refresh = vi.spyOn(preview, 'refresh').mockImplementation(() => {});
     view.applyState(state());
     view.applyState(state());
+    // The tick hands a preview that stopped to the full refresh.
     vi.advanceTimersByTime(CONFIG.PLAYER.LIVE_PREVIEW_REFRESH_MS);
     expect(refresh).toHaveBeenCalledOnce();
     view.applyState(state());
@@ -378,5 +385,66 @@ describe('LivePreview', () => {
     expect(refresh).toHaveBeenCalledOnce();
     view.applyState(null);
     expect(root.classList.contains('hidden')).toBe(true);
+  });
+
+  describe('while the preview idles', () => {
+    let fit: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      // A previewable channel, so a full refresh would keep it showing.
+      localStorage.setItem(`${CONFIG.STORAGE_PREFIX}playlists`,
+        JSON.stringify([{ id: 'p1', name: 'P1', url: 'http://host/a' }]));
+      PlaylistService.channels = [state().channel];
+      PlaylistService.allChannels = [state().channel];
+      liveSnapshot.mockImplementation(() => state());
+      livePreviewMode = true;
+      view.applyState(state());
+      fit = vi.spyOn(view, 'fitPrograms');
+      vi.mocked(morph).mockClear();
+    });
+    afterEach(() => localStorage.clear());
+
+    it('neither morphs nor fits on an unchanged tick', () => {
+      vi.advanceTimersByTime(10 * CONFIG.PLAYER.LIVE_PREVIEW_REFRESH_MS);
+      expect(morph).not.toHaveBeenCalled();
+      expect(fit).not.toHaveBeenCalled();
+    });
+
+    it('moves the progress bar in place at most every progress interval', () => {
+      const bar = root.querySelector<HTMLElement>('.live-preview-progress > div')!;
+      const width = bar.style.width;
+      vi.advanceTimersByTime(CONFIG.PLAYER.LIVE_PREVIEW_PROGRESS_MS - 1000);
+      expect(bar.style.width).toBe(width);
+      vi.advanceTimersByTime(1000);
+      expect(bar.style.width).not.toBe(width);
+      expect(morph).not.toHaveBeenCalled();
+      expect(fit).not.toHaveBeenCalled();
+    });
+
+    it('counts the minutes left down on the minute', () => {
+      const left = root.querySelector('.live-preview-remaining')!;
+      expect(left.textContent).toContain('24');
+      vi.advanceTimersByTime(60 * 1000);
+      expect(left.textContent).toContain('23');
+      expect(morph).not.toHaveBeenCalled();
+    });
+
+    it('re-renders and refits at a programme boundary', () => {
+      vi.mocked(EpgService.getNowPlaying).mockReturnValue(program(24, 74, 'Program 2'));
+      vi.mocked(EpgService.getUpcoming).mockReturnValue([program(74, 114, 'Program 3')]);
+      vi.advanceTimersByTime(CONFIG.PLAYER.LIVE_PREVIEW_REFRESH_MS);
+      expect(morph).toHaveBeenCalledOnce();
+      expect(fit).toHaveBeenCalledOnce();
+      expect(root.querySelector('.live-preview-title')?.textContent).toBe('Program 2');
+    });
+
+    it('re-renders when the status or the favorite changes', () => {
+      liveSnapshot.mockImplementation(() => ({ ...state(), status: 'buffering' }));
+      vi.advanceTimersByTime(CONFIG.PLAYER.LIVE_PREVIEW_REFRESH_MS);
+      expect(root.querySelector('.live-preview-message')?.textContent).toContain('Connecting');
+      favorite = true;
+      vi.advanceTimersByTime(CONFIG.PLAYER.LIVE_PREVIEW_REFRESH_MS);
+      expect(root.querySelector('.live-preview-favorite')).not.toBeNull();
+      expect(morph).toHaveBeenCalledTimes(2);
+    });
   });
 });

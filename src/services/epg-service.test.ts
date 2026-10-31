@@ -554,6 +554,38 @@ describe('EpgService cache and refresh', () => {
     expect(EpgService.getProgrammeCacheRecords()).toEqual([{ url: 'http://a', timestamp: stored[3] }]);
   });
 
+  it('settles a refresh that published every source without a second revision', async () => {
+    await EpgService.restoreCached([source('http://a', ['a'])]);
+    parseXMLTVMock.mockReturnValue(parsed('a', 'Alpha', 'Fresh'));
+    let published = -1;
+    await EpgService.refresh(() => { published = EpgService.mappingRevision; }, true);
+    expect(published).toBeGreaterThan(-1);
+    expect(EpgService.mappingRevision).toBe(published);
+  });
+
+  it('settles a load that published every source without a second revision', async () => {
+    vi.mocked(fetchMaybeGzipText).mockResolvedValue('xml');
+    parseXMLTVMock.mockReturnValue(parsed('a', 'Alpha', 'Fresh'));
+    let published = -1;
+    await EpgService.load([source('http://a', ['a'])], undefined,
+      () => { published = EpgService.mappingRevision; });
+    expect(published).toBeGreaterThan(-1);
+    expect(EpgService.mappingRevision).toBe(published);
+  });
+
+  it('still publishes on settle what no callback published', async () => {
+    vi.mocked(getCachedEpg).mockResolvedValue({
+      url: 'http://a', timestamp: NOON, data: parsed('a', 'Alpha', 'Cached'),
+    });
+    const before = EpgService.mappingRevision;
+    const onDataPublished = vi.fn();
+    await EpgService.load([source('http://a', ['a'])], undefined, onDataPublished);
+    expect(onDataPublished).not.toHaveBeenCalled();
+    expect(EpgService.mappingRevision).toBeGreaterThan(before);
+    const id = EpgService.findChannelId(channel({ id: 'a', name: 'Alpha', playlistIds: ['a'] }));
+    expect(EpgService.getNowPlaying(id!)?.title).toBe('Cached');
+  });
+
   it('announces a fetched guide once its cache record is stored', async () => {
     await EpgService.restoreCached([source('http://a', ['a'])]);
     parseXMLTVMock.mockReturnValue(parsed('a', 'Alpha', 'Fresh'));

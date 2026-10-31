@@ -345,6 +345,19 @@ describe('StorageService', () => {
     expect(StorageService.getFavorites()).not.toContain('chan-1');
   });
 
+  it('answers isFavorite from the stored list, parsing it only when it changed', () => {
+    expect(StorageService.isFavorite('chan-1')).toBe(false);
+    StorageService.toggleFavorite('chan-1');
+    const parse = vi.spyOn(JSON, 'parse');
+    expect(StorageService.isFavorite('chan-1')).toBe(true);
+    expect(StorageService.isFavorite('chan-1')).toBe(true);
+    expect(StorageService.isFavorite('chan-2')).toBe(false);
+    expect(parse.mock.calls.length).toBeLessThanOrEqual(1);
+    parse.mockRestore();
+    StorageService.toggleFavorite('chan-1');
+    expect(StorageService.isFavorite('chan-1')).toBe(false);
+  });
+
   it('namespaces keys with the configured storage prefix', () => {
     StorageService.setManualEpgSources([
       { url: 'http://epg/x.xml', playlistIds: [] },

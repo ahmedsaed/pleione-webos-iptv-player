@@ -9,6 +9,7 @@ import {
   type SearchIndexReservation,
 } from './idb-cache';
 import { onEpgCacheWritten } from './epg-service';
+import { idbWritesRefused } from './idb-database';
 import { onCatalogListWritten } from './xtream-catalog';
 
 const log = createLogger('SearchIndex');
@@ -149,6 +150,9 @@ export class SearchIndexPrewarmer {
   }
 
   private async run(reason: string): Promise<void> {
+    // A read-only session could store nothing it built, and the worker drops
+    // its indexes when it ends: Search builds them when it opens instead.
+    if (idbWritesRefused()) return;
     const sources = this.sources();
     if (!sources.length) return;
     const startedAt = Date.now();

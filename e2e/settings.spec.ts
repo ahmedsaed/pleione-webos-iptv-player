@@ -254,7 +254,9 @@ test.describe('Settings navigation', () => {
       liveBadge.className = 'live-badge-dot';
       document.body.appendChild(liveBadge);
       const motionFixtures = document.createElement('div');
+      // Settings released its page on save; a button stands in for Save.
       motionFixtures.innerHTML = `
+        <button class="btn btn-primary btn-large"></button>
         <div class="channel-item"></div>
         <span class="playing-indicator"></span>
         <div class="player-sidebar visible channels-only">
@@ -267,7 +269,7 @@ test.describe('Settings navigation', () => {
       `;
       document.body.appendChild(motionFixtures);
       const result = {
-        button: seconds(getComputedStyle(document.querySelector('#save-settings')!)
+        button: seconds(getComputedStyle(motionFixtures.querySelector('.btn')!)
           .transitionDuration),
         search: seconds(getComputedStyle(document.querySelector('.search-box-input')!)
           .transitionDuration),

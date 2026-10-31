@@ -91,6 +91,10 @@ class EpgServiceImpl {
   private pendingWork: Promise<unknown> | null = null;
   private revision = 0;
   private mappingRevisionValue = 0;
+  // State changed since the indexes were last rebuilt. A load or refresh
+  // whose sources all published along the way skips its closing publish,
+  // so the views render once per change, not twice.
+  private unpublished = false;
   private lastIdleKey = '';
 
   get mappingRevision(): number {
@@ -222,10 +226,11 @@ class EpgServiceImpl {
     }
     this.appliedFilters = filters;
     const revision = ++this.revision;
+    this.unpublished = true;
     await Promise.all(this.sources.map((source) =>
       this.loadSource(source, revision, onDataPublished)));
     if (revision !== this.revision) return;
-    this.publish(revision);
+    if (this.unpublished) this.publish(revision);
   }
 
   refresh(onDataPublished?: () => void, force = false): Promise<boolean> {
@@ -266,12 +271,16 @@ class EpgServiceImpl {
 
     const revision = ++this.revision;
     this.mappedChannelIds = this.collectMappedChannelIds();
+    this.unpublished = true;
     const refreshed = await Promise.all(sourcesToRefresh.map(source =>
       this.fetchSource(source, this.filterFor(source), revision, onDataPublished)));
     if (revision !== this.revision) return false;
-    this.rebuildIndexes();
-    this.loaded = this.sources.length > 0;
-    this.mappingRevisionValue++;
+    if (this.unpublished) {
+      this.unpublished = false;
+      this.rebuildIndexes();
+      this.loaded = this.sources.length > 0;
+      this.mappingRevisionValue++;
+    }
     return refreshed.every(Boolean);
   }
 
@@ -561,6 +570,7 @@ class EpgServiceImpl {
     if (revision !== this.revision) return 'missing';
     const filter = this.filterFor(source);
     if (filter && isEmptyFilter(filter)) {
+      this.unpublished = true;
       this.states.delete(source.url);
       this.channelIdsByName.delete(source.url);
       return 'missing';
@@ -603,6 +613,7 @@ class EpgServiceImpl {
 
   private publish(revision: number, onPublished?: () => void): void {
     if (revision !== this.revision) return;
+    this.unpublished = false;
     this.rebuildIndexes();
     this.loaded = this.sources.length > 0;
     this.mappingRevisionValue++;
@@ -617,6 +628,7 @@ class EpgServiceImpl {
   ): Promise<boolean> {
     if (revision !== this.revision) return false;
     if (filter && isEmptyFilter(filter)) {
+      this.unpublished = true;
       this.states.delete(source.url);
       this.channelIdsByName.delete(source.url);
       return true;
@@ -700,6 +712,7 @@ class EpgServiceImpl {
   }
 
   private setState(url: string, state: SourceState): void {
+    this.unpublished = true;
     this.states.set(url, state);
     const index = new Map<string, string[]>();
     for (const id in state.data.channels) {
