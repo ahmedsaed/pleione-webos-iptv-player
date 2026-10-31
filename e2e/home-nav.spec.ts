@@ -335,7 +335,7 @@ test('Back on Home leaves the app in one press, with no hint', async ({ page }) 
   await expect(page.locator('.toast.visible')).toHaveCount(0);
 });
 
-test('Back on Home asks the TV for its Home screen through platformBack', async ({ page }) => {
+test('Back on Home closes the app instead of raising the launcher through platformBack', async ({ page }) => {
   await page.addInitScript(() => {
     const w = window as unknown as { __calls: string[]; PalmSystem: { platformBack: () => void } };
     w.__calls = [];
@@ -346,7 +346,7 @@ test('Back on Home asks the TV for its Home screen through platformBack', async 
   await goHome(page);
   await back(page);
   await expect.poll(() => page.evaluate(() => (window as unknown as { __calls: string[] }).__calls))
-    .toEqual(['platformBack']);
+    .toEqual(['close']);
 });
 
 test('first run shows the welcome, phone setup, and the two Add cards, Add Xtream focused', async ({ page }) => {
