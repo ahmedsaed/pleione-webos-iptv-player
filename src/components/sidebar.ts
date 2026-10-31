@@ -53,10 +53,10 @@ const GROUP_DWELL_EDGE = 48;
 const GROUP_DWELL_MS = 500;
 const POINTER_EXIT_DWELL_MS = 500;
 // Row strides mirror the fixed row geometry in css/player.css: .sidebar-ch-item
-// is 84px plus a 4px gap, .sidebar-group-item is 64px.
+// is 84px plus a 4px gap, .sidebar-group-item is 76px.
 const CHANNEL_ROW_STRIDE = 88;
 const CHANNEL_ROW_GAP = 4;
-const GROUP_ROW_STRIDE = 64;
+const GROUP_ROW_STRIDE = 76;
 const CHANNEL_OVERSCAN = 12;
 const FALLBACK_LIST_HEIGHT = 800;
 

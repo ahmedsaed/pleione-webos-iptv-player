@@ -580,7 +580,7 @@ describe('Sidebar', () => {
         sidebar.handleAction('left');
         expect(groupItems().length).toBeLessThan(60);
         expect(el.querySelector<HTMLElement>('.sidebar-group-spacer')?.style.height)
-          .toBe('3200192px');
+          .toBe('3800228px');
       } finally {
         PlaylistService.getGroupsForPlaylist = originalGroups;
         PlaylistService.getGroupCount = originalCount;
@@ -601,14 +601,14 @@ describe('Sidebar', () => {
         sidebar.handleAction('left');
         const list = el.querySelector<HTMLElement>('.sidebar-group-list')!;
         Object.defineProperty(list, 'clientHeight', { value: 640, configurable: true });
-        list.scrollTop = 6400;
+        list.scrollTop = 7600;
         list.dispatchEvent(new Event('scroll'));
         vi.advanceTimersByTime(20);
-        expect(list.scrollTop).toBe(6400);
+        expect(list.scrollTop).toBe(7600);
 
         sidebar.handleAction('up');
 
-        expect(list.scrollTop).toBe(6400);
+        expect(list.scrollTop).toBe(7600);
         expect(el.querySelector<HTMLElement>('.sidebar-group-item.focused')?.dataset.groupPos)
           .toBe('100');
         const lines = logs.mock.calls.map(args => args.join(' '))
@@ -652,27 +652,27 @@ describe('Sidebar', () => {
       }
 
       it('a logo error render keeps the scrolled group list in place', () => {
-        const list = scrollGroups(6400);
+        const list = scrollGroups(7600);
         const logo = document.createElement('img');
         logo.className = 'ch-logo';
         logo.setAttribute('src', 'http://host/a.png');
         el.querySelector('.sidebar-ch-item')!.appendChild(logo);
         logo.dispatchEvent(new Event('error'));
 
-        expect(list.scrollTop).toBe(6400);
+        expect(list.scrollTop).toBe(7600);
         expect(groupItems().some(item => item.dataset.groupPos === '100')).toBe(true);
       });
 
       it('a refresh keeps the scrolled group list in place', () => {
-        const list = scrollGroups(6400);
+        const list = scrollGroups(7600);
         sidebar.refresh();
 
-        expect(list.scrollTop).toBe(6400);
+        expect(list.scrollTop).toBe(7600);
         expect(groupItems().some(item => item.dataset.groupPos === '100')).toBe(true);
       });
 
       it('opening groups scrolls a far-down current group into view', () => {
-        scrollGroups(400 * 64);
+        scrollGroups(400 * 76);
         groupItems().find(item => item.dataset.groupPos === '403')!
           .dispatchEvent(new MouseEvent('click', { bubbles: true }));
         expect(el.querySelector('.sidebar-channel-title')?.textContent?.trim())
@@ -686,8 +686,8 @@ describe('Sidebar', () => {
         const focused = el.querySelector<HTMLElement>('.sidebar-group-item.focused');
         expect(focused?.dataset.groupPos).toBe('403');
         expect(focused?.classList.contains('active')).toBe(true);
-        // Centered in the 640px viewport: 403 * 64 - (640 - 64) / 2.
-        expect(list.scrollTop).toBe(403 * 64 - 288);
+        // Centered in the 640px viewport: 403 * 76 - (640 - 76) / 2.
+        expect(list.scrollTop).toBe(403 * 76 - 282);
       });
     });
 
