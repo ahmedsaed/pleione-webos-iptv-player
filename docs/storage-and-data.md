@@ -88,7 +88,7 @@ This is the complete active key inventory:
 | `iptv_selectedXtream` | `string \| null` | Account id used by Movies, Series, and Search | Navigation state |
 | `iptv_catalog_sort_vod`, `iptv_catalog_sort_series` | `{by, direction}` | Movies and Series sort field (`default`, `name`, `added`, `rating`, `year`) and direction | Preference |
 | `iptv_show_hidden_channels` | `boolean` | Whether normal lists reveal hidden channels in a dimmed state | Preference |
-| `iptv_channel_cycle_mode` | `global \| active` | Whether Channel Up/Down cycles the whole list or stays in the group, Favorites, or playlist a channel was tuned from; default `global` | Preference |
+| `iptv_channel_cycle_mode` | `global \| active` | Whether Channel Up/Down cycles the whole list or stays in the group, Favorites, or playlist a channel was tuned from; default `active` | Preference |
 | `iptv_live_reconnect_attempts` | `number` | Live channel reconnection limit (0–5; default 3) | Preference |
 | `iptv_player_osd_timeout_ms` | `number` | How long the player controls stay up: 3000, 5000, 8000, 10000, or 12000 ms; default 5000 | Preference |
 | `iptv_number_entry_osd_timeout_ms` | `number` | How long the number-entry overlay stays up after a digit: 1200, 1800, 2500, 3000, or 3500 ms; default 1200 | Preference |

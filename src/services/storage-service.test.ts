@@ -1242,6 +1242,14 @@ describe('StorageService channel customization store', () => {
     expect(StorageService.getChannelCustomization()).toBeNull();
   });
 
+  it('defaults Channel Up/Down to the current group and keeps a stored choice', () => {
+    expect(StorageService.getChannelCycleMode()).toBe('active');
+    localStorage.setItem('iptv_channel_cycle_mode', JSON.stringify('global'));
+    expect(StorageService.getChannelCycleMode()).toBe('global');
+    StorageService.setChannelCycleMode('active');
+    expect(StorageService.getChannelCycleMode()).toBe('active');
+  });
+
   it('round-trips the show-hidden toggle', () => {
     expect(StorageService.getShowHiddenChannels()).toBe(false);
     StorageService.setShowHiddenChannels(true);

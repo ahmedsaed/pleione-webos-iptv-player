@@ -1060,11 +1060,11 @@ export const StorageService = {
     set('animation_mode', mode);
   },
 
-  // 'global' = channel_up/channel_down cycles the entire channel list
-  // (default, matches pre-scoping behavior), 'active' = stays within the
-  // group/playlist/Favorites a channel was tuned from.
+  // 'active' (the default) = channel_up/channel_down stays within the
+  // group/playlist/Favorites a channel was tuned from; 'global' = cycles the
+  // entire channel list. A stored choice keeps its value.
   getChannelCycleMode(): ChannelCycleMode {
-    return get<ChannelCycleMode>('channel_cycle_mode', 'global');
+    return get<ChannelCycleMode>('channel_cycle_mode', 'active');
   },
   setChannelCycleMode(mode: ChannelCycleMode): void {
     set('channel_cycle_mode', mode);

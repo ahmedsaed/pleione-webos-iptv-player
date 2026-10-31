@@ -37,7 +37,7 @@ const {
     textSize: '100' as string,
     interfaceSize: '100' as string,
     tzMode: 'device' as TzMode,
-    channelCycleMode: 'global' as ChannelCycleMode,
+    channelCycleMode: 'active' as ChannelCycleMode,
     liveReconnectAttempts: 3,
     numberEntryOsdTimeoutMs: 1200,
     playerOsdTimeoutMs: 5000,
@@ -254,6 +254,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   state.playlists = [];
   state.manualEpgSources = [];
+  state.channelCycleMode = 'active';
   state.animationMode = 'reduced';
   state.theme = 'midnight';
   state.overlayStyle = 'dark';
@@ -1191,9 +1192,9 @@ describe('Settings editing', () => {
 
   it('selecting an option activates it in its toggle group', () => {
     const activeVal = () => container.querySelector('#channel-cycle-mode .toggle-option.active')!.getAttribute('data-value');
-    expect(activeVal()).toBe('global');
-    click('#channel-cycle-mode [data-value="active"]');
     expect(activeVal()).toBe('active');
+    click('#channel-cycle-mode [data-value="global"]');
+    expect(activeVal()).toBe('global');
   });
 
   it('explains the cache scope and requires confirmation before clearing', async () => {
@@ -1625,13 +1626,13 @@ describe('Settings.save', () => {
     expect(storageMock.setTzMode).toHaveBeenCalledWith('feed');
   });
 
-  it('selecting Active persists the channel cycle mode, defaulting to Global', () => {
+  it('selecting Global persists the channel cycle mode, defaulting to Active', () => {
     const activeMode = () => container.querySelector('#channel-cycle-mode .toggle-option.active')!.getAttribute('data-value');
-    expect(activeMode()).toBe('global'); // default — preserves pre-scoping behavior
-    click('#channel-cycle-mode [data-value="active"]');
-    expect(activeMode()).toBe('active');
+    expect(activeMode()).toBe('active'); // default: the current group
+    click('#channel-cycle-mode [data-value="global"]');
+    expect(activeMode()).toBe('global');
     click('#save-settings');
-    expect(storageMock.setChannelCycleMode).toHaveBeenCalledWith('active');
+    expect(storageMock.setChannelCycleMode).toHaveBeenCalledWith('global');
   });
 
   it('saves online subtitle credentials', () => {
