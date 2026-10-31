@@ -281,7 +281,7 @@ export const AR_MESSAGES = {
   'settings.editChannelList': 'تعديل قائمة القنوات',
   'settings.editChannelListHint': 'أعد ترتيب القنوات وإخفاءها وتسميتها وتجميعها مباشرة في قائمة القنوات.',
   'settings.showHidden': 'عرض القنوات المخفية',
-  'settings.showHiddenHint': 'عند التفعيل، تبقى القنوات المخفية في القائمة باهتة، لتتمكن من إعادتها.',
+  'settings.showHiddenHint': 'عند التفعيل، تبقى القنوات المخفية باهتة في القائمة وفي دليل البرامج، لتتمكن من إعادتها.',
   'settings.resetCustomization': 'إعادة تعيين التخصيص',
   'settings.resetCustomizationHint': 'يستعيد ترتيب قائمة التشغيل والأسماء والمجموعات ومطابقة EPG التلقائية وتصحيح وقت المصدر.',
   'settings.resetCustomizationTitle': 'هل تريد إعادة تعيين تخصيص القنوات؟',

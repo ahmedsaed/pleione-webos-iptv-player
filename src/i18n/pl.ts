@@ -267,7 +267,7 @@ export const PL_MESSAGES = {
   'settings.editChannelList': 'Edytuj listę kanałów',
   'settings.editChannelListHint': 'Zmieniaj kolejność kanałów, ukrywaj je, zmieniaj ich nazwy i grupuj je bezpośrednio na liście.',
   'settings.showHidden': 'Pokaż ukryte kanały',
-  'settings.showHiddenHint': 'Ukryte kanały pozostają wyszarzone na liście i można je przywrócić.',
+  'settings.showHiddenHint': 'Ukryte kanały pozostają wyszarzone na liście i w Programie TV i można je przywrócić.',
   'settings.resetCustomization': 'Przywróć domyślne ustawienia listy',
   'settings.resetCustomizationHint': 'Przywraca domyślną kolejność, nazwy i grupy oraz automatyczne dopasowanie EPG i korektę czasu źródła.',
   'settings.resetCustomizationTitle': 'Zresetować zmiany listy kanałów?',

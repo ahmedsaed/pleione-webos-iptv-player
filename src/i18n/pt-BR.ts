@@ -256,7 +256,7 @@ export const PT_BR_MESSAGES = {
   'settings.editChannelList': 'Editar lista de canais',
   'settings.editChannelListHint': 'Reordene, oculte, renomeie e agrupe canais diretamente na lista de canais.',
   'settings.showHidden': 'Mostrar canais ocultos',
-  'settings.showHiddenHint': 'Quando ativado, os canais ocultos continuam na lista, esmaecidos, para poderem ser restaurados.',
+  'settings.showHiddenHint': 'Quando ativado, os canais ocultos continuam na lista e no Guia, esmaecidos, para poderem ser restaurados.',
   'settings.resetCustomization': 'Redefinir personalização',
   'settings.resetCustomizationHint': 'Restaura a ordem, os nomes, os grupos, o mapeamento EPG automático e a correção de horário da fonte.',
   'settings.resetCustomizationTitle': 'Redefinir a personalização de canais?',

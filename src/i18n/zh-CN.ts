@@ -249,7 +249,7 @@ export const ZH_CN_MESSAGES = {
   'settings.editChannelList': '编辑频道列表',
   'settings.editChannelListHint': '直接在频道列表中重新排序、隐藏、重命名和分组频道。',
   'settings.showHidden': '显示隐藏的频道',
-  'settings.showHiddenHint': '开启后，隐藏的频道会以变暗的样式保留在列表中，便于恢复。',
+  'settings.showHiddenHint': '开启后，隐藏的频道会以变暗的样式保留在列表和节目指南中，便于恢复。',
   'settings.resetCustomization': '重置自定义设置',
   'settings.resetCustomizationHint': '恢复播放列表的顺序、名称、分组、自动 EPG 匹配和来源时间校正。',
   'settings.resetCustomizationTitle': '重置频道自定义设置？',

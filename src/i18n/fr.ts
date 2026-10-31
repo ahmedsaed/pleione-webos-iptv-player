@@ -256,7 +256,7 @@ export const FR_MESSAGES = {
   'settings.editChannelList': 'Modifier la liste des chaînes',
   'settings.editChannelListHint': 'Réorganisez, masquez, renommez et regroupez les chaînes directement dans la liste.',
   'settings.showHidden': 'Afficher les chaînes masquées',
-  'settings.showHiddenHint': 'Une fois cette option activée, les chaînes masquées restent dans la liste, en grisé, pour pouvoir être rétablies.',
+  'settings.showHiddenHint': 'Une fois cette option activée, les chaînes masquées restent dans la liste et le Guide, en grisé, pour pouvoir être rétablies.',
   'settings.resetCustomization': 'Réinitialiser la personnalisation',
   'settings.resetCustomizationHint': 'Restaure l’ordre, les noms, les groupes, l’association EPG automatique et la correction horaire de la source.',
   'settings.resetCustomizationTitle': 'Réinitialiser la personnalisation des chaînes ?',

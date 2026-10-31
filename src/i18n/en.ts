@@ -257,7 +257,7 @@ export const EN_MESSAGES = {
   'settings.editChannelList': 'Edit Channel List',
   'settings.editChannelListHint': 'Reorder, hide, rename, and regroup channels directly in the channel list.',
   'settings.showHidden': 'Show hidden channels',
-  'settings.showHiddenHint': 'When enabled, hidden channels stay in the list, dimmed, so they can be brought back.',
+  'settings.showHiddenHint': 'When enabled, hidden channels stay in the list and the Guide, dimmed, so they can be brought back.',
   'settings.resetCustomization': 'Reset Customization',
   'settings.resetCustomizationHint': 'Restores playlist order, names, groups, automatic EPG matching, and source time correction.',
   'settings.resetCustomizationTitle': 'Reset channel customization?',

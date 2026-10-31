@@ -254,7 +254,7 @@ export const IT_MESSAGES = {
   'settings.editChannelList': 'Modifica elenco canali',
   'settings.editChannelListHint': 'Riordina, nascondi, rinomina e raggruppa i canali direttamente nell’elenco.',
   'settings.showHidden': 'Mostra canali nascosti',
-  'settings.showHiddenHint': 'Quando è attivo, i canali nascosti restano nell’elenco, in grigio, per poterli ripristinare.',
+  'settings.showHiddenHint': 'Quando è attivo, i canali nascosti restano nell’elenco e nella Guida, in grigio, per poterli ripristinare.',
   'settings.resetCustomization': 'Reimposta personalizzazione',
   'settings.resetCustomizationHint': 'Ripristina ordine, nomi, gruppi, associazione EPG automatica e correzione oraria della sorgente.',
   'settings.resetCustomizationTitle': 'Reimpostare la personalizzazione dei canali?',

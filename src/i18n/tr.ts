@@ -249,7 +249,7 @@ export const TR_MESSAGES = {
   'settings.editChannelList': 'Kanal Listesini Düzenle',
   'settings.editChannelListHint': 'Kanalları doğrudan listede sıralayın, gizleyin, yeniden adlandırın ve gruplayın.',
   'settings.showHidden': 'Gizli kanalları göster',
-  'settings.showHiddenHint': 'Açıldığında gizli kanallar soluk görünür ve yeniden kullanılabilir.',
+  'settings.showHiddenHint': 'Açıldığında gizli kanallar listede ve TV Rehberinde soluk görünür ve yeniden kullanılabilir.',
   'settings.resetCustomization': 'Özelleştirmeyi Sıfırla',
   'settings.resetCustomizationHint': 'Sıralamayı, adları, grupları, otomatik EPG eşleştirmesini ve kaynak saat düzeltmesini geri yükler.',
   'settings.resetCustomizationTitle': 'Kanal özelleştirmesi sıfırlansın mı?',

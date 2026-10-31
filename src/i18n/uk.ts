@@ -268,7 +268,7 @@ export const UK_MESSAGES = {
   'settings.editChannelList': 'Редагувати список каналів',
   'settings.editChannelListHint': 'Змінюйте порядок, приховуйте, перейменовуйте та групуйте канали просто в списку.',
   'settings.showHidden': 'Показувати приховані канали',
-  'settings.showHiddenHint': 'Коли ввімкнено, приховані канали залишаються у списку приглушеними, щоб їх можна було повернути.',
+  'settings.showHiddenHint': 'Коли ввімкнено, приховані канали залишаються приглушеними у списку й у Телегіді, щоб їх можна було повернути.',
   'settings.resetCustomization': 'Скинути налаштування списку',
   'settings.resetCustomizationHint': 'Відновлює порядок, назви, групи, автоматичне зіставлення EPG і коригування часу джерела.',
   'settings.resetCustomizationTitle': 'Скинути налаштування списку каналів?',

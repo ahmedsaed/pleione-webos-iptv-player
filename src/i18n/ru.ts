@@ -268,7 +268,7 @@ export const RU_MESSAGES = {
   'settings.editChannelList': 'Редактировать список каналов',
   'settings.editChannelListHint': 'Меняйте порядок, скрывайте, переименовывайте и группируйте каналы прямо в списке.',
   'settings.showHidden': 'Показывать скрытые каналы',
-  'settings.showHiddenHint': 'Когда включено, скрытые каналы остаются в списке тусклыми, чтобы их можно было вернуть.',
+  'settings.showHiddenHint': 'Когда включено, скрытые каналы остаются тусклыми в списке и в Телегиде, чтобы их можно было вернуть.',
   'settings.resetCustomization': 'Сбросить настройки списка',
   'settings.resetCustomizationHint': 'Восстанавливает порядок, названия, группы, автоматическую привязку EPG и коррекцию времени источника.',
   'settings.resetCustomizationTitle': 'Сбросить настройки списка каналов?',
