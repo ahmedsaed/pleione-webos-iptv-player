@@ -67,6 +67,32 @@ async function openLiveOnceDue(page: Page): Promise<void> {
   await expect(page.locator('#view-channels')).toBeVisible();
 }
 
+// Regression: Watch now tuned with no scope, so Channel Up left Live's group.
+test('Watch now keeps Channel Up in the Live group that holds the channel', async ({ page }) => {
+  await routePlaylist(page);
+  await routeLiveManifest(page);
+  await seedPlaylist(page);
+  await seedReminderDueSoon(page);
+  await page.goto('/');
+  await enterTab(page, 'live');
+  await page.locator('#channel-browser .group-item', { hasText: 'News' }).click();
+  await expect(page.locator('#channel-browser .channel-main .channel-item')).toHaveCount(1);
+
+  await page.clock.setFixedTime(DUE + 1000);
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.locator('.reminder-btn[data-reminder-action="ok"]').click();
+  await expect(page.locator('#view-player')).toContainText('Channel One');
+  const plays: string[] = [];
+  page.on('console', msg => {
+    if (msg.text().includes('play index')) plays.push(msg.text());
+  });
+  // News holds only Channel One: Channel Up tunes it again.
+  await page.evaluate(() => document.dispatchEvent(
+    new KeyboardEvent('keydown', { keyCode: 33, bubbles: true })));
+  await expect.poll(() => plays.length).toBeGreaterThan(0);
+  expect(plays[0]).toContain('Channel One');
+});
+
 test('a due reminder on Home loads the channels for its prompt, and Watch now plays', async ({ page }) => {
   await routePlaylist(page);
   await routeLiveManifest(page);
