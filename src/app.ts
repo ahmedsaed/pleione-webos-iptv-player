@@ -585,8 +585,8 @@ class App {
               return;
             }
             if (resp && typeof resp === 'object' && 'port' in resp) {
-              const p = (resp as { port?: unknown }).port;
-              if (typeof p === 'number') setServicePort(p);
+              const { port: p, key } = resp as { port?: unknown; key?: unknown };
+              if (typeof p === 'number') setServicePort(p, typeof key === 'string' ? key : null);
             }
             log.info('Bundled service start onSuccess:', JSON.stringify(resp));
             finish(true, 'onSuccess');

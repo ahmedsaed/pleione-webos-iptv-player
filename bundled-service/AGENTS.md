@@ -21,9 +21,12 @@ It must run on webOS 4's Node.js 0.12.2:
 
 - **Luna:** `start` / `stop` / `heartbeat` / `serviceEvents` for LAN
   changes; `getDevMode` / `fireReminderAlert` for reminders.
-- **HTTP:** phone setup pages and uploads. Reading, listing, or deleting
-  an upload needs the pairing token unless the caller is loopback (the TV
-  app); only loopback upload reads get CORS. See `docs/lan-service.md`.
+- **HTTP:** phone setup pages and uploads. App-only routes need a
+  loopback caller with the per-bind app key from the Luna `start` reply;
+  loopback alone is not trusted, since the TV's browser is loopback too.
+  Reading, listing, or deleting an upload needs the pairing token or the
+  app key, and only keyed app responses get CORS. See
+  `docs/lan-service.md`.
 - Changes are pushed through `serviceEvents`; nothing polls.
 - The lifecycle follows the app's `visibilitychange`.
 

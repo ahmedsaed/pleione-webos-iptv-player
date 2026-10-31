@@ -43,7 +43,7 @@ function send(
   status: number,
   contentType: string,
   body: string | Buffer,
-  crossOrigin = true,
+  crossOrigin = false,
 ): void {
   const buf = typeof body === 'string' ? bufferFrom(body, 'utf-8') : body;
   const headers: { [name: string]: string | number } = {
@@ -55,7 +55,7 @@ function send(
   res.end(buf);
 }
 
-function sendJson(res: http.ServerResponse, status: number, data: unknown, crossOrigin = true): void {
+function sendJson(res: http.ServerResponse, status: number, data: unknown, crossOrigin = false): void {
   send(res, status, 'application/json; charset=utf-8', JSON.stringify(data), crossOrigin);
 }
 
@@ -100,6 +100,11 @@ function setupPageHtml(): string {
  * `dataDir` is where uploaded .m3u files and their .json metadata live; pass
  * the result of resolveDataDir() (or any writable directory for tests).
  *
+ * Only the TV app may call the local-only routes: it sends the per-bind
+ * `appKey`, which it receives over Luna. A loopback address alone is not
+ * enough, since a web page in the TV's own browser is loopback too, and
+ * only those keyed responses carry CORS.
+ *
  * `onChange` is invoked synchronously after a successful upload mutation
  * (POST /uploads or DELETE /uploads/:id) or setup-action submission
  * (POST /setup-actions). Use it to fan out a push notification to subscribers
@@ -111,9 +116,10 @@ export function startServer(
   onChange?: (event: ServiceChangeEvent) => void,
   setupActions = new SetupActionStore(),
   setupState = new SetupStateStore(),
-): Promise<{ server: http.Server; port: number }> {
+): Promise<{ server: http.Server; port: number; appKey: string }> {
   let boundPort = port;
   const setupToken = randomBytes(6).toString('hex');
+  const appKey = randomBytes(16).toString('hex');
   const pairingCode = padStart(String(secureRandomInt(10000)), 4, '0');
   const pairingAttempts = Object.create(null) as {
     [client: string]: { failures: number; blockedUntil: number } | undefined;
@@ -125,10 +131,11 @@ export function startServer(
     const pathname = urlObj.pathname;
     const query = urlObj.query;
     const host = req.headers.host || ('localhost:' + boundPort);
+    const fromApp = isLoopback(req) && query('key') === appKey;
 
     try {
       if (pathname === '/info') {
-        if (!isLoopback(req)) {
+        if (!fromApp) {
           sendJson(res, 403, { error: 'Local access only' });
           return;
         }
@@ -141,7 +148,7 @@ export function startServer(
           manualUrl: 'http://' + ip + ':' + hostPort,
           pairingCode,
           dataDir,
-        });
+        }, true);
       } else if ((pathname === '/' || pathname === '/setup') && req.method === 'GET') {
         send(res, 200, 'text/html; charset=utf-8', setupPageHtml());
       } else if (pathname === '/pair' && req.method === 'POST') {
@@ -180,15 +187,15 @@ export function startServer(
         delete pairingAttempts[client];
         sendJson(res, 200, { token: setupToken });
       } else if (pathname === '/setup-state' && req.method === 'PUT') {
-        if (!isLoopback(req)) {
+        if (!fromApp) {
           sendJson(res, 403, { error: 'Local access only' });
           return;
         }
         try {
           setupState.set(parseSetupState(JSON.parse(await readBody(req, 64 * 1024))));
-          sendJson(res, 200, { updated: true });
+          sendJson(res, 200, { updated: true }, true);
         } catch (e) {
-          sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) });
+          sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) }, true);
         }
       } else if (pathname === '/setup-state' && req.method === 'GET') {
         if (query('token') !== setupToken) {
@@ -211,11 +218,11 @@ export function startServer(
           sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) });
         }
       } else if (pathname === '/setup-actions' && req.method === 'GET') {
-        if (!isLoopback(req)) {
+        if (!fromApp) {
           sendJson(res, 403, { error: 'Local access only' });
           return;
         }
-        sendJson(res, 200, setupActions.list());
+        sendJson(res, 200, setupActions.list(), true);
       } else if (pathname.indexOf('/setup-actions/') === 0 && req.method === 'GET') {
         if (query('token') !== setupToken) {
           sendJson(res, 403, { error: 'Invalid setup token' });
@@ -226,13 +233,13 @@ export function startServer(
           setupActions.list().some(action => action.id === id);
         sendJson(res, 200, { id, pending });
       } else if (pathname.indexOf('/setup-actions/') === 0 && req.method === 'DELETE') {
-        if (!isLoopback(req)) {
+        if (!fromApp) {
           sendJson(res, 403, { error: 'Local access only' });
           return;
         }
         const id = Number(pathname.slice('/setup-actions/'.length));
         const deleted = isSafeInteger(id) && setupActions.remove(id);
-        sendJson(res, deleted ? 200 : 404, { deleted, id });
+        sendJson(res, deleted ? 200 : 404, { deleted, id }, true);
       } else if (pathname === '/uploads' && req.method === 'POST') {
         if (query('token') !== setupToken) {
           sendJson(res, 403, { error: 'Invalid setup token' });
@@ -248,19 +255,19 @@ export function startServer(
           sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) });
         }
       } else if (pathname === '/uploads') {
-        // Playlists often embed provider credentials: only the TV app (loopback)
-        // or a paired phone may read them, and only the app gets CORS.
-        const local = isLoopback(req);
-        if (!local && query('token') !== setupToken) {
-          sendJson(res, 403, { error: 'Invalid setup token' }, false);
+        // Playlists often embed provider credentials: only the TV app or a
+        // paired phone may read them, and only the app gets CORS.
+        if (!fromApp && query('token') !== setupToken) {
+          sendJson(res, 403, { error: 'Invalid setup token' });
           return;
         }
         const base = 'http://' + host;
+        const keyQuery = fromApp ? '?key=' + appKey : '';
         const items = uploads.list().map((m) => ({
           ...m,
-          url: base + '/uploads/' + encodeURIComponent(m.id) + '.m3u',
+          url: base + '/uploads/' + encodeURIComponent(m.id) + '.m3u' + keyQuery,
         }));
-        sendJson(res, 200, items, local);
+        sendJson(res, 200, items, fromApp);
       } else if (pathname.indexOf('/uploads/') === 0) {
         let id: string;
         try {
@@ -274,23 +281,22 @@ export function startServer(
           return;
         }
         if (req.method === 'DELETE') {
-          if (!isLoopback(req) && query('token') !== setupToken) {
+          if (!fromApp && query('token') !== setupToken) {
             sendJson(res, 403, { error: 'Invalid setup token' });
             return;
           }
           const ok = uploads.delete(id);
           if (ok) { try { onChange?.('uploads-changed'); } catch (cbErr) { console.error('[lan] onChange callback threw:', cbErr); } }
-          sendJson(res, ok ? 200 : 404, { deleted: ok, id });
+          sendJson(res, ok ? 200 : 404, { deleted: ok, id }, fromApp);
         } else {
-          const local = isLoopback(req);
-          if (!local && query('token') !== setupToken) {
-            sendJson(res, 403, { error: 'Invalid setup token' }, false);
+          if (!fromApp && query('token') !== setupToken) {
+            sendJson(res, 403, { error: 'Invalid setup token' });
             return;
           }
           try {
-            send(res, 200, 'audio/mpegurl; charset=utf-8', uploads.read(id), local);
+            send(res, 200, 'audio/mpegurl; charset=utf-8', uploads.read(id), fromApp);
           } catch {
-            send(res, 404, 'text/plain; charset=utf-8', 'Upload not found: ' + id, local);
+            send(res, 404, 'text/plain; charset=utf-8', 'Upload not found: ' + id, fromApp);
           }
         }
       } else {
@@ -323,7 +329,7 @@ export function startServer(
       console.log('[lan] setup page: http://' + getLanIp() + ':' + actualPort + '/setup');
       // Permanent error handler so post-listen errors don't crash the process.
       server.on('error', (e) => console.error('[lan] server error:', e));
-      resolve({ server, port: actualPort });
+      resolve({ server, port: actualPort, appKey });
     };
     server.once('error', onError);
     server.once('listening', onListening);

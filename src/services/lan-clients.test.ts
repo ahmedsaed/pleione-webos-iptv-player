@@ -119,6 +119,10 @@ describe('uploadIdFromUrl', () => {
     expect(uploadIdFromUrl('http://x/uploads/some%20list.m3u')).toBe('some list');
   });
 
+  it('ignores the app key the service adds to the URL', () => {
+    expect(uploadIdFromUrl('http://127.0.0.1:8890/uploads/my-list.m3u?key=k1')).toBe('my-list');
+  });
+
   it('tolerates a URL without the .m3u suffix', () => {
     expect(uploadIdFromUrl('http://x/uploads/raw')).toBe('raw');
   });
@@ -126,6 +130,35 @@ describe('uploadIdFromUrl', () => {
   it('returns "" for URLs that do not match the /uploads/ pattern', () => {
     expect(uploadIdFromUrl('http://example.com/feeds/list.m3u')).toBe('');
     expect(uploadIdFromUrl('')).toBe('');
+  });
+});
+
+describe('LAN clients with the app key from Luna', () => {
+  beforeEach(() => setServicePort(8890, 'k1'));
+
+  it('sends the key on every local-only request', async () => {
+    fetchWithTimeoutMock.mockResolvedValue(jsonResponse([]));
+    await SetupClient.getInfo();
+    await SetupClient.applyPendingActions();
+    await SetupClient.publishState();
+    await UploadClient.list();
+    await UploadClient.remove('u1');
+
+    expect(fetchWithTimeoutMock.mock.calls.map(call => call[0])).toEqual([
+      'http://127.0.0.1:8890/info?key=k1',
+      'http://127.0.0.1:8890/setup-actions?key=k1',
+      'http://127.0.0.1:8890/setup-state?key=k1',
+      'http://127.0.0.1:8890/uploads?key=k1',
+      'http://127.0.0.1:8890/uploads/u1?key=k1',
+    ]);
+  });
+
+  it('forgets the key with the port', async () => {
+    setServicePort(null);
+    setServicePort(8891);
+    fetchWithTimeoutMock.mockResolvedValue(jsonResponse([]));
+    await UploadClient.list();
+    expect(fetchWithTimeoutMock.mock.calls[0][0]).toBe('http://127.0.0.1:8891/uploads');
   });
 });
 

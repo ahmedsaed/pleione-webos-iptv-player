@@ -41,6 +41,8 @@ export function startLanStandalone(dataDir: string): void {
 export function registerLanService(service: LunaService, dataDir: string): void {
   let server: http.Server | null = null;
   let actualPort: number | null = null;
+  // Sent only over Luna, which no web page can reach; see startServer.
+  let appKey: string | null = null;
   // Buffer for `start` messages that arrive before the HTTP server has finished
   // binding. We respond synchronously once the bind resolves to avoid using
   // `await` inside the Luna handler — async handlers break the message/activity
@@ -82,13 +84,14 @@ export function registerLanService(service: LunaService, dataDir: string): void 
       bindInProgress = false;
       server = r.server;
       actualPort = r.port;
+      appKey = r.appKey;
       console.log('[lan] HTTP server ready on port ' + actualPort);
       if (!keepAliveCreated) {
         service.activityManager.create('keepAlive', () => { /* keep service alive */ });
         keepAliveCreated = true;
       }
       // Drain any `start` calls that arrived before this bind finished.
-      for (const m of pendingStarts) m.respond({ running: true, port: actualPort });
+      for (const m of pendingStarts) m.respond({ running: true, port: actualPort, key: appKey });
       pendingStarts.length = 0;
     }).catch((err) => {
       bindInProgress = false;
@@ -106,7 +109,7 @@ export function registerLanService(service: LunaService, dataDir: string): void 
   service.register('start', (msg) => {
     console.log('[lan] start method invoked');
     if (actualPort !== null) {
-      msg.respond({ running: true, port: actualPort });
+      msg.respond({ running: true, port: actualPort, key: appKey });
     } else {
       // Server still binding (or was torn down by stop and needs a fresh
       // bind) — queue this msg and kick a bind if one isn't already in
@@ -117,7 +120,7 @@ export function registerLanService(service: LunaService, dataDir: string): void 
   });
 
   service.register('heartbeat', (msg) => {
-    msg.respond({ running: !!server, port: actualPort });
+    msg.respond({ running: !!server, port: actualPort, key: appKey });
   });
 
   // Graceful shutdown. The app calls this when it is backgrounded
@@ -144,6 +147,7 @@ export function registerLanService(service: LunaService, dataDir: string): void 
       const s = server;
       server = null;
       actualPort = null;
+      appKey = null;
       s.close((err) => {
         if (err) console.warn('[lan] server.close error:', err);
         else console.log('[lan] HTTP server closed');
