@@ -319,7 +319,6 @@ test('Previous restarts the episode, or within its first minute plays the one be
   await expect(previous).toBeEnabled();
 
   // A pointer click works the same way; the first episode disables Previous.
-  await page.keyboard.press('ArrowUp');
   await previous.click();
   await expect(episodeTitle(page)).toContainText('S1E1');
   await expect(previous).toBeDisabled();

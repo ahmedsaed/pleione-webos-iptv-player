@@ -493,6 +493,19 @@ describe('Player catch-up pause/play', () => {
     expect(video.paused).toBe(false);
   });
 
+  it('Up hides the controls from the seek bar after stepping up from the buttons', () => {
+    remoteKeys();
+    player.handleAction('select');
+    player.handleAction('down');
+    const osd = container.querySelector('#player-osd')!;
+    player.handleAction('up');
+    expect(osd.classList.contains('hidden')).toBe(false);
+    expect(container.querySelector('[data-seekbar]')!.classList.contains('focused')).toBe(true);
+    player.handleAction('up');
+    expect(osd.classList.contains('hidden')).toBe(true);
+    expect(video.paused).toBe(true);
+  });
+
   it('the pause/play remote keys toggle playback', () => {
     player.handleAction('pause');
     expect(video.paused).toBe(true);
@@ -2497,6 +2510,32 @@ describe('Player controls', () => {
       expect(video.paused).toBe(false);
     });
 
+    it('hides the controls with Up from the seek bar; Down brings them back', () => {
+      expect(internals().osd.focused()).toBe('seek');
+      player.handleAction('down');
+      player.handleAction('up');
+      expect(internals().osd.focused()).toBe('seek');
+      expect(osdHidden()).toBe(false);
+      player.handleAction('up');
+      expect(osdHidden()).toBe(true);
+      expect(internals().osd.isActive()).toBe(false);
+      expect(video.paused).toBe(false);
+      player.handleAction('down');
+      expect(osdHidden()).toBe(false);
+      expect(internals().osd.focused()).toBe('seek');
+    });
+
+    it('hides paused controls with Up, leaving playback paused', () => {
+      player.handleAction('select');
+      expect(video.paused).toBe(true);
+      player.handleAction('up');
+      expect(osdHidden()).toBe(true);
+      expect(video.paused).toBe(true);
+      player.handleAction('select');
+      expect(osdHidden()).toBe(false);
+      expect(video.paused).toBe(false);
+    });
+
     it('pauses and resumes with OK, showing the controls', () => {
       internals().osd.hide();
       player.handleAction('select');
@@ -2681,6 +2720,22 @@ describe('Player controls', () => {
       expect(internals().osd.focused()).toBe('info');
       expect(player.handleBack()).toBe(true);
       expect(osdHidden()).toBe(true);
+    });
+
+    it('hides the controls with Up from their only row, then Up changes channel again', () => {
+      player.handleAction('select');
+      player.handleAction('right');
+      expect(internals().osd.focused()).toBe('info');
+      player.handleAction('up');
+      expect(osdHidden()).toBe(true);
+      expect(internals().osd.isActive()).toBe(false);
+      expect(player.getCurrentChannel()).toBe(CHANNEL);
+      player.handleAction('select');
+      expect(osdHidden()).toBe(false);
+      expect(internals().osd.isActive()).toBe(true);
+      player.handleBack();
+      player.handleAction('up');
+      expect(player.getCurrentChannel()).not.toBe(CHANNEL);
     });
 
     it('gives the keys back on a channel change', () => {

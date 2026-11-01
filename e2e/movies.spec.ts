@@ -477,7 +477,6 @@ test('VOD holding Right speeds the skip up from 10s to 30s to 60s', async ({ pag
 
 test('VOD controls answer the pointer: a click on Play/Pause pauses', async ({ page }) => {
   await startFakeVod(page);
-  await page.keyboard.press('ArrowUp');
   const button = page.locator('#player-osd [data-dock-action="playpause"]');
   await button.hover();
   await expect(button).toHaveClass(/focused/);

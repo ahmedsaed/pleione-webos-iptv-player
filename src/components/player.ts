@@ -872,9 +872,9 @@ export class Player {
       case 'up':
       case 'down':
         // Show the controls without pausing; once up, Down steps into the
-        // buttons and Up back to the bar.
+        // buttons, Up back to the bar, and Up from the top row hides them.
         if (!this.osd.isActive()) this.showOSD();
-        else this.osd.move(action);
+        else this.moveOrHideOsd(action);
         break;
       case 'play':
         if (this.videoEl?.paused) this.pauseToggle();
@@ -888,6 +888,13 @@ export class Player {
       default:
         break; // channel_up/channel_down are no-ops (no channels in VOD)
     }
+  }
+
+  // Up past the controls' top row puts them away, as Back does.
+  private moveOrHideOsd(action: 'up' | 'down'): void {
+    if (this.osd.move(action) || action !== 'up') return;
+    this.osd.clearPointer();
+    this.osd.hide();
   }
 
   closeSubtitleSearch(): void {
@@ -1812,7 +1819,7 @@ export class Player {
         break;
       case 'up':
       case 'down':
-        if (active) this.osd.move(action);
+        if (active) this.moveOrHideOsd(action);
         else if (action === 'up') this.channelUp();
         else this.channelDown();
         break;
