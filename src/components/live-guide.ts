@@ -1,6 +1,7 @@
 import type { Action, CatchupInfo, CatchupProgressEntry, Channel, ChannelScope, Programme } from '../types';
 import { Focus, type FocusScope } from '../navigation/focus-scope';
 import { html, raw, type Safe } from '../utils/dom';
+import { inlineStart } from '../utils/direction';
 import { morph } from '../utils/morph';
 import { channelKey, legacyChannelKey } from '../utils/channel';
 import { addDisplayDays, displayDayKey, formatDayLabel, formatTime } from '../utils/time';
@@ -196,6 +197,8 @@ export class LiveGuide {
     this.nowInWindow = !!nowLeft;
     const focus = this.focusedCell();
     const focusKey = this.focusKey();
+    // Time runs from the row's start: left to right, or right to left.
+    const start = inlineStart();
     morph(this.container, html`
       <div class="guide">
         <div class="guide-ruler" data-key="ruler">
@@ -203,13 +206,13 @@ export class LiveGuide {
           <div class="guide-times">
             ${this.halfHours().map(time => html`
               <span class="guide-time" data-key="time:${time}"
-                    style="left:${(time - this.windowStart) / GUIDE_SPAN_MS * 100}%">${formatTime(new Date(time))}</span>`)}
+                    style="${start}:${(time - this.windowStart) / GUIDE_SPAN_MS * 100}%">${formatTime(new Date(time))}</span>`)}
             ${nowLeft ? html`<span class="guide-now-pill" data-key="now-pill"
-                    style="left:${nowLeft.left}%">${formatTime(new Date(now))}</span>` : ''}
+                    style="${start}:${nowLeft.left}%">${formatTime(new Date(now))}</span>` : ''}
           </div>
         </div>
         <div class="guide-body" data-key="body">
-          ${nowLeft ? html`<div class="guide-now-line" data-key="now-line"><i style="left:${nowLeft.left}%"></i></div>` : ''}
+          ${nowLeft ? html`<div class="guide-now-line" data-key="now-line"><i style="${start}:${nowLeft.left}%"></i></div>` : ''}
           ${rows.map((channel, offset) => this.renderRow(channel, this.firstRow + offset,
             (offset) * stride, now))}
           ${this.channels.length ? '' : html`<div class="empty-state">${t('channel.empty')}</div>`}
@@ -299,7 +302,7 @@ export class LiveGuide {
       <div class="guide-cell ${state} ${program ? '' : 'empty'} ${reminder ? 'reminder' : ''}"
            data-key="${this.cellKey(index, cell)}" data-focusable data-guide-cell
            data-row="${position}" data-time="${cell.start}"
-           style="left:${box.left}%;width:${box.width}%">
+           style="${inlineStart()}:${box.left}%;width:${box.width}%">
         <span class="guide-cell-title">${catchup ? raw(REPLAY_ICON) : ''}${reminder ? raw(bellIcon(true)) : ''}<span>${
           program ? program.title : noData ? t('epg.noData') : ''}</span></span>
         ${program ? html`<span class="guide-cell-time">${formatTime(program.start)}–${formatTime(program.stop)}</span>` : ''}

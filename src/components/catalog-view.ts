@@ -13,6 +13,7 @@ import { FocusRing, isHovered, ringShown } from '../navigation/focus-ring';
 import { InputMode } from '../navigation/input-mode';
 import type { NavWheelDetail } from '../navigation/key-handler';
 import { html, raw, Safe, withInstantScroll } from '../utils/dom';
+import { inlineStart, isRtl, scrollFromLeft, scrollStart, setScrollFromLeft } from '../utils/direction';
 import { categoryLockBadge, lockBadge } from './parental-badge';
 import { SORT_ASCENDING_ICON, SORT_DESCENDING_ICON, SEE_ALL_ICON, CHECK_ICON, PLUS_ICON, STAR_ICON } from './icons';
 import { DetailTextOverlay } from './detail-text-overlay';
@@ -1210,12 +1211,12 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       || track.classList.contains('series-seasons'))) return false;
     // The tile's box at rest: the focus lift scales it about its center,
     // mid-transition on a key press, and the track's padding leaves room
-    // for it.
+    // for it. Offsets run from the track's left edge in either direction.
     const rect = el.getBoundingClientRect();
     const start = rect.left + (rect.width - el.offsetWidth) / 2
-      - track.getBoundingClientRect().left - track.clientLeft + track.scrollLeft;
+      - track.getBoundingClientRect().left - track.clientLeft + scrollFromLeft(track);
     const end = start + el.offsetWidth;
-    const current = track.scrollLeft;
+    const current = scrollFromLeft(track);
     // A tile leaving on the left lines up with the rail's keyline, not the
     // screen edge the track bleeds to.
     const style = getComputedStyle(track);
@@ -1230,9 +1231,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     // A tile already in view only needs an instant nudge; otherwise retarget
     // the running smooth scroll so it moves once.
     if (instant || (start >= current && end <= current + track.clientWidth)) {
-      withInstantScroll([track], () => { track.scrollLeft = target; });
+      withInstantScroll([track], () => { setScrollFromLeft(track, target); });
     } else {
-      track.scrollLeft = target;
+      setScrollFromLeft(track, target);
     }
     return true;
   }
@@ -1775,15 +1776,20 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       poster.style.setProperty('top', `${Math.max(pad, Math.min(uiPx(DETAIL_POSTER_TOP), height - pad - posterHeight))}px`);
       poster.style.setProperty('height', `${posterHeight}px`);
       poster.style.setProperty('width', `${posterWidth}px`);
+      // Measured from the hero's start edge: the left, or the right in RTL,
+      // where the text column and its actions start and the poster ends.
+      const rtl = isRtl();
       const last = body.querySelector<HTMLElement>('.detail-actions')?.lastElementChild as HTMLElement | null;
-      const actionsEnd = last ? last.offsetLeft + last.offsetWidth : 0;
-      if (body.offsetLeft + actionsEnd + gap > posterLeft) {
+      const actionsEnd = !last ? 0
+        : rtl ? body.offsetWidth - last.offsetLeft : last.offsetLeft + last.offsetWidth;
+      const bodyStart = rtl ? hero.clientWidth - body.offsetLeft - body.offsetWidth : body.offsetLeft;
+      if (bodyStart + actionsEnd + gap > posterLeft) {
         poster.style.setProperty('display', 'none');
-        body.style.setProperty('width', `${Math.max(0, hero.clientWidth - 2 * body.offsetLeft)}px`);
+        body.style.setProperty('width', `${Math.max(0, hero.clientWidth - 2 * bodyStart)}px`);
       } else {
         // Wider than the usual column when the actions need it, so they never overflow.
         const width = Math.max(uiPx(DETAIL_BODY_WIDTH), actionsEnd);
-        body.style.setProperty('width', `${Math.max(0, Math.min(width, posterLeft - gap - body.offsetLeft))}px`);
+        body.style.setProperty('width', `${Math.max(0, Math.min(width, posterLeft - gap - bodyStart))}px`);
       }
     }
     const plotBox = body.querySelector<HTMLElement>('.detail-plot-box');
@@ -2005,7 +2011,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     const moreCats = this.categories.length > this.railGroups.length ? this.categories : [];
     const previousCategoryRail = browse.querySelector<HTMLElement>('.catalog-category-rail');
     if (restoreFocus && previousCategoryRail) {
-      this.categoryVirtualizer.setScrollOffset(previousCategoryRail.scrollLeft);
+      this.categoryVirtualizer.setScrollOffset(scrollStart(previousCategoryRail));
     }
     const categoryViewport = previousCategoryRail?.clientWidth || CATEGORY_RAIL_VIEWPORT;
     const categoryRange = this.categoryVirtualizer.getRange(moreCats.length, categoryViewport);
@@ -2042,7 +2048,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
                               <div class="catalog-category-rail-cell"
                                    data-key="category-cell:${c.id}"
                                    data-category-virtual-index="${index}"
-                                   style="left:${this.categoryVirtualizer.getItemOffset(index)}px">
+                                   style="${inlineStart()}:${this.categoryVirtualizer.getItemOffset(index)}px">
                                 <div class="catalog-cat" data-focusable
                                      data-key="c:${c.id}" data-category-id="${c.id}">${
                                   raw(categoryLockBadge(this.parentalKind, this.account!.id, c.id))
@@ -2129,7 +2135,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       const position = this.gridVirtualizer.getItemPosition(index, range.columns);
       cells.push(html`
         <div class="catalog-grid-cell" data-key="grid:${source.keyAt(index)}" data-grid-index="${index}"
-             style="left:${position.left + inset}px;top:${position.top}px">${source.render(index)}</div>
+             style="${inlineStart()}:${position.left + inset}px;top:${position.top}px">${source.render(index)}</div>
       `);
     }
     morph(gridLayer, html`

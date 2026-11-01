@@ -311,6 +311,7 @@ npm run xtream:demo
 - [`docs/vod-subtitles.md`](docs/vod-subtitles.md) — Xtream 电影与剧集的字幕实现，包括容器内字幕、外挂 SRT/WebVTT/ASS 字幕，以及 SubDL、OpenSubtitles 和 Assrt 在线搜索
 - [`docs/storage-and-data.md`](docs/storage-and-data.md) — 应用的数据存储范围与位置，以及用户数据和临时缓存的隔离方式
 - [`docs/lan-service.md`](docs/lan-service.md) — 通过内置局域网服务完成手机端设置和 M3U 文件上传
+- [`docs/rtl-layout.md`](docs/rtl-layout.md) — 阿拉伯语等从右到左语言的界面镜像方式
 - [`docs/xtream-demo-server.md`](docs/xtream-demo-server.md) — 本地演示 Xtream 服务器，提供合成目录和真实媒体，用于手动测试
 - [`docs/unsupported-features.md`](docs/unsupported-features.md) — webOS 不允许或有意不提供的功能，以及替代方案
 

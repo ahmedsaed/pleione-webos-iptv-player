@@ -42,6 +42,16 @@ export function applyInterfaceSize(size: string): void {
   swapInterfaceStylesheets(valid);
 }
 
+/** Layout direction → `dir` on the document root plus the matching
+ *  (mirrored) stylesheet set, remembered for the next boot's first paint. */
+export function applyDirection(direction: 'ltr' | 'rtl'): void {
+  const root = document.documentElement;
+  const changed = (root.dir === 'rtl') !== (direction === 'rtl');
+  root.dir = direction;
+  if (changed) swapInterfaceStylesheets(root.dataset.interfaceSize || DEFAULT_INTERFACE_SIZE);
+  if (StorageService.getDirection() !== direction) StorageService.setDirection(direction);
+}
+
 /** Re-assert the stored theme + overlay style on boot (belt-and-suspenders
  *  alongside the inline <head> script that beats the first paint). */
 export function initTheme(): void {

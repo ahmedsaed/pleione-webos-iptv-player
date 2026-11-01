@@ -1240,6 +1240,15 @@ export const StorageService = {
     set('locale', locale);
   },
 
+  // The layout direction of the last locale, so index.html can load the
+  // mirrored stylesheets before the first paint. A cache: the locale decides.
+  getDirection(): 'ltr' | 'rtl' {
+    return get<unknown>('direction', 'ltr') === 'rtl' ? 'rtl' : 'ltr';
+  },
+  setDirection(direction: 'ltr' | 'rtl'): void {
+    set('direction', direction);
+  },
+
   // Selected color theme id (see src/config/themes.ts). Default = Midnight.
   getTheme(): string {
     return get<string>('theme', DEFAULT_THEME);

@@ -1,6 +1,7 @@
 import type { CatchupInfo, Channel, Programme } from '../types';
 import { StorageService } from '../services/storage-service';
 import { $, hide, html, inShownView, raw, type Safe, show } from '../utils/dom';
+import { isRtl, screenSide } from '../utils/direction';
 import { type DvrState } from '../utils/dvr';
 import { morph } from '../utils/morph';
 import { formatDuration, formatPosition, formatTime, getProgress } from '../utils/time';
@@ -228,11 +229,14 @@ export class PlayerOsd {
     const rows = this.rows();
     const row = rows.findIndex(keys => keys.indexOf(this.focusKey) >= 0);
     if (row < 0) return false;
-    const keys = rows[row];
+    const keys = isRtl() ? this.onScreenOrder(rows[row]) : rows[row];
     const at = keys.indexOf(this.focusKey);
+    // Left and Right follow the buttons' places on screen, which a mirrored
+    // dock with a left-to-right transport no longer keeps in DOM order.
+    const side = direction === 'left' || direction === 'right' ? screenSide(direction) : direction;
     let target: DockControl | undefined;
-    if (direction === 'left') target = keys[at - 1];
-    else if (direction === 'right') target = keys[at + 1];
+    if (side === 'left') target = keys[at - 1];
+    else if (side === 'right') target = keys[at + 1];
     else {
       const next = rows[row + (direction === 'down' ? 1 : -1)];
       target = next && (next.indexOf('playpause') >= 0 ? 'playpause' : next[0]);
@@ -240,6 +244,15 @@ export class PlayerOsd {
     if (!target) return false;
     this.focus(target, 'key');
     return true;
+  }
+
+  // A row's controls from left to right on screen.
+  private onScreenOrder(keys: DockControl[]): DockControl[] {
+    const left = (key: DockControl): number =>
+      this.controlElement(key)?.getBoundingClientRect().left ?? 0;
+    return keys.map((key, index) => ({ key, index, x: left(key) }))
+      .sort((a, b) => a.x - b.x || a.index - b.index)
+      .map(entry => entry.key);
   }
 
   /** OK on the focused control. */
@@ -336,7 +349,7 @@ export class PlayerOsd {
       const progressRow = state.dvr
         ? this.dvrProgressRow(state.dvr, state.seek)
         : nowPlaying ? html`
-          <div class="osd-progress-row">
+          <div class="osd-progress-row" dir="ltr">
             <span class="osd-time-current">${formatTime(new Date())}</span>
             <div class="osd-progress">
               <div class="osd-progress-bar"
@@ -557,7 +570,7 @@ export class PlayerOsd {
   private seekRow(pos: number, dur: number, seek: PlayerOsdSnapshot['seek']): Safe {
     const fraction = dur > 0 ? pos / dur : 0;
     return html`
-      <div class="osd-progress-row" data-dock-row>
+      <div class="osd-progress-row" dir="ltr" data-dock-row>
         <span class="osd-time-current">${formatPosition(pos)}</span>
         ${this.seekBar(fraction, seek ? formatPosition(pos) : '', seek)}
         <span class="osd-time-end">${dur > 0 ? formatPosition(dur) : ''}</span>
@@ -589,7 +602,7 @@ export class PlayerOsd {
 
   private dvrProgressRow(state: DvrState, seek: PlayerOsdSnapshot['seek']): Safe {
     return html`
-      <div class="osd-progress-row osd-dvr-row" data-dock-row>
+      <div class="osd-progress-row osd-dvr-row" dir="ltr" data-dock-row>
         <span class="osd-time-current osd-dvr-behind">${this.dvrBubbleText(state)}</span>
         ${this.seekBar(state.fraction, this.dvrBubbleText(state), seek)}
         <button class="osd-time-end osd-dvr-live ${state.atLiveEdge ? 'is-live' : ''}"
@@ -600,6 +613,9 @@ export class PlayerOsd {
 
   // The dock's buttons: the transport (restart or previous, play/pause, next) centered,
   // the channel's own controls on the left, stream choices on the right.
+  // Playback runs left to right in every language (docs/rtl-layout.md), so
+  // the transport and the seek rows are left-to-right islands in a mirrored
+  // dock; the side groups mirror around them.
   private controlsRow(state: PlayerOsdSnapshot): Safe {
     const c = state.controls;
     const paused = state.playback?.paused ?? false;
@@ -629,7 +645,7 @@ export class PlayerOsd {
         <div class="osd-controls-side">
           <div class="osd-controls-group">${start}</div>
         </div>
-        <div class="osd-controls-group osd-controls-center">${center}</div>
+        <div class="osd-controls-group osd-controls-center" dir="ltr">${center}</div>
         <div class="osd-controls-side osd-controls-side--end">
           <div class="osd-controls-group">${end}</div>
         </div>

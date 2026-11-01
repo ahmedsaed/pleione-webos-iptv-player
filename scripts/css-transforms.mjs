@@ -386,3 +386,187 @@ export function convertLegacyColorSyntax(css) {
 
   return root.toString();
 }
+
+// Right-to-left copies. The build writes a mirrored copy of every stylesheet
+// to css/rtl/ (and css/rtl/ui-<size>/), which a right-to-left locale loads
+// beside <html dir="rtl"> (src/utils/direction.ts). A whole copy, not an
+// overlay of [dir="rtl"] rules: an overlay outranks every rule it does not
+// restate, so its cascade could never match the left-to-right one.
+//
+// What flips: physical sides in property names (margin-left, left,
+// border-top-left-radius), left/right keywords, the second and fourth
+// values of four-side shorthands, horizontal translations and shadow
+// offsets, and horizontal gradient directions. Flex and grid rows mirror on
+// their own through `direction`. A `/* rtl:ignore -- reason */` comment
+// keeps the next declaration, or the whole rule or block it precedes,
+// unmirrored; a rule whose selector names [dir] is written for one direction
+// already.
+export const RTL_IGNORE = 'rtl:ignore';
+
+const SIDE_RE = /\b(left|right)\b/g;
+const swapSide = (text) => text.replace(SIDE_RE, (side) => (side === 'left' ? 'right' : 'left'));
+const SIDE_PROP_RE = /(^|-)(left|right)(-|$)/;
+const DIR_SELECTOR_RE = /\[dir[\]=~|^$*]/;
+const FOUR_SIDE_PROPS = new Set([
+  'margin', 'padding', 'border-width', 'border-style', 'border-color', 'inset',
+  'scroll-padding', 'scroll-margin',
+]);
+const KEYWORD_PROPS = new Set([
+  'text-align', 'float', 'clear', 'transition', 'transition-property', 'will-change',
+]);
+const POSITION_PROPS = new Set([
+  'transform-origin', 'background-position', 'object-position', '-webkit-mask-position',
+]);
+const SHADOW_PROPS = new Set(['box-shadow', 'text-shadow']);
+const GRADIENT_RE = /\b(?:repeating-)?(?:linear|radial)-gradient\(/;
+const LENGTH_RE = /^-?(\d+\.?\d*|\.\d+)[a-z%]*$/i;
+
+export function negateLength(value) {
+  const v = value.trim();
+  if (/^-?0(\.0+)?[a-z%]*$/i.test(v)) return v;
+  if (LENGTH_RE.test(v)) return v.startsWith('-') ? v.slice(1) : `-${v}`;
+  const negated = /^calc\(-1 \* \((.*)\)\)$/i.exec(v);
+  if (negated) return /^var\([^()]*\)$/.test(negated[1]) ? negated[1] : `calc(${negated[1]})`;
+  const calc = /^calc\((.*)\)$/i.exec(v);
+  return `calc(-1 * (${calc ? calc[1] : v}))`;
+}
+
+// The top-level arguments of the call whose parenthesis opens at `open`.
+function callArgs(value, open) {
+  let depth = 0;
+  let start = open + 1;
+  const args = [];
+  for (let i = open; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === '(') depth += 1;
+    else if (ch === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        args.push(value.slice(start, i));
+        return { args, end: i };
+      }
+    } else if (ch === ',' && depth === 1) {
+      args.push(value.slice(start, i));
+      start = i + 1;
+    }
+  }
+  return { args, end: value.length - 1 };
+}
+
+// Rewrites each call whose name `nameRe` captures through `rewrite(name, args)`.
+function mapCalls(value, nameRe, rewrite) {
+  const re = new RegExp(nameRe.source, 'g');
+  let out = '';
+  let i = 0;
+  let match;
+  while ((match = re.exec(value)) !== null) {
+    const open = match.index + match[0].length - 1;
+    const { args, end } = callArgs(value, open);
+    out += value.slice(i, match.index) + rewrite(match[1], args.map((arg) => arg.trim()));
+    i = end + 1;
+    re.lastIndex = i;
+  }
+  return out + value.slice(i);
+}
+
+function mirrorTransform(value) {
+  return mapCalls(value, /\b(translateX|translate|translate3d)\(/, (name, [x, ...rest]) =>
+    `${name}(${[negateLength(x), ...rest].join(', ')})`);
+}
+
+function mirrorOffset(token) {
+  if (token === 'left' || token === 'right') return swapSide(token);
+  const percent = /^(-?\d*\.?\d+)%$/.exec(token);
+  return percent ? `${String(Math.round((100 - parseFloat(percent[1])) * 1000) / 1000)}%` : token;
+}
+
+// The horizontal part of a <position>: a keyword or a percentage mirrors; a
+// length from the left edge has no mirrored form without the box size.
+function mirrorPosition(text) {
+  const parts = postcss.list.space(text);
+  const x = parts[0] === 'top' || parts[0] === 'bottom' ? 1 : 0;
+  if (parts[x]) parts[x] = mirrorOffset(parts[x]);
+  return parts.join(' ');
+}
+
+function mirrorGradients(value) {
+  return mapCalls(value, /\b((?:repeating-)?(?:linear|radial)-gradient)\(/, (name, [first, ...rest]) => {
+    let head = first;
+    if (name.includes('linear')) {
+      const angle = /^(-?\d*\.?\d+)deg$/.exec(first);
+      if (angle) head = `${String((360 - parseFloat(angle[1])) % 360)}deg`;
+      else if (/^to\s/.test(first)) head = swapSide(first);
+    } else {
+      const at = /^(.*?)\bat\s+(.*)$/.exec(first);
+      if (at) head = `${at[1]}at ${mirrorPosition(at[2])}`;
+    }
+    return `${name}(${[head, ...rest].join(', ')})`;
+  });
+}
+
+function mirrorShadow(value) {
+  let changed = false;
+  const mirrored = postcss.list.comma(value).map((shadow) => {
+    const parts = postcss.list.space(shadow);
+    // A lone var() may hold a whole shadow, so only a literal offset pair counts.
+    const lengths = parts.map((part, i) => (LENGTH_RE.test(part) || /^calc\(/i.test(part) ? i : -1))
+      .filter((i) => i >= 0);
+    if (lengths.length >= 2) {
+      const x = negateLength(parts[lengths[0]]);
+      changed = changed || x !== parts[lengths[0]];
+      parts[lengths[0]] = x;
+    }
+    return parts.join(' ');
+  }).join(', ');
+  return changed ? mirrored : value;
+}
+
+function mirrorRadius(value) {
+  return value.split('/').map((half) => {
+    const v = postcss.list.space(half.trim());
+    if (v.length === 2) return `${v[1]} ${v[0]}`;
+    if (v.length === 3) return `${v[1]} ${v[0]} ${v[1]} ${v[2]}`;
+    if (v.length === 4) return `${v[1]} ${v[0]} ${v[3]} ${v[2]}`;
+    return half.trim();
+  }).join(' / ');
+}
+
+function mirrorDeclaration(decl) {
+  const prop = decl.prop.toLowerCase();
+  if (!prop.startsWith('--')) {
+    if (SIDE_PROP_RE.test(prop)) decl.prop = swapSide(decl.prop);
+    const value = decl.value;
+    if (FOUR_SIDE_PROPS.has(prop)) {
+      const v = postcss.list.space(value);
+      if (v.length === 4) decl.value = [v[0], v[3], v[2], v[1]].join(' ');
+    } else if (prop === 'border-radius') {
+      decl.value = mirrorRadius(value);
+    } else if (KEYWORD_PROPS.has(prop)) {
+      decl.value = swapSide(value);
+    } else if (prop === 'transform' || prop === '-webkit-transform') {
+      decl.value = mirrorTransform(value);
+    } else if (POSITION_PROPS.has(prop)) {
+      decl.value = postcss.list.comma(value).map(mirrorPosition).join(', ');
+    } else if (SHADOW_PROPS.has(prop) && value !== 'none') {
+      decl.value = mirrorShadow(value);
+    }
+  }
+  if (GRADIENT_RE.test(decl.value)) decl.value = mirrorGradients(decl.value);
+}
+
+// `/* rtl:ignore */`, optionally followed by the reason: `rtl:ignore -- why`.
+const isIgnoreComment = (node) => !!node && node.type === 'comment'
+  && (node.text.trim() === RTL_IGNORE || node.text.trim().startsWith(`${RTL_IGNORE} `));
+
+export function mirrorStylesheet(css) {
+  const root = postcss.parse(css);
+  root.walkDecls((decl) => {
+    if (isIgnoreComment(decl.prev())) return;
+    for (let node = decl.parent; node && node.type !== 'root'; node = node.parent) {
+      if (isIgnoreComment(node.prev())) return;
+      if (node.type === 'rule' && DIR_SELECTOR_RE.test(node.selector)) return;
+    }
+    mirrorDeclaration(decl);
+  });
+  return root.toString();
+}

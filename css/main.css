@@ -163,15 +163,25 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Arabic keeps the LTR layout; each text block takes its direction from its
-   first strong character so Arabic sentences read right to left. */
-html[lang="ar"] body * {
+/* Right-to-left locales get the build's mirrored stylesheets (css/rtl/;
+   docs/rtl-layout.md). Each text block still takes its direction from its
+   first strong character, so a Latin name, a time range or an episode code
+   keeps its own reading order in the mirrored layout, and text aligns to
+   the right, the layout's start edge, whichever way it reads. */
+html[dir="rtl"] body * {
   unicode-bidi: plaintext;
 }
 
-/* An Arabic placeholder that overflows must lose its end, not its start. */
-html[lang="ar"] input {
-  direction: rtl;
+html[dir="rtl"] body,
+html[dir="rtl"] input,
+html[dir="rtl"] textarea {
+  text-align: right;
+}
+
+/* An icon that points along the reading direction (back, chevrons,
+   previous/next) turns around with it; media and clock icons do not. */
+html[dir="rtl"] .rtl-mirror {
+  transform: scaleX(-1);
 }
 
 .view {
@@ -427,8 +437,10 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
   transform: translateY(0) scale(1);
 }
 
+/* One tile per digit: a channel number reads left to right in every locale. */
 .number-entry-digits {
   display: block;
+  direction: ltr;
   white-space: nowrap;
 }
 
@@ -500,6 +512,7 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
   display: none;
 }
 
+/* rtl:ignore -- player-presentation.ts places the preview by its left edge */
 #video-player {
   position: fixed;
   top: 0;

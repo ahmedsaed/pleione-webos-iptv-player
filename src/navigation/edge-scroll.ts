@@ -3,6 +3,7 @@ import { withInstantScroll } from '../utils/dom';
 import { Focus, Tier, type FocusScope } from './focus-scope';
 import { InputMode } from './input-mode';
 import { uiPx } from '../utils/ui-scale';
+import { isRtl, scrollFromLeft, setScrollFromLeft } from '../utils/direction';
 
 interface Edge {
   track: HTMLElement;
@@ -33,6 +34,11 @@ export function edgeScrollTrackAt(root: HTMLElement, x: number, y: number): HTML
     if (track.contains(document.elementFromPoint(Math.max(left, Math.min(right - 1, x)), y))) return track;
   }
   return null;
+}
+
+// The edge a row ends at: its right, or its left in right to left.
+function atRowEnd(edge: Edge): boolean {
+  return isRtl() && getComputedStyle(edge.track).direction === 'rtl' ? edge.direction < 0 : edge.direction > 0;
 }
 
 export function edgeScrollSpeed(scrollingMs: number): number {
@@ -92,7 +98,8 @@ export function installEdgeScroll(
     if (point.y < top || point.y >= bottom) return null;
     const zone = Math.min(uiPx(N.EDGE_SCROLL_ZONE_PX), (right - left) / 3);
     const direction = point.x < left + zone ? -1 : point.x >= right - zone ? 1 : 0;
-    if (!direction || (!atEnd && (direction < 0 ? track.scrollLeft <= 0 : track.scrollLeft >= max - 1))) return null;
+    const fromLeft = scrollFromLeft(track);
+    if (!direction || (!atEnd && (direction < 0 ? fromLeft <= 0 : fromLeft >= max - 1))) return null;
     return { track, owner, direction };
   };
 
@@ -110,22 +117,23 @@ export function installEdgeScroll(
       // A rAF timestamp may precede the clock read that started the run.
       const elapsed = Math.max(0, Math.min(now - lastFrame, 50));
       const track = edge.track;
-      const before = track.scrollLeft;
+      // Physical offsets: `direction` is the screen side the pointer is on.
+      const before = scrollFromLeft(track);
       const max = track.scrollWidth - track.clientWidth;
       if (edge.direction < 0 ? before <= 0 : before >= max - 1) {
         const end = edge;
         const ran = performance.now() - enteredAt;
         stop();
         // Only content loading after the end can grow a track.
-        if (end.direction > 0) park(end, ran);
+        if (atRowEnd(end)) park(end, ran);
         return;
       }
       const offset = Math.max(0, Math.min(
         max,
         before + edge.direction * edgeScrollSpeed(now - enteredAt - N.EDGE_SCROLL_DWELL_MS) * elapsed / 1000,
       ));
-      withInstantScroll([track], () => { track.scrollLeft = offset; });
-      if (track.scrollLeft !== before) {
+      withInstantScroll([track], () => { setScrollFromLeft(track, offset); });
+      if (scrollFromLeft(track) !== before) {
         if (!handed && Focus.owner() !== edge.owner) {
           handed = true;
           track.dispatchEvent(new CustomEvent('nav:edge-scroll', { bubbles: true }));
@@ -195,7 +203,7 @@ export function installEdgeScroll(
     }
     stop();
     // A pointer arriving at an end starts over with a dwell if the track grows.
-    if (end && end.direction > 0) park(end, 0);
+    if (end && atRowEnd(end)) park(end, 0);
     if (!next) return;
     begin(next, performance.now());
   };

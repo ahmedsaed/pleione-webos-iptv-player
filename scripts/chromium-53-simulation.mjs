@@ -178,6 +178,32 @@ export function removeApis({ globals, members, cssProperties }) {
       },
     });
   }
+
+  // Chromium before 85 reports a right-to-left scroller's scrollLeft as the
+  // distance from its left edge (scrollWidth - clientWidth at the start), not
+  // as 0 going negative. That model is plain arithmetic on the native one, so
+  // every scroller here reports and accepts it, the engine-quirks probe
+  // included.
+  const scrollLeft = typeof Element !== 'undefined'
+    && Object.getOwnPropertyDescriptor(Element.prototype, 'scrollLeft');
+  if (scrollLeft && scrollLeft.get && scrollLeft.set) {
+    const read = scrollLeft.get;
+    const write = scrollLeft.set;
+    const range = (el) => (getComputedStyle(el).direction === 'rtl'
+      ? Math.max(0, el.scrollWidth - el.clientWidth) : null);
+    Object.defineProperty(Element.prototype, 'scrollLeft', {
+      configurable: true,
+      enumerable: scrollLeft.enumerable,
+      get() {
+        const max = range(this);
+        return max === null ? read.call(this) : read.call(this) + max;
+      },
+      set(value) {
+        const max = range(this);
+        write.call(this, max === null ? value : Number(value) - max);
+      },
+    });
+  }
 }
 
 // The CSS axis: approximate how Chromium 53 parses a stylesheet, so the e2e

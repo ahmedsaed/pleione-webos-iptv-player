@@ -313,6 +313,7 @@ some of the features above:
 - [`docs/vod-subtitles.md`](docs/vod-subtitles.md) — how VOD (Xtream movies & episodes) subtitles work: in-container tracks plus sidecar SRT/WebVTT/ASS, and online subtitle search (SubDL, OpenSubtitles, Assrt)
 - [`docs/storage-and-data.md`](docs/storage-and-data.md) — what the app stores, where it lives, and how user data is separated from disposable caches
 - [`docs/lan-service.md`](docs/lan-service.md) — phone setup and M3U uploads over the bundled LAN service
+- [`docs/rtl-layout.md`](docs/rtl-layout.md) — how the UI mirrors for right-to-left languages such as Arabic
 - [`docs/xtream-demo-server.md`](docs/xtream-demo-server.md) — a local demo Xtream server with a synthetic catalog and real media for manual testing
 - [`docs/unsupported-features.md`](docs/unsupported-features.md) — features that webOS does not allow or that are intentionally out of scope, with alternatives
 

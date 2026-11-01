@@ -142,3 +142,25 @@ html.q-scroll-end-padding .catalog-category-rail::after { content: none; }
     box-shadow: 0 0 0 3px var(--accent-glow);
   }
 }
+
+/* Playback's left-to-right islands in a mirrored dock (player-osd.ts) keep
+   their flex-gap margins on the left: the generated ones mirror with the
+   rest of the sheet, and a [dir] rule never does. Same spacing as the
+   generated margins in a left-to-right layout. */
+html.q-no-flex-gap .osd-progress-row[dir="ltr"] > * + * {
+  margin-right: 0;
+  margin-left: 12px;
+}
+
+html.q-no-flex-gap .osd-progress-row[dir="ltr"][data-dock-row] > * + * {
+  margin-left: 32px;
+}
+
+html.q-no-flex-gap .osd-progress-row[dir="ltr"] > .osd-dvr-live {
+  margin-right: -12px;
+}
+
+html.q-no-flex-gap .osd-controls-center[dir="ltr"] > * + * {
+  margin-right: 0;
+  margin-left: 16px;
+}

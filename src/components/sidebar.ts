@@ -13,6 +13,7 @@ import { EpgService } from '../services/epg-service';
 import { RecentlyWatchedService, type RecentlyWatchedItem } from '../services/recently-watched';
 import { $, html, inShownView, onceTransitionEnd, raw, type Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
+import { isRtl } from '../utils/direction';
 import { rankChannels } from '../utils/channel-search';
 import { groupDisplayLabel } from '../utils/channel';
 import { formatPosition } from '../utils/time';
@@ -872,6 +873,9 @@ export class Sidebar {
       const entry = this.getChannelEntry(i);
       if (entry) visibleEntries.push(entry);
     }
+    // A marquee name in a mirrored row reads in its own direction, so the
+    // start of a left-to-right name shows first.
+    const textDir = isRtl() ? 'auto' : '';
     const currentIdx = this.getCurrentIndex();
     const currentCatchupStart = this.getCurrentCatchupStart();
     const currentTab = tabs.find(t => t.id === this.playlist);
@@ -960,8 +964,8 @@ export class Sidebar {
                 <span class="ch-num">${globalIdx + 1}</span>
                 ${this.renderLogo(ch)}
                 <div class="ch-info">
-                  <span class="ch-name">${raw(channelLockBadge(ch))}<span class="ch-name-text">${title}</span></span>
-                  ${subtitle ? html`<span class="ch-now"><span class="ch-now-text">${subtitle}</span></span>` : ''}
+                  <span class="ch-name" dir="${textDir}">${raw(channelLockBadge(ch))}<span class="ch-name-text">${title}</span></span>
+                  ${subtitle ? html`<span class="ch-now" dir="${textDir}"><span class="ch-now-text">${subtitle}</span></span>` : ''}
                 </div>
                 ${catchup
                   ? html`<span class="sidebar-recent-kind">${t('common.catchup')}</span>`
@@ -1142,7 +1146,11 @@ export class Sidebar {
         const textWidth = span.offsetWidth;
         const containerWidth = container.offsetWidth;
         if (textWidth > containerWidth) {
-          const dist = containerWidth - textWidth;
+          // A line too long for its box overflows past its end edge: the
+          // right for left-to-right text, the left for right-to-left text,
+          // and the marquee travels back the other way.
+          const overflowsLeft = span.offsetLeft < container.offsetLeft - 0.5;
+          const dist = overflowsLeft ? textWidth - containerWidth : containerWidth - textWidth;
           span.style.setProperty('--scroll-dist', `${dist}px`);
           span.classList.add('scrolling');
         } else {

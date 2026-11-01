@@ -2,6 +2,7 @@ import type { Action, AudioTrackOption, SubtitleTrackOption } from '../types';
 import { CONFIG } from '../config';
 import { $, html, inShownView, onceTransitionEnd, type Safe, withInstantScroll } from '../utils/dom';
 import { morph } from '../utils/morph';
+import { isRtl } from '../utils/direction';
 import { t } from '../i18n';
 import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
 
@@ -159,16 +160,23 @@ export class PlayerMenu {
     }
   }
 
-  // Sit above the controls, right edge on the control it opened from, and
-  // never past the dock's own right edge.
+  // Sit above the controls, end edge on the control it opened from, and
+  // never past the dock's own end edge: the right, or the left in RTL.
   private place(): void {
     const el = this.el;
     const dock = $('#player-osd');
     const anchor = this.options.anchor(this.kind);
     if (!el || !dock || dock.classList.contains('hidden')) return;
     const dockRect = dock.getBoundingClientRect();
-    const right = anchor ? anchor.getBoundingClientRect().right : dockRect.right;
-    el.style.right = `${Math.max(window.innerWidth - dockRect.right, window.innerWidth - right)}px`;
+    if (isRtl()) {
+      const left = anchor ? anchor.getBoundingClientRect().left : dockRect.left;
+      el.style.removeProperty('right');
+      el.style.left = `${Math.max(dockRect.left, left)}px`;
+    } else {
+      const right = anchor ? anchor.getBoundingClientRect().right : dockRect.right;
+      el.style.removeProperty('left');
+      el.style.right = `${Math.max(window.innerWidth - dockRect.right, window.innerWidth - right)}px`;
+    }
     el.style.bottom = `${window.innerHeight - dockRect.top + ANCHOR_GAP}px`;
     el.style.maxHeight = `${Math.max(0, dockRect.top - ANCHOR_GAP - TOP_MARGIN)}px`;
   }

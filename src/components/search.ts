@@ -2,6 +2,7 @@ import type { Action, CatchupInfo, Channel, PlaylistEntry, Programme, VodItem, S
 import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { Focus, type FocusScope } from '../navigation/focus-scope';
 import { html, raw, type Safe } from '../utils/dom';
+import { inlineStart } from '../utils/direction';
 import { channelLockBadge, seriesLockBadge, vodLockBadge } from './parental-badge';
 import { morph } from '../utils/morph';
 import { PlaylistService } from '../services/playlist-service';
@@ -967,7 +968,7 @@ export class Search {
                 <div class="search-rail-cell"
                      data-key="${key}:${index}"
                      data-search-section="${key}" data-search-index="${index}"
-                     style="left:${virtualizer.getItemOffset(index)}px">
+                     style="${inlineStart()}:${virtualizer.getItemOffset(index)}px">
                   ${renderItem(item, index)}
                 </div>
               `;

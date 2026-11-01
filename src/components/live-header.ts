@@ -98,7 +98,7 @@ export class LiveHeader {
   handleAction(action: Action): void {
     const keys = this.keys();
     const index = Math.max(0, keys.indexOf(this.scope.focusKey ?? ''));
-    // Arabic keeps the LTR layout, so Left is always the previous control.
+    // Logical actions (src/utils/direction.ts): 'left' is the previous control.
     const step = action === 'left' ? -1 : action === 'right' ? 1 : 0;
     switch (action) {
       case 'left':

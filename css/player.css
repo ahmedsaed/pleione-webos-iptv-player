@@ -279,6 +279,7 @@
   flex: 1;
 }
 
+/* rtl:ignore -- playback runs left to right in every language */
 .osd-progress-bar {
   height: 100%;
   background: linear-gradient(90deg, var(--accent), var(--accent-dim));
@@ -306,6 +307,7 @@
   transition: width 0.12s linear;
 }
 
+/* rtl:ignore -- playback runs left to right in every language */
 .osd-progress[data-seekbar] .osd-progress-bar::after {
   content: '';
   position: absolute;
@@ -326,6 +328,7 @@
   box-shadow: none;
 }
 
+/* rtl:ignore -- playback runs left to right in every language */
 .osd-progress[data-seekbar].focused .osd-progress-bar::after {
   width: 32px;
   height: 32px;
@@ -335,6 +338,7 @@
 }
 
 /* The target of a skip, over the thumb while Left/Right step. */
+/* rtl:ignore -- playback runs left to right in every language */
 .osd-seek-bubble {
   position: absolute;
   bottom: 100%;
@@ -362,7 +366,9 @@
 
 /* The controls: the transport centered between two equal sides, the
    channel's controls on the left and the stream's track choices on the right,
-   with the focused control's name beside its group. */
+   with the focused control's name beside its group. A right-to-left
+   language swaps the sides; the transport and the seek rows keep
+   dir="ltr", since playback runs left to right in every language. */
 .osd-controls {
   display: flex;
   align-items: center;
@@ -435,6 +441,7 @@
   min-width: 72px;
 }
 
+/* rtl:ignore -- playback runs left to right in every language */
 .osd-dvr-live {
   display: inline-flex;
   align-items: center;
@@ -975,6 +982,7 @@
   font-weight: 700;
 }
 
+/* rtl:ignore -- sidebar.ts signs --scroll-dist for the side the text overflows */
 @keyframes marquee-bounce {
   0%, 15% { transform: translateX(0); }
   45%, 55% { transform: translateX(var(--scroll-dist)); }

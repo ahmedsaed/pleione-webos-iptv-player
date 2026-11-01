@@ -5,6 +5,7 @@ import { Focus, type FocusScope } from './focus-scope';
 import { InputMode, setCursorHidden, setInputMode, setKeyRepeat } from './input-mode';
 import { edgeScrollTrackAt, installEdgeScroll } from './edge-scroll';
 import { caretAtEdge, caretSideOf } from './caret-edge';
+import { logicalAction } from '../utils/direction';
 import type { Action, NumberEvent } from '../types';
 
 type ActionHandler = (action: Action, event?: NumberEvent) => void;
@@ -204,7 +205,8 @@ export const KeyHandler = {
         return;
       }
 
-      const action = ACTION_MAP[keyCode];
+      const pressed = ACTION_MAP[keyCode];
+      const action = pressed && logicalAction(pressed);
       cancelNumber();
       if (keyCode === K.ENTER) {
         if (hold) {

@@ -55,6 +55,24 @@ describe('swapInterfaceStylesheets', () => {
     expect(hrefs()).toEqual(['css/main.css']);
   });
 
+  it('picks the mirrored copies in a right-to-left document, and back', () => {
+    linkSheets('css/ui-110/main.css');
+    document.documentElement.dir = 'rtl';
+    try {
+      swapInterfaceStylesheets('110');
+      loadAll();
+      expect(hrefs()).toEqual(['css/rtl/ui-110/main.css']);
+      swapInterfaceStylesheets('100');
+      loadAll();
+      expect(hrefs()).toEqual(['css/rtl/main.css']);
+    } finally {
+      document.documentElement.removeAttribute('dir');
+    }
+    swapInterfaceStylesheets('100');
+    loadAll();
+    expect(hrefs()).toEqual(['css/main.css']);
+  });
+
   it('retires every older copy when a later switch loads first', () => {
     linkSheets('css/main.css');
     swapInterfaceStylesheets('110');

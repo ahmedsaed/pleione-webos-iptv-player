@@ -617,11 +617,13 @@
 /* A password field shows the character just typed for a moment: the overlay
    draws the field's discs with that character clear and its own caret, while
    the field's glyphs and caret are hidden. A password reads left to right in
-   every locale, so the overlay's discs line up with the field's. */
+   every locale, from the left edge in right-to-left layouts too, so the
+   overlay's discs line up with the field's. */
 .password-field {
   position: relative;
 }
 
+/* rtl:ignore */
 .password-field > input[type="password"] {
   direction: ltr;
   unicode-bidi: normal;
@@ -636,6 +638,7 @@
 
 .password-reveal {
   display: none;
+  direction: ltr;
   position: absolute;
   top: 0;
   bottom: 0;

@@ -48,7 +48,7 @@ describe('setup page forms', () => {
     dom.window.close();
   });
 
-  it('follows an Arabic browser language without leaving the LTR layout', () => {
+  it('follows an Arabic browser language into the right-to-left layout', () => {
     const dom = new JSDOM(PAGE_HTML, {
       runScripts: 'dangerously',
       url: 'http://host:1234/',
@@ -58,9 +58,13 @@ describe('setup page forms', () => {
     });
 
     expect(dom.window.document.documentElement.lang).toBe('ar');
-    expect(dom.window.document.documentElement.getAttribute('dir')).toBeNull();
+    expect(dom.window.document.documentElement.getAttribute('dir')).toBe('rtl');
     expect(dom.window.document.querySelector('.pair-title')!.textContent).toBe('الاتصال بالتلفزيون');
     expect(dom.window.document.querySelector('#language-current')!.textContent).toBe('AR');
+    // A left-to-right language picked from the globe menu lays it out again.
+    dom.window.document.querySelector<HTMLButtonElement>('#language-trigger')!.click();
+    dom.window.document.querySelector<HTMLButtonElement>('[data-locale="en"]')!.click();
+    expect(dom.window.document.documentElement.getAttribute('dir')).toBe('ltr');
     dom.window.close();
   });
 

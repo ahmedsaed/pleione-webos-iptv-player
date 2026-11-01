@@ -7,6 +7,8 @@ import {
   generateFlexGapFallback,
   generateScrollEndSpacers,
   linkedStylesheets,
+  mirrorStylesheet,
+  negateLength,
   scaleFontSizes,
   scaleLengths,
 } from './css-transforms.mjs';
@@ -362,6 +364,97 @@ describe('convertLegacyColorSyntax', () => {
     for (const value of values) {
       expect(value).not.toMatch(/rgb\(\s*var\(--[\w-]+\)\s*\/\s*[^()]+\)/);
       expect(value).not.toMatch(/rgba\(var\(--[\w-]+(?<!-legacy)\),/);
+    }
+  });
+});
+
+describe('mirrorStylesheet', () => {
+  const mirror = (decls) => mirrorStylesheet(`.x { ${decls} }`).replace(/^\.x \{ | \}$/g, '');
+
+  it('swaps physical sides in property names', () => {
+    expect(mirror('margin-left: 4px; padding-right: 8px; left: 0; border-left-width: 2px;'))
+      .toBe('margin-right: 4px; padding-left: 8px; right: 0; border-right-width: 2px;');
+    expect(mirror('border-top-left-radius: 4px; border-bottom-right-radius: 2px;'))
+      .toBe('border-top-right-radius: 4px; border-bottom-left-radius: 2px;');
+  });
+
+  it('swaps the horizontal sides of four-value shorthands only', () => {
+    expect(mirror('margin: 1px 2px 3px 4px; padding: 1px 2px; inset: 0 auto 0 12px;'))
+      .toBe('margin: 1px 4px 3px 2px; padding: 1px 2px; inset: 0 12px 0 auto;');
+  });
+
+  it('mirrors corner radii', () => {
+    expect(mirror('border-radius: 1px 2px 3px 4px;')).toBe('border-radius: 2px 1px 4px 3px;');
+    expect(mirror('border-radius: 8px 0 0 8px;')).toBe('border-radius: 0 8px 8px 0;');
+    expect(mirror('border-radius: 1px 2px 3px;')).toBe('border-radius: 2px 1px 2px 3px;');
+    expect(mirror('border-radius: 8px;')).toBe('border-radius: 8px;');
+  });
+
+  it('swaps side keywords', () => {
+    expect(mirror('text-align: left; float: right; transition: left 0.2s, opacity 0.2s;'))
+      .toBe('text-align: right; float: left; transition: right 0.2s, opacity 0.2s;');
+    expect(mirror('text-align: center;')).toBe('text-align: center;');
+  });
+
+  it('negates horizontal translations only', () => {
+    expect(mirror('transform: translateX(-50%) translateY(20px);'))
+      .toBe('transform: translateX(50%) translateY(20px);');
+    expect(mirror('transform: translate(-50%, -50%) scale(1.03);'))
+      .toBe('transform: translate(50%, -50%) scale(1.03);');
+    expect(mirror('transform: translateX(calc(420px - 100%));'))
+      .toBe('transform: translateX(calc(-1 * (420px - 100%)));');
+    expect(mirror('transform: translateX(var(--d));')).toBe('transform: translateX(calc(-1 * (var(--d))));');
+  });
+
+  it('negates shadow offsets, leaving centered glows and lone variables alone', () => {
+    expect(mirror('box-shadow: inset 3px 0 var(--accent);')).toBe('box-shadow: inset -3px 0 var(--accent);');
+    expect(mirror('box-shadow: -18px 0 32px rgba(0, 0, 0, .14), 0 0 4px red;'))
+      .toBe('box-shadow: 18px 0 32px rgba(0, 0, 0, .14), 0 0 4px red;');
+    expect(mirror('box-shadow: var(--shadow);')).toBe('box-shadow: var(--shadow);');
+  });
+
+  it('mirrors horizontal gradient directions and positions', () => {
+    expect(mirror('background: linear-gradient(90deg, red, blue);'))
+      .toBe('background: linear-gradient(270deg, red, blue);');
+    expect(mirror('background: linear-gradient(180deg, red, blue);'))
+      .toBe('background: linear-gradient(180deg, red, blue);');
+    expect(mirror('background: linear-gradient(to right, red, blue);'))
+      .toBe('background: linear-gradient(to left, red, blue);');
+    expect(mirror('background: radial-gradient(10px 20px at 90% 95%, red, transparent 60%);'))
+      .toBe('background: radial-gradient(10px 20px at 10% 95%, red, transparent 60%);');
+    expect(mirror('--scrim: linear-gradient(90deg, red, blue);')).toBe('--scrim: linear-gradient(270deg, red, blue);');
+    expect(mirror('transform-origin: left center; background-position: 25% 0;'))
+      .toBe('transform-origin: right center; background-position: 75% 0;');
+  });
+
+  it('keeps rules marked rtl:ignore and rules written for one direction', () => {
+    const css = '/* rtl:ignore -- placed from the left in JS */\n.a { left: 0; }\n'
+      + '.b { /* rtl:ignore */ left: 0; right: 0; }\n'
+      + 'html[dir="rtl"] .c { transform: scaleX(-1); left: 0; }\n'
+      + '@media screen { /* rtl:ignore */ .d { left: 0; } }';
+    expect(mirrorStylesheet(css)).toBe('/* rtl:ignore -- placed from the left in JS */\n.a { left: 0; }\n'
+      + '.b { /* rtl:ignore */ left: 0; left: 0; }\n'
+      + 'html[dir="rtl"] .c { transform: scaleX(-1); left: 0; }\n'
+      + '@media screen { /* rtl:ignore */ .d { left: 0; } }');
+  });
+
+  it('mirrors keyframes too', () => {
+    expect(mirrorStylesheet('@keyframes n { 50% { transform: translateX(-6px); } }'))
+      .toBe('@keyframes n { 50% { transform: translateX(6px); } }');
+  });
+
+  it('negates lengths', () => {
+    expect(['0', '-0px', '12px', '-12px', '.5em', 'calc(1px + 2%)'].map(negateLength))
+      .toEqual(['0', '-0px', '-12px', '12px', '-.5em', 'calc(-1 * (1px + 2%))']);
+  });
+
+  it('mirrors every app stylesheet twice back to the original', () => {
+    for (const file of readdirSync(new URL('../css/', import.meta.url))) {
+      if (!file.endsWith('.css')) continue;
+      const css = readFileSync(new URL(`../css/${file}`, import.meta.url), 'utf8');
+      const twice = mirrorStylesheet(mirrorStylesheet(css));
+      // Only angles normalize (0deg stays 0deg; 360 - 360 = 0).
+      expect(twice.replace(/\b360deg\b/g, '0deg'), file).toBe(css.replace(/\b360deg\b/g, '0deg'));
     }
   });
 });

@@ -131,7 +131,7 @@ test('browse Series, open a detail, and play an episode', async ({ page }) => {
   await expect(page.locator('#view-series .episode-card[data-episode-id="10"]')).toContainText('Episode One');
 });
 
-// Arabic keeps the LTR layout (see main.css), so its row scrolls the same way.
+// Arabic mirrors the row: it starts at the right and Left walks it.
 for (const [size, locale] of [['100', 'en'], ['130', 'en'], ['100', 'ar']] as const) {
   test(`at Interface size ${size} in ${locale} the focused season of many stays on screen`, async ({ page }) => {
     const seasons: Record<string, { id: number; title: string; episode_num: number }[]> = {};
@@ -170,12 +170,16 @@ for (const [size, locale] of [['100', 'en'], ['130', 'en'], ['100', 'ar']] as co
         return rect.left >= Math.max(0, row.left) - 1 && rect.right <= Math.min(1920, row.right) + 1;
       })).toBe(true);
     };
+    const [toEnd, toStart] = locale === 'ar' ? ['ArrowLeft', 'ArrowRight'] : ['ArrowRight', 'ArrowLeft'];
+    const second = page.locator('#view-series .series-season-btn[data-season="2"]');
+    const [a, b] = [(await first.boundingBox())!, (await second.boundingBox())!];
+    expect(locale === 'ar' ? b.x + b.width <= a.x : a.x + a.width <= b.x).toBe(true);
     for (let n = 2; n <= 20; n++) {
-      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press(toEnd);
       await onScreen(n);
     }
     for (let n = 19; n >= 1; n--) {
-      await page.keyboard.press('ArrowLeft');
+      await page.keyboard.press(toStart);
       await onScreen(n);
     }
   });
@@ -339,6 +343,7 @@ for (const { size, locale } of [
     const middle = (b: { x: number; width: number }) => b.x + b.width / 2;
     expect(Math.abs(middle(playpause) - middle(panel))).toBeLessThanOrEqual(1);
     expect(Math.abs(middle(playpause) - 960)).toBeLessThanOrEqual(1);
+    // Playback runs left to right in Arabic too: Previous on the left.
     expect(previous.x + previous.width).toBeLessThanOrEqual(playpause.x);
     expect(playpause.x + playpause.width).toBeLessThanOrEqual(next.x);
     expect(Math.abs(previous.y - next.y)).toBeLessThanOrEqual(1);

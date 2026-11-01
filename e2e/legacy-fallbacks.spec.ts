@@ -128,14 +128,15 @@ test('a modern engine activates none of the legacy CSS fallbacks', async ({ page
   for (const guard of guards.conditions) expect(guard.active, guard.condition).toBe(false);
 });
 
-test('the simulated engine measures both engine quirks', async ({ page }) => {
+test('the simulated engine measures every engine quirk', async ({ page }) => {
   test.skip(!isChromium53(), 'only the simulation lacks flex gap');
   await routePlaylist(page);
   await seedPlaylist(page);
   await page.goto('/');
   await expect(page.locator('#view-channels')).toBeVisible();
   expect(await page.evaluate(() => [...document.documentElement.classList]
-    .filter((name) => /^q-/.test(name)).sort())).toEqual(['q-no-flex-gap', 'q-scroll-end-padding']);
+    .filter((name) => /^q-/.test(name)).sort()))
+    .toEqual(['q-no-flex-gap', 'q-rtl-scroll-default', 'q-scroll-end-padding']);
 });
 
 // No app.js, so no launch onto Home to open Live from.
