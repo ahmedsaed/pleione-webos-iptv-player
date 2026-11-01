@@ -160,6 +160,9 @@ export const PT_BR_MESSAGES = {
   'catalog.season': 'Temporada {number}',
   'catalog.minutes': '{count} min',
   'catalog.episodes': 'Episódios',
+  'catalog.episodeCode': 'S{season}E{episode}',
+  'catalog.episodeShort': 'E{episode}',
+  'catalog.episodeNumber': 'Episódio {episode}',
   'catalog.moreLikeThis': 'Títulos semelhantes',
   'catalog.resumeAt': 'Continuar {position}',
   'catalog.seasonCount': {

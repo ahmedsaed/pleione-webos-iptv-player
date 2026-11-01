@@ -18,8 +18,24 @@ import { loadTmdbCredits, matchTmdbPeople, type TmdbPerson } from '../services/t
 const EPISODE_STRIDE = 428;
 const EPISODE_OVERSCAN = 3;
 const EPISODE_VIEWPORT_FALLBACK = 1760;
-// The composed resume label carries the episode code (see episodeLabel).
-const RESUME_CODE = /\bS(\d+)E(\d+)\b/;
+// The composed resume label carries the episode code (see episodeLabel), in
+// Latin letters or, saved in Arabic, as س and ح.
+const RESUME_CODE = /(?:S|\u0633)(\d+)(?:E|\u062D)(\d+)/;
+// A provider's placeholder title, such as "Episode 6", reads in the UI's
+// language instead.
+const GENERIC_TITLE = /^(?:episode|ep\.?|e)\s*0*(\d+)$/i;
+
+function episodeTitle(ep: Episode): string {
+  const title = ep.title.trim();
+  const generic = GENERIC_TITLE.exec(title);
+  return generic ? t('catalog.episodeNumber', { episode: Number(generic[1]) }) : title;
+}
+
+function episodeRowTitle(ep: Episode): string {
+  const code = t('catalog.episodeShort', { episode: ep.episode });
+  const title = episodeTitle(ep);
+  return title ? `${code} · ${title}` : code;
+}
 
 // The Series section: browse (Continue rail of resumed episodes + per-category
 // rails + an "all categories" drill-in) → per-category poster grid → a detail
@@ -314,8 +330,8 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
   }
 
   private episodeLabel(series: SeriesItem, ep: Episode): string {
-    const code = `S${ep.season}E${ep.episode}`;
-    const title = ep.title.trim();
+    const code = t('catalog.episodeCode', { season: ep.season, episode: ep.episode });
+    const title = episodeTitle(ep);
     if (!title) return `${series.name} — ${code}`;
     // Providers often name episodes "Series - S01E02 - Title" already.
     if (title.toLowerCase().indexOf(series.name.trim().toLowerCase()) === 0) return title;
@@ -423,7 +439,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
           ${saved ? this.progressBar(saved.position, saved.duration)
             : StorageService.isWatched(accountId, 'episode', ep.id) ? this.progressBar(1, 1) : ''}
         </div>
-        <div class="episode-title">${ep.title ? `E${ep.episode} · ${ep.title}` : `E${ep.episode}`}</div>
+        <div class="episode-title">${episodeRowTitle(ep)}</div>
         <div class="episode-meta">${mins}</div>
       </div>
     `;
@@ -483,7 +499,9 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       ${this.detailButton({
         key: 'resume',
         label: t('catalog.resumeAt', {
-          position: season > 0 || number > 0 ? `S${season} · E${number}` : formatPosition(entry.position),
+          position: season > 0 || number > 0
+            ? t('catalog.episodeCode', { season, episode: number })
+            : formatPosition(entry.position),
         }),
         icon: PLAY_ICON,
         primary: true,

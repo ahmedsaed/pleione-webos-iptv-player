@@ -156,6 +156,9 @@ export const ZH_CN_MESSAGES = {
   'catalog.season': '第 {number} 季',
   'catalog.minutes': '{count} 分钟',
   'catalog.episodes': '选集',
+  'catalog.episodeCode': 'S{season}E{episode}',
+  'catalog.episodeShort': 'E{episode}',
+  'catalog.episodeNumber': '第 {episode} 集',
   'catalog.moreLikeThis': '更多类似内容',
   'catalog.resumeAt': '继续播放 {position}',
   'catalog.seasonCount': {

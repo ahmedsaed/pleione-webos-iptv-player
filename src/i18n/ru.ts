@@ -168,6 +168,9 @@ export const RU_MESSAGES = {
   'catalog.season': 'Сезон {number}',
   'catalog.minutes': '{count} мин.',
   'catalog.episodes': 'Серии',
+  'catalog.episodeCode': 'S{season}E{episode}',
+  'catalog.episodeShort': 'E{episode}',
+  'catalog.episodeNumber': 'Серия {episode}',
   'catalog.moreLikeThis': 'Похожие',
   'catalog.resumeAt': 'Продолжить {position}',
   'catalog.seasonCount': {
