@@ -502,11 +502,13 @@ export async function seekBarGeometry(page: Page): Promise<SeekBarGeometry> {
     const spreads = (thumb.boxShadow.match(/(?:-?[\d.]+px\s+){3}-?[\d.]+px/g) ?? [])
       .map(shadow => parseFloat(shadow.trim().split(/\s+/)[3]));
     const reach = parseFloat(thumb.width) / 2 + Math.max(0, ...spreads);
+    // A mirrored bar starts at its right edge, the time before it on its right.
+    const rtl = style.direction === 'rtl';
     return {
       focused: bar.classList.contains('focused'),
       track: box.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
-      startClearance: box.left - reach - before.right,
-      endClearance: after.left - (box.right + reach),
+      startClearance: rtl ? before.left - (box.right + reach) : box.left - reach - before.right,
+      endClearance: rtl ? box.left - reach - after.right : after.left - (box.right + reach),
     };
   });
 }

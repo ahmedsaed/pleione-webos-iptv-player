@@ -338,6 +338,7 @@ for (const variant of [
       return {
         body: rect('.detail-body').bottom,
         rails: rect('.detail-rails').top,
+        left: Math.min(...buttons.map(b => b.left)),
         right: Math.max(...buttons.map(b => b.right)),
         tops: new Set(Array.from(root.querySelectorAll<HTMLElement>('.detail-btn')).map(b => b.offsetTop)).size,
         poster: poster.style.display === 'none' ? null : poster.getBoundingClientRect(),
@@ -346,10 +347,15 @@ for (const variant of [
       };
     });
     expect(box.body).toBeLessThanOrEqual(box.rails);
+    expect(box.left).toBeGreaterThanOrEqual(0);
     expect(box.right).toBeLessThanOrEqual(1920);
     expect(box.tops).toBe(1);
     expect(box.clipped).toBe(false);
-    if (box.poster) expect(box.poster.left).toBeGreaterThan(box.right);
+    // Arabic mirrors the detail: the poster sits left of the actions.
+    if (box.poster) {
+      if ('locale' in variant.opts) expect(box.poster.right).toBeLessThan(box.left);
+      else expect(box.poster.left).toBeGreaterThan(box.right);
+    }
     // The rows snap whole into the rail area.
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('ArrowDown');
@@ -395,11 +401,11 @@ test('a movie or episode played to its end shows a full progress bar, also after
 });
 
 // Left and Right stay in the action row while a neighbor exists (Arabic
-// keeps the row's left-to-right layout); Down and Up move between the rows,
-// and Up returns to the action Down left.
+// mirrors the row, so Left moves toward its end); Down and Up move between
+// the rows, and Up returns to the action Down left.
 for (const locale of ['en', 'ar'] as const) {
-  const next = 'ArrowRight';
-  const previous = 'ArrowLeft';
+  const next = locale === 'ar' ? 'ArrowLeft' : 'ArrowRight';
+  const previous = locale === 'ar' ? 'ArrowRight' : 'ArrowLeft';
   const resume = {
     'x1|vod|10': {
       accountId: 'x1', kind: 'vod', itemId: '10', name: 'Movie One', poster: '', ext: 'mp4',
