@@ -1,5 +1,5 @@
 import type { Action, PlaylistEntry, SeriesCategory, SeriesItem, SeriesInfo, Episode, ResumeEntry, ResumeKind, VodQueueItem, WatchlistEntry } from '../types';
-import { html, raw, Safe } from '../utils/dom';
+import { html, Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { StorageService } from '../services/storage-service';
 import { loadSeriesCategories, loadSeries, loadSeriesInfo } from '../services/xtream-catalog';
@@ -87,15 +87,14 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     if (kind === 'continue') {
       return this.resume.map(entry => ({
         id: entry.itemId, key: `r:${entry.itemId}`,
-        tile: managing => this.resumeTile(entry, managing),
+        tile: () => this.resumeTile(entry),
       }));
     }
     return this.visibleWatchlist('series').map(entry => {
       const series = this.watchlistEntryToSeries(entry);
-      const key = `i:${series.categoryId}:${series.seriesId}`;
       return {
-        id: entry.itemId, key,
-        tile: managing => this.tile(series, this.removeMark(managing, key), managing),
+        id: entry.itemId, key: `i:${series.categoryId}:${series.seriesId}`,
+        tile: () => this.tile(series),
       };
     });
   }
@@ -377,12 +376,12 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     });
   }
 
-  private resumeTile(r: ResumeEntry, managing = false): Safe {
+  private resumeTile(r: ResumeEntry): Safe {
     return html`
-      <div class="catalog-tile" ${raw(managing ? '' : 'data-focusable')} data-key="r:${r.itemId}" data-resume-episode="${r.itemId}">
+      <div class="catalog-tile" data-focusable data-key="r:${r.itemId}" data-resume-episode="${r.itemId}">
         <div class="catalog-poster-wrap">${this.posterCell(r.name, r.poster)}${
           this.itemLockBadge(r.categoryId ?? '', r.watchlistOwner?.itemId ?? r.itemId)}${
-          this.progressBar(r.position, r.duration)}${this.removeMark(managing, `r:${r.itemId}`)}</div>
+          this.progressBar(r.position, r.duration)}</div>
         <div class="catalog-tile-name">${r.name}</div>
       </div>
     `;

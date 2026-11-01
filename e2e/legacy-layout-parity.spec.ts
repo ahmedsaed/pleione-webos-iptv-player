@@ -700,13 +700,11 @@ const XTREAM_SCREENS: Screen[] = [
     },
   },
   {
-    name: 'movies-continue-management',
+    name: 'movies-continue-detail',
     budget: 0,
     go: async p => {
-      await p.locator('#view-movies [data-collection-manage="continue"]').click();
-      await expect(p.locator('#view-movies .catalog-managing')).toBeVisible();
-      await p.locator('#view-movies .catalog-remove-mark').hover();
-      await expect(p.locator('#view-movies .catalog-remove-mark')).toHaveClass(/focused/);
+      await p.locator('#view-movies [data-rail-key="continue"] .catalog-tile').first().click();
+      await expect(p.locator('#view-movies [data-action="resume"]')).toBeVisible();
     },
   },
   {

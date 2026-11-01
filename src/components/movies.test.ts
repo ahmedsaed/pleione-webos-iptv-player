@@ -96,7 +96,7 @@ async function openWith(cats = [{ id: '1', name: 'Cat A' }], streams = [vod('10'
 }
 
 describe('Movies browse + grid', () => {
-  describe('collection management', () => {
+  describe('collections', () => {
     function savedTitles(count: number): void {
       watchlistState.entries = Array.from({ length: count }, (_, i) => ({
         accountId: 'x1', kind: 'vod', itemId: `m${i}`, name: `Title ${i}`,
@@ -104,32 +104,62 @@ describe('Movies browse + grid', () => {
       }));
     }
 
-    it('returns from detail to the same resume title after it moves to the front', async () => {
+    it('opens a Continue Watching title\'s detail, and Back returns to it after it moves to the front', async () => {
       const entries = ['10', '11', '12'].map((itemId, i) => ({
         accountId: 'x1', kind: 'vod', itemId, name: `Title ${i}`, poster: '', ext: 'mp4',
         position: 100, duration: 600, updatedAt: 3 - i,
       }));
       storageMock.getResumeList.mockReturnValue(entries);
+      (storageMock.getResume as ReturnType<typeof vi.fn>).mockImplementation(
+        (_account: string, _kind: string, id: string) => entries.find(entry => entry.itemId === id) ?? null);
       catalogMock.loadVodInfo.mockResolvedValue(null);
-      const { view } = await openWith();
-      container.querySelector<HTMLElement>('[data-collection-manage="continue"]')!.click();
-      pressKey(view, 'back');
-      const title = container.querySelector<HTMLElement>('.catalog-layer-grid [data-item-id="11"]')!;
-      title.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      const { view, handlers } = await openWith();
+      const rail = () => container.querySelector<HTMLElement>('[data-rail-key="continue"]')!;
+      rail().querySelector<HTMLElement>('[data-item-id="11"]')!
+        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
       pressKey(view, 'select');
       await Promise.resolve();
+      expect(handlers.onPlayVod).not.toHaveBeenCalled();
+      expect(container.querySelector('.catalog-layer-detail')?.classList.contains('catalog-layer-hidden')).toBe(false);
+      expect(container.querySelector('.movies-detail [data-action="resume"]')).not.toBeNull();
       storageMock.getResumeList.mockReturnValue([entries[1], entries[0], entries[2]]);
       pressKey(view, 'back');
-      expect(container.querySelector('.catalog-layer-grid .focused')?.getAttribute('data-item-id')).toBe('11');
+      expect(rail().querySelector('.catalog-tile')?.getAttribute('data-item-id')).toBe('11');
+      expect(container.querySelector('.catalog-layer-browse .focused')?.getAttribute('data-item-id')).toBe('11');
+      expect(container.querySelector('.catalog-layer-browse .focused')?.closest('[data-rail-key]')
+        ?.getAttribute('data-rail-key')).toBe('continue');
     });
 
-    it('leaves a managed collection grid where the wheel stops it', async () => {
+    it('offers no editing on the Continue Watching and Watchlist rails or their grids', async () => {
+      savedTitles(12);
+      storageMock.getResumeList.mockReturnValue(Array.from({ length: 12 }, (_, i) => ({
+        accountId: 'x1', kind: 'vod', itemId: `r${i}`, name: `Title ${i}`, poster: '', ext: 'mp4',
+        position: 100, duration: 600, updatedAt: 12 - i,
+      })));
+      const { view } = await openWith();
+      for (const kind of ['continue', 'watchlist']) {
+        const rail = container.querySelector(`[data-rail-key="${kind}"]`)!;
+        expect(rail.querySelector('button')).toBeNull();
+        expect(container.querySelector('[data-collection-manage]')).toBeNull();
+        rail.querySelector<HTMLElement>('[data-collection-see-all]')!
+          .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+        pressKey(view, 'select');
+        const grid = container.querySelector('.catalog-layer-grid')!;
+        expect(grid.querySelector('.catalog-grid-head button')).toBeNull();
+        expect(grid.querySelector('[data-collection-action]')).toBeNull();
+        expect(grid.querySelector('.edit-hints')).toBeNull();
+        expect(grid.querySelectorAll('.catalog-tile[data-focusable]')).toHaveLength(12);
+        pressKey(view, 'back');
+      }
+    });
+
+    it('stays in a collection grid where the wheel stops it', async () => {
       savedTitles(80);
       const { view } = await openWith();
-      container.querySelector<HTMLElement>('[data-collection-manage="watchlist"]')!.click();
+      container.querySelector<HTMLElement>('[data-collection-see-all="watchlist"]')!.click();
       vi.useFakeTimers();
       try {
-        const grid = container.querySelector<HTMLElement>('.catalog-layer-grid .catalog-grid.catalog-managing')!;
+        const grid = container.querySelector<HTMLElement>('.catalog-layer-grid .catalog-grid')!;
         const track = grid.querySelector<HTMLElement>('.catalog-grid-track')!;
         let top = 0;
         Object.defineProperty(grid, 'scrollTop', {
@@ -148,8 +178,8 @@ describe('Movies browse + grid', () => {
           vi.advanceTimersByTime(250);
           expect(top).toBe(stop);
           // The pointer at rest hovers what slid under it; that never scrolls.
-          const remove = grid.querySelector<HTMLElement>('[data-collection-action="remove"]')!;
-          remove.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+          const tile = grid.querySelector<HTMLElement>('.catalog-tile[data-focusable]')!;
+          tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
           Focus.flush();
           vi.advanceTimersByTime(250);
           expect(top).toBe(stop);
@@ -161,7 +191,7 @@ describe('Movies browse + grid', () => {
         top = 80;
         grid.dispatchEvent(new Event('scroll', { bubbles: true }));
         vi.advanceTimersByTime(250);
-        grid.querySelector<HTMLElement>('[data-grid-index="0"] [data-collection-action="remove"]')!
+        grid.querySelector<HTMLElement>('[data-grid-index="0"] .catalog-tile')!
           .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
         for (let row = 0; row < 3; row++) pressKey(view, 'down');
         expect(top).toBeGreaterThan(180 + 395);
@@ -186,68 +216,24 @@ describe('Movies browse + grid', () => {
       expect(grid.querySelectorAll('.catalog-tile').length).toBeLessThan(50);
     });
 
-    it('makes only removal buttons actionable and keeps focus on the surviving neighbor', async () => {
-      savedTitles(3);
-      const { view } = await openWith();
-      const manage = container.querySelector<HTMLElement>('[data-collection-manage="watchlist"]')!;
-      expect(manage).not.toBeNull();
-      manage.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-      pressKey(view, 'select');
-      const grid = container.querySelector('.catalog-layer-grid')!;
-      expect(grid.querySelector('.catalog-tile')?.hasAttribute('data-focusable')).toBe(false);
-      const buttons = grid.querySelectorAll<HTMLElement>('[data-collection-action="remove"]');
-      expect(buttons).toHaveLength(3);
-      buttons[1].dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-      pressKey(view, 'select');
-      expect(storageMock.removeWatchlist).toHaveBeenCalledExactlyOnceWith('x1', 'vod', 'm1');
-      expect(grid.querySelector('.catalog-remove-mark.focused')?.getAttribute('data-key')).toBe('w:m2');
-      pressKey(view, 'back');
-      expect(grid.querySelector('.catalog-managing')).toBeNull();
-      expect(grid.querySelector('.catalog-sort')).toBeNull();
-      pressKey(view, 'back');
-      expect(container.querySelector('.catalog-layer-browse')?.classList.contains('catalog-layer-hidden')).toBe(false);
-      expect(view.focusScope.focusKey).toBe(JSON.stringify(['browse', 'watchlist', 'manage:watchlist']));
-    });
-
-    it('returns to browse with a valid focus after removing the final title', async () => {
+    it('leaves the Watchlist rail after its final title is removed from detail', async () => {
       savedTitles(1);
+      catalogMock.loadVodInfo.mockResolvedValue(null);
       const { view } = await openWith();
-      const manage = container.querySelector<HTMLElement>('[data-collection-manage="watchlist"]')!;
-      expect(manage).not.toBeNull();
-      manage.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      container.querySelector<HTMLElement>('[data-rail-key="watchlist"] .catalog-tile[data-focusable]')!
+        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
       pressKey(view, 'select');
-      const remove = container.querySelector<HTMLElement>('[data-collection-action="remove"]')!;
+      await Promise.resolve();
+      const remove = container.querySelector<HTMLElement>('[data-action="watchlist"]')!;
       remove.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
       pressKey(view, 'select');
+      expect(watchlistState.entries).toHaveLength(0);
+      pressKey(view, 'back');
       expect(container.querySelector('[data-rail-key="watchlist"]')).toBeNull();
-      expect(container.querySelector('.catalog-layer-grid')?.textContent).toBe('');
       expect(container.querySelector('.catalog-layer-browse .focused')).not.toBeNull();
     });
 
-    it.each(['watchlist'] as const)(
-      'leaves the %s collection after its final title is removed from detail',
-      async (kind) => {
-        savedTitles(1);
-        catalogMock.loadVodInfo.mockResolvedValue(null);
-        const { view } = await openWith();
-        container.querySelector<HTMLElement>(`[data-collection-manage="${kind}"]`)!.click();
-        pressKey(view, 'back');
-        const tile = container.querySelector<HTMLElement>('.catalog-layer-grid .catalog-tile[data-focusable]')!;
-        tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-        pressKey(view, 'select');
-        await Promise.resolve();
-        const remove = container.querySelector<HTMLElement>('[data-action="watchlist"]')!;
-        remove.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-        pressKey(view, 'select');
-        expect(watchlistState.entries).toHaveLength(0);
-        pressKey(view, 'back');
-        expect(container.querySelector('.catalog-layer-grid')?.textContent).toBe('');
-        expect(container.querySelector(`[data-rail-key="${kind}"]`)).toBeNull();
-        expect(container.querySelector('.catalog-layer-browse .focused')).not.toBeNull();
-      },
-    );
-
-    it('counts and clears only visible titles, without revealing or deleting concealed ones', async () => {
+    it('counts only visible titles, without revealing concealed ones', async () => {
       savedTitles(22);
       const concealed = vi.spyOn(ParentalControlService, 'isConcealed').mockImplementation(
         request => request.target.kind === 'vod-item' && request.target.itemId === 'm0');
@@ -255,11 +241,7 @@ describe('Movies browse + grid', () => {
         await openWith();
         const rail = container.querySelector('[data-rail-key="watchlist"]')!;
         expect(rail.querySelector('.catalog-see-all-count')?.textContent).toBe('21 movies');
-        rail.querySelector<HTMLElement>('[data-collection-manage]')!.click();
-        container.querySelector<HTMLElement>('[data-collection-action="clear"]')!.click();
-        document.querySelector<HTMLElement>('.confirmation-prompt:not(.hidden) [data-confirm-action="confirm"]')!.click();
-        expect(watchlistState.entries.map(entry => entry.itemId)).toEqual(['m0']);
-        expect(container.querySelector('[data-rail-key="watchlist"]')).toBeNull();
+        expect(rail.querySelector('[data-item-id="m0"]')).toBeNull();
       } finally {
         concealed.mockRestore();
       }

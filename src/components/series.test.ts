@@ -92,45 +92,6 @@ describe('Series browse + grid', () => {
     expect(container.querySelector('.catalog-layer-browse .focused')?.getAttribute('data-key')).toBe('r:e4');
   });
 
-  it('leaves the collection when playback completes its final episode', async () => {
-    storageMock.getResumeList.mockReturnValue([{
-      accountId: 'x1', kind: 'episode', itemId: 'e1', name: 'Title 1', poster: '', ext: 'mp4',
-      position: 100, duration: 600, updatedAt: 1,
-    }]);
-    const { view } = await openWith();
-    container.querySelector<HTMLElement>('[data-collection-manage="continue"]')!.click();
-    view.handleAction('back');
-    const episode = container.querySelector<HTMLElement>('.catalog-layer-grid [data-resume-episode]')!;
-    episode.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-    view.handleAction('select');
-    storageMock.getResumeList.mockReturnValue([]);
-    view.refreshPlaybackState();
-    expect(container.querySelector('.catalog-layer-grid')?.textContent).toBe('');
-    expect(container.querySelector('[data-rail-key="continue"]')).toBeNull();
-    expect(container.querySelector('.catalog-layer-browse .focused')).not.toBeNull();
-  });
-
-  it('keeps the resumed episode focused when playback moves it to the front of the collection', async () => {
-    const entries = ['e1', 'e2', 'e3'].map((itemId, i) => ({
-      accountId: 'x1', kind: 'episode', itemId, name: `Title ${i}`, poster: '', ext: 'mp4',
-      position: 100, duration: 600, updatedAt: 3 - i,
-    }));
-    storageMock.getResumeList.mockReturnValue(entries);
-    const { view, handlers } = await openWith();
-    const manage = container.querySelector<HTMLElement>('[data-collection-manage="continue"]')!;
-    manage.click();
-    view.handleAction('back');
-    const episode = container.querySelector<HTMLElement>('.catalog-layer-grid [data-resume-episode="e2"]')!;
-    episode.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-    view.handleAction('select');
-    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e2' }));
-    storageMock.getResumeList.mockReturnValue([entries[1], entries[0], entries[2]]);
-    view.refreshPlaybackState();
-    expect(container.querySelector('.catalog-layer-grid .focused')?.getAttribute('data-key')).toBe('r:e2');
-    expect(container.querySelector('.catalog-layer-grid .focused')?.closest('[data-grid-index]')
-      ?.getAttribute('data-grid-index')).toBe('0');
-  });
-
   // Past RAIL_CATEGORIES, so All categories opens a category page, where sorting lives.
   const sevenCats = Array.from({ length: 7 }, (_, i) => ({ id: String(i + 1), name: `Cat ${i + 1}` }));
   const grid = () => container.querySelector<HTMLElement>('.catalog-layer-grid')!;

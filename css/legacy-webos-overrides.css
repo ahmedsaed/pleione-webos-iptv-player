@@ -41,7 +41,6 @@ html.q-no-flex-gap .detail-rail-head > .series-seasons { margin-left: 4px; }
  * component rule that pushes a child to the end with `margin-left: auto`.
  * Restate those so the push still wins.
  */
-html.q-no-flex-gap .catalog-collection-actions > .catalog-collection-clear,
 html.q-no-flex-gap .live-category-account,
 html.q-no-flex-gap .live-category-row strong,
 html.q-no-flex-gap .parental-header .parental-account,

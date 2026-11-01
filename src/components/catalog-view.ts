@@ -14,14 +14,11 @@ import { InputMode } from '../navigation/input-mode';
 import type { NavWheelDetail } from '../navigation/key-handler';
 import { html, raw, Safe, withInstantScroll } from '../utils/dom';
 import { categoryLockBadge, lockBadge } from './parental-badge';
-import { SORT_ASCENDING_ICON, SORT_DESCENDING_ICON, SEE_ALL_ICON, REMOVE_ICON, CHECK_ICON, TRASH_ICON, PENCIL_ICON, PLUS_ICON, STAR_ICON } from './icons';
-import { ConfirmationPrompt } from './confirmation-prompt';
+import { SORT_ASCENDING_ICON, SORT_DESCENDING_ICON, SEE_ALL_ICON, CHECK_ICON, PLUS_ICON, STAR_ICON } from './icons';
 import { DetailTextOverlay } from './detail-text-overlay';
 import { castGradient, castInitials, type CastMember } from '../utils/cast';
 import { genreSet, rankMoreLikeThis } from '../utils/more-like-this';
 import { tmdbProfileUrl, type TmdbPerson } from '../services/tmdb';
-import { backKey, okHint } from './key-hints';
-import { showToast } from './toast';
 import { dropdown, toggleDropdown, closeDropdown, commitDropdownOption } from './dropdown';
 import { morph } from '../utils/morph';
 import { StorageService } from '../services/storage-service';
@@ -102,7 +99,7 @@ export type CollectionKind = 'continue' | 'watchlist';
 export interface CollectionEntry {
   id: string;
   key: string;
-  tile: (managing: boolean) => Safe;
+  tile: () => Safe;
 }
 
 interface GridSource {
@@ -214,8 +211,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private wheelTarget = 0;
   protected gridCategory: C | null = null;
   private collection: CollectionKind | null = null;
-  private managing = false;
-  private readonly clearPrompt: ConfirmationPrompt;
   protected deepLinkBack: (() => void) | null = null;
   private gridFocusIndex = 0;
   private gridReturnKey: string | null = null;
@@ -266,7 +261,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     this.layers = { browse: layer('browse'), grid: layer('grid'), detail: layer('detail') };
     this.nav = new SpatialNav(container, (el) => this.onFocusChanged(el), { follow: false });
     this.nav.setRestrict(this.layers.browse);
-    this.clearPrompt = new ConfirmationPrompt(`prompt.${this.scopeName()}.collection`);
     this.plotOverlay = new DetailTextOverlay(`prompt.${this.scopeName()}.plot`);
     this.focusScope = Focus.register({
       id: `${this.scopeName()}.catalog`,
@@ -292,7 +286,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     });
     this.container.addEventListener('click', (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (!target.closest('.catalog-sort, [data-collection-manage], [data-collection-see-all], [data-collection-action]')) return;
+      if (!target.closest('.catalog-sort, [data-collection-see-all]')) return;
       const el = target.closest<HTMLElement>('[data-focusable]');
       if (!el || !this.layers[this.mode].contains(el)) return;
       this.place(el, 'pointer');
@@ -505,7 +499,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       return {
         count: entries.length,
         keyAt: index => entries[index].key,
-        render: index => entries[index].tile(this.managing),
+        render: index => entries[index].tile(),
       };
     }
     const cat = this.gridCategory;
@@ -727,7 +721,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
 
   setAccount(account: PlaylistEntry): void {
     if (this.account?.id !== account.id) {
-      this.clearPrompt.hide();
       this.dismissSort(null);
       this.cancelHeroDetails();
       this.requestController?.abort();
@@ -771,7 +764,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
 
   deactivate(): void {
     this.cancelHeroDetails();
-    this.clearPrompt.hide();
     this.plotOverlay.hide();
     this.dismissSort(null);
     this.requestController?.abort();
@@ -785,9 +777,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   }
 
   async open(account: PlaylistEntry): Promise<void> {
-    this.clearPrompt.hide();
     this.collection = null;
-    this.managing = false;
     this.dismissSort(null);
     const signal = this.beginRequests();
     this.account = account;
@@ -880,7 +870,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
         && this.layers.browse.querySelector('.catalog-view')) {
       this.gridCategory = null;
       this.collection = null;
-      this.managing = false;
       this.browseReturn = null;
       this.clearLayer('grid');
       morph(this.layers.browse, this.loadingMarkup());
@@ -962,7 +951,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       return;
     }
     const current = this.current();
-    const sortRow = current?.closest<HTMLElement>('.catalog-sort, .catalog-collection-actions');
+    const sortRow = current?.closest<HTMLElement>('.catalog-sort');
     const horizontalRegion = sortRow ?? (this.mode !== 'grid'
       ? current?.closest<HTMLElement>(
         '.catalog-rail-track:not(.catalog-category-rail):not(.episode-track), .series-seasons, .detail-actions') : null);
@@ -989,7 +978,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
         && this.moveCategoryFocus(action)) return;
     if (this.mode === 'grid'
         && (action === 'up' || action === 'down' || action === 'left' || action === 'right')) {
-      if (this.current()?.closest('.catalog-sort, .catalog-collection-actions')) {
+      if (this.current()?.closest('.catalog-sort')) {
         this.nav.move(action);
         return;
       }
@@ -1031,10 +1020,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       return;
     }
     if (this.mode === 'grid') {
-      if (this.managing) {
-        this.setManaging(false);
-        return;
-      }
       this.gridCategory = null;
       this.collection = null;
       this.renderBrowse();
@@ -1094,102 +1079,22 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   }
 
   private selectCollection(el: HTMLElement): boolean {
-    const manage = el.dataset.collectionManage;
-    const seeAll = el.dataset.collectionSeeAll;
-    const kind = manage ?? seeAll;
-    if (kind === 'continue' || kind === 'watchlist') {
-      this.gridCategory = null;
-      this.collection = kind;
-      this.managing = manage !== undefined;
-      this.gridRequest++;
-      this.clearLayer('grid');
-      this.gridFocusIndex = 0;
-      this.gridVirtualizer.setScrollOffset(0);
-      this.renderGrid();
-      return true;
-    }
-    const action = el.dataset.collectionAction;
-    if (!this.collection || this.mode !== 'grid') return false;
-    if (action === 'manage' || action === 'done') {
-      this.setManaging(action === 'manage');
-      return true;
-    }
-    if (action === 'clear') {
-      this.confirmClear();
-      return true;
-    }
-    const cell = el.closest<HTMLElement>('[data-grid-index]');
-    if (this.managing && action === 'remove' && cell) {
-      const index = Number(cell.dataset.gridIndex);
-      const entries = this.collectionEntries(this.collection);
-      const entry = entries[index];
-      if (!entry) return true;
-      this.removeCollectionEntry(this.collection, entry.id);
-      if (entries.length === 1) {
-        this.leaveCollection();
-        return true;
-      }
-      this.gridFocusIndex = Math.min(index, entries.length - 2);
-      this.renderGrid(false);
-      this.revealGridIndex(this.gridFocusIndex);
-      this.place(this.layers.grid.querySelector<HTMLElement>(
-        `[data-grid-index="${this.gridFocusIndex}"] [data-focusable]`,
-      ), this.placementVia());
-      return true;
-    }
-    return false;
-  }
-
-  private removeCollectionEntry(kind: CollectionKind, id: string): void {
-    const account = this.account;
-    if (!account) return;
-    if (kind === 'continue') {
-      StorageService.clearResume(account.id, this.resumeKind, id);
-      this.resume = this.visibleResume(account.id);
-    } else {
-      StorageService.removeWatchlist(account.id, this.parentalKind, id);
-    }
-  }
-
-  private setManaging(managing: boolean): void {
-    if (!this.collection) return;
-    this.managing = managing;
-    this.renderGrid(false);
-    this.place(this.layers.grid.querySelector<HTMLElement>(managing
-      ? `[data-grid-index="${this.gridFocusIndex}"] [data-focusable]`
-      : '[data-collection-action="manage"]'), this.placementVia());
+    const kind = el.dataset.collectionSeeAll;
+    if (kind !== 'continue' && kind !== 'watchlist') return false;
+    this.gridCategory = null;
+    this.collection = kind;
+    this.gridRequest++;
+    this.clearLayer('grid');
+    this.gridFocusIndex = 0;
+    this.gridVirtualizer.setScrollOffset(0);
+    this.renderGrid();
+    return true;
   }
 
   private leaveCollection(): void {
     this.collection = null;
-    this.managing = false;
     this.renderBrowse();
     this.clearLayer('grid');
-  }
-
-  private confirmClear(): void {
-    const kind = this.collection;
-    const account = this.account;
-    const returnKey = this.focusScope.focusKey;
-    if (!kind || !account) return;
-    this.clearPrompt.show({
-      title: t(kind === 'continue' ? 'catalog.clearContinueWatchingTitle' : 'settings.clearWatchlistTitle'),
-      message: t(kind === 'continue' ? 'catalog.clearContinueWatchingMessage' : 'catalog.clearWatchlistMessage', {
-        account: account.name, section: this.kicker,
-      }),
-      confirmLabel: t('common.clearAll'),
-      cancelLabel: t('common.cancel'),
-      onConfirm: () => {
-        if (this.account?.id !== account.id || this.collection !== kind) return;
-        // Only the visible list is cleared; concealed titles stay untouched.
-        this.collectionEntries(kind).forEach(entry => this.removeCollectionEntry(kind, entry.id));
-        this.leaveCollection();
-        showToast(t(kind === 'continue' ? 'catalog.continueWatchingCleared' : 'catalog.watchlistCleared'));
-      },
-      onCancel: () => {
-        if (InputMode.current === 'keys') this.request(returnKey, 'back');
-      },
-    });
   }
 
   private collectionTitle(kind: CollectionKind): string {
@@ -1206,16 +1111,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     if (!entries.length) return '';
     return html`
       <div class="catalog-rail" data-key="rail:${kind}" data-rail-key="${kind}">
-        <div class="catalog-rail-head">
-          <h2 class="catalog-rail-title">${this.collectionTitle(kind)}</h2>
-          <button class="btn catalog-collection-button catalog-collection-manage" type="button"
-                  data-self-activate data-focusable data-key="manage:${kind}" data-collection-manage="${kind}">
-            <span class="catalog-action-icon">${raw(PENCIL_ICON)}</span>
-            <span>${t('parental.manage')}</span>
-          </button>
-        </div>
+        <h2 class="catalog-rail-title">${this.collectionTitle(kind)}</h2>
         <div class="catalog-rail-track" data-edge-scroll>
-          ${entries.slice(0, CONFIG.XTREAM.RAIL_ITEMS).map(entry => entry.tile(false))}
+          ${entries.slice(0, CONFIG.XTREAM.RAIL_ITEMS).map(entry => entry.tile())}
           ${entries.length > CONFIG.XTREAM.RAIL_ITEMS ? html`
             <div class="catalog-tile catalog-see-all" data-self-activate data-focusable
                  data-key="all:${kind}" data-collection-see-all="${kind}">
@@ -1229,13 +1127,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
         </div>
       </div>
     `;
-  }
-
-  protected removeMark(managing: boolean, key: string): Safe | '' {
-    return managing ? html`
-      <button class="catalog-remove-mark" type="button" data-self-activate data-focusable data-key="${key}"
-              data-collection-action="remove" aria-label="${t('common.remove')}">${raw(REMOVE_ICON)}</button>
-    ` : '';
   }
 
   protected progressBar(position: number, duration: number): Safe | '' {
@@ -1615,7 +1506,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     const signal = this.requestSignal;
     if (!signal || signal.aborted) return;
     this.collection = null;
-    this.managing = false;
     this.gridCategory = this.categories.find((c) => c.id === categoryId) ?? null;
     const request = ++this.gridRequest;
     this.clearLayer('grid');
@@ -1946,11 +1836,11 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     else if (this.mode === 'grid') this.renderGrid(false);
   }
 
-  protected tile(item: I, overlay: Safe | '' = '', managing = false): Safe {
+  protected tile(item: I, overlay: Safe | '' = ''): Safe {
     const id = this.itemId(item);
     const cat = this.itemCategoryId(item);
     return html`
-      <div class="catalog-tile" ${raw(managing ? '' : 'data-focusable')} data-key="i:${cat}:${id}"
+      <div class="catalog-tile" data-focusable data-key="i:${cat}:${id}"
            data-item-id="${id}" data-category-id="${cat}">
         <div class="catalog-poster-wrap">${this.posterCell(this.itemName(item), this.itemPoster(item))}${
           this.itemLockBadge(cat, id)}${overlay}</div>
@@ -2123,31 +2013,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     this.syncHero();
   }
 
-  private collectionActions(width: number): Safe {
-    return html`
-      <div class="catalog-collection-actions" style="width:${width}px" data-nav-container data-self-activate>
-        ${this.managing ? html`
-          <button class="btn btn-primary catalog-collection-button" type="button" data-focusable
-                  data-key="collection:done" data-collection-action="done">
-            <span class="catalog-action-icon">${raw(CHECK_ICON)}</span>
-            <span>${t('channel.editDone')}</span>
-          </button>
-          <button class="btn catalog-collection-button catalog-collection-clear" type="button" data-focusable
-                  data-key="collection:clear" data-collection-action="clear">
-            <span class="catalog-action-icon">${raw(TRASH_ICON)}</span>
-            <span>${t('common.clearAll')}</span>
-          </button>
-        ` : html`
-          <button class="btn catalog-collection-button catalog-collection-manage" type="button" data-focusable
-                  data-key="collection:manage" data-collection-action="manage">
-            <span class="catalog-action-icon">${raw(PENCIL_ICON)}</span>
-            <span>${t('parental.manage')}</span>
-          </button>
-        `}
-      </div>
-    `;
-  }
-
   // `followView`: the window follows a user scroll, whose offset stays as is;
   // above the first row the window's offset is 0 while the view's is not.
   protected renderGrid(restoreFocus = true, followView = false): void {
@@ -2187,10 +2052,10 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       this.gridVirtualizer.ensureVisible(this.gridFocusIndex, viewportWidth, viewportHeight);
     }
     const range = this.gridVirtualizer.getRange(count, viewportWidth, viewportHeight);
-    const actionWidth = this.gridVirtualizer.getItemPosition(range.columns - 1, range.columns).left
+    const columnsWidth = this.gridVirtualizer.getItemPosition(range.columns - 1, range.columns).left
       + uiPx(CATALOG_GRID_POSTER_WIDTH);
     // Whole columns rarely fill the track; center them, and the heading with them.
-    const inset = Math.max(0, Math.floor((viewportWidth - actionWidth) / 2));
+    const inset = Math.max(0, Math.floor((viewportWidth - columnsWidth) / 2));
     const cells: Safe[] = [];
     for (let index = range.start; index < range.end; index++) {
       const position = this.gridVirtualizer.getItemPosition(index, range.columns);
@@ -2199,14 +2064,13 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
              style="left:${position.left + inset}px;top:${position.top}px">${source.render(index)}</div>
       `);
     }
-    const managing = !!kind && this.managing;
     morph(gridLayer, html`
-      <div class="catalog-view catalog-grid${managing ? ' catalog-managing' : ''}" data-nav-container>
+      <div class="catalog-view catalog-grid" data-nav-container>
         <div class="catalog-grid-head" style="padding-left:${inset}px;padding-right:${inset}px">
           <h1 class="catalog-grid-title">${kind ? html`
             ${this.collectionTitle(kind)} <span class="catalog-grid-count">${this.collectionCount(kind, count)}</span>
           ` : cat ? cat.name : this.kicker}</h1>
-          ${kind ? this.collectionActions(actionWidth) : this.sortControls()}
+          ${kind ? '' : this.sortControls()}
         </div>
         ${count === 0
           ? html`<p class="catalog-hint">${kind
@@ -2218,12 +2082,6 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
             </div>
           `}
       </div>
-      ${managing ? html`
-        <div class="edit-hints catalog-manage-hints">
-          ${okHint(t('common.remove'))}
-          <span class="edit-hint">${backKey()}<span>${t('channel.editDone')}</span></span>
-        </div>
-      ` : ''}
     `);
     const view = gridLayer.querySelector<HTMLElement>('.catalog-grid');
     const track = gridLayer.querySelector<HTMLElement>('.catalog-grid-track');
