@@ -241,7 +241,7 @@ export async function expectDrmPills(page: Page, label: string): Promise<void> {
   await page.evaluate(() =>
     document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 405, bubbles: true })));
   const pills = page.locator('#player-osd .osd-stream-info');
-  for (const value of ['720p', 'HDR', '25', 'H.264', 'AAC', 'Audio Track: Track 1', 'Subtitles: Off', label]) {
+  for (const value of ['720p', 'HDR', '25', 'H.264', 'AAC', 'Track 1', 'Off', label]) {
     await expect(pills).toContainText(value);
   }
 }
