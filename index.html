@@ -31,15 +31,20 @@
   <link rel="stylesheet" href="css/live-category-picker.css">
   <link rel="stylesheet" href="css/legacy-webos-overrides.css">
   <script>
-    // Interface size: swap to the build's pre-scaled stylesheets before the
-    // first paint. Keep the sizes in step with INTERFACE_SIZES.
+    // Interface size and layout direction: swap to the build's pre-scaled
+    // and mirrored stylesheets before the first paint. Keep the sizes in
+    // step with INTERFACE_SIZES; the direction is the last locale's.
     try {
       var z = JSON.parse(localStorage.getItem('iptv_interface_size'));
-      if (/^(90|110|120|130)$/.test(z)) {
-        document.documentElement.dataset.interfaceSize = z;
+      var sized = /^(90|110|120|130)$/.test(z);
+      var rtl = JSON.parse(localStorage.getItem('iptv_direction')) === 'rtl';
+      if (sized) document.documentElement.dataset.interfaceSize = z;
+      if (rtl) document.documentElement.dir = 'rtl';
+      if (sized || rtl) {
+        var prefix = 'css/' + (rtl ? 'rtl/' : '') + (sized ? 'ui-' + z + '/' : '');
         var sheets = document.querySelectorAll('link[rel="stylesheet"]');
         for (var i = 0; i < sheets.length; i++) {
-          sheets[i].setAttribute('href', sheets[i].getAttribute('href').replace(/^css\//, 'css/ui-' + z + '/'));
+          sheets[i].setAttribute('href', sheets[i].getAttribute('href').replace(/^css\//, prefix));
         }
       }
     } catch (e) {}

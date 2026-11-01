@@ -2,6 +2,7 @@ import type { Action, ChannelCycleMode, EpgSource, ManualEpgSource, NavDirection
 import { $, $$, html, raw, withInstantScroll, type Safe } from '../utils/dom';
 import { TMDB_LOGO, TMDB_NOTICE } from './tmdb-attribution';
 import { morph } from '../utils/morph';
+import { screenSide } from '../utils/direction';
 import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { caretAtEdge, caretSideOf } from '../navigation/caret-edge';
 import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
@@ -2262,11 +2263,12 @@ export class Settings {
   }
 
   // Left and Right stay on the focused control's row: the nearest control
-  // of its group that shares its line. A row's controls sit side by side in
-  // every locale (Arabic keeps the left-to-right layout), so a control below
-  // and to the side never wins over the next one on the line.
-  private rowPeer(el: HTMLElement | null, side: 'left' | 'right'): HTMLElement | null {
+  // of its group that shares its line, so a control below and to the side
+  // never wins over the next one on the line. `logical` is the action's side
+  // (src/utils/direction.ts), mirrored on screen in right-to-left.
+  private rowPeer(el: HTMLElement | null, logical: 'left' | 'right'): HTMLElement | null {
     if (!el) return null;
+    const side = screenSide(logical);
     const group = el.closest<HTMLElement>(ROW_GROUPS) ?? el.closest<HTMLElement>('.settings-category');
     if (!group) return null;
     const rect = el.getBoundingClientRect();

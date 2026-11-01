@@ -11,6 +11,7 @@ import {
   convertLegacyColorSyntax,
   generateFlexGapFallback,
   linkedStylesheets,
+  mirrorStylesheet,
   scaleFontSizes,
   scaleLengths,
 } from './scripts/css-transforms.mjs';
@@ -37,17 +38,24 @@ function interfaceSizes() {
 }
 
 // Every non-default Interface size gets its own copy of each stylesheet in
-// css/ui-<size>/, with the px lengths already multiplied out.
+// css/ui-<size>/, with the px lengths already multiplied out, and every
+// stylesheet a mirrored right-to-left copy in css/rtl/ (and css/rtl/ui-<size>/).
 function transformStylesheets(outDir) {
   const sizes = interfaceSizes();
-  for (const size of sizes) mkdirSync(`${outDir}/ui-${size}`, { recursive: true });
+  for (const size of sizes) {
+    mkdirSync(`${outDir}/ui-${size}`, { recursive: true });
+    mkdirSync(`${outDir}/rtl/ui-${size}`, { recursive: true });
+  }
   for (const file of readdirSync(outDir)) {
     if (!file.endsWith('.css')) continue;
     const path = `${outDir}/${file}`;
     const css = scaleFontSizes(convertLegacyColorSyntax(readFileSync(path, 'utf8')));
+    const rtl = mirrorStylesheet(css);
     writeFileSync(path, css);
+    writeFileSync(`${outDir}/rtl/${file}`, rtl);
     for (const size of sizes) {
       writeFileSync(`${outDir}/ui-${size}/${file}`, scaleLengths(css, Number(size) / 100));
+      writeFileSync(`${outDir}/rtl/ui-${size}/${file}`, scaleLengths(rtl, Number(size) / 100));
     }
   }
 }

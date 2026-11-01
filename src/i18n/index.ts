@@ -30,6 +30,7 @@ type LocaleDefinition = {
   systemPrefixes: readonly string[];
   // Overrides the BCP 47 tag passed to Intl, e.g. to pin the numbering system.
   intlLocale?: string;
+  // Lays the whole UI out right to left (docs/rtl-layout.md).
   rtl?: boolean;
 };
 
@@ -162,6 +163,12 @@ export function initLocale(preference: LocalePreference): void {
 
 export function getLocale(): SupportedLocale {
   return currentLocale;
+}
+
+/** The layout direction of a locale; the pseudo-locale stays left to right. */
+export function localeDirection(locale: SupportedLocale = currentLocale): 'ltr' | 'rtl' {
+  if (__ENABLE_PSEUDO_LOCALE__ && pseudoLocaleRequested()) return 'ltr';
+  return (LOCALES[locale] as LocaleDefinition).rtl ? 'rtl' : 'ltr';
 }
 
 export function formatNumber(

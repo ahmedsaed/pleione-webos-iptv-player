@@ -48,6 +48,19 @@ describe('KeyHandler', () => {
     vi.useRealTimers();
   });
 
+  it('turns Left and Right into the row\'s end and start in right to left', () => {
+    document.documentElement.dir = 'rtl';
+    try {
+      press(K.LEFT);
+      press(K.RIGHT);
+      press(K.UP);
+    } finally {
+      document.documentElement.removeAttribute('dir');
+    }
+    press(K.LEFT);
+    expect(handler.mock.calls.map(([action]) => action)).toEqual(['right', 'left', 'up', 'left']);
+  });
+
   it('marks a held key\'s repeat only while its action is handled', () => {
     const seen: boolean[] = [];
     handler.mockImplementation(() => { seen.push(InputMode.keyRepeat); });

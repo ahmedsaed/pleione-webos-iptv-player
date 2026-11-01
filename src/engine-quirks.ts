@@ -5,6 +5,9 @@
 //   padding-right out of its scroll width.
 // - q-no-flex-gap: no flex `gap` (Chromium before 84). `@supports (gap: …)`
 //   is already true for grid gap alone, from Chromium 66.
+// - q-rtl-scroll-default: a right-to-left scroller reports scrollLeft as the
+//   distance from its left edge (Chromium before 85), not as 0 at its start
+//   going negative. src/utils/direction.ts reads it; CSS has no use for it.
 //
 // Unrelated to the document's quirks mode.
 //
@@ -17,11 +20,13 @@ const log = createLogger('Quirks');
 export interface EngineQuirks {
   scrollEndPadding: boolean;
   noFlexGap: boolean;
+  rtlScrollDefault: boolean;
 }
 
 export const QUIRK_CLASSES: Record<keyof EngineQuirks, string> = {
   scrollEndPadding: 'q-scroll-end-padding',
   noFlexGap: 'q-no-flex-gap',
+  rtlScrollDefault: 'q-rtl-scroll-default',
 };
 
 // Set once the probes have run, so a stopgap for the first paint (before any
@@ -59,14 +64,22 @@ export function measureEngineQuirks(doc: Document = document): EngineQuirks {
   row.appendChild(first);
   row.appendChild(second);
 
+  // A 10px right-to-left scroller over a 20px item starts at its right edge:
+  // scrollLeft 10 in the old model, 0 in the standard one.
+  const rtl = box(doc, 'direction:rtl;overflow:auto;white-space:nowrap;'
+    + 'box-sizing:content-box;width:10px;height:10px;padding:0;border:0;');
+  rtl.appendChild(box(doc, 'display:inline-block;box-sizing:content-box;width:20px;height:1px;'));
+
   host.appendChild(scroller);
   host.appendChild(row);
+  host.appendChild(rtl);
   (doc.body || doc.documentElement).appendChild(host);
   try {
     return {
       // Midpoints, so sub-pixel rounding cannot tip either probe.
       scrollEndPadding: scroller.scrollWidth < 25,
       noFlexGap: second.offsetLeft - first.offsetLeft < 15,
+      rtlScrollDefault: rtl.scrollLeft > 5,
     };
   } finally {
     host.parentNode?.removeChild(host);
@@ -84,6 +97,7 @@ export function applyEngineQuirks(quirks: EngineQuirks, root: Element): void {
     'event=engine.quirks.measured',
     `scrollEndPadding=${quirks.scrollEndPadding ? 1 : 0}`,
     `noFlexGap=${quirks.noFlexGap ? 1 : 0}`,
+    `rtlScrollDefault=${quirks.rtlScrollDefault ? 1 : 0}`,
   );
 }
 

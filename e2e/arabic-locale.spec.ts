@@ -73,7 +73,7 @@ async function expectLeftToRight(page: Page, selector: string, parts: string[]):
   expect(lefts, `${parts.join(' | ')} in ${selector}`).toEqual([...lefts].sort((a, b) => a - b));
 }
 
-test('Arabic keeps the LTR layout with Arabic labels and Western digits', async ({ page }) => {
+test('Arabic lays the UI out right to left with Arabic labels and Western digits', async ({ page }) => {
   await setup(page);
   await page.goto('/');
 
@@ -81,7 +81,7 @@ test('Arabic keeps the LTR layout with Arabic labels and Western digits', async 
   expect(await page.evaluate(() => ({
     dir: document.documentElement.getAttribute('dir'),
     direction: getComputedStyle(document.body).direction,
-  }))).toEqual({ dir: null, direction: 'ltr' });
+  }))).toEqual({ dir: 'rtl', direction: 'rtl' });
 
   await expect(page.locator('#view-channels .live-header-count')).toHaveText('2 قناة');
 

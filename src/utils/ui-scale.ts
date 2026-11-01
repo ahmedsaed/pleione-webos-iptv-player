@@ -26,19 +26,21 @@ export function uiTextPx(px: number): number {
   return px * uiScale() * textScale();
 }
 
-const SHEET_RE = /^css\/(?:ui-\d+\/)?([\w.-]+\.css)$/;
+const SHEET_RE = /^css\/(?:rtl\/)?(?:ui-\d+\/)?([\w.-]+\.css)$/;
 
 /** Points every app stylesheet at the build's copy for `size` (css/ui-<size>/,
- *  or css/ for the default). Each new sheet loads beside the one it replaces,
+ *  or css/ for the default) in the document's direction (css/rtl/… under
+ *  `<html dir="rtl">`). Each new sheet loads beside the one it replaces,
  *  which is removed only once it has loaded, so a switch never paints
  *  unstyled. */
 export function swapInterfaceStylesheets(size: string): void {
+  const base = document.documentElement.dir === 'rtl' ? 'css/rtl/' : 'css/';
   const links = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'));
   for (const link of links) {
     const match = SHEET_RE.exec(link.getAttribute('href') ?? '');
     if (!match || link.dataset.retiring) continue;
     const file = match[1];
-    const href = size === DEFAULT_INTERFACE_SIZE ? `css/${file}` : `css/ui-${size}/${file}`;
+    const href = size === DEFAULT_INTERFACE_SIZE ? `${base}${file}` : `${base}ui-${size}/${file}`;
     if (link.getAttribute('href') === href) continue;
     const next = link.cloneNode() as HTMLLinkElement;
     next.setAttribute('href', href);

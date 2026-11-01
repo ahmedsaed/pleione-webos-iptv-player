@@ -310,6 +310,22 @@ describe('SpatialNav', () => {
       expect(nav.focused).toBe(right);
     });
 
+    it('takes a right-to-left move toward the row end as a move to the left', () => {
+      const left = focusable({ x: 0, y: 0 });
+      const right = focusable({ x: 200, y: 0 });
+      const nav = new SpatialNav(makeContainer(left, right));
+      document.documentElement.dir = 'rtl';
+      try {
+        nav.focus(right);
+        nav.move('right');
+        expect(nav.focused).toBe(left);
+        nav.move('left');
+        expect(nav.focused).toBe(right);
+      } finally {
+        document.documentElement.removeAttribute('dir');
+      }
+    });
+
     it('does not move when there is no candidate in that direction', () => {
       const top = focusable({ x: 0, y: 0 });
       const bottom = focusable({ x: 0, y: 100 });

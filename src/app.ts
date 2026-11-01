@@ -47,7 +47,9 @@ import {
   vodParentalRequest,
 } from './services/parental-control';
 import { setDisplayTz } from './utils/time';
-import { initTheme, applyTheme, applyOverlayStyle, applyTextSize, applyInterfaceSize } from './services/theme-service';
+import {
+  initTheme, applyTheme, applyOverlayStyle, applyTextSize, applyInterfaceSize, applyDirection,
+} from './services/theme-service';
 import { applyAnimationMode } from './services/motion-service';
 import { channelKey } from './utils/channel';
 import { isSourceEnabled } from './utils/playlist';
@@ -67,7 +69,7 @@ import type {
   EpgSource,
   PlaylistEntry,
 } from './types';
-import { getLocale, initLocale, resolveLocale, setLocale, t, tp } from './i18n';
+import { getLocale, initLocale, localeDirection, resolveLocale, setLocale, t, tp } from './i18n';
 
 const log = createLogger('App');
 
@@ -179,6 +181,7 @@ class App {
     const loadingTitle = $('#loading-title');
     if (loadingTitle) loadingTitle.textContent = CONFIG.APP_NAME;
     initTheme();
+    applyDirection(localeDirection());
     this.views = {
       home: $('#view-home')!,
       channels: $('#view-channels')!,
@@ -2123,6 +2126,7 @@ class App {
       const locale = resolveLocale(StorageService.getLocalePreference());
       if (locale !== getLocale()) {
         setLocale(locale);
+        applyDirection(localeDirection());
         this.syncSources();
         this.homeButton.refreshLabel();
         ReminderService.reschedulePending();

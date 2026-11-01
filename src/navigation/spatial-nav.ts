@@ -1,6 +1,7 @@
 import type { Action, NavDirection } from '../types';
 import { CONFIG } from '../config';
 import type { FocusScope } from './focus-scope';
+import { screenSide } from '../utils/direction';
 
 interface Candidate {
   el: HTMLElement;
@@ -443,8 +444,11 @@ export class SpatialNav {
     return best;
   }
 
-  move(direction: NavDirection): boolean {
+  // `direction` is logical (see src/utils/direction.ts): in right-to-left
+  // 'left' moves toward the start of a row, which is on screen to the right.
+  move(logical: NavDirection): boolean {
     if (this.showConcealed()) return true;
+    const direction = screenSide(logical);
     const root = this.root();
     const focusedContainer = this.focused?.closest<HTMLElement>('[data-nav-container]');
     if (this.focused && root.contains(this.focused) && focusedContainer
