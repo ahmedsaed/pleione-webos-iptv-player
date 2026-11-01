@@ -682,6 +682,8 @@ export interface SeriesEpisodeRef {
   episode: number;
   /** The provider's episode title, as sent. */
   title: string;
+  /** The series' own poster, for Continue Watching. */
+  seriesPoster?: string;
 }
 
 export interface WatchlistOwner {

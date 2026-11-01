@@ -13,6 +13,7 @@ import { uiPx } from '../utils/ui-scale';
 import { castGradient, parseCast } from '../utils/cast';
 import { formatPosition } from '../utils/time';
 import { loadTmdbCredits, matchTmdbPeople, type TmdbPerson } from '../services/tmdb';
+import { CONFIG } from '../config';
 import { composeEpisodeLabel, episodeCodeOf, episodeLabelOf, episodeTitle, seriesNameOf } from '../utils/episode-label';
 
 // An episode card's width plus the gap after it, as in catalog-view.css.
@@ -24,6 +25,9 @@ function episodeRowTitle(ep: Episode): string {
   const title = episodeTitle(ep.title);
   return title ? `${code} · ${title}` : code;
 }
+
+// What the browse hero keeps of a series' provider details.
+type SeriesSummary = Pick<SeriesInfo, 'poster' | 'genre' | 'year' | 'plot' | 'backdrop'>;
 
 // A saved queue's episodes, named in the UI language.
 function localizedQueue(items: VodQueueItem[]): VodQueueItem[] {
@@ -47,6 +51,10 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
   private currentSeries: SeriesItem | null = null;
   private currentInfo: SeriesInfo | null = null;
   private pinnedResume: string | null = null;
+  private heroInfo = new Map<string, SeriesSummary>();
+  // Continue Watching series no loaded category lists, kept so the hero
+  // sees the same item each time.
+  private resumeSeriesItems = new Map<string, SeriesItem>();
   private selectedSeason = 0;
   private detailLoading = false;
   private detailController: AbortController | null = null;
@@ -118,9 +126,75 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
 
   protected itemGenre(s: SeriesItem): string | undefined { return s.genre; }
 
-  // The series list already carries what the hero shows.
+  // The series list usually carries what the hero shows; a series without
+  // it, such as one only Continue Watching names, asks get_series_info.
   protected heroDetails(s: SeriesItem): HeroDetails {
-    return { genre: s.genre, year: s.year, plot: s.plot, backdrop: s.backdrop };
+    const info = this.heroInfo.get(this.heroInfoKey(s.seriesId));
+    return {
+      poster: s.poster ? undefined : info?.poster || undefined,
+      genre: s.genre || info?.genre || undefined,
+      year: s.year || info?.year || undefined,
+      plot: s.plot || info?.plot || undefined,
+      backdrop: s.backdrop || info?.backdrop || undefined,
+    };
+  }
+
+  protected heroDetailsPending(s: SeriesItem): boolean {
+    return !!this.account && !(s.genre || s.year || s.plot || s.backdrop)
+      && !this.heroInfo.has(this.heroInfoKey(s.seriesId));
+  }
+
+  protected async loadHeroDetails(s: SeriesItem, signal: AbortSignal): Promise<void> {
+    const account = this.account;
+    if (!account) return;
+    const info = await loadSeriesInfo(account, s.seriesId, signal);
+    if (info && !signal.aborted && this.account?.id === account.id) this.rememberHeroInfo(s.seriesId, info);
+  }
+
+  private heroInfoKey(seriesId: string): string {
+    return `${this.account?.id ?? ''}|${seriesId}`;
+  }
+
+  private rememberHeroInfo(seriesId: string, info: SeriesInfo): void {
+    const key = this.heroInfoKey(seriesId);
+    this.heroInfo.delete(key);
+    this.heroInfo.set(key, {
+      poster: info.poster, genre: info.genre, year: info.year, plot: info.plot, backdrop: info.backdrop,
+    });
+    if (this.heroInfo.size > CONFIG.XTREAM.HERO_DETAILS_CACHE_ITEMS) {
+      this.heroInfo.delete(this.heroInfo.keys().next().value!);
+    }
+  }
+
+  // The series a Continue Watching episode belongs to: its catalog item, or
+  // one built from what the episode saved until its category loads.
+  protected resumeItem(entry: ResumeEntry): SeriesItem | null {
+    const seriesId = entry.watchlistOwner?.itemId;
+    if (!seriesId) return null;
+    const found = this.findItem(entry.categoryId ?? '', seriesId);
+    if (found) return found;
+    const key = `${entry.accountId}|${seriesId}`;
+    let item = this.resumeSeriesItems.get(key);
+    if (!item) {
+      item = {
+        accountId: entry.accountId, seriesId,
+        name: seriesNameOf(entry, entry.name) || this.resumeName(entry),
+        poster: entry.seriesEpisode?.seriesPoster ?? '', rating: '', categoryId: entry.categoryId ?? '',
+      };
+      this.resumeSeriesItems.set(key, item);
+    }
+    return item;
+  }
+
+  // The series' own poster, else the episode's.
+  protected resumePoster(entry: ResumeEntry): string {
+    const series = this.resumeItem(entry);
+    if (!series) return entry.poster;
+    return series.poster || this.heroInfo.get(this.heroInfoKey(series.seriesId))?.poster || entry.poster;
+  }
+
+  protected resumeCategoryIds(): string[] {
+    return this.resume.map(entry => (entry.watchlistOwner ? entry.categoryId ?? '' : ''));
   }
 
   protected heroFallback(): SeriesItem | null {
@@ -159,12 +233,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       this.playResume(episodeId);
       return;
     }
-    const name = seriesNameOf(entry, entry.name);
-    const series = this.findItem(entry.categoryId ?? '', seriesId) ?? {
-      accountId: entry.accountId, seriesId, name: name || entry.name, poster: entry.poster,
-      rating: '', categoryId: entry.categoryId ?? '',
-    };
-    void this.openDetail(series, episodeId);
+    void this.openDetail(this.resumeItem(entry)!, episodeId);
   }
 
   private toggleWatchlist(): void {
@@ -217,6 +286,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
   ): Promise<boolean> {
     try {
       this.currentInfo = await loadSeriesInfo(account, series.seriesId, signal);
+      if (this.currentInfo) this.rememberHeroInfo(series.seriesId, this.currentInfo);
     } catch (err) {
       if (!this.requestFailed('Series detail load', err, signal)) return false;
       this.currentInfo = null;
@@ -323,11 +393,14 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
 
   private episodePlayback(series: SeriesItem, ep: Episode): VodQueueItem {
     const a = this.account!;
-    const seriesEpisode = { seriesName: series.name, season: ep.season, episode: ep.episode, title: ep.title };
+    const seriesPoster = this.currentInfo?.poster || series.poster;
+    const seriesEpisode = {
+      seriesName: series.name, season: ep.season, episode: ep.episode, title: ep.title, seriesPoster,
+    };
     return {
       url: xtreamEpisodeUrl(this.creds(), ep.id, ep.containerExtension || 'mp4'),
       title: composeEpisodeLabel(seriesEpisode),
-      poster: ep.poster || series.poster,
+      poster: ep.poster || seriesPoster,
       accountId: a.id,
       itemId: ep.id,
       kind: 'episode',
@@ -410,7 +483,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
   private resumeTile(r: ResumeEntry): Safe {
     return html`
       <div class="catalog-tile" data-focusable data-key="r:${r.itemId}" data-resume-episode="${r.itemId}">
-        <div class="catalog-poster-wrap">${this.posterCell(this.resumeName(r), r.poster)}${
+        <div class="catalog-poster-wrap">${this.posterCell(this.resumeName(r), this.resumePoster(r))}${
           this.itemLockBadge(r.categoryId ?? '', r.watchlistOwner?.itemId ?? r.itemId)}${
           this.progressBar(r.position, r.duration)}</div>
         <div class="catalog-tile-name">${this.resumeName(r)}</div>

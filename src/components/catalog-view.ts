@@ -143,6 +143,8 @@ export interface DetailAction {
 }
 
 export interface HeroDetails {
+  // Artwork found after the title's own, such as its provider details' poster.
+  poster?: string;
   genre?: string;
   year?: number;
   plot?: string;
@@ -382,6 +384,11 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   protected fallbackItem(_id: string): I | null { return null; }
   // The name a Continue Watching entry shows; default its saved name.
   protected resumeName(entry: ResumeEntry): string { return entry.name; }
+  protected resumePoster(entry: ResumeEntry): string { return entry.poster; }
+  // The title a Continue Watching entry belongs to, for the hero; default none.
+  protected resumeItem(_entry: ResumeEntry): I | null { return null; }
+  // Categories whose items name the Continue Watching entries; default none.
+  protected resumeCategoryIds(): string[] { return []; }
   // Hero when no rail item exists (Movies falls back to a resumed item); default none.
   protected heroFallback(): I | null { return null; }
   // What the hero can show for a title right away.
@@ -848,6 +855,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
         );
       }
       this.renderBrowse();
+      void this.loadResumeCategories(signal);
     } catch (err) {
       if (signal.aborted) return;
       log.error(
@@ -1195,9 +1203,10 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private heroSubjectFor(el: HTMLElement): HeroSubject<I> | null {
     if (el.dataset.resumeEpisode !== undefined) {
       const entry = this.resume.find(entry => entry.itemId === el.dataset.resumeEpisode);
-      return entry
-        ? { key: `r:${entry.itemId}`, name: this.resumeName(entry), poster: entry.poster, item: null }
-        : null;
+      return entry ? {
+        key: `r:${entry.itemId}`, name: this.resumeName(entry), poster: this.resumePoster(entry),
+        item: this.resumeItem(entry),
+      } : null;
     }
     const id = el.dataset.itemId;
     if (id === undefined) return null;
@@ -1258,7 +1267,10 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       };
       this.loadHeroDetails(item, controller.signal).then(() => {
         settle();
-        if (!controller.signal.aborted && this.hero === subject) this.renderHero();
+        if (controller.signal.aborted || this.hero !== subject) return;
+        // A Continue Watching tile may take the artwork the details brought.
+        if (subject.key.indexOf('r:') === 0 && this.mode === 'browse') this.renderBrowse(false);
+        else this.renderHero();
       }, settle);
     }, CONFIG.XTREAM.HERO_DETAILS_DELAY_MS);
   }
@@ -1282,11 +1294,12 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     const meta = [details.genre ?? '', year].filter(part => !!part);
     // A backdrop that is only the poster again would crop like one.
     const backdrop = details.backdrop ?? '';
-    const wide = !!backdrop && backdrop !== subject.poster;
+    const poster = details.poster || subject.poster;
+    const wide = !!backdrop && backdrop !== poster;
     // An artwork URL sits inside a CSS url('…') string, where the html
     // escaper's entity encoding is decoded before CSS parses it; percent-encode
     // the characters that could break out of the string.
-    const bg = (wide ? backdrop : subject.poster).replace(/["'()\\\s]/g, encodeURIComponent);
+    const bg = (wide ? backdrop : poster).replace(/["'()\\\s]/g, encodeURIComponent);
     return html`
       ${bg ? html`<div class="catalog-hero-art${wide ? '' : ' catalog-hero-art-soft'}"
                        style="background-image: url('${bg}')"></div>` : ''}
@@ -1685,6 +1698,17 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     } catch {
       return false;
     }
+  }
+
+  // Continue Watching entries from categories past the rails take their
+  // titles' artwork and details once those categories load.
+  private async loadResumeCategories(signal: AbortSignal): Promise<void> {
+    const ids = this.resumeCategoryIds().filter((id, i, all) => !!id && all.indexOf(id) === i);
+    if (!ids.length) return;
+    const loaded = await Promise.all(ids.map(id => this.ensureCategoryItems(id, signal)));
+    if (signal.aborted || loaded.indexOf(true) < 0) return;
+    if (this.mode === 'browse') this.renderBrowse(false);
+    else if (this.mode === 'grid' && this.collection === 'continue') this.renderGrid(false);
   }
 
   // Lays the hero out in the room the rails leave it. The title and the
