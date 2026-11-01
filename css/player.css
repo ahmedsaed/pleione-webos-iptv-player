@@ -243,8 +243,10 @@
 }
 
 /* Room for the seek bar's and LIVE's full-height targets, which reach
-   past the row's thin track into this margin. */
+   past the row's track into this margin, and for the focused thumb at
+   either end of the track beside the times. */
 .osd-progress-row[data-dock-row] {
+  gap: 32px;
   margin: 20px 0;
 }
 
@@ -279,12 +281,12 @@
 .osd-progress[data-seekbar] {
   position: relative;
   cursor: pointer;
-  /* A full-height target around the 6px track; the negative margin keeps
+  /* A full-height target around the 10px track; the negative margin keeps
      the row as tall as the track's old 36px box. */
   height: var(--control-height);
   margin-top: -20px;
   margin-bottom: -20px;
-  padding: 35px 0;
+  padding: 33px 0;
   background-clip: content-box;
   overflow: visible;
 }
@@ -292,16 +294,17 @@
 .osd-progress[data-seekbar] .osd-progress-bar {
   position: relative;
   overflow: visible;
+  border-radius: 6px;
   transition: width 0.12s linear;
 }
 
 .osd-progress[data-seekbar] .osd-progress-bar::after {
   content: '';
   position: absolute;
-  right: -9px;
+  right: -12px;
   top: 50%;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   transform: translateY(-50%);
   border-radius: 50%;
   background: var(--accent);
@@ -311,14 +314,14 @@
 /* The focused seek bar grows its track and rings its thumb, the bar's own
    visual target, instead of boxing the whole bar. */
 .osd-progress[data-seekbar].focused {
-  padding: 34px 0;
+  padding: 32px 0;
   box-shadow: none;
 }
 
 .osd-progress[data-seekbar].focused .osd-progress-bar::after {
-  width: 26px;
-  height: 26px;
-  right: -13px;
+  width: 32px;
+  height: 32px;
+  right: -16px;
   border: 3px solid var(--text-primary);
   box-shadow: 0 0 0 4px rgb(var(--accent-rgb) / 0.35), 0 0 18px var(--accent-glow);
 }

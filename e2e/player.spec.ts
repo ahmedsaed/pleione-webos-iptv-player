@@ -12,6 +12,7 @@ import {
   enterTab,
   SEARCH_M3U,
   pressStepsAndReadPlayer,
+  seekBarGeometry,
 } from './helpers';
 
 // Opened from Home's Live card after every load (see `startOn`).
@@ -35,7 +36,7 @@ async function pressRemoteBack(page: Page): Promise<void> {
     document.dispatchEvent(new KeyboardEvent('keydown', { keyCode: 461, bubbles: true })));
 }
 
-const [ENTER, RIGHT, BACK, YELLOW] = [13, 39, 461, 405];
+const [ENTER, UP, RIGHT, DOWN, BACK, YELLOW] = [13, 38, 39, 40, 461, 405];
 
 test('remote arrow keys move focus and Enter starts playback', async ({ page }) => {
   await routePlaylist(page);
@@ -1033,6 +1034,21 @@ test.describe('DVR', () => {
     const state = await okAndReadVideo(page, '[data-golive]');
 
     expect(state.currentTime).toBe(57);
+  });
+
+  test('the DVR seek bar thumb clears the time and LIVE at either end of a thick track', async ({ page }) => {
+    await gotoDvrPlayer(page);
+    await pressStepsAndReadPlayer(page, [[YELLOW]]);
+    const resting = await seekBarGeometry(page);
+    // OK hands a live DVR's controls the keys, on the seek bar.
+    await pressStepsAndReadPlayer(page, [[ENTER]]);
+    await expect(page.locator('#player-osd [data-seekbar].focused')).toBeVisible();
+    const focused = await seekBarGeometry(page);
+    for (const geometry of [resting, focused]) {
+      expect(geometry.track).toBeGreaterThanOrEqual(10);
+      expect(geometry.startClearance).toBeGreaterThanOrEqual(8);
+      expect(geometry.endClearance).toBeGreaterThanOrEqual(8);
+    }
   });
 
   test('Back leaves a playing DVR stream even with the OSD up', async ({ page }) => {
