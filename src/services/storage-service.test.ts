@@ -721,6 +721,28 @@ describe('StorageService resume store', () => {
     expect(StorageService.getResumeList('x1').map((e) => e.itemId)).toEqual(['10']);
   });
 
+  it('lists a series at the episode after the ones finished since its older partial episode', () => {
+    const queueItem = (id: string) => ({
+      url: `http://host/series/u/p/${id}.mkv`, title: `Series One ${id}`, poster: '', accountId: 'x1',
+      itemId: id, kind: 'episode' as const, subtitles: [], watchlistOwner: { kind: 'series' as const, itemId: 's1' },
+    });
+    StorageService.setResume(resume({
+      kind: 'episode', itemId: 'e5', ext: 'mkv', duration: 1500, updatedAt: 1000,
+      previousEpisodes: ['e1', 'e2', 'e3', 'e4'].map(queueItem),
+      episodeQueue: ['e6', 'e7', 'e8'].map(queueItem),
+      watchlistOwner: { kind: 'series', itemId: 's1' },
+    }));
+    StorageService.setResume(resume({ itemId: 'm1', updatedAt: 1500 }));
+    StorageService.markWatched('x1', 'episode', 'e6', 2000);
+    StorageService.markWatched('x1', 'episode', 'e7', 3000);
+
+    expect(StorageService.getResumeList('x1').map(e => [e.itemId, e.position])).toEqual([['e8', 0], ['m1', 100]]);
+    expect(StorageService.getResume('x1', 'episode', 'e5')?.position).toBe(100);
+
+    StorageService.markWatched('x1', 'episode', 'e8', 4000);
+    expect(StorageService.getResumeList('x1').map(e => e.itemId)).toEqual(['m1']);
+  });
+
   const ids = (accountId: string, kind: 'vod' | 'episode') =>
     StorageService.getResumeList(accountId).filter(e => e.kind === kind).map(e => e.itemId);
 

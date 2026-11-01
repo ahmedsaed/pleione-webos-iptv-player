@@ -135,6 +135,28 @@ describe('Series browse + grid', () => {
     expect(browseFocus()).toBe('r:e1');
   });
 
+  it('opens the series page on the episode after a finished one, playing it from the start', async () => {
+    useResume([{
+      accountId: 'x1', kind: 'episode', itemId: 'e2', ext: 'mkv', poster: '',
+      name: 'Series One — S2E1 — Episode Two', position: 0, duration: 0, updatedAt: 3, categoryId: '1',
+      watchlistOwner: { kind: 'series', itemId: 's1' },
+    }]);
+    (storageMock.getResume as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+    const { view, handlers } = await openWith();
+    const tile = container.querySelector<HTMLElement>('[data-rail-key="continue"] [data-resume-episode="e2"]')!;
+    expect(tile.querySelector('.catalog-progress')).toBeNull();
+    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    await Promise.resolve(); await Promise.resolve();
+    const resume = container.querySelector<HTMLElement>('[data-action="resume"]')!;
+    expect(resume.textContent).toContain('Resume S2E1');
+    expect(container.querySelector('[data-action="restart"]')).toBeNull();
+    resume.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e2', resumeSecs: 0 }));
+  });
+
   it('names a series missing from the loaded rails from its episode', async () => {
     useResume(owned());
     catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);

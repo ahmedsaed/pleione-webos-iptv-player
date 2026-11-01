@@ -486,7 +486,8 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     `], this.seasonTabs(info), 'episode-track');
   }
 
-  // Resume, then Play from start for the episode it resumes.
+  // Resume, then Play from start for the episode it resumes. The episode after
+  // a finished one already starts from the beginning.
   private primaryActions(): Safe {
     const resumed = this.resumeEpisode();
     if (!resumed) {
@@ -507,7 +508,8 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
         icon: PLAY_ICON,
         primary: true,
       })}
-      ${episode ? this.detailButton({ key: 'restart', label: t('catalog.playFromStart'), icon: RESTART_ICON }) : ''}
+      ${episode && entry.position > 0
+        ? this.detailButton({ key: 'restart', label: t('catalog.playFromStart'), icon: RESTART_ICON }) : ''}
     `;
   }
 
