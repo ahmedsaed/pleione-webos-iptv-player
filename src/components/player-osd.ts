@@ -110,7 +110,6 @@ export class PlayerOsd {
   // Live channel info shows the full description and more of the schedule.
   private expanded = false;
   // The control the pointer rests on while the controls don't own the keys.
-  private hoverKey: DockControl | null = null;
   private scope: FocusScope | null = null;
 
   constructor(private container: HTMLElement, private callbacks: PlayerOsdOptions) {
@@ -128,8 +127,8 @@ export class PlayerOsd {
       else if (this.callbacks.canAutoReveal()) this.show();
     });
     container.addEventListener('click', (e: MouseEvent) => this.onPointerRelease(e.clientX, e.clientY));
-    // The pointer on a control lights it and names it in the caption; while
-    // the controls own the keys, it moves their focus too.
+    // The pointer on a control lights it; while the controls own the keys,
+    // it moves their focus too.
     container.addEventListener('nav:hover', (e: Event) => {
       const target = (e.target as HTMLElement).closest<HTMLElement>('#player-osd [data-key]');
       const control = controlOf(target?.getAttribute('data-key') ?? null);
@@ -139,15 +138,7 @@ export class PlayerOsd {
         this.focus(control, 'pointer');
         return;
       }
-      this.hoverKey = control;
-      this.render();
       this.ensureScope()?.focus(`${KEY_PREFIX}${control}`, 'pointer');
-    });
-    container.addEventListener('nav:unhover', (e: Event) => {
-      const target = (e.target as HTMLElement).closest<HTMLElement>('#player-osd [data-key]');
-      if (!target || this.hoverKey === null || !this.visible) return;
-      this.hoverKey = null;
-      this.render();
     });
     // A broken programme icon: record its URL (capture — `error` doesn't bubble)
     // and re-render so morph drops it and never re-requests it.
@@ -207,7 +198,6 @@ export class PlayerOsd {
   hide(): void {
     this.visible = false;
     this.expanded = false;
-    this.hoverKey = null;
     this.setActive(false);
     const osd = $('#player-osd', this.container);
     if (osd) hide(osd);
@@ -475,7 +465,6 @@ export class PlayerOsd {
       if (scope) Focus.pop(scope);
       return;
     }
-    this.hoverKey = null;
     this.render();
     this.focusKey = this.landing(control);
     this.render();
@@ -636,34 +625,13 @@ export class PlayerOsd {
     const end: Safe[] = [];
     if (c.audio) end.push(this.control('audio', AUDIO_ICON, t('player.audioTrack')));
     if (c.subtitles) end.push(this.control('subtitles', SUBTITLE_ICON, t('player.subtitles')));
-    const labels: Partial<Record<DockControl, string>> = {
-      previous: t('player.previousEpisode'),
-      playpause: t(paused ? 'player.play' : 'player.pause'),
-      next: t('player.nextEpisode'),
-      favorite: t('player.toggleFavorite'),
-      info: t('player.channelInfo'),
-      audio: t('player.audioTrack'),
-      subtitles: t('player.subtitles'),
-    };
-    const named = this.active ? this.focusKey : this.hoverKey;
-    const caption = named ? labels[named] ?? '' : '';
-    // The name sits beside its group: after the left one, before the right
-    // one, and just left of the centered transport.
-    const endFocused = named === 'audio' || named === 'subtitles';
-    const centerFocused = named === 'previous' || named === 'playpause' || named === 'next';
-    const label = html`
-      <div class="osd-control-caption ${endFocused ? 'osd-control-caption--end' : ''}${
-        centerFocused ? 'osd-control-caption--center' : ''}">${caption}</div>
-    `;
     return html`
       <div class="osd-controls" data-dock-row>
         <div class="osd-controls-side">
           <div class="osd-controls-group">${start}</div>
-          ${endFocused ? '' : label}
         </div>
         <div class="osd-controls-group osd-controls-center">${center}</div>
         <div class="osd-controls-side osd-controls-side--end">
-          ${endFocused ? label : ''}
           <div class="osd-controls-group">${end}</div>
         </div>
       </div>

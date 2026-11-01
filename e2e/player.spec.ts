@@ -557,7 +557,7 @@ test('live Right opens nothing; OK hands the controls the keys, with Favorite an
   await expect(owner).toHaveAttribute('data-focus-scope', 'player.dock');
   const favorite = osd.locator('[data-dock-action="favorite"]');
   await expect(favorite).toHaveClass(/focused/);
-  await expect(osd.locator('.osd-control-caption')).toHaveText('Toggle Favorite');
+  await expect(osd.locator('.osd-controls')).toHaveText('');
   await page.keyboard.press('Enter');
   await expect(favorite).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.toast')).toContainText('Channel One');
@@ -869,14 +869,11 @@ test('a pointer-opened channel panel does not reveal or hide the OSD', async ({ 
   await expect(osd).toBeVisible();
 });
 
-test('keeps pseudo-localized control and picker labels within their panels', async ({ page }) => {
+test('keeps pseudo-localized picker labels within their panel', async ({ page }) => {
   await gotoLiveWithSubtitles(page, '/?pseudo=1');
   const osd = page.locator('#player-osd');
   await page.keyboard.press('Enter');
   await page.keyboard.press('ArrowRight'); // Channel info
-  const caption = osd.locator('.osd-control-caption');
-  await expect(caption).toContainText('[!!');
-  expect(await caption.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   await page.keyboard.press('ArrowRight'); // Subtitles
   await page.keyboard.press('Enter');
 

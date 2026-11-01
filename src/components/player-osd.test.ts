@@ -381,21 +381,17 @@ describe('PlayerOsd', () => {
       expect(osd.isActive()).toBe(true);
       expect(osd.focused()).toBe('seek');
       expect(focusedKeys()).toEqual(['dock:seek']);
-      expect(container.querySelector('.osd-control-caption')!.textContent).toBe('');
 
       expect(osd.move('up')).toBe(false);
       expect(osd.move('down')).toBe(true);
       Focus.flush();
       expect(osd.focused()).toBe('playpause');
       expect(focusedKeys()).toEqual(['dock:playpause']);
-      expect(container.querySelector('.osd-control-caption')!.textContent).toBe('Pause');
 
       expect(osd.move('right')).toBe(true);
       expect(osd.move('right')).toBe(true);
       Focus.flush();
       expect(osd.focused()).toBe('audio');
-      expect(container.querySelector('.osd-control-caption')!.textContent).toBe('Audio Track');
-      expect(container.querySelector('.osd-control-caption--end')).not.toBeNull();
       expect(osd.move('right')).toBe(false);
 
       osd.activateFocused();
@@ -471,16 +467,19 @@ describe('PlayerOsd', () => {
       expect(container.querySelector('.osd-seek-bubble')).toBeNull();
     });
 
-    it('names a hovered control while the keys are elsewhere', () => {
-      state = snapshot({ nowPlaying: PROGRAMME, controls: { ...NO_CONTROLS, favorite: false } });
+    it('names no control, focused or hovered, beside the buttons', () => {
+      activeWhenShown = true;
+      state = VOD({ episodes: { previous: true, next: true }, audio: true });
       osd.show();
-      container.querySelector('[data-dock-action="info"]')!
+      Focus.flush();
+      expect(osd.move('down')).toBe(true);
+      Focus.flush();
+      expect(osd.focused()).toBe('playpause');
+      container.querySelector('[data-dock-action="audio"]')!
         .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
-      expect(container.querySelector('.osd-control-caption')!.textContent).toBe('Channel Info');
-      expect(osd.isActive()).toBe(false);
-      container.querySelector('[data-dock-action="info"]')!
-        .dispatchEvent(new CustomEvent('nav:unhover', { bubbles: true }));
-      expect(container.querySelector('.osd-control-caption')!.textContent).toBe('');
+      Focus.flush();
+      const row = container.querySelector('.osd-controls')!;
+      expect(row.textContent!.trim()).toBe('');
     });
 
     it('stays up while something opened from it holds it', () => {

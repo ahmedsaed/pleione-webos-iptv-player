@@ -305,7 +305,6 @@ test('Previous restarts the episode, or within its first minute plays the one be
   await page.keyboard.press('ArrowDown'); // seek bar -> buttons (Play/Pause)
   await page.keyboard.press('ArrowLeft'); // -> Previous
   await expect(previous).toHaveClass(/focused/);
-  await expect(page.locator('#player-osd .osd-control-caption')).toHaveText('Previous episode');
   await page.keyboard.press('Enter');
   await expect(episodeTitle(page)).toContainText('S2E1');
   await expect.poll(() => page.locator('#video-player')
