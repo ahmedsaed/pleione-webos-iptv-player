@@ -219,11 +219,6 @@
   height: 270px;
 }
 .search-poster-tile .catalog-poster-empty { font-size: 56px; }
-/* One focus color on the screen: the box's and the cards'. */
-.catalog-tile.search-poster-tile.focused .catalog-poster-wrap {
-  outline-color: var(--focus-ring);
-  box-shadow: 0 0 0 6px var(--accent-glow), 0 10px 24px rgba(0, 0, 0, 0.6);
-}
 
 /* The matched part of a name. */
 .search-match {

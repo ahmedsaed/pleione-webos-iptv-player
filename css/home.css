@@ -161,7 +161,7 @@
   overflow: hidden;
   color: #fff;
   border: none;
-  border-radius: 22px;
+  border-radius: var(--card-radius);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
   transition: transform 200ms ease, box-shadow 200ms ease;
 }
@@ -263,7 +263,7 @@
 [data-focusable].home-card.focused {
   z-index: 2;
   transform: scale(1.07);
-  box-shadow: 0 0 0 5px var(--home-ring, #fff), 0 0 50px rgba(255, 255, 255, 0.35), 0 24px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 5px var(--card-ring), 0 0 50px rgba(255, 255, 255, 0.35), 0 24px 50px rgba(0, 0, 0, 0.5);
 }
 
 html[data-animation="essential"] .home-glow,
@@ -272,11 +272,15 @@ html[data-animation="essential"] .home-card {
 }
 
 /* Light themes: dark header text over the pale backdrop; the cards keep their
-   colors, and the ring takes the theme's focus color. */
+   colors, and their ring, like the posters', takes the theme's focus color. */
+html[data-theme="daylight"],
+html[data-theme="pastel-latte"],
+html[data-theme="paper-light"] {
+  --card-ring: var(--focus-ring);
+}
 html[data-theme="daylight"] .home-view,
 html[data-theme="pastel-latte"] .home-view,
 html[data-theme="paper-light"] .home-view {
-  --home-ring: var(--focus-ring);
   color: var(--text-primary);
 }
 

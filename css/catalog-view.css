@@ -184,7 +184,7 @@
 .catalog-poster-wrap {
   position: relative;
   width: 220px; height: 330px;
-  border-radius: 12px; overflow: hidden;
+  border-radius: var(--card-radius); overflow: hidden;
   background: var(--catalog-surface);
 }
 .catalog-poster { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -201,10 +201,11 @@
 .catalog-tile.focused { transform: scale(1.05); }
 html[data-animation="full"] .catalog-tile,
 html[data-animation="reduced"] .catalog-tile { transition: transform var(--transition); }
-.catalog-tile.focused .catalog-poster-wrap {
-  outline: 3px solid var(--catalog-focus);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 6px rgb(var(--catalog-focus-rgb) / 0.25), 0 10px 24px rgba(0, 0, 0, 0.6);
+/* Posters and categories ring like Home's cards: a box-shadow ring follows
+   the rounded corners, where an outline stays square on webOS 4. */
+.catalog-tile.focused .catalog-poster-wrap,
+.catalog-cat.focused {
+  box-shadow: 0 0 0 5px var(--card-ring), 0 0 20px rgba(255, 255, 255, 0.3), 0 10px 24px rgba(0, 0, 0, 0.6);
 }
 
 .catalog-see-all-card {
@@ -218,14 +219,9 @@ html[data-animation="reduced"] .catalog-tile { transition: transform var(--trans
 .catalog-cat {
   width: 300px; height: 120px; flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center;
-  border-radius: 12px; background: var(--catalog-surface); border: 3px solid transparent;
+  border-radius: var(--card-radius); background: var(--catalog-surface); border: 3px solid transparent;
   font-size: 26px; color: var(--text-primary); text-align: center; padding: 0 16px;
   box-sizing: border-box;
-}
-.catalog-cat.focused {
-  outline: 3px solid var(--catalog-focus);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 6px rgb(var(--catalog-focus-rgb) / 0.25);
 }
 
 /* Movie and series detail: a hero over the artwork, and the rows below in a
