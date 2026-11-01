@@ -135,6 +135,28 @@ describe('Series browse + grid', () => {
     expect(browseFocus()).toBe('r:e1');
   });
 
+  it('opens the series page on the episode after a finished one, playing it from the start', async () => {
+    useResume([{
+      accountId: 'x1', kind: 'episode', itemId: 'e2', ext: 'mkv', poster: '',
+      name: 'Series One — S2E1 — Episode Two', position: 0, duration: 0, updatedAt: 3, categoryId: '1',
+      watchlistOwner: { kind: 'series', itemId: 's1' },
+    }]);
+    (storageMock.getResume as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+    const { view, handlers } = await openWith();
+    const tile = container.querySelector<HTMLElement>('[data-rail-key="continue"] [data-resume-episode="e2"]')!;
+    expect(tile.querySelector('.catalog-progress')).toBeNull();
+    tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    await Promise.resolve(); await Promise.resolve();
+    const resume = container.querySelector<HTMLElement>('[data-action="resume"]')!;
+    expect(resume.textContent).toContain('Resume S2E1');
+    expect(container.querySelector('[data-action="restart"]')).toBeNull();
+    resume.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e2', resumeSecs: 0 }));
+  });
+
   it('names a series missing from the loaded rails from its episode', async () => {
     useResume(owned());
     catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
@@ -687,17 +709,20 @@ describe('Series detail', () => {
       row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
       view.handleAction('select');
       expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
-        title: 'Series One — س1ح6 — الحلقة 6',
+        title: 'Series One — م1ح6 — الحلقة 6',
       }));
     } finally {
       setLocale('en');
     }
   });
 
-  it('finds the series and episode in a resume label saved in Arabic', async () => {
+  it.each([
+    ['the season letter', 'م'],
+    ['the season letter saved before it was corrected', 'س'],
+  ])('finds the series and episode in an Arabic resume label with %s', async (_case, letter) => {
     catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
     storageMock.getResumeList.mockReturnValue([
-      { accountId: 'x1', kind: 'episode', itemId: 'e9', name: 'Series One — س2ح1 — الحلقة 1', poster: '', ext: 'mkv', position: 300, duration: 1600, updatedAt: 1, watchlistOwner: { kind: 'series', itemId: 's1' } },
+      { accountId: 'x1', kind: 'episode', itemId: 'e9', name: `Series One — ${letter}2ح1 — الحلقة 1`, poster: '', ext: 'mkv', position: 300, duration: 1600, updatedAt: 1, watchlistOwner: { kind: 'series', itemId: 's1' } },
     ]);
     const { view } = await openWith();
     await openDetail(view);

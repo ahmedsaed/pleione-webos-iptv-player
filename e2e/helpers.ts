@@ -477,3 +477,36 @@ export async function openGuide(page: Page): Promise<void> {
 }
 
 export const isChromium53 = (): boolean => test.info().project.name === 'chromium-53-simulation';
+
+export interface SeekBarGeometry {
+  focused: boolean;
+  /** The visible track's thickness. */
+  track: number;
+  /** Space between the time before the bar and the thumb (with its ring) at 0. */
+  startClearance: number;
+  /** Space between the thumb at the end and the time or LIVE after the bar. */
+  endClearance: number;
+}
+
+/** The player OSD seek bar's track, and the room its thumb leaves the labels
+ *  beside it at either end of the track, whatever the current position. */
+export async function seekBarGeometry(page: Page): Promise<SeekBarGeometry> {
+  return page.evaluate(() => {
+    const bar = document.querySelector<HTMLElement>('#player-osd [data-seekbar]')!;
+    const before = bar.previousElementSibling!.getBoundingClientRect();
+    const after = bar.nextElementSibling!.getBoundingClientRect();
+    const box = bar.getBoundingClientRect();
+    const style = getComputedStyle(bar);
+    const thumb = getComputedStyle(bar.querySelector('.osd-progress-bar')!, '::after');
+    // The ring is the widest box-shadow spread, a shadow's fourth length.
+    const spreads = (thumb.boxShadow.match(/(?:-?[\d.]+px\s+){3}-?[\d.]+px/g) ?? [])
+      .map(shadow => parseFloat(shadow.trim().split(/\s+/)[3]));
+    const reach = parseFloat(thumb.width) / 2 + Math.max(0, ...spreads);
+    return {
+      focused: bar.classList.contains('focused'),
+      track: box.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+      startClearance: box.left - reach - before.right,
+      endClearance: after.left - (box.right + reach),
+    };
+  });
+}

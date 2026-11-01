@@ -19,8 +19,9 @@ const EPISODE_STRIDE = 428;
 const EPISODE_OVERSCAN = 3;
 const EPISODE_VIEWPORT_FALLBACK = 1760;
 // The composed resume label carries the episode code (see episodeLabel), in
-// Latin letters or, saved in Arabic, as س and ح.
-const RESUME_CODE = /(?:S|\u0633)(\d+)(?:E|\u062D)(\d+)/;
+// Latin letters or, saved in Arabic, as م and ح. Labels saved before the
+// Arabic season letter was corrected carry س instead.
+const RESUME_CODE = /(?:S|\u0645|\u0633)(\d+)(?:E|\u062D)(\d+)/;
 // A provider's placeholder title, such as "Episode 6", reads in the UI's
 // language instead.
 const GENERIC_TITLE = /^(?:episode|ep\.?|e)\s*0*(\d+)$/i;
@@ -485,7 +486,8 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     `], this.seasonTabs(info), 'episode-track');
   }
 
-  // Resume, then Play from start for the episode it resumes.
+  // Resume, then Play from start for the episode it resumes. The episode after
+  // a finished one already starts from the beginning.
   private primaryActions(): Safe {
     const resumed = this.resumeEpisode();
     if (!resumed) {
@@ -506,7 +508,8 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
         icon: PLAY_ICON,
         primary: true,
       })}
-      ${episode ? this.detailButton({ key: 'restart', label: t('catalog.playFromStart'), icon: RESTART_ICON }) : ''}
+      ${episode && entry.position > 0
+        ? this.detailButton({ key: 'restart', label: t('catalog.playFromStart'), icon: RESTART_ICON }) : ''}
     `;
   }
 

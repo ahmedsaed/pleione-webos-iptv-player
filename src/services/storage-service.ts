@@ -1,5 +1,6 @@
 import { CONFIG } from '../config';
 import { DEFAULT_THEME, DEFAULT_OVERLAY, DEFAULT_TEXT_SIZE, DEFAULT_INTERFACE_SIZE, isValidTextSize, isValidInterfaceSize, type OverlayStyle, type TextSize, type InterfaceSize } from '../config/themes';
+import { latestPerSeries } from './continue-watching';
 import type { AudioPref, CatchupProgressEntry, ChannelCustomization, ChannelCycleMode, ManualEpgSource, ParentalControlConfig, ParentalPinThrottle, PlaylistEntry, RecentlyWatchedLiveEntry, Reminder, ResumeEntry, ResumeKind, SubtitlePref, TzMode, WatchlistEntry, WatchlistKind, XtreamLiveCategorySnapshot } from '../types';
 import type { OnlineSubtitleConfig, PickedOnlineSub } from './subtitle-search/types';
 import { genPlaylistId } from '../utils/playlist';
@@ -1393,13 +1394,17 @@ export const StorageService = {
     }
     set('resume', all);
   },
+  // Continue Watching, newest first: one entry per series (see latestPerSeries).
   getResumeList(accountId: string): ResumeEntry[] {
     const all = userData ? userData.resume : fallbackResume();
-    return Object.keys(all)
+    const watched = userData ? userData.watched : get<Record<string, WatchedEntry>>('watched', {});
+    const entries = Object.keys(all)
       .map((k) => all[k])
       .filter((e) => e.accountId === accountId)
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map(cloneValue);
+    return latestPerSeries(entries, Object.keys(watched).map(key => watched[key])
+      .filter(entry => entry.accountId === accountId && entry.kind === 'episode'));
   },
   clearResume(accountId: string, kind: ResumeKind, itemId: string): void {
     const key = `${accountId}|${kind}|${itemId}`;

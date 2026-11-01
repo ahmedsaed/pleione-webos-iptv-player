@@ -32,7 +32,10 @@ async function seedCollections(page: Page, count = 30): Promise<void> {
           resume[`${accountId}|${kind}|${itemId}`] = {
             accountId, kind, itemId, name: `Title ${i}`, poster: `http://host/poster/${i}`, ext: 'mp4',
             categoryId: kind === 'vod' ? '1' : '2', position: 100, duration: 600, updatedAt: n - i,
-            ...(kind === 'episode' ? { watchlistOwner: { kind: 'series' as const, itemId: '20' } } : {}),
+            // Continue Watching lists one episode per series, so each has its
+            // own; episode2's is the catalog's Series One.
+            ...(kind === 'episode'
+              ? { watchlistOwner: { kind: 'series' as const, itemId: i === 2 ? '20' : `s${i}` } } : {}),
           };
         }
       }

@@ -1,4 +1,4 @@
-import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab, leaveVod, type Page, pressStepsAndReadPlayer, openGuide } from './helpers';
+import { test, expect, routeLiveManifest, neuterVideo, SAMPLE_M3U, enterTab, leaveVod, type Page, pressStepsAndReadPlayer, openGuide, seekBarGeometry } from './helpers';
 import { seedXtream } from './fixtures/xtream';
 
 // Opened from Home's Live card after every load (see `startOn`).
@@ -445,6 +445,35 @@ test('VOD keys: Left/Right skip 10s shown or hidden, Up/Down show the controls, 
   expect(resumed).toMatchObject({ osd: true, paused: false });
   expect((await dockState(page)).rings).toBe(1);
 });
+
+for (const [label, setting] of [
+  ['Interface size 100', null],
+  ['Interface size 130', ['iptv_interface_size', '130']],
+  ['Arabic', ['iptv_locale', 'ar']],
+] as const) {
+  test(`VOD seek bar: a thick track whose thumb clears both times at either end (${label})`, async ({ page }) => {
+    if (setting) {
+      await page.addInitScript(([key, value]) => localStorage.setItem(key, JSON.stringify(value)), setting);
+    }
+    await startFakeVod(page);
+    const scale = setting?.[0] === 'iptv_interface_size' ? 1.3 : 1;
+    await pressStepsAndReadPlayer(page, [[YELLOW, DOWN]]);
+    await expect.poll(async () => (await dockState(page)).focused).toBe('dock:playpause');
+    const resting = await seekBarGeometry(page);
+    await pressStepsAndReadPlayer(page, [[UP]]);
+    await expect.poll(async () => (await dockState(page)).focused).toBe('dock:seek');
+    const focused = await seekBarGeometry(page);
+    expect(focused.focused).toBe(true);
+    for (const geometry of [resting, focused]) {
+      expect(geometry.track).toBeGreaterThanOrEqual(10 * scale - 0.5);
+      expect(geometry.startClearance).toBeGreaterThanOrEqual(8 * scale);
+      expect(geometry.endClearance).toBeGreaterThanOrEqual(8 * scale);
+    }
+    expect(focused.track).toBeGreaterThan(resting.track);
+    expect(await page.locator('#player-osd [data-seekbar]').evaluate(el => el.getBoundingClientRect().height))
+      .toBeCloseTo(76 * scale, 0);
+  });
+}
 
 test('VOD holding Right speeds the skip up from 10s to 30s to 60s', async ({ page }) => {
   await startFakeVod(page);
