@@ -662,7 +662,9 @@ export class PlayerOsd {
         ${info.audio ? html`
           <span class="si-pill si-pill--icon" aria-label="${t('player.audioTrack')}: ${info.audio}">${
             raw(AUDIO_ICON)}<span>${info.audio}</span></span>` : ''}
-        ${info.subtitle ? html`<span class="si-text">${t('player.subtitlesTrack', { name: info.subtitle })}</span>` : ''}
+        ${info.subtitle ? html`
+          <span class="si-pill si-pill--icon" aria-label="${t('player.subtitlesTrack', { name: info.subtitle })}">${
+            raw(SUBTITLE_ICON)}<span>${info.subtitle}</span></span>` : ''}
       </div>
     `;
   }
