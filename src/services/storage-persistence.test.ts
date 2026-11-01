@@ -290,6 +290,49 @@ describe('StorageService IndexedDB migration', () => {
     await Pruned.clearUserData();
   });
 
+  it('moves per-channel data to a renamed channel key and persists the move', async () => {
+    localStorage.clear();
+    vi.resetModules();
+    const { StorageService: Stored } = await import('./storage-service');
+    await Stored.init();
+    Stored.setFavorites(['old', 'kept', 'taken-old', 'taken']);
+    Stored.setChannelCustomization({
+      version: 1,
+      overrides: { old: { hidden: true }, kept: { name: 'Bravo' } },
+      order: ['kept', 'old'],
+      groupOrder: [], groupOverrides: {}, customGroups: [],
+    });
+    Stored.touchRecentlyWatchedLive('old', 1_000);
+    Stored.setAudioPref('old', { name: 'Track 1', lang: 'l1' });
+    Stored.setSubtitlePref('old', { off: true });
+    Stored.setSubtitleOffset('old', 2);
+    Stored.setSubtitleOffset('new', 5);
+
+    const aliases = new Map([['old', 'new'], ['taken-old', 'taken']]);
+    expect(Array.from(Stored.channelDataKeys()).sort())
+      .toEqual(['kept', 'new', 'old', 'taken', 'taken-old']);
+    expect(Stored.renameChannelKeys(aliases)).toBe(5);
+    expect(Stored.renameChannelKeys(aliases)).toBe(0);
+    await Stored.flush();
+
+    vi.resetModules();
+    const { StorageService: Relaunched } = await import('./storage-service');
+    await Relaunched.init();
+    // 'taken' and the offset under 'new' already had their own data.
+    expect(Relaunched.getFavorites().sort()).toEqual(['kept', 'new', 'taken', 'taken-old']);
+    expect(Relaunched.getChannelCustomization()).toMatchObject({
+      overrides: { new: { hidden: true }, kept: { name: 'Bravo' } },
+      order: ['kept', 'new'],
+    });
+    expect(Relaunched.getRecentlyWatchedLive()).toEqual([{ channelKey: 'new', updatedAt: 1_000 }]);
+    expect(Relaunched.getAudioPref('new')).toEqual({ name: 'Track 1', lang: 'l1' });
+    expect(Relaunched.getAudioPref('old')).toBeNull();
+    expect(Relaunched.getSubtitlePref('new')).toEqual({ off: true });
+    expect(Relaunched.getSubtitleOffset('new')).toBe(5);
+    expect(Relaunched.getSubtitleOffset('old')).toBe(2);
+    await Relaunched.clearUserData();
+  });
+
   const resumeEntry = (over: Partial<ResumeEntry>): ResumeEntry => ({
     accountId: 'x1', kind: 'vod', itemId: 'm0', name: 'Movie Alpha', poster: '',
     ext: 'mp4', position: 100, duration: 6_000, updatedAt: 1_000, ...over,

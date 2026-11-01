@@ -13,6 +13,7 @@ import {
   formatXtreamCatchupStart,
   normalizeXtreamLiveOutputPreference,
   resolveXtreamLiveOutput,
+  xtreamLiveUrlVariants,
 } from './xtream-url';
 
 const creds = { baseUrl: 'http://host:8080', username: 'u1', password: 'p1' };
@@ -89,6 +90,29 @@ describe('xtreamPlaylistUrl', () => {
     expect(xtreamPlaylistUrl({ ...creds, username: 'u/1', password: 'p&1' })).toBe(
       'http://host:8080/get.php?username=u%2F1&password=p%261&type=m3u_plus&output=ts',
     );
+  });
+});
+
+describe('xtreamLiveUrlVariants', () => {
+  it('spells a stream the ways a get.php playlist may have', () => {
+    expect(xtreamLiveUrlVariants(creds, '7')).toEqual([
+      'http://host:8080/live/u1/p1/7.ts',
+      'http://host:8080/live/u1/p1/7.m3u8',
+      'http://host:8080/live/u1/p1/7',
+      'http://host:8080/u1/p1/7',
+    ]);
+  });
+
+  it('adds the panel origin and raw credentials once each', () => {
+    const urls = xtreamLiveUrlVariants(
+      { baseUrl: 'host:8080/', username: 'u@1', password: 'p1' },
+      '7',
+      ['http://panel', 'http://host:8080', ''],
+    );
+    expect(urls).toHaveLength(16);
+    expect(urls).toContain('http://host:8080/live/u%401/p1/7.ts');
+    expect(urls).toContain('http://panel/u@1/p1/7');
+    expect(new Set(urls).size).toBe(16);
   });
 });
 

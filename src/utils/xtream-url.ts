@@ -86,6 +86,38 @@ export function xtreamLiveUrl(c: XtreamCredentials, streamId: string, output: Xt
   return `${base}/live/${encodeURIComponent(c.username)}/${encodeURIComponent(c.password)}/${encodeURIComponent(streamId)}.${output}`;
 }
 
+/** The live URL spellings a get.php playlist may have given a stream: on
+ *  the account's base or the panel's own origin, with or without `/live/`
+ *  and an extension, and with raw or encoded credentials. Excludes none, so
+ *  callers drop the URL they already use. */
+export function xtreamLiveUrlVariants(
+  c: XtreamCredentials,
+  streamId: string,
+  origins: readonly string[] = [],
+): string[] {
+  const bases = [normalizeXtreamBaseUrl(c.baseUrl)];
+  for (const origin of origins) {
+    const base = origin ? normalizeXtreamBaseUrl(origin) : '';
+    if (base && bases.indexOf(base) < 0) bases.push(base);
+  }
+  const accounts = [`${encodeURIComponent(c.username)}/${encodeURIComponent(c.password)}`];
+  const raw = `${c.username}/${c.password}`;
+  if (accounts.indexOf(raw) < 0) accounts.push(raw);
+  const id = encodeURIComponent(streamId);
+  const urls: string[] = [];
+  for (const base of bases) {
+    for (const account of accounts) {
+      urls.push(
+        `${base}/live/${account}/${id}.ts`,
+        `${base}/live/${account}/${id}.m3u8`,
+        `${base}/live/${account}/${id}`,
+        `${base}/${account}/${id}`,
+      );
+    }
+  }
+  return urls;
+}
+
 /** Recover an Xtream account only from unambiguous standard live URL shapes. */
 export function xtreamCredentialsFromLiveUrl(
   url: string,

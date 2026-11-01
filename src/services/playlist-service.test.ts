@@ -109,7 +109,7 @@ import { ParentalControlService } from './parental-control';
 import { CONFIG } from '../config';
 import { parseM3U } from '../parsers/m3u-parser';
 import { checkConnections } from './connection-check';
-import { resetXtreamSignIns } from './xtream-client';
+import { createXtreamClient, resetXtreamSignIns } from './xtream-client';
 
 function channel(over: Partial<Channel>): Channel {
   return {
@@ -586,6 +586,25 @@ http://host:8080/movie/u1/p1/301.mp4`;
       storageMock.getChannelCustomization.mockReturnValue(null);
       ChannelCustomizationService.reload();
     }
+  });
+
+  it('moves data saved under a differently spelled get.php URL', async () => {
+    // A panel whose get.php names its own host and drops /live/ and the extension.
+    accountBody = JSON.stringify({
+      user_info: { auth: 1 },
+      server_info: { url: 'panel', port: '25461', timezone: 'UTC' },
+    });
+    const oldKey = channelKey(channel({ url: 'http://panel:25461/u1/p1/102' }));
+    storageMock.getFavorites.mockReturnValue([oldKey, 'gone']);
+    await createXtreamClient({ baseUrl: 'http://host:8080', username: 'u1', password: 'p1' })
+      .getAccountInfo();
+
+    await PlaylistService.refresh();
+
+    expect(storageMock.renameChannelKeys).toHaveBeenCalledWith(new Map([
+      [oldKey, channelKey(PlaylistService.allChannels[1])],
+    ]));
+    expect(PlaylistService.getByGroup('builtin:favorites').map(c => c.name)).toEqual(['Bravo']);
   });
 
   it('lists channels in the provider order and keeps its numbers', async () => {

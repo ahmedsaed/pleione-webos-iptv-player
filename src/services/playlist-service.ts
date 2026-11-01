@@ -42,6 +42,7 @@ import {
   type XtreamLiveCategory,
   type XtreamLiveStream,
 } from './xtream-client';
+import { migrateXtreamChannelKeys, type XtreamApiSource } from './xtream-key-migration';
 import {
   cacheRecordRef,
   getCachedPlaylist,
@@ -143,6 +144,7 @@ interface XtreamLiveLoad {
   /** The Player API Live catalog; empty when it did not load. */
   streams: XtreamLiveStream[];
   output: XtreamLiveOutput;
+  fromApi: boolean;
 }
 
 export interface ChannelCacheSource {
@@ -360,6 +362,7 @@ class PlaylistServiceImpl {
     }
 
     const allChannels: Channel[] = [];
+    const xtreamSources: XtreamApiSource[] = [];
     const byUrl = new Map<string, Channel>();
     const epgSources: EpgSource[] = [];
     let failedPlaylists = 0;
@@ -418,6 +421,7 @@ class PlaylistServiceImpl {
             xtream.output,
             xtream.streams,
           );
+          if (xtream.fromApi) xtreamSources.push({ credentials, channels: parsed.channels });
         } else {
           parsed = (await fetchAndParseM3U(pl.url, 60000, undefined, undefined, report)).data;
         }
@@ -514,6 +518,7 @@ class PlaylistServiceImpl {
       return this.channels;
     }
     const refreshTimestamp = Date.now();
+    if (xtreamSources.length) migrateXtreamChannelKeys(xtreamSources, allChannels);
     this.allChannels = allChannels;
     this.epgSources = epgSources;
     // Customization preserves source names/groups on each channel, so cached
@@ -650,6 +655,7 @@ class PlaylistServiceImpl {
         parsed: xtreamLivePlaylist(credentials, output, categories, kept),
         streams,
         output,
+        fromApi: true,
       };
     }
 
@@ -683,7 +689,7 @@ class PlaylistServiceImpl {
       report,
       groupFilter,
     );
-    return { parsed: loaded.data, streams, output };
+    return { parsed: loaded.data, streams, output, fromApi: false };
   }
 
   private async applyXtreamCatchup(

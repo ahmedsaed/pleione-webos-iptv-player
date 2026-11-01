@@ -578,6 +578,23 @@ async function initUserData(): Promise<void> {
   userData = loadedUserData;
 }
 
+// The per-channel playback preferences, live in memory or read from
+// localStorage before IndexedDB is up.
+function channelPrefMaps(): Array<{ prefix: string; localKey: string; values: Record<string, unknown> }> {
+  const maps: Array<[string, string, keyof UserDataState]> = [
+    ['audio:', 'audio_prefs', 'audioPrefs'],
+    ['subtitle:', 'subtitle_prefs', 'subtitlePrefs'],
+    ['offset:', 'subtitle_offsets', 'subtitleOffsets'],
+  ];
+  return maps.map(([prefix, localKey, field]) => ({
+    prefix,
+    localKey,
+    values: userData
+      ? userData[field] as Record<string, unknown>
+      : get<Record<string, unknown>>(localKey, {}),
+  }));
+}
+
 let favoritesRaw: string | null = null;
 let favoritesParsed: string[] = [];
 
@@ -1053,6 +1070,106 @@ export const StorageService = {
       puts,
       [...previousKeys].filter(key => !nextKeys.has(key)),
     );
+  },
+
+  // Every channel key the per-channel personal data is saved under.
+  // Reminders and catch-up progress are left out: both lapse within days.
+  channelDataKeys(): Set<string> {
+    const keys = new Set<string>(this.getFavorites());
+    const add = (key: string): void => { keys.add(key); };
+    const custom = this.getChannelCustomization();
+    if (custom) {
+      Object.keys(custom.overrides).forEach(add);
+      custom.order.forEach(add);
+    }
+    for (const entry of this.getRecentlyWatchedLive()) keys.add(entry.channelKey);
+    for (const prefs of channelPrefMaps()) Object.keys(prefs.values).forEach(add);
+    return keys;
+  },
+
+  // Moves per-channel personal data from each old key to its new one, unless
+  // the new key already has its own. Returns how many records moved.
+  renameChannelKeys(aliases: ReadonlyMap<string, string>): number {
+    let moved = 0;
+    const favorites = this.getFavorites();
+    const favoriteSet = new Set(favorites);
+    let favoritesChanged = false;
+    const nextFavorites = favorites.map((key) => {
+      const target = aliases.get(key);
+      if (!target || favoriteSet.has(target)) return key;
+      favoriteSet.add(target);
+      favoritesChanged = true;
+      moved++;
+      return target;
+    });
+    if (favoritesChanged) this.setFavorites(nextFavorites);
+
+    const custom = this.getChannelCustomization();
+    if (custom) {
+      let changed = false;
+      const overrides: ChannelCustomization['overrides'] = {};
+      for (const key of Object.keys(custom.overrides)) {
+        const target = aliases.get(key);
+        if (target && !custom.overrides[target]) {
+          overrides[target] = custom.overrides[key];
+          changed = true;
+          moved++;
+        } else {
+          overrides[key] = custom.overrides[key];
+        }
+      }
+      const ordered = new Set(custom.order);
+      const order = custom.order.map((key) => {
+        const target = aliases.get(key);
+        if (!target || ordered.has(target)) return key;
+        ordered.add(target);
+        changed = true;
+        return target;
+      });
+      if (changed) this.setChannelCustomization({ ...custom, overrides, order });
+    }
+
+    const recent = this.getRecentlyWatchedLive();
+    const recentKeys = new Set(recent.map(entry => entry.channelKey));
+    let recentChanged = false;
+    const nextRecent = recent.map((entry) => {
+      const target = aliases.get(entry.channelKey);
+      if (!target || recentKeys.has(target)) return entry;
+      recentKeys.add(target);
+      recentChanged = true;
+      moved++;
+      return { ...entry, channelKey: target };
+    });
+    if (recentChanged) {
+      if (userData) {
+        const previous = userData.recentlyWatchedLive.map(entry => `live:${entry.channelKey}`);
+        userData.recentlyWatchedLive = cloneValue(nextRecent);
+        const puts = nextRecent.map(entry =>
+          record(`live:${entry.channelKey}`, entry, { updatedAt: entry.updatedAt }));
+        const nextKeys = new Set(puts.map(item => item.key));
+        persistUserChanges('recently-watched', puts, previous.filter(key => !nextKeys.has(key)));
+      } else {
+        set('recently_watched_live', nextRecent);
+      }
+    }
+
+    for (const prefs of channelPrefMaps()) {
+      const puts: UserDataRecord[] = [];
+      const deletes: string[] = [];
+      for (const key of Object.keys(prefs.values)) {
+        const target = aliases.get(key);
+        if (!target || target in prefs.values) continue;
+        prefs.values[target] = prefs.values[key];
+        delete prefs.values[key];
+        puts.push(record(`${prefs.prefix}${target}`, prefs.values[target]));
+        deletes.push(`${prefs.prefix}${key}`);
+        moved++;
+      }
+      if (!puts.length) continue;
+      if (userData) persistUserChanges('channel-state', puts, deletes);
+      else set(prefs.localKey, prefs.values);
+    }
+    return moved;
   },
 
   getFavorites(): string[] {

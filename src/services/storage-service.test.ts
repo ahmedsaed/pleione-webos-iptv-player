@@ -1303,6 +1303,32 @@ describe('StorageService remembered Xtream output formats', () => {
   });
 });
 
+describe('StorageService channel key renames without IndexedDB', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('moves favorites, customization, history, and playback choices', () => {
+    StorageService.setFavorites(['old']);
+    StorageService.setChannelCustomization({
+      version: CONFIG.CHANNEL_CUSTOMIZATION_VERSION,
+      overrides: { old: { hidden: true } }, order: ['old'],
+      groupOrder: [], groupOverrides: {}, customGroups: [],
+    });
+    StorageService.touchRecentlyWatchedLive('old', 1000);
+    StorageService.setAudioPref('old', { name: 'Track 1', lang: 'l1' });
+
+    expect(StorageService.renameChannelKeys(new Map([['old', 'new']]))).toBe(4);
+
+    expect(StorageService.getFavorites()).toEqual(['new']);
+    expect(StorageService.getChannelCustomization()).toMatchObject({
+      overrides: { new: { hidden: true } }, order: ['new'],
+    });
+    expect(StorageService.getRecentlyWatchedLive()).toEqual([{ channelKey: 'new', updatedAt: 1000 }]);
+    expect(StorageService.getAudioPref('new')).toEqual({ name: 'Track 1', lang: 'l1' });
+    expect(StorageService.getAudioPref('old')).toBeNull();
+    expect(Array.from(StorageService.channelDataKeys())).toEqual(['new']);
+  });
+});
+
 describe('StorageService Live category snapshots without IndexedDB', () => {
   const snap = { knownIds: ['c1', 'c2'], announcedIds: ['c2'], counts: { c1: 3, c2: 1 } };
   const xtream = (id: string) => ({
