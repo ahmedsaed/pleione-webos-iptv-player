@@ -392,6 +392,20 @@ test.describe('overlays', () => {
       await expect(prompt).toHaveCount(0);
     });
 
+  test('a PIN fills its slots from the left', async ({ page }) => {
+    await routePlaylist(page);
+    await seedPlaylist(page);
+    await page.addInitScript(() => localStorage.setItem('iptv_locale', JSON.stringify('ar')));
+    await page.goto('/');
+    await enterTab(page, 'settings');
+    await page.locator('#manage-parental-controls').click();
+    const slots = page.locator('.parental-pin-slots span');
+    await expect(slots).toHaveCount(4);
+    await page.locator('.parental-pin-input').pressSequentially('1');
+    await expect(slots.nth(0)).toHaveClass(/\bfilled\b/);
+    expect(rightOf((await slots.nth(1).boundingBox())!, (await slots.nth(0).boundingBox())!)).toBe(true);
+  });
+
   test('a typed channel number reads left to right', async ({ page }) => {
     // Twelve channels, so a number takes two digits.
     await seedArabicLive(page, 8);

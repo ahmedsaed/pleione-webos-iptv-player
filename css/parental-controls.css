@@ -435,7 +435,9 @@
   outline: 0;
 }
 
+/* A PIN fills its slots left to right in every locale, as digits read. */
 .parental-pin-slots {
+  direction: ltr;
   position: absolute;
   top: 0;
   right: 0;
