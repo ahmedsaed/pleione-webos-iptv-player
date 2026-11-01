@@ -25,9 +25,7 @@ const titles = (categoryId: string) => Array.from({ length: 25 }, (_, i) => {
 });
 
 async function seedCatalog(page: Page, vodInfoRequests: string[]): Promise<void> {
-  await page.route('**/get.php*', route => route.fulfill({
-    contentType: 'application/x-mpegurl', body: '#EXTM3U\n#EXTINF:-1,ch1\nhttp://host/a\n',
-  }));
+  await page.route('**/get.php*', route => route.fulfill({ status: 404, body: '' }));
   await page.route('**/xmltv.php*', route => route.fulfill({ contentType: 'application/xml', body: '<tv></tv>' }));
   await page.route('http://host/*.png', route => route.fulfill({ contentType: 'image/png', body: '' }));
   await page.route('**/player_api.php*', route => {
@@ -36,6 +34,8 @@ async function seedCatalog(page: Page, vodInfoRequests: string[]): Promise<void>
     const category = url.searchParams.get('category_id') ?? '1';
     let body: unknown = {};
     if (action === 'get_vod_categories' || action === 'get_series_categories') body = CATEGORIES;
+    else if (action === 'get_live_categories') body = [];
+    else if (action === 'get_live_streams') body = [{ stream_id: 1, name: 'ch1', category_id: '1' }];
     else if (action === 'get_vod_streams') {
       body = titles(category).map(({ genre: _g, plot: _p, backdrop_path: _b, ...movie }) => movie);
     } else if (action === 'get_series') body = titles(category);

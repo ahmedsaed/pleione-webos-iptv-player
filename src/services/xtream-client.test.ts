@@ -204,6 +204,7 @@ describe('XtreamClient live archive metadata', () => {
     fetchTextMock.mockResolvedValue(JSON.stringify([
       {
         stream_id: 10,
+        num: '4',
         name: 'Alpha',
         stream_icon: 'http://host/a.png',
         epg_channel_id: 'epg-1',
@@ -218,6 +219,7 @@ describe('XtreamClient live archive metadata', () => {
     expect(await createXtreamClient(creds).getLiveStreams()).toEqual([
       {
         streamId: '10',
+        num: 4,
         name: 'Alpha',
         icon: 'http://host/a.png',
         epgChannelId: 'epg-1',
@@ -229,6 +231,7 @@ describe('XtreamClient live archive metadata', () => {
       },
       {
         streamId: '11',
+        num: 0,
         name: '',
         icon: '',
         epgChannelId: '',

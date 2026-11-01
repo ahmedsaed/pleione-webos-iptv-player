@@ -57,6 +57,8 @@ export interface XtreamAccountInfo {
 
 export interface XtreamLiveStream {
   streamId: string;
+  /** The provider's channel number; 0 when it sends none. */
+  num: number;
   name: string;
   icon: string;
   epgChannelId: string;
@@ -357,6 +359,7 @@ function parseLiveStreams(value: unknown): XtreamLiveStream[] {
   return asArray(value)
     .map((stream) => ({
       streamId: toStr(stream.stream_id),
+      num: Math.max(0, toNumber(stream.num)),
       name: toStr(stream.name),
       icon: toStr(stream.stream_icon),
       epgChannelId: toStr(stream.epg_channel_id),

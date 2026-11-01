@@ -5,7 +5,8 @@ export type XtreamReferenceProfile =
   | 'player-api-only'
   | 'uncategorized-hls'
   | 'legacy-xc'
-  | 'catchup-variants';
+  | 'catchup-variants'
+  | 'm3u-only';
 
 export interface XtreamRecordedRequest {
   method: string;
@@ -80,6 +81,10 @@ export class XtreamReferenceServer {
     });
   }
 
+  paths(): string[] {
+    return this.recorded.map(request => request.pathname);
+  }
+
   actions(): string[] {
     return this.recorded
       .filter(request => request.pathname === '/player_api.php')
@@ -135,7 +140,7 @@ export class XtreamReferenceServer {
         return;
       }
       const extension = this.profile === 'legacy-xc' ? 'm3u8' : 'ts';
-      const catchup = this.profile === 'legacy-xc' ? ' catchup="xc" catchup-days="7"' : '';
+      const catchup = this.profile === 'catchup-variants' ? '' : ' catchup="xc" catchup-days="7"';
       const playlist = `#EXTM3U
 #EXTINF:-1 tvg-id="ch1" group-title="Group 1"${catchup},Alpha
 ${this.origin}/live/u1/p1/101.${extension}`;
@@ -200,7 +205,9 @@ ${this.origin}/live/u1/p1/101.${extension}`;
     }
 
     if (action === 'get_live_streams') {
-      if (this.profile === 'player-api-only') {
+      if (this.profile === 'm3u-only') {
+        this.text(response, 404, 'text/plain', 'Not found');
+      } else if (this.profile === 'player-api-only') {
         this.json(response, [
           {
             stream_id: 201,
@@ -236,6 +243,7 @@ ${this.origin}/live/u1/p1/101.${extension}`;
         this.json(response, [{
           stream_id: 101,
           name: 'Alpha',
+          epg_channel_id: 'ch1',
           category_id: '1',
           direct_source: '',
           tv_archive: 1,

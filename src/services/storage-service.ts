@@ -58,6 +58,11 @@ export interface WatchedEntry {
 // Oldest go first past this; each entry is a few dozen bytes.
 const WATCHED_MAX_ITEMS = 2000;
 
+interface XtreamOutputFormats {
+  account: string;
+  formats: string[];
+}
+
 interface UserDataState {
   favorites: string[];
   reminders: Reminder[];
@@ -763,6 +768,28 @@ export const StorageService = {
     }
     userData.liveCategorySnapshots[playlistId] = value;
     persistUserChanges('channel-state', [record(LIVE_CATEGORY_KEY_PREFIX + playlistId, value)]);
+  },
+
+  // The output formats an Xtream account last advertised at sign-in, so a
+  // cold start resolves Auto without waiting for one. `account` names the
+  // server and user they came from; another one reads as unknown.
+  getXtreamOutputFormats(playlistId: string, account: string): string[] | null {
+    const entry = get<Record<string, XtreamOutputFormats>>('xtream_output_formats', {})[playlistId];
+    return entry && entry.account === account && Array.isArray(entry.formats)
+      ? entry.formats.filter((format): format is string => typeof format === 'string')
+      : null;
+  },
+  setXtreamOutputFormats(playlistId: string, account: string, formats: string[]): void {
+    if (!playlistId) return;
+    const all = get<Record<string, XtreamOutputFormats>>('xtream_output_formats', {});
+    const current = all[playlistId];
+    if (current && current.account === account
+        && JSON.stringify(current.formats) === JSON.stringify(formats)) return;
+    const ids = new Set(this.getPlaylists().map(pl => pl.id));
+    const next: Record<string, XtreamOutputFormats> = {};
+    for (const id of Object.keys(all)) if (ids.has(id)) next[id] = all[id];
+    next[playlistId] = { account, formats: formats.slice() };
+    set('xtream_output_formats', next);
   },
 
   getLiveReconnectAttempts(): number {
