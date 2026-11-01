@@ -433,6 +433,42 @@ describe('PlayerOsd', () => {
       expect(osd.focused()).toBe('seek');
     });
 
+    it('walks a mirrored dock in its on-screen order around the left-to-right transport', () => {
+      activeWhenShown = true;
+      state = VOD({ episodes: { previous: true, next: true }, audio: true });
+      document.documentElement.dir = 'rtl';
+      // jsdom has no scrollIntoView, which the ring's scope calls in RTL too.
+      const scrollIntoView = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = () => {};
+      try {
+        osd.show();
+        // The transport and the seek rows keep left to right; the track
+        // choices, the dock's end group, sit on the left.
+        expect(container.querySelector('.osd-controls-center')?.getAttribute('dir')).toBe('ltr');
+        expect(container.querySelector('.osd-progress-row')?.getAttribute('dir')).toBe('ltr');
+        const at: Record<string, number> = { audio: 100, previous: 800, playpause: 900, next: 1000 };
+        container.querySelectorAll<HTMLElement>('[data-dock-action]').forEach((button) => {
+          const x = at[button.dataset.dockAction ?? ''] ?? 0;
+          button.getBoundingClientRect = () =>
+            ({ left: x, right: x + 80, top: 0, bottom: 80, width: 80, height: 80, x, y: 0, toJSON() {} }) as DOMRect;
+        });
+        osd.move('down');
+        expect(osd.focused()).toBe('playpause');
+        // The Right key arrives as the logical 'left' (src/utils/direction.ts).
+        expect(osd.move('left')).toBe(true);
+        expect(osd.focused()).toBe('next');
+        expect(osd.move('left')).toBe(false);
+        for (const expected of ['playpause', 'previous', 'audio']) {
+          expect(osd.move('right')).toBe(true);
+          expect(osd.focused()).toBe(expected);
+        }
+        expect(osd.move('right')).toBe(false);
+      } finally {
+        Element.prototype.scrollIntoView = scrollIntoView;
+        document.documentElement.removeAttribute('dir');
+      }
+    });
+
     it('skips a disabled button', () => {
       activeWhenShown = true;
       state = VOD({ episodes: { previous: false, next: true } });

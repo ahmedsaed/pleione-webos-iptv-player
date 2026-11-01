@@ -343,20 +343,18 @@ for (const { size, locale } of [
     const middle = (b: { x: number; width: number }) => b.x + b.width / 2;
     expect(Math.abs(middle(playpause) - middle(panel))).toBeLessThanOrEqual(1);
     expect(Math.abs(middle(playpause) - 960)).toBeLessThanOrEqual(1);
-    // Arabic mirrors the row: Previous on the right, Next on the left.
-    const [leftmost, rightmost] = locale === 'ar' ? [next, previous] : [previous, next];
-    expect(leftmost.x + leftmost.width).toBeLessThanOrEqual(playpause.x);
-    expect(playpause.x + playpause.width).toBeLessThanOrEqual(rightmost.x);
+    // Playback runs left to right in Arabic too: Previous on the left.
+    expect(previous.x + previous.width).toBeLessThanOrEqual(playpause.x);
+    expect(playpause.x + playpause.width).toBeLessThanOrEqual(next.x);
     expect(Math.abs(previous.y - next.y)).toBeLessThanOrEqual(1);
 
     // Left and Right walk the buttons in their on-screen order.
     await page.keyboard.press('ArrowDown');
     await expect(osd.locator('[data-dock-action="playpause"]')).toHaveClass(/focused/);
-    const [toPrevious, toNext] = locale === 'ar' ? ['ArrowRight', 'ArrowLeft'] : ['ArrowLeft', 'ArrowRight'];
-    await page.keyboard.press(toPrevious);
+    await page.keyboard.press('ArrowLeft');
     await expect(osd.locator('[data-dock-action="previous"]')).toHaveClass(/focused/);
-    await page.keyboard.press(toNext);
-    await page.keyboard.press(toNext);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
     await expect(osd.locator('[data-dock-action="next"]')).toHaveClass(/focused/);
     // The focused button's name never moves the buttons.
     expect(Math.abs(middle(await box('playpause')) - middle(playpause))).toBeLessThanOrEqual(1);

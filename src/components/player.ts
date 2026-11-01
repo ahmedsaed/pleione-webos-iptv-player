@@ -16,6 +16,7 @@ import {
   xtreamCredentialsFromLiveUrl,
 } from '../utils/xtream-url';
 import { show, hide } from '../utils/dom';
+import { screenSide } from '../utils/direction';
 import { channelKey } from '../utils/channel';
 import { dvrWindow, dvrState, type DvrWindow } from '../utils/dvr';
 import { PlaylistService } from '../services/playlist-service';
@@ -888,8 +889,10 @@ export class Player {
       case 'right':
         // Left/Right skip, with the controls hidden too, unless focus is on
         // the controls' buttons, where they move between them.
+        // Playback runs left to right in every language: the screen side
+        // picks the direction (docs/rtl-layout.md).
         if (onControls) this.osd.move(action);
-        else this.seekKey(action === 'left' ? -1 : 1);
+        else this.seekKey(screenSide(action) === 'left' ? -1 : 1);
         break;
       case 'rewind':
       case 'fast_forward':
@@ -1924,7 +1927,7 @@ export class Player {
         // The controls' buttons take Left/Right; otherwise they skip while
         // the controls show on a seekable stream (catch-up, live DVR).
         if (onControls) this.osd.move(action);
-        else if (this.canSeek()) this.seekKey(action === 'left' ? -1 : 1);
+        else if (this.canSeek()) this.seekKey(screenSide(action) === 'left' ? -1 : 1);
         break;
       case 'up':
       case 'down':

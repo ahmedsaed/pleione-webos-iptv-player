@@ -58,11 +58,12 @@ rails, the catalog grid, and the Guide's cells, ruler, and now line.
 list on the right, the side panels, overlays and prompts), rails and their
 start, progress bars that measure watched content (catalog cards, Live rows,
 Guide cells), toggles and segmented controls, and icons that point along the
-reading direction: back, chevrons, and previous/next (`.rtl-mirror` on the
-SVG, `transform: scaleX(-1)` under `[dir="rtl"]`).
+reading direction: back and chevrons (`.rtl-mirror` on the SVG,
+`transform: scaleX(-1)` under `[dir="rtl"]`).
 
-**Stays as it is:** play/pause, media logos, clocks, and other icons that do
-not point along the row; numbers, times, ranges, channel numbers, and episode
+**Stays as it is:** media playback (§7): the player's seek and time rows
+and its transport, previous/next included; media logos, clocks, and other
+icons that do not point along the row; numbers, times, ranges, channel numbers, and episode
 codes keep their own reading order; the password field, the parental PIN
 slots, the typed channel number, and the setup page's pairing code read left
 to right as digits do; the `<video>` element's box.
@@ -81,10 +82,10 @@ own direction (`dir="auto"`), so a long Latin name shows its start first.
 Left and Right reach handlers as **logical** actions: in RTL the Left key
 arrives as `'right'` (toward the end of a row) and Right as `'left'` (toward
 its start). `KeyHandler` applies `logicalAction`; index-based handlers
-(previous/next, rails, the side a panel opens from, seek) then need no
+(previous/next, rails, the side a panel opens from) then need no
 direction checks. Geometric code turns the action back into a screen side
-with `screenSide`: `SpatialNav.move` and Settings' row peer. New geometric
-code must do the same.
+with `screenSide`: `SpatialNav.move`, Settings' row peer, the player's
+seek, and the dock's buttons (§7). New geometric code must do the same.
 
 Text inputs keep the native caret: `KeyHandler` never maps keys typed into a
 field, and `caret-edge.ts` works in screen sides.
@@ -128,17 +129,50 @@ window's start; the template writes them with `inlineStart()`.
 
 ## 7. The player
 
-The seek bar mirrors: it fills from the right with the elapsed time beside
-it, the duration at the left, and Left seeks forward. Previous sits right of
-Play/Pause and Next left of it, their icons turned; Play is not turned, and
-the transport stays centered. This follows Apple's guidance, which mirrors
-progress controls and keeps tape-direction glyphs; Material instead keeps
-the media timeline left to right. To switch to that, mark the progress row
-and the transport `rtl:ignore`, drop `.rtl-mirror` from the previous/next
-icons, and turn `seekKey`'s direction back with `screenSide`.
+Media playback stays left to right in every language, as on YouTube and
+Spotify: the playback controls and the media progress indicator show the
+direction of the media playing, not the direction of time or of reading.
 
-The audio and subtitle menu hangs from the left end of the controls, and the
-full-screen channel list opens from the right edge with Right.
+- The seek bar (VOD, catch-up, live DVR) and the live program's time row
+  fill from the left, with the elapsed time or now on the left and the
+  duration, end, or LIVE on the right. A pointer click and the seek bubble
+  measure from the left edge.
+- Left rewinds and Right fast-forwards: `Player` turns the logical action
+  back into a screen side (`screenSide`) before it seeks.
+- The transport reads Previous, Play/Pause, Next from the left, with no
+  icon turned.
+- Everything around them mirrors: the info block (title, channel, badges),
+  where the side panels and the track menu open, and the dock's side
+  groups, so Favorite and Info sit on the right and Audio and Subtitles
+  on the left.
+
+The seek rows and the transport group carry `dir="ltr"`, so they lay out
+left to right inside the mirrored dock. Their CSS is marked `rtl:ignore`,
+and `css/legacy-webos-overrides.css` restates their flex-gap margins under a
+`[dir="ltr"]` rule, since the generated ones mirror with the sheet. The dock
+moves focus with Left and Right by the buttons' places on screen
+(`PlayerOsd.onScreenOrder`), which no longer follow DOM order once the side
+groups mirror around a left-to-right transport.
+
+Sources:
+
+- Material Design, *Bidirectionality*: do not mirror media playback
+  buttons and the media progress indicator, which refer to the direction
+  of the media, not of time
+  (https://m2.material.io/design/usability/bidirectionality.html).
+- Spotify Engineering, *Right to Left (The Mirror World)*: "media playback
+  buttons and the media progress bar do not require mirroring"; Arabic
+  speakers expect them to look as they do in a left-to-right language
+  (https://engineering.atspotify.com/2019/04/right-to-left-the-mirror-world/).
+- Adobe Spectrum, *Bi-directionality*: components that represent time,
+  such as a video player, are not mirrored
+  (https://spectrum.adobe.com/page/bi-directionality/).
+- Microsoft, *Mirroring* (globalization guidance): not every icon mirrors;
+  a media player's fast-forward and rewind keep their orientation
+  (https://learn.microsoft.com/globalization/fonts-layout/mirroring).
+
+Apple's guidance differs: it flips progress controls and keeps only the
+tape-direction glyphs. An earlier build of this branch followed that.
 
 ## 8. Adding a right-to-left locale
 

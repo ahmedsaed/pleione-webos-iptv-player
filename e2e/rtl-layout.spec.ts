@@ -460,7 +460,10 @@ test.describe('player', () => {
   const position = (page: Page) =>
     page.locator('#video-player').evaluate((v: HTMLVideoElement) => v.currentTime);
 
-  test('the seek bar fills from the right, Left seeks forward, and the controls mirror',
+  // Playback runs left to right in every language (docs/rtl-layout.md §7):
+  // the seek bar and the transport stay as they are; the dock around them
+  // mirrors.
+  test('the seek bar fills from the left, Left rewinds, and the transport keeps its order',
     async ({ page }) => {
       await playEpisode(page);
       const osd = page.locator('#player-osd');
@@ -472,46 +475,60 @@ test.describe('player', () => {
       const track = (await osd.locator('.osd-progress-bar').locator('..').boundingBox())!;
       await expect.poll(async () => {
         const fill = (await osd.locator('.osd-progress-bar').boundingBox())!;
-        return [Math.abs(fill.x + fill.width - (track.x + track.width)) <= 1,
-          Math.abs(fill.width / track.width - 0.2) < 0.02];
+        return [Math.abs(fill.x - track.x) <= 1, Math.abs(fill.width / track.width - 0.2) < 0.02];
       }).toEqual([true, true]);
-      // The elapsed time on the right, the duration on the left.
-      expect(rightOf((await osd.locator('.osd-time-current').boundingBox())!, bar)).toBe(true);
-      expect(rightOf(bar, (await osd.locator('.osd-time-end').boundingBox())!)).toBe(true);
+      // The elapsed time on the left, the duration on the right.
+      expect(rightOf(bar, (await osd.locator('.osd-time-current').boundingBox())!)).toBe(true);
+      expect(rightOf((await osd.locator('.osd-time-end').boundingBox())!, bar)).toBe(true);
 
-      // Left is forward along the mirrored bar, Right back.
-      await page.keyboard.press('ArrowLeft');
+      // Left rewinds, Right fast-forwards.
+      await page.keyboard.press('ArrowRight');
       await expect.poll(() => position(page), { timeout: 5000 }).toBeGreaterThan(300);
       const forward = await position(page);
-      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('ArrowLeft');
       await expect.poll(() => position(page), { timeout: 5000 }).toBeLessThan(forward);
 
-      // A click near the bar's right end seeks near the start.
+      // A click near the bar's left end seeks near the start.
       await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
-      await page.mouse.click(bar.x + bar.width * 0.9, bar.y + bar.height / 2);
+      await page.mouse.click(bar.x + bar.width * 0.1, bar.y + bar.height / 2);
       await expect.poll(() => position(page), { timeout: 5000 }).toBeLessThan(1500 * 0.2);
 
-      // Previous on the right, Next on the left, Play/Pause centered between.
+      // Previous, Play/Pause, Next from the left, none of them turned.
       const box = async (action: string) => (await osd.locator(`[data-dock-action="${action}"]`).boundingBox())!;
-      expect(rightOf(await box('previous'), await box('playpause'))).toBe(true);
-      expect(rightOf(await box('playpause'), await box('next'))).toBe(true);
-      // Previous and Next point along the mirrored row; Play does not turn.
-      const flipped = (action: string) => osd.locator(`[data-dock-action="${action}"] svg`).first()
+      expect(rightOf(await box('playpause'), await box('previous'))).toBe(true);
+      expect(rightOf(await box('next'), await box('playpause'))).toBe(true);
+      const turned = (action: string) => osd.locator(`[data-dock-action="${action}"] svg`).first()
         .evaluate((svg) => getComputedStyle(svg).transform);
-      expect(await flipped('previous')).toBe('matrix(-1, 0, 0, 1, 0, 0)');
-      expect(await flipped('next')).toBe('matrix(-1, 0, 0, 1, 0, 0)');
-      expect(await flipped('playpause')).toBe('none');
+      for (const action of ['previous', 'playpause', 'next']) expect(await turned(action)).toBe('none');
+      // The track choices, the dock's end group, swap to the left side.
+      expect(rightOf(await box('previous'), await box('subtitles'))).toBe(true);
+
+      // Left and Right walk the buttons in their places on screen.
+      await page.keyboard.press('ArrowDown');
+      const focused = (action: string) => expect(osd.locator(`[data-dock-action="${action}"]`))
+        .toHaveClass(/\bfocused\b/);
+      await focused('playpause');
+      await page.keyboard.press('ArrowLeft');
+      await focused('previous');
+      await page.keyboard.press('ArrowLeft');
+      await focused('subtitles');
+      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('ArrowRight');
+      await focused('playpause');
+      await page.keyboard.press('ArrowRight');
+      await focused('next');
     });
 
-  test('the track menu opens with Left and sits over the left end of the controls', async ({ page }) => {
+  test('the track menu opens over the subtitles control at the left of the controls', async ({ page }) => {
     await playEpisode(page);
     const osd = page.locator('#player-osd');
     await page.keyboard.press('ArrowDown');
     await expect(osd.locator('[data-dock-action="playpause"]')).toHaveClass(/\bfocused\b/);
-    // Left walks the row to its end, the subtitles control on the left.
+    // Left walks to the row's left end, the subtitles control.
     for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowLeft');
     const focused = osd.locator('.focused');
     await expect(focused).toHaveCount(1);
+    await expect(focused).toHaveAttribute('data-dock-action', 'subtitles');
     const control = (await focused.boundingBox())!;
     expect(control.x).toBeLessThan(400);
     await page.keyboard.press('Enter');
@@ -634,6 +651,25 @@ test.describe('Live and Guide', () => {
     // Left closes it again: back toward the video.
     await page.keyboard.press('ArrowLeft');
     await expect(sidebar).not.toHaveClass(/\bvisible\b/);
+  });
+
+  test('the Live info bar mirrors its info and side controls, but not its time row', async ({ page }) => {
+    await seedArabicLive(page);
+    await page.goto('/');
+    await expect(page.locator('#view-channels .channel-main .channel-item').first())
+      .toContainText('Program 1A');
+    await page.keyboard.press('Enter');
+    const osd = page.locator('#player-osd');
+    await expect(osd.locator('.osd-progress-row')).toBeVisible();
+    // The channel's own controls sit on the right, Favorite first.
+    const favorite = (await osd.locator('[data-dock-action="favorite"]').boundingBox())!;
+    const info = (await osd.locator('[data-dock-action="info"]').boundingBox())!;
+    expect(favorite.x).toBeGreaterThan(960);
+    expect(rightOf(favorite, info)).toBe(true);
+    // The program's time row runs left to right: now on the left.
+    const now = (await osd.locator('.osd-progress-row .osd-time-current').boundingBox())!;
+    const end = (await osd.locator('.osd-progress-row .osd-time-end').boundingBox())!;
+    expect(rightOf(end, now)).toBe(true);
   });
 
   test('the Guide runs time from right to left, and Left moves later', async ({ page }) => {
