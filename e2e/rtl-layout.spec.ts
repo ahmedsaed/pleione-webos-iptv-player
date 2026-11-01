@@ -519,6 +519,36 @@ test.describe('player', () => {
       await focused('next');
     });
 
+  test('a movie\'s Restart sits left of Play/Pause in the left-to-right transport', async ({ page }) => {
+    await seedXtream(page);
+    await page.addInitScript(() => {
+      localStorage.setItem('iptv_locale', JSON.stringify('ar'));
+      localStorage.setItem('iptv_player_osd_timeout_ms', '12000');
+      const P = HTMLMediaElement.prototype;
+      Object.defineProperty(P, 'duration', { configurable: true, get: () => 1500 });
+      Object.defineProperty(P, 'paused', { configurable: true, get: () => false });
+    });
+    await page.goto('/');
+    await enterTab(page, 'movies');
+    await page.locator('#view-movies .catalog-tile[data-item-id="10"]').first()
+      .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+    await page.keyboard.press('Enter');
+    await page.locator('#view-movies [data-action="play"]').click();
+    const osd = page.locator('#player-osd');
+    await expect(osd.locator('[data-dock-action="restart"]')).toBeVisible();
+    const box = async (action: string) => (await osd.locator(`[data-dock-action="${action}"]`).boundingBox())!;
+    expect(rightOf(await box('playpause'), await box('restart'))).toBe(true);
+    expect(await osd.locator('[data-dock-action="restart"] svg').evaluate((svg) => getComputedStyle(svg).transform))
+      .toBe('none');
+    // The dock walks its buttons in their places on screen.
+    await page.keyboard.press('ArrowDown');
+    await expect(osd.locator('[data-dock-action="playpause"]')).toHaveClass(/\bfocused\b/);
+    await page.keyboard.press('ArrowLeft');
+    await expect(osd.locator('[data-dock-action="restart"]')).toHaveClass(/\bfocused\b/);
+    await page.keyboard.press('ArrowRight');
+    await expect(osd.locator('[data-dock-action="playpause"]')).toHaveClass(/\bfocused\b/);
+  });
+
   test('the track menu opens over the subtitles control at the left of the controls', async ({ page }) => {
     await playEpisode(page);
     const osd = page.locator('#player-osd');

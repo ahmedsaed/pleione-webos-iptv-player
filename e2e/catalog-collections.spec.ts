@@ -285,6 +285,49 @@ const continueTiles = (page: Page, section: string) =>
   page.locator(`#view-${section} [data-rail-key="continue"] .catalog-tile:not(.catalog-see-all)`);
 const menu = (page: Page) => page.locator('.title-menu:not(.hidden)');
 
+test('the Continue Watching menu opens mirrored in Arabic', async ({ page }) => {
+  await seedCollections(page, 4);
+  await page.addInitScript(() => localStorage.setItem('iptv_locale', JSON.stringify('ar')));
+  await page.goto('/');
+  await enterTab(page, 'movies');
+  const tiles = continueTiles(page, 'movies');
+  // The rail runs from the right: the tile after the pointed one sits left
+  // of it, and Right hands focus to the D-pad on the one before.
+  const [first, second] = [(await tiles.nth(1).boundingBox())!, (await tiles.nth(2).boundingBox())!];
+  expect(second.x + second.width).toBeLessThanOrEqual(first.x + 1);
+  await tiles.nth(2).hover();
+  await page.keyboard.press('ArrowRight');
+  await expect(tiles.nth(1)).toHaveClass(/focused/);
+
+  await holdOk(page);
+  await expect(menu(page)).toBeVisible();
+  const dialog = (await menu(page).locator('.title-menu-dialog').boundingBox())!;
+  expect(Math.abs(dialog.x + dialog.width / 2 - 960)).toBeLessThanOrEqual(1);
+  const buttons = menu(page).locator('.confirmation-btn');
+  await expect(buttons.first()).toHaveText('إزالة من متابعة المشاهدة');
+  await expect(buttons.first()).toHaveClass(/focused/);
+  // The actions stack the full width of the dialog, the first on top
+  // (layout boxes: the focused one is lifted by a scale).
+  const layout = (index: number) => buttons.nth(index).evaluate((el: HTMLElement) =>
+    [el.offsetLeft, el.offsetWidth, el.offsetTop]);
+  const [remove, cancel] = [await layout(0), await layout(1)];
+  expect(cancel[0]).toBe(remove[0]);
+  expect(cancel[1]).toBe(remove[1]);
+  expect(cancel[2]).toBeGreaterThan(remove[2]);
+  // Its text reads right to left inside the button.
+  expect(await buttons.first().evaluate((el) => getComputedStyle(el).direction)).toBe('rtl');
+  // Left and Right stay inside the menu; Down reaches Cancel.
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowRight');
+  await expect(buttons.first()).toHaveClass(/focused/);
+  await page.keyboard.press('ArrowDown');
+  await expect(buttons.nth(1)).toHaveClass(/focused/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(menu(page)).toHaveCount(0);
+  await expect(tiles).toHaveCount(4);
+});
+
 // Focus a Continue Watching tile with the keys: the pointer lights the one
 // after it, and Left hands focus to the D-pad.
 async function focusContinueTile(page: Page, section: string, index: number): Promise<void> {
