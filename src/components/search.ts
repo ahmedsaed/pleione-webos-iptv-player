@@ -130,6 +130,13 @@ interface CatalogSources {
   series: boolean;
 }
 
+// Whether the app's channels are there to search: Search opens before
+// they load, and searches the catalog meanwhile.
+export type SearchChannelState = 'loading' | 'failed' | 'ready';
+
+const NO_CHANNELS: Channel[] = [];
+const NO_PROGRAMMES: Record<string, Programme[]> = {};
+
 // Sources still on their way to the worker in this session.
 interface PendingIndex {
   channels: boolean;
@@ -217,9 +224,13 @@ export class Search {
   // Shared by a reopen, so closing Search does not restart the load.
   private catalogLoad: { accountId: string; promise: Promise<CatalogSources> } | null = null;
   private catalogLoading = false;
-  // Opened before the channels load: the results area says so until the
-  // app opens the index over them.
-  private channelsLoading = false;
+  // Opened before the channels load: the session indexes none until they
+  // arrive, and the results say so where channels and programs go.
+  private channelState: SearchChannelState = 'ready';
+  // The channels arrived and are being indexed into the open session.
+  private channelsIndexing = false;
+  // The session's own channel and program indexing, which a later one waits out.
+  private channelIndexing: Promise<void> = Promise.resolve();
   // Until every source is indexed, queries wait and the results show a hint.
   private pendingIndex: PendingIndex | null = null;
   private active = false;
@@ -299,13 +310,37 @@ export class Search {
       .find((item) => item.dataset.key === key) ?? null;
   }
 
-  showChannelsLoading(): void {
-    this.channelsLoading = true;
-    this.render();
+  // The channels Search may index and show: none until the app has them.
+  private searchedChannels(): Channel[] {
+    return this.channelState === 'ready' ? PlaylistService.channels : NO_CHANNELS;
   }
 
-  async open(account: PlaylistEntry | null, query = ''): Promise<void> {
-    this.channelsLoading = false;
+  private channelsPending(): boolean {
+    return this.channelState === 'loading' || this.channelsIndexing;
+  }
+
+  // The app's channel load settled. An open Search indexes the channels into
+  // its session and runs the query again in place; a closed one only keeps
+  // the state for its next open.
+  setChannelState(state: 'ready' | 'failed'): void {
+    const previous = this.channelState;
+    this.channelState = state;
+    if (!this.active || previous !== 'loading') return;
+    if (state === 'failed') {
+      this.render();
+      this.applyPendingFocus();
+      return;
+    }
+    void this.indexArrivedChannels(this.workerSession);
+  }
+
+  async open(
+    account: PlaylistEntry | null,
+    query = '',
+    channels: SearchChannelState = this.channelState,
+  ): Promise<void> {
+    this.channelState = channels;
+    this.channelsIndexing = false;
     this.active = true;
     // Another task may have started a new, empty worker since the index was built.
     const generation = appWorkerGeneration();
@@ -374,8 +409,10 @@ export class Search {
         this.applyPendingFocus();
       });
     }
+    const channelsIndexed = this.indexChannelsAndProgrammes(sessionId, workerReset);
+    this.channelIndexing = channelsIndexed.then(() => undefined, () => undefined);
     try {
-      await this.indexChannelsAndProgrammes(sessionId, workerReset);
+      await channelsIndexed;
     } catch (error) {
       if (sessionId !== this.workerSession) return;
       // Queries rebuild a lost index themselves; don't leave the hint up.
@@ -390,7 +427,7 @@ export class Search {
   ): Promise<void> {
     const reset = await workerReset;
     if (!reset || !this.active || sessionId !== this.workerSession) return;
-    const channels = PlaylistService.channels;
+    const channels = this.searchedChannels();
     const postChannels = (): Promise<boolean> => this.postSource(
       sessionId,
       'channels',
@@ -409,6 +446,38 @@ export class Search {
     this.workerChannels = channels;
     this.indexSettled(sessionId, 'channels');
     this.programIndexDone(sessionId, await this.buildProgramIndex(false, sessionId));
+  }
+
+  // The channels arrived after the session indexed none: index them and the
+  // guide into it, keeping the results, focus, and scroll on screen until
+  // the query runs again over them.
+  private async indexArrivedChannels(sessionId: number): Promise<void> {
+    this.channelsIndexing = true;
+    const current = (): boolean => this.active && sessionId === this.workerSession;
+    await this.channelIndexing;
+    // A newer session indexes the channels itself.
+    if (!current()) return;
+    // A lost index is rebuilt whole, channels included, by the next query.
+    if (!this.workerIndexLost) {
+      try {
+        await this.indexChannelsAndProgrammes(sessionId, Promise.resolve(true));
+      } catch (error) {
+        if (!current()) return;
+        log.error('Search index build failed', 'event=search.worker.index.failed', error);
+        this.indexLost(sessionId, 'error', 'channels', 'programmes');
+      }
+      if (!current()) return;
+    }
+    this.channelsIndexing = false;
+    // Still pending, the last source to settle runs the query.
+    if (this.pendingIndex) {
+      this.render();
+      return;
+    }
+    if (this.workerIndexReady && !this.workerIndexLost) this.markWorkerIndexReady(this.account);
+    if (this.query.trim()) await this.startQuery(++this.queryGeneration, true);
+    else this.render();
+    this.applyPendingFocus();
   }
 
   /** The search box drives the query; re-render the results for it. */
@@ -448,7 +517,9 @@ export class Search {
     this.programIndexGeneration++;
     this.indexedChannels = null;
     this.indexedProgrammes = null;
-    if (!this.active) return;
+    // Without the channels there are no programs to index; their arrival
+    // indexes the guide too.
+    if (!this.active || this.channelState !== 'ready') return;
     const sessionId = this.workerSession;
     // While sources are pending, the last one to settle runs the query.
     const wasPending = !!this.pendingIndex;
@@ -458,8 +529,9 @@ export class Search {
       log.error('Search program index failed', 'event=search.worker.index.failed', 'scope=programmes', error);
       this.indexLost(sessionId, 'error', 'programmes');
     }
+    // In place, as the guide can arrive while the remote is on a result.
     if (!wasPending && this.active && !this.pendingIndex && this.query.trim()) {
-      await this.startQuery(++this.queryGeneration);
+      await this.startQuery(++this.queryGeneration, true);
     }
   }
 
@@ -497,7 +569,7 @@ export class Search {
 
   deactivate(): void {
     this.active = false;
-    this.channelsLoading = false;
+    this.channelsIndexing = false;
     this.focusPending = false;
     this.programIndexGeneration++;
     this.recoveryRetry = null;
@@ -702,7 +774,7 @@ export class Search {
       'event=search.index.ready',
       `session=${String(this.workerSession)}`,
       `mode=${mode}`,
-      `channels=${String(PlaylistService.channels.length)}`,
+      `channels=${String(this.searchedChannels().length)}`,
       `programmes=${String(this.programIndex.length)}`,
       `items=${String(this.allVod.length + this.allSeries.length)}`,
       ...fields,
@@ -840,7 +912,7 @@ export class Search {
   private applyPendingFocus(): void {
     if (!this.focusPending || !this.active || this.queryPending) return;
     const first = this.container.querySelector<HTMLElement>('.search-results [data-focusable]');
-    if (!first && (this.catalogLoading || this.pendingIndex)) {
+    if (!first && (this.catalogLoading || this.pendingIndex || this.channelsPending())) {
       // Wait in the search box, not on a blank screen, for the catalog.
       if (!this.focusWaitingInBox) {
         this.focusWaitingInBox = true;
@@ -981,14 +1053,14 @@ export class Search {
   }
 
   private async buildProgramIndex(force: boolean, sessionId: number): Promise<boolean | null> {
+    const channels = this.searchedChannels();
+    const programmesByChannel = this.channelState === 'ready' ? EpgService.programmes : NO_PROGRAMMES;
     if (!force
-        && this.indexedChannels === PlaylistService.channels
-        && this.indexedProgrammes === EpgService.programmes) {
+        && this.indexedChannels === channels
+        && this.indexedProgrammes === programmesByChannel) {
       return this.indexProgrammes(sessionId);
     }
     const generation = ++this.programIndexGeneration;
-    const channels = PlaylistService.channels;
-    const programmesByChannel = EpgService.programmes;
     const programs: ProgramResult[] = [];
     const runs = new ProgrammeRuns();
     let channelIndex = 0;
@@ -1209,10 +1281,6 @@ export class Search {
     const query = this.query;
     const sessionId = this.workerSession;
     if (!query.trim()) return;
-    if (this.channelsLoading) {
-      this.render();
-      return;
-    }
     if (this.pendingIndex) {
       // The ready index runs this query; until then the hint stands in.
       if (!this.indexStats.hintAt) this.indexStats.hintAt = Date.now();
@@ -1288,8 +1356,12 @@ export class Search {
       this.applyQueryResponse(this.queryLocally(query), this.allVod, this.allSeries);
     }
     this.queryPending = false;
-    if (!preserveOffsets) this.resetVirtualOffsets();
-    this.render();
+    if (preserveOffsets) {
+      this.renderInPlace();
+    } else {
+      this.resetVirtualOffsets();
+      this.render();
+    }
     this.applyPendingFocus();
   }
 
@@ -1352,13 +1424,15 @@ export class Search {
   private queryLocally(query: string): SearchQueryResponse {
     const boost = this.boost(this.allVod, this.allSeries);
     const boostedChannels = new Set(boost.channels.map(index => PlaylistService.channels[index]));
+    const empty = { items: [], hasMore: false, total: 0 };
     const boostedMovies = new Set(boost.movies.map(index => this.allVod[index]));
     const boostedSeries = new Set(boost.series.map(index => this.allSeries[index]));
     const fuzzyBelow = CONFIG.SEARCH.INITIAL_RESULTS;
-    const channels = PlaylistService.searchLocalRanked(query, this.resultLimit, undefined, {
-      fuzzyBelow,
-      boosted: channel => boostedChannels.has(channel),
-    });
+    const channels = this.channelState !== 'ready' ? empty
+      : PlaylistService.searchLocalRanked(query, this.resultLimit, undefined, {
+        fuzzyBelow,
+        boosted: channel => boostedChannels.has(channel),
+      });
     const programmes = rankPreparedTopK(
       prepareSearchItems(this.programIndex, programDocument),
       query,
@@ -1366,7 +1440,6 @@ export class Search {
       true,
       { fuzzyBelow },
     );
-    const empty = { items: [], hasMore: false, total: 0 };
     const movies = this.account
       ? rankPreparedNamesTopK(prepareNameSearchItems(this.allVod), query, this.resultLimit,
         { boosted: item => boostedMovies.has(item) })
@@ -1400,7 +1473,7 @@ export class Search {
   }
 
   private indexedLists(): unknown[] {
-    return [PlaylistService.channels, this.programIndex, this.indexedVod, this.indexedSeries];
+    return [this.searchedChannels(), this.programIndex, this.indexedVod, this.indexedSeries];
   }
 
   private async recoverWorkerQuery(
@@ -1492,7 +1565,7 @@ export class Search {
     let changed: boolean;
     do {
       changed = false;
-      const current = PlaylistService.channels;
+      const current = this.searchedChannels();
       const programs = this.programIndex;
       const movies = this.allVod;
       const series = this.allSeries;
@@ -1529,7 +1602,7 @@ export class Search {
     vod: VodItem[],
     series: SeriesItem[],
   ): void {
-    this.visibleChannels = itemsAt(PlaylistService.channels, response.channels.indices);
+    this.visibleChannels = itemsAt(this.searchedChannels(), response.channels.indices);
     this.visiblePrograms = itemsAt(this.programIndex, response.programmes.indices);
     this.visibleMovies = itemsAt(vod, response.movies.indices);
     this.visibleSeries = itemsAt(series, response.series.indices);
@@ -1557,6 +1630,7 @@ export class Search {
   private canReuseWorkerIndex(account: PlaylistEntry | null): boolean {
     return this.workerIndexReady
       && !this.workerIndexLost
+      && this.channelState === 'ready'
       && this.workerIndexedChannels === PlaylistService.channels
       && this.workerIndexedProgrammes === EpgService.programmes
       && this.workerIndexedAccountId === (account?.id ?? null)
@@ -1584,7 +1658,7 @@ export class Search {
       'event=search.worker.index.ready',
       'scope=unified',
       `session=${String(this.workerSession)}`,
-      `channels=${String(PlaylistService.channels.length)}`,
+      `channels=${String(this.searchedChannels().length)}`,
       `programmes=${String(this.programIndex.length)}`,
       `movies=${String(this.allVod.length)}`,
       `series=${String(this.allSeries.length)}`,
@@ -1717,21 +1791,17 @@ export class Search {
     const q = this.query.trim();
     const hasResults = this.visibleChannels.length > 0 || this.visiblePrograms.length > 0
       || this.visibleMovies.length > 0 || this.visibleSeries.length > 0;
-    this.indicator.set(!q || this.channelsLoading ? null
+    this.indicator.set(!q ? null
       : this.pendingIndex ? 'preparing' : this.queryPending ? 'searching' : null);
-    const resultsBody = this.channelsLoading
-      ? html`
-          <div class="search-busy" role="status" data-search-busy="channels">
-            <span class="search-busy-spinner" aria-hidden="true"></span>
-            <span class="search-busy-text">${t('app.loadingChannels')}</span>
-          </div>`
-      : !q
+    const channelStatus = this.channelStatus();
+    const resultsBody = !q
       ? this.recentSection()
       : this.pendingIndex || this.queryPending
-        ? this.busyIndicator()
-        : !hasResults
+        ? html`${channelStatus}${this.busyIndicator()}`
+        : !hasResults && !channelStatus
             ? html`<p class="search-hint">${t('search.empty')}</p>`
             : html`
+                ${channelStatus}
                 ${this.visibleChannels.length
                   ? this.virtualRail(t('common.channels'), 'channels', this.visibleChannels,
                     this.channelVirtualizer, (ch) => this.channelCard(ch))
@@ -1758,6 +1828,34 @@ export class Search {
       </div>
     `);
     this.restoreVirtualOffsets();
+  }
+
+  // Where channels and programs go while the app still loads them, or
+  // failed to: movie and series results show below it meanwhile.
+  private channelStatus(): Safe | null {
+    if (this.channelState === 'failed') {
+      return html`<p class="search-hint search-channel-status" role="status"
+                     data-search-channels="failed">${t('app.loadFailed')}</p>`;
+    }
+    if (!this.channelsPending()) return null;
+    return html`
+      <div class="search-busy search-channel-status" role="status" data-search-channels="loading">
+        <span class="search-busy-spinner" aria-hidden="true"></span>
+        <span class="search-busy-text">${t('app.loadingChannels')}</span>
+      </div>
+    `;
+  }
+
+  // Results filled in above the focused one leave it where it was on screen.
+  private renderInPlace(): void {
+    const focused = this.nav.focused;
+    const top = focused && this.container.contains(focused)
+      ? focused.getBoundingClientRect().top
+      : null;
+    this.render();
+    const view = this.container.querySelector<HTMLElement>('.search-view');
+    if (top === null || !focused || !view || !this.container.contains(focused)) return;
+    view.scrollTop += focused.getBoundingClientRect().top - top;
   }
 
   // A spinner where the results will be, after a short delay; preparing

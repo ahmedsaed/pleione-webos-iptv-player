@@ -2613,3 +2613,173 @@ describe('Search (M3U-only, no account)', () => {
     expect(handlers.onPlayChannel).toHaveBeenCalledWith(5);
   });
 });
+
+describe('Search before the channels load', () => {
+  const report = () => ({ Alpha: [prog('Alpha Report', Date.now() + 3600000, Date.now() + 7200000)] });
+
+  async function openLoading(acct: PlaylistEntry | null = account) {
+    catalogMock.loadAllVodStreams.mockResolvedValue([vod('10', 'Alpha Movie')]);
+    catalogMock.loadAllSeries.mockResolvedValue([ser('s1', 'Alpha Series')]);
+    const handlers = mkHandlers();
+    const view = new Search(container, handlers);
+    openViews.push(view);
+    await view.open(acct, '', 'loading');
+    await indexReady(view);
+    return { view, handlers };
+  }
+
+  const status = () => container.querySelector<HTMLElement>('[data-search-channels]');
+  const indexedChannelPosts = () => workerMock.run.mock.calls.filter(([task, payload]) =>
+    task === 'search.index' && ((payload as SearchIndexRequest).chunk?.documents?.length ?? 0) > 0);
+
+  it('searches the catalog at once, with the channels loading in place of their results', async () => {
+    // The playlist parsed, but the app has not finished loading it.
+    playlistMock.channels = [chan('Alpha')];
+    epgMock.programmes = report();
+    const { view } = await openLoading();
+    expect(status()).toBeNull();
+
+    await view.setQuery('alpha');
+    expect(status()?.dataset.searchChannels).toBe('loading');
+    expect(status()?.textContent).toContain('Loading channels…');
+    expect(container.querySelector('.catalog-tile[data-stream-id="10"]')).not.toBeNull();
+    expect(container.querySelector('.catalog-tile[data-series-id="s1"]')).not.toBeNull();
+    expect(container.querySelector('.search-channel-card')).toBeNull();
+    expect(container.querySelector('.search-program-card')).toBeNull();
+    // The status precedes the catalog rails, where channels and programs go.
+    const first = container.querySelector('.search-results')!.firstElementChild as HTMLElement;
+    expect(first.dataset.searchChannels).toBe('loading');
+    expect(indexedChannelPosts()).toHaveLength(0);
+    expect(epgMock.findChannelId).not.toHaveBeenCalled();
+  });
+
+  it('keeps recent searches under an empty box while the channels load', async () => {
+    storageMock.getSearchHistory.mockReturnValue(['alpha']);
+    await openLoading();
+    expect(container.querySelector('.search-recent-chip')).not.toBeNull();
+    expect(status()).toBeNull();
+  });
+
+  it('fills in channels and programs once they load, keeping the query and focused result', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    epgMock.programmes = report();
+    const { view } = await openLoading();
+    Focus.setBase(() => view.focusScope);
+    await view.setQuery('alpha');
+    // The movie is the first result while the channels load.
+    view.focusFirstResult();
+    Focus.flush();
+    const movie = container.querySelector<HTMLElement>('.catalog-tile[data-stream-id="10"]')!;
+    expect(movie.classList.contains('focused')).toBe(true);
+    // Never replaced by a busy state: the focused tile stays in place throughout.
+    const removed = vi.fn();
+    const observer = new MutationObserver(() => { if (!movie.isConnected) removed(); });
+    observer.observe(container, { childList: true, subtree: true });
+
+    view.setChannelState('ready');
+    await vi.waitFor(() => expect(container.querySelector('.search-channel-card')?.textContent)
+      .toContain('Alpha'));
+    await vi.waitFor(() => expect(container.querySelector('.search-program-card')?.textContent)
+      .toContain('Alpha Report'));
+    observer.disconnect();
+    Focus.flush();
+    expect(status()).toBeNull();
+    expect(removed).not.toHaveBeenCalled();
+    expect(movie.isConnected).toBe(true);
+    expect(movie.classList.contains('focused')).toBe(true);
+    expect(container.querySelectorAll('.focused')).toHaveLength(1);
+    expect(container.querySelector('.search-view')?.getAttribute('data-search-query')).toBe('alpha');
+  });
+
+  it('says the channels failed to load and keeps the catalog results', async () => {
+    const { view } = await openLoading();
+    await view.setQuery('alpha');
+    view.setChannelState('failed');
+    expect(status()?.dataset.searchChannels).toBe('failed');
+    expect(status()?.textContent).toContain('Unable to load the playlist');
+    expect(container.querySelector('.search-busy-spinner')).toBeNull();
+    expect(container.querySelector('.catalog-tile[data-stream-id="10"]')).not.toBeNull();
+    expect(container.querySelector('.catalog-tile[data-series-id="s1"]')).not.toBeNull();
+  });
+
+  it('shows only the channel status for an M3U-only setup, never No results', async () => {
+    const { view } = await openLoading(null);
+    await view.setQuery('alpha');
+    expect(status()?.dataset.searchChannels).toBe('loading');
+    expect(container.textContent).not.toContain('No results');
+    view.setChannelState('failed');
+    expect(status()?.dataset.searchChannels).toBe('failed');
+    expect(container.textContent).not.toContain('No results');
+  });
+
+  it('a load that settles after Search closed indexes and renders nothing', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openLoading();
+    await view.setQuery('alpha');
+    view.deactivate();
+    const calls = workerMock.run.mock.calls.length;
+    const markup = container.innerHTML;
+
+    view.setChannelState('ready');
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(workerMock.run.mock.calls.length).toBe(calls);
+    expect(container.innerHTML).toBe(markup);
+
+    // The next open indexes the loaded channels.
+    await view.open(account, 'alpha');
+    await indexReady(view);
+    await vi.waitFor(() => expect(container.querySelector('.search-channel-card')).not.toBeNull());
+    expect(status()).toBeNull();
+  });
+
+  it('a guide published while a result is focused updates the results in place', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const { view } = await openWith({ vod: [vod('10', 'Alpha Movie')] });
+    Focus.setBase(() => view.focusScope);
+    await view.setQuery('alpha');
+    const movie = container.querySelector<HTMLElement>('.catalog-tile[data-stream-id="10"]')!;
+    movie.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    const removed = vi.fn();
+    const observer = new MutationObserver(() => { if (!movie.isConnected) removed(); });
+    observer.observe(container, { childList: true, subtree: true });
+
+    epgMock.programmes = report();
+    await view.refreshPrograms();
+    observer.disconnect();
+    Focus.flush();
+    expect(container.querySelector('.search-program-card')?.textContent).toContain('Alpha Report');
+    expect(removed).not.toHaveBeenCalled();
+    expect(movie.classList.contains('focused')).toBe(true);
+  });
+
+  it('builds no program index from a guide published before the channels load', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    epgMock.programmes = report();
+    const { view } = await openLoading();
+    await view.refreshPrograms();
+    expect(epgMock.findChannelId).not.toHaveBeenCalled();
+    expect(indexedChannelPosts()).toHaveLength(0);
+  });
+
+  it('a waiting OK in the box lands on the first channel once the channels load', async () => {
+    playlistMock.channels = [chan('Alpha')];
+    const handlers = mkHandlers();
+    let held = false;
+    handlers.onHoldBox.mockImplementation(() => { held = true; });
+    handlers.boxHeld.mockImplementation(() => held);
+    handlers.onReleaseBox.mockImplementation(() => { held = false; });
+    const view = new Search(container, handlers);
+    openViews.push(view);
+    Focus.setBase(() => view.focusScope);
+    await view.open(null, '', 'loading');
+    await indexReady(view);
+    await view.setQuery('alpha');
+    view.focusFirstResult();
+    expect(handlers.onHoldBox).toHaveBeenCalledTimes(1);
+
+    view.setChannelState('ready');
+    await vi.waitFor(() => expect(handlers.onReleaseBox).toHaveBeenCalled());
+    Focus.flush();
+    expect(container.querySelector('.search-channel-card')?.classList.contains('focused')).toBe(true);
+  });
+});

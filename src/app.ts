@@ -147,7 +147,7 @@ class App {
   private loadGeneration = 0;
   // A reload Home deferred still owes its forced guide refresh.
   private forceEpgOnLoad = false;
-  // Search opened before the channels: it opens its index once they load.
+  // Search opened before the channels: it learns once they load or fail.
   private searchWaitsForChannels = false;
   // Live shown before its channels: the mode it lands in once they load, and
   // what then runs. Leaving Live drops it.
@@ -1450,27 +1450,39 @@ class App {
       void this.ensureChannels('quiet').then(() => this.settings.setChannelsLoading(false));
       return;
     }
-    this.search.showChannelsLoading();
     if (this.searchWaitsForChannels) return;
     this.searchWaitsForChannels = true;
-    void this.ensureChannels('quiet').then(() => {
+    const settled = (): void => {
+      // A reload replaced the load Search waited on: wait for its successor.
+      if (!this.channelsLoaded && this.channelLoad) {
+        void this.channelLoad.then(settled);
+        return;
+      }
       this.searchWaitsForChannels = false;
-      if (this.isCurrentView('search')) this.openSearchIndex();
-    });
+      // An open Search fills its channels in place; a closed one only
+      // learns the outcome, so the load never reopens it.
+      this.search.setChannelState(this.channelsLoaded ? 'ready' : 'failed');
+    };
+    void this.ensureChannels('quiet').then(settled);
   }
 
   // An empty query box with the caret, and the recent searches under it.
+  // Search works at once; its channel results follow the channels.
   private openSearch(): void {
     this.showView('search');
     this.lastSearchQuery = '';
     this.searchBox.setQuery('');
-    if (this.channelsLoaded) this.openSearchIndex();
-    else this.loadChannelsBehind('search');
+    this.openSearchIndex();
+    this.loadChannelsBehind('search');
     this.searchBox.focus();
   }
 
   private openSearchIndex(): void {
-    this.search.open(this.activeXtreamAccount(), this.lastSearchQuery)
+    this.search.open(
+      this.activeXtreamAccount(),
+      this.lastSearchQuery,
+      this.channelsLoaded ? 'ready' : 'loading',
+    )
       .catch((err) => log.error(
         'Search open failed',
         'event=xtream.view.open.failed',

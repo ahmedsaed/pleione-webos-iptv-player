@@ -112,6 +112,9 @@
 }
 
 .search-section { margin-bottom: 36px; }
+/* The channels' load status stands where their sections go, above the
+   movie and series results. */
+.search-channel-status + .search-section { margin-top: 36px; }
 .search-section-title {
   margin: 0 0 18px;
   padding: 0 80px;
