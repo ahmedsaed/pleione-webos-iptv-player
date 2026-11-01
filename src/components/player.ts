@@ -826,6 +826,7 @@ export class Player {
       previousEpisodes: v.previousEpisodes,
       watchlistOwner: v.watchlistOwner,
       categoryId: v.categoryId,
+      seriesEpisode: v.seriesEpisode,
     });
   }
 
@@ -1978,6 +1979,7 @@ function queueItem(v: VodPlayback): VodQueueItem {
     subtitles: v.subtitles,
     searchMeta: v.searchMeta,
     watchlistOwner: v.watchlistOwner,
+    seriesEpisode: v.seriesEpisode,
   };
 }
 

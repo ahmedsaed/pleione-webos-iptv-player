@@ -86,5 +86,6 @@ function nextEpisode(entry: ResumeEntry, nextId: string, updatedAt: number): Res
     episodeQueue: queued >= 0 ? queue.slice(queued + 1) : undefined,
     watchlistOwner: next.watchlistOwner ?? entry.watchlistOwner,
     categoryId: next.categoryId ?? entry.categoryId,
+    seriesEpisode: next.seriesEpisode,
   };
 }

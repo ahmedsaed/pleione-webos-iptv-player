@@ -13,29 +13,21 @@ import { uiPx } from '../utils/ui-scale';
 import { castGradient, parseCast } from '../utils/cast';
 import { formatPosition } from '../utils/time';
 import { loadTmdbCredits, matchTmdbPeople, type TmdbPerson } from '../services/tmdb';
+import { composeEpisodeLabel, episodeCodeOf, episodeLabelOf, episodeTitle, seriesNameOf } from '../utils/episode-label';
 
 // An episode card's width plus the gap after it, as in catalog-view.css.
 const EPISODE_STRIDE = 428;
 const EPISODE_OVERSCAN = 3;
 const EPISODE_VIEWPORT_FALLBACK = 1760;
-// The composed resume label carries the episode code (see episodeLabel), in
-// Latin letters or, saved in Arabic, as م and ح. Labels saved before the
-// Arabic season letter was corrected carry س instead.
-const RESUME_CODE = /(?:S|\u0645|\u0633)(\d+)(?:E|\u062D)(\d+)/;
-// A provider's placeholder title, such as "Episode 6", reads in the UI's
-// language instead.
-const GENERIC_TITLE = /^(?:episode|ep\.?|e)\s*0*(\d+)$/i;
-
-function episodeTitle(ep: Episode): string {
-  const title = ep.title.trim();
-  const generic = GENERIC_TITLE.exec(title);
-  return generic ? t('catalog.episodeNumber', { episode: Number(generic[1]) }) : title;
-}
-
 function episodeRowTitle(ep: Episode): string {
   const code = t('catalog.episodeShort', { episode: ep.episode });
-  const title = episodeTitle(ep);
+  const title = episodeTitle(ep.title);
   return title ? `${code} · ${title}` : code;
+}
+
+// A saved queue's episodes, named in the UI language.
+function localizedQueue(items: VodQueueItem[]): VodQueueItem[] {
+  return items.map(item => ({ ...item, title: episodeLabelOf(item, item.title) }));
 }
 
 // The Series section: browse (Continue rail of resumed episodes + per-category
@@ -167,8 +159,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       this.playResume(episodeId);
       return;
     }
-    const code = RESUME_CODE.exec(entry.name);
-    const name = code ? entry.name.slice(0, code.index).replace(/[\s—–-]+$/, '') : '';
+    const name = seriesNameOf(entry, entry.name);
     const series = this.findItem(entry.categoryId ?? '', seriesId) ?? {
       accountId: entry.accountId, seriesId, name: name || entry.name, poster: entry.poster,
       rating: '', categoryId: entry.categoryId ?? '',
@@ -330,20 +321,12 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     return null;
   }
 
-  private episodeLabel(series: SeriesItem, ep: Episode): string {
-    const code = t('catalog.episodeCode', { season: ep.season, episode: ep.episode });
-    const title = episodeTitle(ep);
-    if (!title) return `${series.name} — ${code}`;
-    // Providers often name episodes "Series - S01E02 - Title" already.
-    if (title.toLowerCase().indexOf(series.name.trim().toLowerCase()) === 0) return title;
-    return `${series.name} — ${code} — ${title}`;
-  }
-
   private episodePlayback(series: SeriesItem, ep: Episode): VodQueueItem {
     const a = this.account!;
+    const seriesEpisode = { seriesName: series.name, season: ep.season, episode: ep.episode, title: ep.title };
     return {
       url: xtreamEpisodeUrl(this.creds(), ep.id, ep.containerExtension || 'mp4'),
-      title: this.episodeLabel(series, ep),
+      title: composeEpisodeLabel(seriesEpisode),
       poster: ep.poster || series.poster,
       accountId: a.id,
       itemId: ep.id,
@@ -353,6 +336,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       subtitles: ep.subtitles,
       searchMeta: { season: ep.season, episode: ep.episode },
       watchlistOwner: { kind: 'series', itemId: series.seriesId },
+      seriesEpisode,
     };
   }
 
@@ -402,7 +386,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     if (!a || !r) return;
     this.handlers.onPlayVod({
       url: xtreamEpisodeUrl(this.creds(), r.itemId, r.ext || 'mp4'),
-      title: r.name,
+      title: episodeLabelOf(r, r.name),
       poster: r.poster,
       accountId: a.id,
       itemId: r.itemId,
@@ -411,19 +395,25 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       parentalItemId: r.watchlistOwner?.itemId,
       resumeSecs: r.position,
       subtitles: [],
-      episodeQueue: r.episodeQueue,
-      previousEpisodes: r.previousEpisodes,
+      episodeQueue: r.episodeQueue && localizedQueue(r.episodeQueue),
+      previousEpisodes: r.previousEpisodes && localizedQueue(r.previousEpisodes),
       watchlistOwner: r.watchlistOwner,
+      seriesEpisode: r.seriesEpisode,
     });
+  }
+
+  // The name a Continue Watching episode shows, in the UI language.
+  protected resumeName(r: ResumeEntry): string {
+    return episodeLabelOf(r, r.name);
   }
 
   private resumeTile(r: ResumeEntry): Safe {
     return html`
       <div class="catalog-tile" data-focusable data-key="r:${r.itemId}" data-resume-episode="${r.itemId}">
-        <div class="catalog-poster-wrap">${this.posterCell(r.name, r.poster)}${
+        <div class="catalog-poster-wrap">${this.posterCell(this.resumeName(r), r.poster)}${
           this.itemLockBadge(r.categoryId ?? '', r.watchlistOwner?.itemId ?? r.itemId)}${
           this.progressBar(r.position, r.duration)}</div>
-        <div class="catalog-tile-name">${r.name}</div>
+        <div class="catalog-tile-name">${this.resumeName(r)}</div>
       </div>
     `;
   }
@@ -494,9 +484,9 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       return this.detailButton({ key: 'play', label: t('catalog.play'), icon: PLAY_ICON, primary: true });
     }
     const { entry, episode } = resumed;
-    const code = episode ? null : RESUME_CODE.exec(entry.name);
-    const season = episode ? episode.season : code ? Number(code[1]) : 0;
-    const number = episode ? episode.episode : code ? Number(code[2]) : 0;
+    const code = episode ? null : episodeCodeOf(entry, entry.name);
+    const season = episode ? episode.season : code ? code.season : 0;
+    const number = episode ? episode.episode : code ? code.episode : 0;
     return html`
       ${this.detailButton({
         key: 'resume',

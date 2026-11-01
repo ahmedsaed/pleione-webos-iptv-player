@@ -380,6 +380,8 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   protected abstract collectionEntries(kind: CollectionKind): CollectionEntry[];
   // A tile id that isn't in a loaded category (Continue/Watchlist); default none.
   protected fallbackItem(_id: string): I | null { return null; }
+  // The name a Continue Watching entry shows; default its saved name.
+  protected resumeName(entry: ResumeEntry): string { return entry.name; }
   // Hero when no rail item exists (Movies falls back to a resumed item); default none.
   protected heroFallback(): I | null { return null; }
   // What the hero can show for a title right away.
@@ -1193,7 +1195,9 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private heroSubjectFor(el: HTMLElement): HeroSubject<I> | null {
     if (el.dataset.resumeEpisode !== undefined) {
       const entry = this.resume.find(entry => entry.itemId === el.dataset.resumeEpisode);
-      return entry ? { key: `r:${entry.itemId}`, name: entry.name, poster: entry.poster, item: null } : null;
+      return entry
+        ? { key: `r:${entry.itemId}`, name: this.resumeName(entry), poster: entry.poster, item: null }
+        : null;
     }
     const id = el.dataset.itemId;
     if (id === undefined) return null;

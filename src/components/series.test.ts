@@ -411,6 +411,70 @@ describe('Series browse + grid', () => {
     expect(handlers.onBack).toHaveBeenCalled();
   });
 
+  describe('names Continue Watching episodes in the UI language', () => {
+    const saved = (name: string, over: Record<string, unknown> = {}) => ({
+      accountId: 'x1', kind: 'episode', itemId: 'e6', name, poster: '', ext: 'mp4',
+      position: 300, duration: 1500, updatedAt: 1, ...over,
+    });
+    const tileName = () => container.querySelector('[data-resume-episode="e6"] .catalog-tile-name')?.textContent;
+    const heroTitle = () => container.querySelector('.catalog-hero-title')?.textContent;
+
+    it('shows a label saved in English in Arabic, on the tile, the hero and the player', async () => {
+      storageMock.getResumeList.mockReturnValue([saved('Series One — S1E6 — Episode 6', {
+        episodeQueue: [{
+          url: 'http://host/a', title: 'Series One — S1E7 — Episode 7', poster: '', accountId: 'x1',
+          itemId: 'e7', kind: 'episode', subtitles: [],
+        }],
+      })]);
+      setLocale('ar');
+      try {
+        const { view, handlers } = await openWith();
+        expect(tileName()).toBe('Series One — م1ح6 — الحلقة 6');
+        container.querySelector<HTMLElement>('[data-resume-episode="e6"]')!
+          .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+        expect(heroTitle()).toBe('Series One — م1ح6 — الحلقة 6');
+        view.handleAction('select');
+        expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
+          title: 'Series One — م1ح6 — الحلقة 6',
+          episodeQueue: [expect.objectContaining({ title: 'Series One — م1ح7 — الحلقة 7' })],
+        }));
+      } finally {
+        setLocale('en');
+      }
+    });
+
+    it('shows a label saved in Arabic in English', async () => {
+      storageMock.getResumeList.mockReturnValue([saved('Series One — م1ح6 — الحلقة 6')]);
+      await openWith();
+      expect(tileName()).toBe('Series One — S1E6 — Episode 6');
+    });
+
+    it('composes the label from the episode\'s place in its series when saved with it', async () => {
+      storageMock.getResumeList.mockReturnValue([saved('stale', {
+        seriesEpisode: { seriesName: 'Series One', season: 2, episode: 1, title: 'Episode 1' },
+      })]);
+      setLocale('ar');
+      try {
+        await openWith();
+        expect(tileName()).toBe('Series One — م2ح1 — الحلقة 1');
+      } finally {
+        setLocale('en');
+      }
+    });
+
+    it('saves the episode\'s place in its series with what it plays', async () => {
+      catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+      const { view, handlers } = await openWith();
+      await openDetail(view);
+      container.querySelector<HTMLElement>('.episode-card[data-episode-id="e1"]')!
+        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      view.handleAction('select');
+      expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
+        seriesEpisode: { seriesName: 'Series One', season: 1, episode: 1, title: 'Episode One' },
+      }));
+    });
+  });
+
   it('refreshes the Continue rail from storage on each browse render', async () => {
     catalogMock.loadSeriesInfo.mockResolvedValue({ seasons: [], episodesBySeason: {} });
     const { view } = await openWith();

@@ -184,6 +184,12 @@ export function t(key: TextMessageKey, params?: Params): string {
   return interpolate(message, params);
 }
 
+// A message as every locale words it, to read text saved in another language.
+export function allTranslations(key: TextMessageKey): string[] {
+  return (Object.keys(LOCALES) as SupportedLocale[])
+    .map(locale => LOCALES[locale].messages[key] as string);
+}
+
 export function tp(key: PluralMessageKey, count: number, params?: Params): string {
   const pseudo = __ENABLE_PSEUDO_LOCALE__ && pseudoLocaleRequested();
   const locale = pseudo ? DEFAULT_LOCALE : currentLocale;
