@@ -279,6 +279,90 @@ test.describe('Search', () => {
     });
 });
 
+test.describe('Settings', () => {
+  test.use({ startOn: 'home' });
+
+  test('the page list sits at the right, Left enters a page, and the swatches walk left',
+    async ({ page }) => {
+      await routePlaylist(page);
+      await seedPlaylist(page);
+      await page.addInitScript(() => localStorage.setItem('iptv_locale', JSON.stringify('ar')));
+      await page.goto('/');
+      await enterTab(page, 'settings');
+      const view = page.locator('#view-settings');
+      const sidebar = (await view.locator('.settings-sidebar').boundingBox())!;
+      const pageBox = (await view.locator('.settings-scroll').boundingBox())!;
+      expect(rightOf(sidebar, pageBox)).toBe(true);
+      // Save sits at the left end of the action row, Cancel to its right.
+      expect(rightOf((await view.locator('#cancel-settings').boundingBox())!,
+        (await view.locator('#save-settings').boundingBox())!)).toBe(true);
+
+      const appearance = view.locator('[data-settings-target="appearance"]');
+      await appearance.click();
+      await page.keyboard.press('ArrowLeft');
+      const swatches = view.locator('.theme-swatch');
+      const focusedSwatch = async () => JSON.parse(await view.locator('.theme-swatch-rail').evaluate((rail) => {
+        const all = Array.from(rail.querySelectorAll('.theme-swatch'));
+        const focused = rail.querySelector('.theme-swatch.focused');
+        const box = rail.getBoundingClientRect();
+        const r = focused?.getBoundingClientRect();
+        return JSON.stringify({
+          index: focused ? all.indexOf(focused) : -1,
+          inside: !!r && r.left >= box.left - 1 && r.right <= box.right + 1,
+        });
+      })) as { index: number; inside: boolean };
+      await expect.poll(focusedSwatch).toEqual({ index: 0, inside: true });
+      expect(rightOf((await swatches.nth(0).boundingBox())!, (await swatches.nth(1).boundingBox())!)).toBe(true);
+      const count = await swatches.count();
+      for (let i = 1; i < count; i++) {
+        await page.keyboard.press('ArrowLeft');
+        await expect.poll(focusedSwatch).toEqual({ index: i, inside: true });
+      }
+      for (let i = count - 2; i >= 0; i--) {
+        await page.keyboard.press('ArrowRight');
+        await expect.poll(focusedSwatch).toEqual({ index: i, inside: true });
+      }
+      // Right past the page's start edge returns to the page list.
+      await page.keyboard.press('ArrowRight');
+      await expect(appearance).toHaveClass(/\bfocused\b/);
+    });
+
+  test('a password reads from the left, and its reveal overlay stays on the typed text',
+    async ({ page }) => {
+      await routePlaylist(page);
+      await seedPlaylist(page);
+      await page.addInitScript(() => localStorage.setItem('iptv_locale', JSON.stringify('ar')));
+      await page.goto('/');
+      await enterTab(page, 'settings');
+      await page.locator('[data-settings-target="subtitles"]').click();
+      const field = page.locator('#os-pass');
+      const wrap = page.locator('.password-field').filter({ has: field });
+      await field.click();
+      await page.keyboard.type('ab');
+      await expect(wrap).toHaveClass(/revealing/);
+      const geometry = async () => JSON.parse(await wrap.evaluate((el) => {
+        const input = el.querySelector('input')!;
+        const style = getComputedStyle(input);
+        const box = input.getBoundingClientRect();
+        const masked = el.querySelector('.password-reveal-masked')!.getBoundingClientRect();
+        const caret = el.querySelector('.password-reveal-caret')!.getBoundingClientRect();
+        return JSON.stringify({
+          textLeft: box.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft),
+          textRight: box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight),
+          masked: masked.left,
+          caret: caret.right,
+        });
+      })) as { textLeft: number; textRight: number; masked: number; caret: number };
+      const short = await geometry();
+      expect(Math.abs(short.masked - short.textLeft)).toBeLessThanOrEqual(1);
+      // A password longer than the field scrolls; the overlay's caret follows it.
+      await page.keyboard.type('abcdefghijklmnopqrstuvwxyz0123456789abcdefghij');
+      const long = await geometry();
+      expect(long.caret).toBeGreaterThan(long.textLeft);
+      expect(long.caret).toBeLessThanOrEqual(long.textRight + 3);
+    });
+});
+
 // Four channels in two groups with a guide around 12:00 UTC, in Arabic.
 const LIVE_PLAYLIST = 'http://host/rtl.m3u';
 const LIVE_GUIDE = 'http://host/rtl.xml';
