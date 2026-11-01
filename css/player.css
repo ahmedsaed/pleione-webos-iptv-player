@@ -179,6 +179,19 @@
   color: var(--text-primary);
 }
 
+/* A pill led by an icon, such as the audio track's. */
+.si-pill--icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.si-pill--icon svg {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+}
+
 .si-text {
   font-size: 20px;
   color: var(--text-secondary);

@@ -86,11 +86,6 @@ const KEY_PREFIX = 'dock:';
 // Only a channel's details expand; the list stays short enough for the panel.
 const EXPANDED_UPCOMING = 3;
 
-function audioTrackText(name: string): string {
-  const label = t('player.audioTrack');
-  return name === label || name.startsWith(`${label} `) ? name : `${label}: ${name}`;
-}
-
 function controlOf(key: string | null): DockControl | null {
   return key && key.startsWith(KEY_PREFIX) ? key.slice(KEY_PREFIX.length) as DockControl : null;
 }
@@ -664,7 +659,9 @@ export class PlayerOsd {
         ${info.fps ? html`<span class="si-pill">${info.fps}fps</span>` : ''}
         ${info.videoCodec ? html`<span class="si-pill">${info.videoCodec}</span>` : ''}
         ${info.audioCodec ? html`<span class="si-pill">${info.audioCodec}</span>` : ''}
-        ${info.audio ? html`<span class="si-text">${audioTrackText(info.audio)}</span>` : ''}
+        ${info.audio ? html`
+          <span class="si-pill si-pill--icon" aria-label="${t('player.audioTrack')}: ${info.audio}">${
+            raw(AUDIO_ICON)}<span>${info.audio}</span></span>` : ''}
         ${info.subtitle ? html`<span class="si-text">${t('player.subtitlesTrack', { name: info.subtitle })}</span>` : ''}
       </div>
     `;

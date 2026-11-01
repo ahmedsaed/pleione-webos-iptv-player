@@ -183,7 +183,10 @@ describe('PlayerOsd', () => {
     expect(container.textContent).toContain('PlayReady');
     expect(container.textContent).toContain('30fps');
     expect(container.textContent).toContain('Codec 1');
-    expect(container.textContent).toContain('Audio Track: Track 1');
+    const audio = container.querySelector('.si-pill--icon');
+    expect(audio?.textContent).toBe('Track 1');
+    expect(audio?.querySelector('svg')).not.toBeNull();
+    expect(container.textContent).not.toContain('Audio Track');
 
     state = snapshot({
       playback: playback(120, 30),
@@ -211,7 +214,7 @@ describe('PlayerOsd', () => {
     expect(container.querySelector('[data-next-cancel]')).not.toBeNull();
   });
 
-  it('does not repeat an audio-track prefix already present in the name', () => {
+  it('shows a generic track name as it is, in the audio pill', () => {
     state = snapshot({
       streamInfo: {
         resolution: null,
@@ -227,8 +230,7 @@ describe('PlayerOsd', () => {
 
     osd.show();
 
-    expect(container.textContent).toContain('Audio Track 1');
-    expect(container.textContent).not.toContain('Audio Track: Audio Track 1');
+    expect(container.querySelector('.si-pill--icon')?.textContent).toBe('Audio Track 1');
   });
 
   it('refreshes progress and switches an open Live OSD to the DVR layout', () => {
