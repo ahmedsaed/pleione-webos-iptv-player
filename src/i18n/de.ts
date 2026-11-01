@@ -160,6 +160,9 @@ export const DE_MESSAGES = {
   'catalog.season': 'Staffel {number}',
   'catalog.minutes': '{count} Min.',
   'catalog.episodes': 'Folgen',
+  'catalog.episodeCode': 'S{season}E{episode}',
+  'catalog.episodeShort': 'E{episode}',
+  'catalog.episodeNumber': 'Folge {episode}',
   'catalog.moreLikeThis': 'Ähnliche Titel',
   'catalog.resumeAt': 'Fortsetzen {position}',
   'catalog.seasonCount': {

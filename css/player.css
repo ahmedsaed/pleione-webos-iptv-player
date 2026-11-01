@@ -420,24 +420,6 @@
   fill: currentColor;
 }
 
-.osd-control-caption {
-  flex: 1;
-  min-width: 0;
-  padding: 0 20px;
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: 24px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  /* Next to the focused group, in every script: Arabic keeps the LTR layout. */
-  text-align: left;
-}
-
-.osd-control-caption--end,
-.osd-control-caption--center {
-  text-align: right;
-}
-
 .osd-dvr-behind {
   min-width: 72px;
 }

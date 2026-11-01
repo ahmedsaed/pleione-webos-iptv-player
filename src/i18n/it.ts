@@ -158,6 +158,9 @@ export const IT_MESSAGES = {
   'catalog.season': 'Stagione {number}',
   'catalog.minutes': '{count} min',
   'catalog.episodes': 'Episodi',
+  'catalog.episodeCode': 'S{season}E{episode}',
+  'catalog.episodeShort': 'E{episode}',
+  'catalog.episodeNumber': 'Episodio {episode}',
   'catalog.moreLikeThis': 'Titoli simili',
   'catalog.resumeAt': 'Riprendi {position}',
   'catalog.seasonCount': {

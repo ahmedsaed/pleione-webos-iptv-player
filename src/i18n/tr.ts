@@ -156,6 +156,9 @@ export const TR_MESSAGES = {
   'catalog.season': '{number}. Sezon',
   'catalog.minutes': '{count} dk',
   'catalog.episodes': 'Bölümler',
+  'catalog.episodeCode': 'S{season}E{episode}',
+  'catalog.episodeShort': 'E{episode}',
+  'catalog.episodeNumber': '{episode}. Bölüm',
   'catalog.moreLikeThis': 'Benzer içerikler',
   'catalog.resumeAt': 'Devam Et {position}',
   'catalog.seasonCount': {

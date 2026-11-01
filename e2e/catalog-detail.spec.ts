@@ -273,7 +273,7 @@ test('series: season tabs, episode cards, and Resume on the last-watched episode
   await enterTab(page, 'series');
   await openTitle(page, 'series', '1');
   const detail = page.locator('#view-series .catalog-layer-detail');
-  await expect(detail.locator('[data-action="resume"]')).toContainText('Resume S2 · E2');
+  await expect(detail.locator('[data-action="resume"]')).toContainText('Resume S2E2');
   await expect(detail.locator('.detail-meta-part')).toHaveText(['2019', '2 seasons', 'Drama', '8.1']);
   await expect(detail.locator('.series-season-btn')).toHaveText(['Season 1', 'Season 2']);
   await expect(detail.locator('.series-season-btn.active')).toHaveText('Season 2');
@@ -283,7 +283,7 @@ test('series: season tabs, episode cards, and Resume on the last-watched episode
   expect(await focusedKey(page, 'series')).toBe('resume');
   await expect(detail.locator('[data-action="resume"] .detail-btn-progress')).toHaveCount(0);
   await expect(detail.locator('.detail-actions [data-action]'))
-    .toHaveText(['Resume S2 · E2', 'Play from start', 'Watchlist']);
+    .toHaveText(['Resume S2E2', 'Play from start', 'Watchlist']);
   await page.keyboard.press('ArrowRight');
   expect(await focusedKey(page, 'series')).toBe('restart');
   await expect(page.locator('.focused:visible')).toHaveCount(1);

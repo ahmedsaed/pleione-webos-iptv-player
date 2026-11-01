@@ -168,6 +168,9 @@ export const PL_MESSAGES = {
   'catalog.season': 'Sezon {number}',
   'catalog.minutes': '{count} min',
   'catalog.episodes': 'Odcinki',
+  'catalog.episodeCode': 'S{season}E{episode}',
+  'catalog.episodeShort': 'E{episode}',
+  'catalog.episodeNumber': 'Odcinek {episode}',
   'catalog.moreLikeThis': 'Podobne tytuły',
   'catalog.resumeAt': 'Wznów {position}',
   'catalog.seasonCount': {

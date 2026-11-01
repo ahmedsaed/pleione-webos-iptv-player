@@ -168,6 +168,9 @@ export const UK_MESSAGES = {
   'catalog.season': 'Сезон {number}',
   'catalog.minutes': '{count} хв',
   'catalog.episodes': 'Епізоди',
+  'catalog.episodeCode': 'S{season}E{episode}',
+  'catalog.episodeShort': 'E{episode}',
+  'catalog.episodeNumber': 'Епізод {episode}',
   'catalog.moreLikeThis': 'Схожі',
   'catalog.resumeAt': 'Продовжити {position}',
   'catalog.seasonCount': {

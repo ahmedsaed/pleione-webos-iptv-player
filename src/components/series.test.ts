@@ -36,6 +36,7 @@ vi.mock('../services/storage-service', () => ({ StorageService: storageMock }));
 vi.mock('./toast', () => ({ showToast: toastMock.showToast }));
 
 import { Series } from './series';
+import { setLocale } from '../i18n';
 import { Focus } from '../navigation/focus-scope';
 
 const account: PlaylistEntry = {
@@ -120,7 +121,7 @@ describe('Series browse + grid', () => {
     expect(catalogMock.loadSeriesInfo).toHaveBeenCalledWith(account, 's1', expect.anything());
     expect(container.querySelector('.catalog-layer-detail .detail-title')?.textContent).toBe('Series One');
     const resume = container.querySelector<HTMLElement>('[data-action="resume"]')!;
-    expect(resume.textContent).toContain('Resume S1 · E1');
+    expect(resume.textContent).toContain('Resume S1E1');
     resume.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e1', resumeSecs: 300 }));
@@ -144,7 +145,7 @@ describe('Series browse + grid', () => {
     await Promise.resolve(); await Promise.resolve();
     expect(catalogMock.loadSeriesInfo).toHaveBeenCalledWith(account, 's1', expect.anything());
     expect(container.querySelector('.catalog-layer-detail .detail-title')?.textContent).toBe('Series One');
-    expect(container.querySelector('[data-action="resume"]')?.textContent).toContain('Resume S2 · E1');
+    expect(container.querySelector('[data-action="resume"]')?.textContent).toContain('Resume S2E1');
     view.handleAction('back');
     expect(browseFocus()).toBe('r:e2');
   });
@@ -671,6 +672,38 @@ describe('Series detail', () => {
     expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ title: 'Series One - S01E01 - Pilot' }));
   });
 
+  it('names episodes in the UI language, a placeholder title included', async () => {
+    const first = SERIES_INFO.episodesBySeason[1][0];
+    catalogMock.loadSeriesInfo.mockResolvedValue({
+      ...SERIES_INFO,
+      episodesBySeason: { ...SERIES_INFO.episodesBySeason, 1: [{ ...first, title: 'Episode 6', episode: 6 }] },
+    });
+    setLocale('ar');
+    try {
+      const { view, handlers } = await openWith();
+      await openDetail(view);
+      const row = container.querySelector(`.episode-card[data-episode-id="${first.id}"]`) as HTMLElement;
+      expect(row.querySelector('.episode-title')?.textContent).toBe('ح6 · الحلقة 6');
+      row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      view.handleAction('select');
+      expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Series One — س1ح6 — الحلقة 6',
+      }));
+    } finally {
+      setLocale('en');
+    }
+  });
+
+  it('finds the series and episode in a resume label saved in Arabic', async () => {
+    catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+    storageMock.getResumeList.mockReturnValue([
+      { accountId: 'x1', kind: 'episode', itemId: 'e9', name: 'Series One — س2ح1 — الحلقة 1', poster: '', ext: 'mkv', position: 300, duration: 1600, updatedAt: 1, watchlistOwner: { kind: 'series', itemId: 's1' } },
+    ]);
+    const { view } = await openWith();
+    await openDetail(view);
+    expect(container.querySelector('[data-action="resume"]')?.textContent).toContain('Resume S2E1');
+  });
+
   it('renders a season selector and the first season\'s episodes, and plays from the start', async () => {
     catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
     const { view, handlers } = await openWith();
@@ -771,7 +804,7 @@ describe('Series detail', () => {
     await openDetail(view);
 
     const resume = container.querySelector<HTMLElement>('[data-action="resume"]')!;
-    expect(resume.textContent).toContain('Resume S2 · E1');
+    expect(resume.textContent).toContain('Resume S2E1');
     expect(resume.querySelector('.detail-btn-progress')).toBeNull();
     expect(Array.from(container.querySelectorAll<HTMLElement>('.detail-actions [data-action]'))
       .map(el => el.dataset.action)).toEqual(['resume', 'restart', 'watchlist']);
