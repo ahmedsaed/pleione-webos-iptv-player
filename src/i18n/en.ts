@@ -150,6 +150,8 @@ export const EN_MESSAGES = {
   'catalog.playFromStart': 'Play from start',
   'catalog.watchlistAdded': 'Added to Watchlist',
   'catalog.watchlistRemoved': 'Removed from Watchlist',
+  'catalog.removeFromContinueWatching': 'Remove from Continue Watching',
+  'catalog.continueWatchingRemoved': 'Removed from Continue Watching',
   'catalog.continueWatchingEmpty': 'No titles to continue.',
   'catalog.watchlistEmpty': 'Your Watchlist is empty.',
   'catalog.clearContinueWatchingTitle': 'Clear Continue Watching?',

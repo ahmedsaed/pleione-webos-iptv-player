@@ -52,6 +52,9 @@ export const CONFIG = {
     EDGE_SCROLL_PARK_POLL_MS: 150,
     // One wheel gesture fires a burst of events; within this, it moves one rail.
     RAIL_WHEEL_STEP_MS: 250,
+    // OK (or the pointer) held this long on a `data-long-press` target opens
+    // its menu instead of selecting it.
+    LONG_PRESS_MS: 600,
   },
   PLAYER: {
     LIVE_PREVIEW_UPCOMING_COUNT: 4,

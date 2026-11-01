@@ -156,6 +156,8 @@ export const PL_MESSAGES = {
   'catalog.playFromStart': 'Odtwórz od początku',
   'catalog.watchlistAdded': 'Dodano do listy',
   'catalog.watchlistRemoved': 'Usunięto z listy',
+  'catalog.removeFromContinueWatching': 'Usuń z sekcji Oglądaj dalej',
+  'catalog.continueWatchingRemoved': 'Usunięto z sekcji Oglądaj dalej',
   'catalog.continueWatchingEmpty': 'Brak tytułów do dokończenia.',
   'catalog.watchlistEmpty': 'Lista do obejrzenia jest pusta.',
   'catalog.clearContinueWatchingTitle': 'Wyczyścić sekcję Oglądaj dalej?',

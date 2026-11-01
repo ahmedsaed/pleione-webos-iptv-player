@@ -1419,6 +1419,20 @@ export const StorageService = {
     delete all[key];
     set('resume', all);
   },
+  // Takes a Continue Watching entry off the list. A series' entry stands for
+  // all its saved episodes (see latestPerSeries), so every one of them goes;
+  // playing an episode again brings the series back. Watched flags stay.
+  removeFromContinueWatching(entry: Pick<ResumeEntry, 'accountId' | 'kind' | 'itemId' | 'watchlistOwner'>): void {
+    const seriesId = entry.kind === 'episode' ? entry.watchlistOwner?.itemId : undefined;
+    const all = userData ? userData.resume : fallbackResume();
+    const removed = Object.keys(all).map(key => all[key]).filter(saved =>
+      saved.accountId === entry.accountId && saved.kind === entry.kind
+      && (seriesId ? saved.watchlistOwner?.itemId === seriesId : saved.itemId === entry.itemId));
+    if (!removed.length) return;
+    for (const saved of removed) delete all[`${saved.accountId}|${saved.kind}|${saved.itemId}`];
+    if (userData) persistUserChanges('playback-progress', [], removed.map(resumeKey));
+    else set('resume', all);
+  },
   isWatched(accountId: string, kind: ResumeKind, itemId: string): boolean {
     const all = userData ? userData.watched : get<Record<string, WatchedEntry>>('watched', {});
     return !!all[`${accountId}|${kind}|${itemId}`];

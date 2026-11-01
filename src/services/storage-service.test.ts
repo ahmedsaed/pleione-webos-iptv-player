@@ -743,6 +743,43 @@ describe('StorageService resume store', () => {
     expect(StorageService.getResumeList('x1').map(e => e.itemId)).toEqual(['m1']);
   });
 
+  it('removes a movie from Continue Watching, and only that movie', () => {
+    StorageService.setResume(resume({ itemId: '10', updatedAt: 1000 }));
+    StorageService.setResume(resume({ itemId: '11', updatedAt: 2000 }));
+    StorageService.setResume(resume({ accountId: 'x2', itemId: '10', updatedAt: 3000 }));
+    StorageService.removeFromContinueWatching({ accountId: 'x1', kind: 'vod', itemId: '10' });
+    expect(StorageService.getResumeList('x1').map(e => e.itemId)).toEqual(['11']);
+    expect(StorageService.getResume('x1', 'vod', '10')).toBeNull();
+    expect(StorageService.getResumeList('x2').map(e => e.itemId)).toEqual(['10']);
+  });
+
+  it('removes a whole series from Continue Watching until one of its episodes plays again', () => {
+    const owner = (itemId: string) => ({ kind: 'series' as const, itemId });
+    const queueItem = (id: string) => ({
+      url: `http://host/series/u/p/${id}.mkv`, title: `Series One ${id}`, poster: '', accountId: 'x1',
+      itemId: id, kind: 'episode' as const, subtitles: [], watchlistOwner: owner('s1'),
+    });
+    StorageService.setResume(resume({
+      kind: 'episode', itemId: 'e2', updatedAt: 1000, watchlistOwner: owner('s1'),
+      previousEpisodes: [queueItem('e1')], episodeQueue: ['e3', 'e4'].map(queueItem),
+    }));
+    StorageService.setResume(resume({ kind: 'episode', itemId: 'e1', updatedAt: 900, watchlistOwner: owner('s1') }));
+    StorageService.setResume(resume({ kind: 'episode', itemId: 'f1', updatedAt: 800, watchlistOwner: owner('s2') }));
+    StorageService.markWatched('x1', 'episode', 'e3', 2000);
+    // Shown at the episode after the finished one, which no entry saved.
+    expect(StorageService.getResumeList('x1').map(e => e.itemId)).toEqual(['e4', 'f1']);
+
+    StorageService.removeFromContinueWatching({
+      accountId: 'x1', kind: 'episode', itemId: 'e4', watchlistOwner: owner('s1'),
+    });
+    expect(StorageService.getResumeList('x1').map(e => e.itemId)).toEqual(['f1']);
+    expect(StorageService.getResume('x1', 'episode', 'e1')).toBeNull();
+    expect(StorageService.isWatched('x1', 'episode', 'e3')).toBe(true);
+
+    StorageService.setResume(resume({ kind: 'episode', itemId: 'e1', updatedAt: 3000, watchlistOwner: owner('s1') }));
+    expect(StorageService.getResumeList('x1').map(e => e.itemId)).toEqual(['e1', 'f1']);
+  });
+
   const ids = (accountId: string, kind: 'vod' | 'episode') =>
     StorageService.getResumeList(accountId).filter(e => e.kind === kind).map(e => e.itemId);
 

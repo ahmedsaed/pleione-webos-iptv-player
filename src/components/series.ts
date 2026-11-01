@@ -482,7 +482,8 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
 
   private resumeTile(r: ResumeEntry): Safe {
     return html`
-      <div class="catalog-tile" data-focusable data-key="r:${r.itemId}" data-resume-episode="${r.itemId}">
+      <div class="catalog-tile" data-focusable data-key="r:${r.itemId}" data-resume-episode="${r.itemId}"
+           data-long-press>
         <div class="catalog-poster-wrap">${this.posterCell(this.resumeName(r), this.resumePoster(r))}${
           this.itemLockBadge(r.categoryId ?? '', r.watchlistOwner?.itemId ?? r.itemId)}${
           this.progressBar(r.position, r.duration)}</div>

@@ -1100,6 +1100,14 @@ export class Player {
     return this.vod?.kind === 'episode' && (this.vod.episodeQueue?.length ?? 0) > 0;
   }
 
+  // Back to the beginning, playing even if paused there.
+  private restart(): void {
+    const v = this.videoEl;
+    if (!v) return;
+    this.seekTo(0);
+    if (v.paused) this.pauseToggle();
+  }
+
   /** Previous restarts the episode; near its start it plays the one before. */
   private previousEpisode(): void {
     const v = this.vod;
@@ -1724,6 +1732,7 @@ export class Player {
       episodes: this.vod?.kind === 'episode'
         ? { previous: this.hasPreviousEpisode(), next: this.hasNextEpisode() }
         : null,
+      restart: this.vod?.kind === 'vod' || (!this.vod && this.catchupInfo !== null),
       favorite: live && channel ? this.liveControls.isFavorite(channel) : null,
       pausable: this.vod !== null || this.catchupInfo !== null || this.isLiveDvr(),
       audio: this.tracks.getAudioTracks().length >= 2,
@@ -1735,6 +1744,9 @@ export class Player {
     switch (control) {
       case 'playpause':
         this.pauseToggle();
+        break;
+      case 'restart':
+        this.restart();
         break;
       case 'previous':
         this.previousEpisode();

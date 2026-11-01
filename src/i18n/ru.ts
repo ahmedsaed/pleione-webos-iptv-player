@@ -156,6 +156,8 @@ export const RU_MESSAGES = {
   'catalog.playFromStart': 'Смотреть сначала',
   'catalog.watchlistAdded': 'Добавлено в «Смотреть позже»',
   'catalog.watchlistRemoved': 'Удалено из «Смотреть позже»',
+  'catalog.removeFromContinueWatching': 'Удалить из «Продолжить просмотр»',
+  'catalog.continueWatchingRemoved': 'Удалено из «Продолжить просмотр»',
   'catalog.continueWatchingEmpty': 'Нет начатых просмотров.',
   'catalog.watchlistEmpty': 'Список «Смотреть позже» пуст.',
   'catalog.clearContinueWatchingTitle': 'Очистить «Продолжить просмотр»?',

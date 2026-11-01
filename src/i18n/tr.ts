@@ -144,6 +144,8 @@ export const TR_MESSAGES = {
   'catalog.playFromStart': 'Baştan oynat',
   'catalog.watchlistAdded': 'İzleme Listesine eklendi',
   'catalog.watchlistRemoved': 'İzleme Listesinden kaldırıldı',
+  'catalog.removeFromContinueWatching': 'İzlemeye Devam Et listesinden kaldır',
+  'catalog.continueWatchingRemoved': 'İzlemeye Devam Et listesinden kaldırıldı',
   'catalog.continueWatchingEmpty': 'Devam edilecek içerik yok.',
   'catalog.watchlistEmpty': 'İzleme Listeniz boş.',
   'catalog.clearContinueWatchingTitle': 'İzlemeye Devam Et listesi temizlensin mi?',

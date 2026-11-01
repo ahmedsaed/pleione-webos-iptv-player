@@ -84,6 +84,8 @@ export interface FocusScope {
   // Whether the ring is hidden while the key is kept, until the next request.
   readonly concealed: boolean;
   root(): HTMLElement | null;
+  /** The rendered element of `key`, if any. */
+  element(key: string): HTMLElement | null;
   /** Route `action` to the scope; false when it has no handler of its own. */
   handle(action: Action, event?: NumberEvent): boolean;
   /** Request focus on `key`; reconcile paints it. Off the keys, a pointer request lights it while hovered. */

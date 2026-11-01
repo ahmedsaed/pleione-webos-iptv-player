@@ -14,6 +14,7 @@ import {
   PAUSE_ICON,
   PLAY_ICON,
   PREVIOUS_ICON,
+  RESTART_ICON,
   SUBTITLE_ICON,
 } from './icons';
 
@@ -42,6 +43,8 @@ export interface PlayerOsdSnapshot {
 export interface PlayerOsdControls {
   /** Episode navigation; null for a movie and for live TV. */
   episodes: { previous: boolean; next: boolean } | null;
+  /** Restart from the beginning: a movie or a catch-up programme. Episodes use Previous. */
+  restart: boolean;
   /** The channel's favorite state; null outside live TV. */
   favorite: boolean | null;
   pausable: boolean;
@@ -65,7 +68,7 @@ export interface PlayerOsdStreamInfo {
 }
 
 export type DockControl =
-  | 'seek' | 'previous' | 'playpause' | 'next' | 'favorite' | 'info' | 'audio' | 'subtitles';
+  | 'seek' | 'restart' | 'previous' | 'playpause' | 'next' | 'favorite' | 'info' | 'audio' | 'subtitles';
 
 export interface PlayerOsdOptions {
   getSnapshot: () => PlayerOsdSnapshot;
@@ -595,7 +598,7 @@ export class PlayerOsd {
     `;
   }
 
-  // The dock's buttons: the transport (previous, play/pause, next) centered,
+  // The dock's buttons: the transport (restart or previous, play/pause, next) centered,
   // the channel's own controls on the left, stream choices on the right.
   private controlsRow(state: PlayerOsdSnapshot): Safe {
     const c = state.controls;
@@ -607,6 +610,7 @@ export class PlayerOsd {
       start.push(this.control('info', INFO_ICON, t('player.channelInfo'), false, this.expanded));
     }
     const center: Safe[] = [];
+    if (c.restart) center.push(this.control('restart', RESTART_ICON, t('catalog.playFromStart')));
     if (c.episodes) {
       center.push(this.control('previous', PREVIOUS_ICON, t('player.previousEpisode'), !c.episodes.previous));
     }

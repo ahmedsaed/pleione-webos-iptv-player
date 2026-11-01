@@ -27,6 +27,7 @@ html.q-scroll-end-padding .detail-rail .catalog-rail-track::after { content: '';
 html.q-scroll-end-padding .catalog-rail-track.episode-track::after { content: none; }
 html.q-no-flex-gap .live-badge > * + * { margin-left: 8px; }
 html.q-no-flex-gap .reminder-buttons > * + *, html.q-no-flex-gap .catchup-resume-buttons > * + *, html.q-no-flex-gap .confirmation-buttons > * + * { margin-left: 24px; }
+html.q-no-flex-gap .title-menu-actions > * + * { margin-top: 16px; }
 html.q-no-flex-gap .playlist-tabs > * + * { margin-left: 4px; }
 html.q-no-flex-gap .group-item > * + * { margin-left: 12px; }
 html.q-no-flex-gap .channel-list-scroll.recent-list > * + * { margin-top: 4px; }

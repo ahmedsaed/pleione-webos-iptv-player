@@ -120,7 +120,7 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
         const vod = this.resumeToVod(entry.itemId)!;
         return {
           id: entry.itemId, key: `i:${vod.categoryId}:${vod.streamId}`,
-          tile: () => this.tile(vod, this.progressBar(entry.position, entry.duration)),
+          tile: () => this.tile(vod, this.progressBar(entry.position, entry.duration), true),
         };
       });
     }

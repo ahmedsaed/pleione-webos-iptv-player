@@ -166,6 +166,8 @@ export const AR_MESSAGES = {
   'catalog.playFromStart': 'التشغيل من البداية',
   'catalog.watchlistAdded': 'تمت الإضافة إلى قائمة المشاهدة',
   'catalog.watchlistRemoved': 'تمت الإزالة من قائمة المشاهدة',
+  'catalog.removeFromContinueWatching': 'إزالة من متابعة المشاهدة',
+  'catalog.continueWatchingRemoved': 'تمت الإزالة من متابعة المشاهدة',
   'catalog.continueWatchingEmpty': 'لا توجد عناوين لمتابعتها.',
   'catalog.watchlistEmpty': 'قائمة المشاهدة فارغة.',
   'catalog.clearContinueWatchingTitle': 'هل تريد مسح متابعة المشاهدة؟',
