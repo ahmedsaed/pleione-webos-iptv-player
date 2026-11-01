@@ -484,6 +484,53 @@ test('VOD controls answer the pointer: a click on Play/Pause pauses', async ({ p
   expect(await page.locator('#video-player').evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
 });
 
+// Fail the element playing now, once the player has swapped in a fresh one.
+async function failCurrentVideo(page: Page): Promise<void> {
+  const video = page.locator('#video-player:not([data-failed])');
+  await expect(video).toHaveCount(1, { timeout: 10_000 });
+  await video.evaluate((el: HTMLVideoElement) => {
+    el.dataset.failed = '';
+    el.dispatchEvent(new Event('error'));
+  });
+}
+
+test('retries a failed movie and recovers once it plays again', async ({ page }) => {
+  await startFakeVod(page);
+  const osd = page.locator('#player-osd');
+  await failCurrentVideo(page);
+  await expect(osd.locator('.osd-message')).toHaveText('Reconnecting…');
+  const fresh = page.locator('#video-player:not([data-failed])');
+  await expect(fresh).toHaveCount(1, { timeout: 5000 });
+  await fresh.evaluate((el: HTMLVideoElement) => el.dispatchEvent(new Event('playing')));
+  await expect(osd.locator('.osd-message')).toHaveCount(0);
+  await expect(osd.locator('.osd-channel-name')).toHaveText('Movie One');
+  await expect(page.locator('#view-player')).toBeVisible();
+});
+
+test('keeps the error up after the third retry fails, naming a refused stream', async ({ page }) => {
+  test.setTimeout(60_000);
+  // The ranged check is cross-origin in the preview.
+  const cors = {
+    'access-control-allow-origin': '*',
+    'access-control-allow-headers': 'range',
+  };
+  await startFakeVod(page);
+  await page.route('**/movie/**', route => route.fulfill(route.request().method() === 'OPTIONS'
+    ? { status: 204, headers: cors }
+    : { status: 403, headers: cors, body: '' }));
+  for (let i = 0; i < 4; i++) await failCurrentVideo(page);
+  const message = page.locator('#player-osd .osd-message');
+  await expect(message).toHaveText(
+    'The provider refused this video. Your account may allow only one stream at a time.');
+  // Past the controls' auto-hide, and through other keys, the error stays.
+  await page.waitForTimeout(6000);
+  await page.keyboard.press('ArrowDown');
+  await expect(message).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#view-player')).toBeHidden();
+  await expect(page.locator('#view-movies')).toBeVisible();
+});
+
 test('a VOD sidecar subtitle creates its application track when selected', async ({ page }) => {
   await seedMovies(page, { subtitles: true });
   await routeLiveManifest(page);

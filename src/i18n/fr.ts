@@ -195,6 +195,7 @@ export const FR_MESSAGES = {
   },
   'player.playNow': 'Lire maintenant',
   'player.unableToPlay': 'Impossible de lire cette vidéo.',
+  'player.providerRefused': 'Le fournisseur a refusé cette vidéo. Votre compte n’autorise peut-être qu’un seul flux à la fois.',
   'player.reconnecting': 'Reconnexion…',
   'player.retryingCatchup': 'Nouvelle tentative de lecture du replay…',
   'player.streamError': 'Erreur de lecture — essai de la chaîne suivante…',

@@ -207,6 +207,7 @@ export const UK_MESSAGES = {
   },
   'player.playNow': 'Дивитися зараз',
   'player.unableToPlay': 'Не вдалося відтворити це відео.',
+  'player.providerRefused': 'Провайдер відхилив це відео. Можливо, ваш обліковий запис дозволяє лише один потік одночасно.',
   'player.reconnecting': 'Повторне підключення…',
   'player.retryingCatchup': 'Повторне завантаження з ТВ-архіву…',
   'player.streamError': 'Помилка відтворення — перехід до наступного каналу…',

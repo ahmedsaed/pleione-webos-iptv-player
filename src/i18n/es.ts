@@ -195,6 +195,7 @@ export const ES_MESSAGES = {
   },
   'player.playNow': 'Reproducir ahora',
   'player.unableToPlay': 'No se puede reproducir este video.',
+  'player.providerRefused': 'El proveedor rechazó este video. Es posible que tu cuenta permita solo una transmisión a la vez.',
   'player.reconnecting': 'Reconectando…',
   'player.retryingCatchup': 'Reintentando la reproducción en catch-up…',
   'player.streamError': 'Error de reproducción — probando el siguiente canal…',

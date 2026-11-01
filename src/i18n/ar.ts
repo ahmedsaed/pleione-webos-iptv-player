@@ -221,6 +221,7 @@ export const AR_MESSAGES = {
   },
   'player.playNow': 'تشغيل الآن',
   'player.unableToPlay': 'تعذّر تشغيل هذا الفيديو.',
+  'player.providerRefused': 'رفض المزوّد تشغيل هذا الفيديو. قد لا يسمح حسابك إلا ببث واحد في كل مرة.',
   'player.reconnecting': 'جارٍ إعادة الاتصال…',
   'player.retryingCatchup': 'جارٍ إعادة محاولة إعادة المشاهدة…',
   'player.streamError': 'خطأ في التشغيل — جارٍ تجربة القناة التالية…',

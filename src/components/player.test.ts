@@ -1710,7 +1710,7 @@ describe('Player VOD mode', () => {
     expect(player.isVod()).toBe(true);
   });
 
-  it('routes a playback error to onBack, not a channel change', () => {
+  it('retries a playback error in place, not with a channel change', () => {
     const video = fakeVideo(3600);
     player.init(video);
     const r = req();
@@ -1719,11 +1719,13 @@ describe('Player VOD mode', () => {
     playlistMock.getByIndex.mockClear();
     vi.mocked(showToast).mockClear();
     video.dispatchEvent(new Event('error'));
-    vi.advanceTimersByTime(3000); // let any (unwanted) channelUp timer run
-    expect(r.onBack).toHaveBeenCalled();
-    expect(player.isVod()).toBe(false);
+    // Up to the first retry, when live would have moved on to the next channel.
+    vi.advanceTimersByTime(CONFIG.PLAYER.VOD_RETRY_DELAYS[0] - 1);
+    expect(r.onBack).not.toHaveBeenCalled();
+    expect(player.isVod()).toBe(true);
     expect(playlistMock.getByIndex).not.toHaveBeenCalled(); // no channel playback
-    expect(showToast).toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
+    expect(container.querySelector('.osd-message')?.textContent).toBe('Reconnecting…');
   });
 
   it('surfaces a source the element refused, which fires no error event', () => {
@@ -1744,9 +1746,8 @@ describe('Player VOD mode', () => {
     expect(detail).toContain('extension=mkv');
     expect(detail).toContain('url=http://host:8080/movie/***/***/10.mkv');
     logged.mockRestore();
-    expect(showToast).toHaveBeenCalledWith('Unable to play this video.');
-    expect(r.onBack).toHaveBeenCalled();
-    expect(player.isVod()).toBe(false);
+    expect(container.querySelector('.osd-message')?.textContent).toBe('Reconnecting…');
+    expect(r.onBack).not.toHaveBeenCalled();
   });
 
   it('surfaces a VOD stream that never produces a frame', () => {
@@ -1760,8 +1761,8 @@ describe('Player VOD mode', () => {
 
     vi.advanceTimersByTime(CONFIG.PLAYER.STARTUP_TIMEOUT);
 
-    expect(showToast).toHaveBeenCalledWith('Unable to play this video.');
-    expect(r.onBack).toHaveBeenCalled();
+    expect(container.querySelector('.osd-message')?.textContent).toBe('Reconnecting…');
+    expect(r.onBack).not.toHaveBeenCalled();
   });
 
   it('stops watching once the stream starts', () => {
@@ -2574,6 +2575,104 @@ describe('Player controls', () => {
       internals().tracks.getSubtitleTracks = () => [];
       player.showOSD();
       expect(controls()).toEqual(['playpause']);
+    });
+  });
+
+  describe('VOD retries', () => {
+    let onBack: ReturnType<typeof vi.fn>;
+    const current = () => container.querySelector('video')!;
+    const message = () => container.querySelector('.osd-message')?.textContent ?? null;
+    const pending = () => (player as unknown as { pendingResumeSecs: number }).pendingResumeSecs;
+    const fail = () => current().dispatchEvent(new Event('error'));
+    const events = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls
+      .map(args => args.join(' ')).filter(line => line.includes('event=playback.vod.failed'));
+    beforeEach(() => {
+      onBack = vi.fn();
+      video = realVideo();
+      player.init(video);
+      player.playVod(movie({ onBack }));
+      video.currentTime = 600;
+    });
+
+    it('retries after 2, 4 and 8 seconds, each on a fresh element at the last position', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      fail();
+      expect(message()).toBe('Reconnecting…');
+      for (const delay of [2000, 4000, 8000]) {
+        const before = current();
+        vi.advanceTimersByTime(delay - 1);
+        expect(current()).toBe(before);
+        vi.advanceTimersByTime(1);
+        expect(current()).not.toBe(before);
+        expect(pending()).toBe(600);
+        expect(message()).toBe('Reconnecting…');
+        fail();
+      }
+      expect(message()).toBe('Unable to play this video.');
+      expect(onBack).not.toHaveBeenCalled();
+      expect(events(warn).map(line => line.match(/attempt=\d outcome=\w+ reason=\w+/)?.[0]))
+        .toEqual([1, 2, 3].map(n => `attempt=${n} outcome=retry reason=media_error`));
+      warn.mockRestore();
+    });
+
+    it('keeps the final error up until Back, which leaves the player', async () => {
+      for (const delay of [0, 2000, 4000, 8000]) {
+        vi.advanceTimersByTime(delay);
+        fail();
+      }
+      await flush();
+      vi.advanceTimersByTime(60_000);
+      const osd = container.querySelector('#player-osd')!;
+      expect(osd.classList.contains('hidden')).toBe(false);
+      remoteKeys();
+      player.handleAction('down');
+      player.handleAction('select');
+      expect(message()).toBe('Unable to play this video.');
+      expect(player.handleBack()).toBe(false);
+      player.handleAction('back');
+      expect(onBack).toHaveBeenCalledOnce();
+    });
+
+    it('names a refused stream once a ranged check answers 403', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const fetchMock = vi.fn(async () => ({ status: 403 }));
+      vi.stubGlobal('fetch', fetchMock);
+      for (const delay of [0, 2000, 4000, 8000]) {
+        vi.advanceTimersByTime(delay);
+        fail();
+      }
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(fetchMock).toHaveBeenCalledWith('http://host/movie/10.mp4',
+        expect.objectContaining({ headers: { Range: 'bytes=0-0' } }));
+      await flush();
+      expect(message()).toBe('The provider refused this video. Your account may allow only one stream at a time.');
+      const [line] = events(error);
+      expect(line).toContain('attempt=4 outcome=gave_up reason=http_403 status=403');
+      expect(line).not.toContain('http://');
+      error.mockRestore();
+    });
+
+    it('cancels the retries once playback resumes, starting over on a later failure', () => {
+      fail();
+      vi.advanceTimersByTime(2000);
+      const info = vi.spyOn(console, 'log').mockImplementation(() => {});
+      current().dispatchEvent(new Event('playing'));
+      expect(message()).toBeNull();
+      expect(events(info)[0]).toContain('attempt=1 outcome=recovered reason=media_error');
+      info.mockRestore();
+      const recovered = current();
+      fail();
+      vi.advanceTimersByTime(2000);
+      expect(current()).not.toBe(recovered);
+    });
+
+    it.each(['back', 'stop'] as const)('drops a pending retry on %s', (action) => {
+      fail();
+      const failed = current();
+      player.handleAction(action);
+      expect(onBack).toHaveBeenCalledOnce();
+      vi.advanceTimersByTime(20_000);
+      expect(current()).toBe(failed);
     });
   });
 

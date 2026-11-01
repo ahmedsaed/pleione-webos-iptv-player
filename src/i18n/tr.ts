@@ -189,6 +189,7 @@ export const TR_MESSAGES = {
   },
   'player.playNow': 'Şimdi oynat',
   'player.unableToPlay': 'Bu video oynatılamıyor.',
+  'player.providerRefused': 'Sağlayıcı bu videoyu reddetti. Hesabınız aynı anda yalnızca bir yayına izin veriyor olabilir.',
   'player.reconnecting': 'Yeniden bağlanıyor…',
   'player.retryingCatchup': 'Geri İzle yeniden deneniyor…',
   'player.streamError': 'Oynatma hatası — sonraki kanal deneniyor…',

@@ -207,6 +207,7 @@ export const PL_MESSAGES = {
   },
   'player.playNow': 'Odtwórz teraz',
   'player.unableToPlay': 'Nie można odtworzyć tego materiału.',
+  'player.providerRefused': 'Dostawca odrzucił ten materiał. Twoje konto może pozwalać tylko na jeden strumień naraz.',
   'player.reconnecting': 'Ponowne łączenie…',
   'player.retryingCatchup': 'Ponawianie odtwarzania programu…',
   'player.streamError': 'Błąd odtwarzania — próbuję włączyć następny kanał…',

@@ -94,6 +94,10 @@ export const CONFIG = {
     STALL_POLL_MS: 2000,        // native stall watchdog: currentTime poll interval
     STALL_FREEZE_TICKS: 5,      // ~10s frozen before the first in-place reload
     DEFAULT_LIVE_RECONNECT_ATTEMPTS: 3, // reconnect attempts before switching channels
+    // A movie or episode that fails retries after these delays (ms),
+    // reopening where it stopped, before the error stays.
+    VOD_RETRY_DELAYS: [2000, 4000, 8000],
+    VOD_REFUSED_PROBE_TIMEOUT: 5000, // ms the 403 check after the last failure may take
     STARTUP_POLL_MS: 500,       // startup watchdog: readyState/networkState poll interval
     STARTUP_TIMEOUT: 15000,     // ms a stream may load without a frame before it counts as failed
     DVR_MIN_WINDOW: 10,         // live DVR: a seekable window must exceed this (s) to offer timeshift

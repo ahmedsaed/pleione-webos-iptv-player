@@ -207,6 +207,7 @@ export const RU_MESSAGES = {
   },
   'player.playNow': 'Смотреть сейчас',
   'player.unableToPlay': 'Не удалось воспроизвести это видео.',
+  'player.providerRefused': 'Провайдер отклонил это видео. Возможно, ваш аккаунт допускает только один поток одновременно.',
   'player.reconnecting': 'Повторное подключение…',
   'player.retryingCatchup': 'Повторная загрузка из архива…',
   'player.streamError': 'Ошибка воспроизведения — переход к следующему каналу…',

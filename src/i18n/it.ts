@@ -193,6 +193,7 @@ export const IT_MESSAGES = {
   },
   'player.playNow': 'Riproduci ora',
   'player.unableToPlay': 'Impossibile riprodurre questo video.',
+  'player.providerRefused': 'Il provider ha rifiutato questo video. Il tuo account potrebbe consentire un solo stream alla volta.',
   'player.reconnecting': 'Riconnessione…',
   'player.retryingCatchup': 'Nuovo tentativo di replay…',
   'player.streamError': 'Errore di riproduzione — tentativo con il canale successivo…',

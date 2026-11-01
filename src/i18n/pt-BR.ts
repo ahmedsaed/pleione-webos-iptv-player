@@ -195,6 +195,7 @@ export const PT_BR_MESSAGES = {
   },
   'player.playNow': 'Assistir agora',
   'player.unableToPlay': 'Não foi possível reproduzir este vídeo.',
+  'player.providerRefused': 'O provedor recusou este vídeo. Sua conta pode permitir apenas uma transmissão por vez.',
   'player.reconnecting': 'Reconectando…',
   'player.retryingCatchup': 'Tentando reproduzir o replay novamente…',
   'player.streamError': 'Erro de reprodução — tentando o próximo canal…',

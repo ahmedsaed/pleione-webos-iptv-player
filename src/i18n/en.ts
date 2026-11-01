@@ -197,6 +197,7 @@ export const EN_MESSAGES = {
   },
   'player.playNow': 'Play now',
   'player.unableToPlay': 'Unable to play this video.',
+  'player.providerRefused': 'The provider refused this video. Your account may allow only one stream at a time.',
   'player.reconnecting': 'Reconnecting…',
   'player.retryingCatchup': 'Retrying catch-up…',
   'player.streamError': 'Playback error — trying the next channel…',

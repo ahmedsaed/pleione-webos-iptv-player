@@ -195,6 +195,7 @@ export const DE_MESSAGES = {
   },
   'player.playNow': 'Jetzt abspielen',
   'player.unableToPlay': 'Dieses Video kann nicht abgespielt werden.',
+  'player.providerRefused': 'Der Anbieter hat dieses Video abgelehnt. Ihr Konto erlaubt möglicherweise nur einen Stream gleichzeitig.',
   'player.reconnecting': 'Verbindung wird wiederhergestellt…',
   'player.retryingCatchup': 'Replay wird erneut geladen…',
   'player.streamError': 'Wiedergabefehler — nächster Sender wird versucht…',

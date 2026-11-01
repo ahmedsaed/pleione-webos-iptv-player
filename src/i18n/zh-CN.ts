@@ -189,6 +189,7 @@ export const ZH_CN_MESSAGES = {
   },
   'player.playNow': '立即播放',
   'player.unableToPlay': '无法播放此视频。',
+  'player.providerRefused': '服务商拒绝播放此视频。你的账号可能同时只允许播放一路视频。',
   'player.reconnecting': '正在重新连接…',
   'player.retryingCatchup': '正在重试回看…',
   'player.streamError': '播放出错，正在尝试下一个频道…',

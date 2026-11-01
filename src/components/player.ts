@@ -33,7 +33,7 @@ import { probeMedia } from '../services/media-probe';
 import { ChannelHealthService } from '../services/channel-health';
 import { createLogger } from '../utils/logger';
 import { t } from '../i18n';
-import { showToast } from './toast';
+import { probeHttpStatus } from '../utils/http-status-probe';
 import { PlayerPipeline, type PipelineManifest } from './player-pipeline';
 import {
   PlayerOsd,
@@ -91,6 +91,13 @@ export class Player {
   private liveHistoryTimer: ReturnType<typeof setTimeout> | null = null;
   private errorAdvanceTimer: ReturnType<typeof setTimeout> | null = null;
   private errorRetryPending = false;
+  // A failed movie or episode: the retries made so far, the next one's timer,
+  // where to reopen it, and whether the error now stays.
+  private vodRetryAttempt = 0;
+  private vodRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private vodRetryPosition = 0;
+  private vodRetryReason = '';
+  private vodFailed = false;
   // A held Left/Right: when it started and last stepped, so it speeds up.
   private seekHold: { direction: 1 | -1; startedAt: number; steppedAt: number } | null = null;
   // The skip in progress, shown over the bar until SEEK_BUBBLE_MS after the last step.
@@ -171,7 +178,7 @@ export class Player {
       // VOD controls take the keys whenever they show; live ones on OK, so
       // Up/Down keep changing channels under the info a zap shows.
       activeWhenShown: () => this.vod !== null && this.upNextSeconds === 0,
-      heldOpen: () => this.picker.visible,
+      heldOpen: () => this.picker.visible || this.vodFailed,
       onSeekFraction: fraction => this.seekToFraction(fraction),
       onControl: control => this.onDockControl(control),
       onGoLive: () => this.goToLive(),
@@ -362,6 +369,7 @@ export class Player {
       }
       update('playing');
       if (recovered) this.osd.render();
+      if (this.vod && this.vodRetryAttempt > 0) this.vodRecovered();
       log.info('playing', this.videoLabel(el), this.mediaState(el));
       if (this.catchupInfo) this.catchupVariantConfirmed = true;
       this.startupWatchdog.stop();
@@ -763,6 +771,7 @@ export class Player {
     this.currentScope = null;
     this.catchupInfo = null;
     this.vod = v;
+    this.resetVodRetry();
     this.pendingResumeSecs = v.resumeSecs > 0 ? v.resumeSecs : 0;
     this.pendingSeekTarget = null;
     this.osd.clearFailedIcons();
@@ -835,6 +844,8 @@ export class Player {
   }
 
   private handleVodAction(action: Action): void {
+    // Over a failed movie's error, only Back and Stop do anything.
+    if (this.vodFailed && action !== 'back' && action !== 'stop') return;
     if (this.tracks.handleAction(action)) return;
     if (this.upNextTimer) {
       if (action === 'select' || action === 'play') this.playNextItem();
@@ -975,6 +986,7 @@ export class Player {
     this.userPaused = false;
     this.startPlaybackGeneration();
     this.clearUpNextTimer();
+    this.resetVodRetry();
     this.vodTracksLatePending = false;
     this.picker.hide();
     if (this.vod) this.saveVodResume();
@@ -1185,13 +1197,7 @@ export class Player {
     }
     this.cancelLiveHistoryTimer();
     if (this.vod) {
-      const v = this.vod;
-      this.vod = null;            // so stop() won't overwrite/wipe the resume point on error
-      log.warn('VOD playback error', 'event=playback.vod.error',
-        this.playbackLabel(), v.title);
-      this.stop();
-      showToast(t('player.unableToPlay'));
-      v.onBack();
+      this.onVodError(reason ?? 'media_error');
       return;
     }
     if (this.catchupInfo && this.currentChannel?.catchup === 'xtream' &&
@@ -1260,6 +1266,78 @@ export class Player {
     }, 2000);
   }
 
+  // A movie or episode that fails reopens where it stopped after each delay
+  // in VOD_RETRY_DELAYS: a provider that allows one stream at a time can
+  // still be counting the last one. Then the error stays until Back.
+  private onVodError(reason: string): void {
+    const v = this.vod;
+    if (!v || this.vodFailed || this.vodRetryTimer !== null) return;
+    const el = this.videoEl;
+    const position = Math.max(
+      this.vodRetryPosition,
+      this.pendingSeekTarget ?? 0,
+      this.pendingResumeSecs,
+      el && el.currentTime > 0 ? el.currentTime : 0,
+    );
+    this.vodRetryPosition = position;
+    this.vodRetryReason = reason;
+    this.startupWatchdog.stop();
+    const attempt = this.vodRetryAttempt + 1;
+    const delays = CONFIG.PLAYER.VOD_RETRY_DELAYS;
+    if (this.vodRetryAttempt < delays.length) {
+      log.warn('VOD playback failed; retrying', 'event=playback.vod.failed',
+        `attempt=${attempt}`, 'outcome=retry', `reason=${reason}`, this.playbackLabel());
+      this.osd.updateMessage(t('player.reconnecting'));
+      this.vodRetryTimer = setTimeout(() => {
+        this.vodRetryTimer = null;
+        if (this.vod !== v) return;
+        this.vodRetryAttempt = attempt;
+        this.recreateVideoEl();
+        this.videoEl?.classList.add('active');
+        this.pendingResumeSecs = position;
+        this.pendingSeekTarget = null;
+        this.loadStream(v.url, null, { direct: true });
+      }, delays[this.vodRetryAttempt]);
+      return;
+    }
+    this.vodFailed = true;
+    // Let go of the stream so the provider stops counting it.
+    this.pipeline.destroy();
+    if (el) {
+      el.removeAttribute('src');
+      el.innerHTML = '';
+      el.load();
+    }
+    this.osd.updateMessage(t('player.unableToPlay'));
+    const label = this.playbackLabel();
+    void probeHttpStatus(v.url, CONFIG.PLAYER.VOD_REFUSED_PROBE_TIMEOUT).then((status) => {
+      const refused = status === 403;
+      log.error('VOD playback failed', 'event=playback.vod.failed',
+        `attempt=${attempt}`, 'outcome=gave_up', `reason=${refused ? 'http_403' : reason}`,
+        `status=${status === null ? 'unknown' : String(status)}`, label);
+      if (refused && this.vod === v && this.vodFailed) {
+        this.osd.updateMessage(t('player.providerRefused'));
+      }
+    });
+  }
+
+  private vodRecovered(): void {
+    log.info('VOD playback recovered', 'event=playback.vod.failed',
+      `attempt=${this.vodRetryAttempt}`, 'outcome=recovered', `reason=${this.vodRetryReason}`,
+      this.playbackLabel());
+    this.resetVodRetry();
+    if (this.osd.isVisible()) this.osd.render();
+  }
+
+  private resetVodRetry(): void {
+    if (this.vodRetryTimer !== null) clearTimeout(this.vodRetryTimer);
+    this.vodRetryTimer = null;
+    this.vodRetryAttempt = 0;
+    this.vodRetryPosition = 0;
+    this.vodRetryReason = '';
+    this.vodFailed = false;
+  }
+
   // Live's preview follows the focused row, so a dead channel shows its
   // failure there; moving on to the next channel would leave focus behind.
   private failLivePreview(): boolean {
@@ -1298,7 +1376,8 @@ export class Player {
   }
 
   showOSD(): void {
-    if (this.livePreviewMode) return;
+    // A movie that failed for good keeps its error on screen.
+    if (this.livePreviewMode || this.vodFailed) return;
     this.osd.show();
   }
 
