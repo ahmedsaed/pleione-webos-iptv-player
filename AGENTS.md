@@ -57,6 +57,13 @@ Procedural workflows live in `.agents/skills/` (open Agent Skills format;
   leaves two rings on screen. Hover never moves the keys; after a
   pointer click on a Home card, `FocusRing.defer()`
   keeps the content's ring hidden and the first key only shows it.
+- Right-to-left locales mirror the UI (`docs/rtl-layout.md`). Write CSS
+  left to right: the build mirrors every sheet into `css/rtl/`, and
+  `/* rtl:ignore */` opts a rule out. Position along a row in JS with
+  `inlineStart()`, never a literal `left`. In RTL, Left/Right arrive as
+  logical actions; geometric code converts them with `screenSide`. Never
+  read or write an absolute horizontal `scrollLeft`: use the helpers in
+  `src/utils/direction.ts`, which handle both engine models.
 - `bundled-service/` runs on Node.js 0.12.2: ES5/CommonJS, newer Node APIs
   via `compat.ts`, and `npm run service:smoke` after any change. Read
   `bundled-service/AGENTS.md` before changing the service or its Luna/HTTP
