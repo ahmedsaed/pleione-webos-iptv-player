@@ -13,7 +13,7 @@ import { FocusRing, isHovered, ringShown } from '../navigation/focus-ring';
 import { InputMode } from '../navigation/input-mode';
 import type { NavWheelDetail } from '../navigation/key-handler';
 import { html, raw, Safe, withInstantScroll } from '../utils/dom';
-import { inlineStart, scrollFromLeft, scrollStart, setScrollFromLeft } from '../utils/direction';
+import { inlineStart, isRtl, scrollFromLeft, scrollStart, setScrollFromLeft } from '../utils/direction';
 import { categoryLockBadge, lockBadge } from './parental-badge';
 import { SORT_ASCENDING_ICON, SORT_DESCENDING_ICON, SEE_ALL_ICON, CHECK_ICON, PLUS_ICON, STAR_ICON } from './icons';
 import { DetailTextOverlay } from './detail-text-overlay';
@@ -1776,15 +1776,20 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       poster.style.setProperty('top', `${Math.max(pad, Math.min(uiPx(DETAIL_POSTER_TOP), height - pad - posterHeight))}px`);
       poster.style.setProperty('height', `${posterHeight}px`);
       poster.style.setProperty('width', `${posterWidth}px`);
+      // Measured from the hero's start edge: the left, or the right in RTL,
+      // where the text column and its actions start and the poster ends.
+      const rtl = isRtl();
       const last = body.querySelector<HTMLElement>('.detail-actions')?.lastElementChild as HTMLElement | null;
-      const actionsEnd = last ? last.offsetLeft + last.offsetWidth : 0;
-      if (body.offsetLeft + actionsEnd + gap > posterLeft) {
+      const actionsEnd = !last ? 0
+        : rtl ? body.offsetWidth - last.offsetLeft : last.offsetLeft + last.offsetWidth;
+      const bodyStart = rtl ? hero.clientWidth - body.offsetLeft - body.offsetWidth : body.offsetLeft;
+      if (bodyStart + actionsEnd + gap > posterLeft) {
         poster.style.setProperty('display', 'none');
-        body.style.setProperty('width', `${Math.max(0, hero.clientWidth - 2 * body.offsetLeft)}px`);
+        body.style.setProperty('width', `${Math.max(0, hero.clientWidth - 2 * bodyStart)}px`);
       } else {
         // Wider than the usual column when the actions need it, so they never overflow.
         const width = Math.max(uiPx(DETAIL_BODY_WIDTH), actionsEnd);
-        body.style.setProperty('width', `${Math.max(0, Math.min(width, posterLeft - gap - body.offsetLeft))}px`);
+        body.style.setProperty('width', `${Math.max(0, Math.min(width, posterLeft - gap - bodyStart))}px`);
       }
     }
     const plotBox = body.querySelector<HTMLElement>('.detail-plot-box');

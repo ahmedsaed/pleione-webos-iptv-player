@@ -160,6 +160,73 @@ test.describe('catalog rails', () => {
     });
 });
 
+test.describe('catalog detail', () => {
+  test.use({ startOn: 'home' });
+
+  test('a series page mirrors, and its virtual episode rail walks left', async ({ page }) => {
+    await seedXtream(page, { posters: true });
+    // Three seasons of twelve episodes.
+    await page.route('**/player_api.php*', (route) => {
+      if (!route.request().url().includes('get_series_info')) return route.fallback();
+      const episodes: Record<string, unknown[]> = {};
+      for (let s = 1; s <= 3; s++) {
+        episodes[String(s)] = Array.from({ length: 12 }, (_, e) => ({
+          id: String(s * 100 + e), title: `Episode ${String(e + 1)}`, season: s, episode_num: e + 1,
+          container_extension: 'mp4', info: { duration_secs: 600 },
+        }));
+      }
+      return route.fulfill({ contentType: 'application/json',
+        body: JSON.stringify({ info: { name: 'Series One', plot: 'A plot.' }, episodes }) });
+    });
+    await page.addInitScript(() => localStorage.setItem('iptv_locale', JSON.stringify('ar')));
+    await page.goto('/');
+    await enterTab(page, 'series');
+    const detail = page.locator('#view-series .catalog-layer-detail');
+    await page.locator('#view-series .catalog-tile[data-item-id="20"]')
+      .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+    await page.keyboard.press('Enter');
+    const cells = detail.locator('.episode-cell');
+    await expect(cells.first()).toBeVisible();
+
+    // The poster on the left, the text column and its actions on the right.
+    const poster = (await detail.locator('.detail-poster-wrap').boundingBox())!;
+    const body = (await detail.locator('.detail-body').boundingBox())!;
+    expect(rightOf(body, poster)).toBe(true);
+    expect(body.x + body.width).toBeCloseTo(1920 - 80, -1);
+    const actions = detail.locator('.detail-actions > *');
+    expect(rightOf((await actions.nth(0).boundingBox())!, (await actions.nth(1).boundingBox())!)).toBe(true);
+    // Seasons and episodes start at the right.
+    const season = (n: number) => detail.locator(`.series-season-btn[data-season="${String(n)}"]`);
+    expect(rightOf((await season(1).boundingBox())!, (await season(2).boundingBox())!)).toBe(true);
+    const episode = async (index: number) =>
+      (await detail.locator(`.episode-cell[data-episode-index="${String(index)}"]`).boundingBox())!;
+    expect(rightOf(await episode(0), await episode(1))).toBe(true);
+
+    // Down to the episodes, then Left along them; the focused one stays in view.
+    const track = '#view-series .catalog-layer-detail .episode-track';
+    const focusedEpisode = async () => JSON.parse(await page.locator(track).evaluate((el) => {
+      const card = el.querySelector('.episode-card.focused');
+      const cell = card?.closest('[data-episode-index]');
+      const box = el.getBoundingClientRect();
+      const r = card?.getBoundingClientRect();
+      return JSON.stringify({
+        index: cell ? Number(cell.getAttribute('data-episode-index')) : -1,
+        inside: !!r && r.left >= box.left - 1 && r.right <= box.right + 1,
+      });
+    })) as { index: number; inside: boolean };
+    for (let i = 0; i < 4 && (await focusedEpisode()).index < 0; i++) await page.keyboard.press('ArrowDown');
+    expect(await focusedEpisode()).toEqual({ index: 0, inside: true });
+    for (let i = 1; i <= 8; i++) {
+      await page.keyboard.press('ArrowLeft');
+      await expect.poll(focusedEpisode).toEqual({ index: i, inside: true });
+    }
+    for (let i = 7; i >= 0; i--) {
+      await page.keyboard.press('ArrowRight');
+      await expect.poll(focusedEpisode).toEqual({ index: i, inside: true });
+    }
+  });
+});
+
 // Four channels in two groups with a guide around 12:00 UTC, in Arabic.
 const LIVE_PLAYLIST = 'http://host/rtl.m3u';
 const LIVE_GUIDE = 'http://host/rtl.xml';
