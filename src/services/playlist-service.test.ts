@@ -99,6 +99,7 @@ import {
 import { ChannelCustomizationService } from './channel-customization';
 import { ParentalControlService } from './parental-control';
 import { CONFIG } from '../config';
+import { resetXtreamSignIns } from './xtream-client';
 
 function channel(over: Partial<Channel>): Channel {
   return {
@@ -121,6 +122,7 @@ http://stream/u3`;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetXtreamSignIns();
   storageMock.getFavorites.mockReturnValue([]);
   cacheMock.getCachedPlaylist.mockResolvedValue(null);
   PlaylistService.allChannels = [];

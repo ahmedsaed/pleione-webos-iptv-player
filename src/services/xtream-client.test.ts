@@ -8,11 +8,14 @@ vi.mock('../utils/fetch-helper', async (importOriginal) => ({
 
 import { FetchTextError } from '../utils/fetch-helper';
 import { CONFIG } from '../config';
-import { createXtreamClient } from './xtream-client';
+import { createXtreamClient, resetXtreamSignIns } from './xtream-client';
 
 const creds = { baseUrl: 'http://host:8080', username: 'u1', password: 'p1' };
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  resetXtreamSignIns();
+});
 
 describe('XtreamClient.getAccountInfo', () => {
   it('queries the base player_api.php endpoint (no action)', async () => {
@@ -43,6 +46,7 @@ describe('XtreamClient.getAccountInfo', () => {
       maxConnections: 2,
       activeConnections: 1,
       allowedOutputFormats: [],
+      serverOrigin: '',
     });
   });
 
@@ -67,6 +71,7 @@ describe('XtreamClient.getAccountInfo', () => {
       maxConnections: 5,
       activeConnections: 0,
       allowedOutputFormats: ['ts', 'm3u8', 'rtmp'],
+      serverOrigin: 'http://host:8080',
     });
   });
 
@@ -106,6 +111,75 @@ describe('XtreamClient.getAccountInfo', () => {
   it('returns null on a network error', async () => {
     fetchTextMock.mockRejectedValue(new Error('timeout'));
     expect(await createXtreamClient(creds).getAccountInfo()).toBeNull();
+  });
+
+  it.each([
+    [{ url: 'panel', port: '80', server_protocol: 'http' }, 'http://panel'],
+    [{ url: 'panel', port: '80', https_port: '8443', server_protocol: 'https' }, 'https://panel:8443'],
+    [{ url: 'panel/x', port: '80' }, ''],
+    [{ port: '80' }, ''],
+  ])('derives the panel origin from server_info %j', async (server, origin) => {
+    fetchTextMock.mockResolvedValue(JSON.stringify({ user_info: { auth: 1 }, server_info: server }));
+    expect((await createXtreamClient(creds).getAccountInfo())?.serverOrigin).toBe(origin);
+  });
+});
+
+describe('XtreamClient sign-in reuse', () => {
+  const signedIn = JSON.stringify({
+    user_info: { auth: 1, allowed_output_formats: ['m3u8'] },
+    server_info: { timezone: 'UTC', timestamp_now: 1784662200, time_now: '2026-07-21 20:30:00' },
+  });
+  const accountCalls = (): number => fetchTextMock.mock.calls
+    .filter(([url]) => /player_api\.php\?username=u1&password=p1$/.test(url)).length;
+
+  it('shares one in-flight sign-in between the check, the load, and the clock', async () => {
+    let answer: (text: string) => void = () => {};
+    fetchTextMock.mockReturnValue(new Promise<string>((resolve) => { answer = resolve; }));
+    const check = createXtreamClient(creds, 'x').getAccountInfo(undefined, { retryTimeouts: false });
+    const load = createXtreamClient(creds).getAccountInfo();
+    const clock = createXtreamClient(creds).getServerClock();
+    answer(signedIn);
+    expect((await check)?.auth).toBe(true);
+    expect((await load)?.allowedOutputFormats).toEqual(['m3u8']);
+    expect((await clock)?.timeZone).toBe('UTC');
+    expect(await createXtreamClient(creds).getAccountInfo()).toMatchObject({ auth: true });
+    expect(accountCalls()).toBe(1);
+  });
+
+  it('asks again for a fresh check, other credentials, or an expired answer', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchTextMock.mockResolvedValue(signedIn);
+      await createXtreamClient(creds).getAccountInfo();
+      await createXtreamClient(creds).getAccountInfo(undefined, { fresh: true });
+      expect(accountCalls()).toBe(2);
+      await createXtreamClient({ ...creds, password: 'p2' }).getAccountInfo();
+      expect(fetchTextMock).toHaveBeenCalledTimes(3);
+      await createXtreamClient(creds).getAccountInfo();
+      expect(accountCalls()).toBe(2);
+      vi.advanceTimersByTime(CONFIG.XTREAM.SIGN_IN_TTL_MS);
+      await createXtreamClient(creds).getAccountInfo();
+      expect(accountCalls()).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not keep a failed or rejected sign-in', async () => {
+    fetchTextMock.mockResolvedValueOnce('<html>');
+    expect(await createXtreamClient(creds).getAccountInfo()).toBeNull();
+    fetchTextMock.mockResolvedValueOnce(JSON.stringify({ user_info: { auth: 0 } }));
+    expect(await createXtreamClient(creds).getAccountInfo()).toMatchObject({ auth: false });
+    fetchTextMock.mockResolvedValueOnce(signedIn);
+    expect(await createXtreamClient(creds).getAccountInfo()).toMatchObject({ auth: true });
+    expect(accountCalls()).toBe(3);
+  });
+
+  it('keeps a cancellable request out of the shared sign-in', async () => {
+    fetchTextMock.mockResolvedValue(signedIn);
+    await createXtreamClient(creds).getAccountInfo(new AbortController().signal);
+    await createXtreamClient(creds).getAccountInfo();
+    expect(accountCalls()).toBe(2);
   });
 });
 
@@ -903,7 +977,7 @@ describe('XtreamClient transient failure retries', () => {
     fetchTextMock
       .mockRejectedValueOnce(new FetchTextError('timeout', 'Request timed out'))
       .mockResolvedValueOnce(JSON.stringify({ user_info: { auth: 1 } }));
-    const background = createXtreamClient(creds).getAccountInfo();
+    const background = createXtreamClient(creds).getAccountInfo(undefined, { fresh: true });
     await vi.advanceTimersByTimeAsync(1000);
     await expect(background).resolves.toMatchObject({ auth: true });
     expect(fetchTextMock).toHaveBeenCalledTimes(5);
