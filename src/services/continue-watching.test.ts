@@ -42,6 +42,15 @@ describe('latestPerSeries', () => {
     expect(list[0].episodeQueue).toEqual([]);
   });
 
+  it('keeps the next episode\'s place in its series, so its label follows the UI language', () => {
+    const ref = { seriesName: 'Series One', season: 1, episode: 6, title: 'Episode 6' };
+    const saved = episode('e5');
+    saved.episodeQueue = saved.episodeQueue!.map(queued =>
+      (queued.itemId === 'e6' ? { ...queued, seriesEpisode: ref } : queued));
+    const list = latestPerSeries([saved], [{ itemId: 'e5', watchedAt: 2000 }]);
+    expect(list[0]).toMatchObject({ itemId: 'e6', seriesEpisode: ref });
+  });
+
   it('drops the series once its last episode was finished', () => {
     expect(latestPerSeries([episode('e5')], [
       { itemId: 'e6', watchedAt: 2000 },

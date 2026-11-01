@@ -1501,6 +1501,7 @@ describe('Player VOD mode', () => {
       kind: 'episode',
       episodeQueue: [next],
       watchlistOwner: { kind: 'series', itemId: 's1' },
+      seriesEpisode: { seriesName: 'Series One', season: 1, episode: 1, title: 'Episode 1' },
     }));
     video.currentTime = 300;
     player.handleAction('back');
@@ -1508,6 +1509,7 @@ describe('Player VOD mode', () => {
       itemId: 'e1',
       episodeQueue: [next],
       watchlistOwner: { kind: 'series', itemId: 's1' },
+      seriesEpisode: { seriesName: 'Series One', season: 1, episode: 1, title: 'Episode 1' },
     }));
   });
 

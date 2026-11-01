@@ -411,6 +411,152 @@ describe('Series browse + grid', () => {
     expect(handlers.onBack).toHaveBeenCalled();
   });
 
+  describe('names Continue Watching episodes in the UI language', () => {
+    const saved = (name: string, over: Record<string, unknown> = {}) => ({
+      accountId: 'x1', kind: 'episode', itemId: 'e6', name, poster: '', ext: 'mp4',
+      position: 300, duration: 1500, updatedAt: 1, ...over,
+    });
+    const tileName = () => container.querySelector('[data-resume-episode="e6"] .catalog-tile-name')?.textContent;
+    const heroTitle = () => container.querySelector('.catalog-hero-title')?.textContent;
+
+    it('shows a label saved in English in Arabic, on the tile, the hero and the player', async () => {
+      storageMock.getResumeList.mockReturnValue([saved('Series One — S1E6 — Episode 6', {
+        episodeQueue: [{
+          url: 'http://host/a', title: 'Series One — S1E7 — Episode 7', poster: '', accountId: 'x1',
+          itemId: 'e7', kind: 'episode', subtitles: [],
+        }],
+      })]);
+      setLocale('ar');
+      try {
+        const { view, handlers } = await openWith();
+        expect(tileName()).toBe('Series One — م1ح6 — الحلقة 6');
+        container.querySelector<HTMLElement>('[data-resume-episode="e6"]')!
+          .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+        expect(heroTitle()).toBe('Series One — م1ح6 — الحلقة 6');
+        view.handleAction('select');
+        expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
+          title: 'Series One — م1ح6 — الحلقة 6',
+          episodeQueue: [expect.objectContaining({ title: 'Series One — م1ح7 — الحلقة 7' })],
+        }));
+      } finally {
+        setLocale('en');
+      }
+    });
+
+    it('shows a label saved in Arabic in English', async () => {
+      storageMock.getResumeList.mockReturnValue([saved('Series One — م1ح6 — الحلقة 6')]);
+      await openWith();
+      expect(tileName()).toBe('Series One — S1E6 — Episode 6');
+    });
+
+    it('composes the label from the episode\'s place in its series when saved with it', async () => {
+      storageMock.getResumeList.mockReturnValue([saved('stale', {
+        seriesEpisode: { seriesName: 'Series One', season: 2, episode: 1, title: 'Episode 1' },
+      })]);
+      setLocale('ar');
+      try {
+        await openWith();
+        expect(tileName()).toBe('Series One — م2ح1 — الحلقة 1');
+      } finally {
+        setLocale('en');
+      }
+    });
+
+    it('saves the episode\'s place in its series with what it plays', async () => {
+      catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+      const { view, handlers } = await openWith();
+      await openDetail(view);
+      container.querySelector<HTMLElement>('.episode-card[data-episode-id="e1"]')!
+        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      view.handleAction('select');
+      expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
+        seriesEpisode: {
+          seriesName: 'Series One', season: 1, episode: 1, title: 'Episode One',
+          seriesPoster: 'http://host/series.jpg',
+        },
+      }));
+    });
+  });
+
+  describe('shows a Continue Watching series with its own artwork and details', () => {
+    const SUMMARY = { ...SERIES_INFO, backdrop: 'http://host/backdrop.jpg' };
+    // The episode after a finished one, as latestPerSeries builds it from a
+    // saved queue item: the episode's own still, if any, and no series art.
+    const next = (over: Record<string, unknown> = {}) => ({
+      accountId: 'x1', kind: 'episode', itemId: 'e2', name: 'Series One — S2E1 — Episode Two',
+      poster: '', ext: 'mkv', position: 0, duration: 0, updatedAt: 3, categoryId: '9',
+      watchlistOwner: { kind: 'series', itemId: 's9' }, ...over,
+    });
+    const tilePoster = () => container.querySelector<HTMLElement>(
+      '[data-resume-episode="e2"] .catalog-poster')?.getAttribute('src');
+    const hover = () => container.querySelector<HTMLElement>('[data-resume-episode="e2"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    const art = () => container.querySelector<HTMLElement>('.catalog-hero-art')?.style.backgroundImage ?? '';
+
+    it('takes the poster and details of a series from a category past the rails', async () => {
+      useResume([next({ poster: 'http://host/still.jpg' })]);
+      const cats = [{ id: '1', name: 'Cat A' }, ...Array.from({ length: 8 }, (_, i) => ({ id: String(i + 2), name: `Cat ${i + 2}` }))];
+      catalogMock.loadSeriesCategories.mockResolvedValue(cats);
+      catalogMock.loadSeries.mockImplementation((_a: unknown, categoryId: string) => Promise.resolve(categoryId === '9'
+        ? [{ ...series('s9', 'Series Nine', '9'), poster: 'http://host/s9.jpg', plot: 'Plot 9', genre: 'Genre 9' }]
+        : [series(`s${categoryId}`, `Series ${categoryId}`, categoryId)]));
+      const view = new Series(container, { onBack: vi.fn(), onPlayVod: vi.fn() });
+      Focus.setBase(() => view.focusScope);
+      await view.open(account);
+      await vi.waitFor(() => expect(tilePoster()).toBe('http://host/s9.jpg'));
+      expect(catalogMock.loadSeries).toHaveBeenCalledWith(account, '9', expect.anything());
+      hover();
+      expect(container.querySelector('.catalog-hero-plot')?.textContent).toBe('Plot 9');
+      expect(container.querySelector('.catalog-hero-meta')?.textContent).toBe('Genre 9');
+      expect(art()).toContain('s9.jpg');
+    });
+
+    it('asks the provider for a series no category lists, once focus rests', async () => {
+      vi.useFakeTimers();
+      try {
+        useResume([next({ categoryId: undefined })]);
+        catalogMock.loadSeriesInfo.mockResolvedValue(SUMMARY);
+        await openWith();
+        expect(tilePoster()).toBeNull();
+        hover();
+        expect(container.querySelector('.catalog-hero-title')?.textContent).toBe('Series One — S2E1 — Episode Two');
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(catalogMock.loadSeriesInfo).toHaveBeenCalledWith(account, 's9', expect.anything());
+        expect(container.querySelector('.catalog-hero-plot')?.textContent).toBe('Series plot.');
+        expect(container.querySelector('.catalog-hero-meta')?.textContent).toBe('Drama  ·  2021');
+        expect(art()).toContain('backdrop.jpg');
+        expect(tilePoster()).toBe('http://host/series.jpg');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('shows the series poster saved with the episode before anything loads', async () => {
+      useResume([next({
+        poster: 'http://host/still.jpg',
+        seriesEpisode: { seriesName: 'Series One', season: 2, episode: 1, title: 'Episode Two', seriesPoster: 'http://host/saved.jpg' },
+      })]);
+      await openWith([], []);
+      expect(tilePoster()).toBe('http://host/saved.jpg');
+    });
+
+    it('saves the provider details\' poster for a series its list shows none for', async () => {
+      catalogMock.loadSeriesInfo.mockResolvedValue({
+        ...SERIES_INFO,
+        episodesBySeason: { ...SERIES_INFO.episodesBySeason, 1: [{ ...SERIES_INFO.episodesBySeason[1][0], poster: '' }] },
+      });
+      const { view, handlers } = await openWith();
+      await openDetail(view);
+      container.querySelector<HTMLElement>('.episode-card[data-episode-id="e1"]')!
+        .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+      view.handleAction('select');
+      expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
+        poster: 'http://host/series.jpg',
+        episodeQueue: [expect.objectContaining({ poster: 'http://host/series.jpg' })],
+      }));
+    });
+  });
+
   it('refreshes the Continue rail from storage on each browse render', async () => {
     catalogMock.loadSeriesInfo.mockResolvedValue({ seasons: [], episodesBySeason: {} });
     const { view } = await openWith();

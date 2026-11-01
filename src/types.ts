@@ -624,6 +624,7 @@ export interface ResumeEntry {
   watchlistOwner?: WatchlistOwner;
   /** Catalog category at save time, so parental rules apply from the Continue rail. */
   categoryId?: string;
+  seriesEpisode?: SeriesEpisodeRef;
 }
 
 // Structured metadata for online subtitle search (passed from Xtream catalog to player).
@@ -670,6 +671,19 @@ export interface VodQueueItem {
   subtitles: SidecarSubtitle[];
   searchMeta?: SearchMeta;
   watchlistOwner?: WatchlistOwner;
+  seriesEpisode?: SeriesEpisodeRef;
+}
+
+// An episode's place in its series, so its label is composed in the UI
+// language whenever it shows.
+export interface SeriesEpisodeRef {
+  seriesName: string;
+  season: number;
+  episode: number;
+  /** The provider's episode title, as sent. */
+  title: string;
+  /** The series' own poster, for Continue Watching. */
+  seriesPoster?: string;
 }
 
 export interface WatchlistOwner {

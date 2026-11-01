@@ -472,6 +472,8 @@ for (const locale of ['en', 'ar'] as const) {
 
     await enterTab(page, 'movies');
     await openTitle(page, 'movies', '10');
+    // The cast row arrives with the movie's details; Down needs it there.
+    await expect(page.locator('#view-movies [data-key="person:0"]')).toBeVisible();
     await walkRow(page, 'movies', ['resume', 'play', 'watchlist']);
     await page.keyboard.press('ArrowDown');
     expect(await focusedKey(page, 'movies')).toBe('person:0');
