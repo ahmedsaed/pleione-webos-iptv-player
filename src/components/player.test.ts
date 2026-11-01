@@ -2537,6 +2537,25 @@ describe('Player controls', () => {
       expect(video.paused).toBe(false);
     });
 
+    it('shows the buffering spinner from the start and after a skip until playback moves', () => {
+      const spinner = () => !container.querySelector('.player-buffering')!.classList.contains('hidden');
+      Object.defineProperty(video, 'paused', { configurable: true, get: () => false });
+      expect(spinner()).toBe(true);
+      video.dispatchEvent(new Event('playing'));
+      expect(spinner()).toBe(false);
+      player.handleAction('right');
+      expect(spinner()).toBe(true);
+      vi.advanceTimersByTime(CONFIG.PLAYER.BUFFERING_POLL_MS * 2);
+      expect(spinner()).toBe(true);
+      video.currentTime = 10.5;
+      vi.advanceTimersByTime(CONFIG.PLAYER.BUFFERING_POLL_MS);
+      expect(spinner()).toBe(false);
+      video.dispatchEvent(new Event('waiting'));
+      expect(spinner()).toBe(true);
+      player.handleAction('back');
+      expect(spinner()).toBe(false);
+    });
+
     it('pauses and resumes with OK, showing the controls', () => {
       internals().osd.hide();
       player.handleAction('select');

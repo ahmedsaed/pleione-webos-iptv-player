@@ -43,6 +43,7 @@ import {
   type PlayerOsdStreamInfo,
 } from './player-osd';
 import { PlayerMenu } from './player-menu';
+import { BufferingIndicator } from './player-buffering';
 import { PlayerTracks } from './player-tracks';
 
 const log = createLogger('Player');
@@ -107,6 +108,7 @@ export class Player {
   private vodInfo: MediaInfo | null = null; // container-header stream info for the active VOD (codec/fps/HDR)
   private stallWatchdog: StallWatchdog;
   private startupWatchdog: StartupWatchdog;
+  private readonly buffering: BufferingIndicator;
   private startupPending = false;
   // The user paused the element; startup, reloads, and `play` clear it.
   private userPaused = false;
@@ -244,6 +246,16 @@ export class Player {
       freezeTicks: CONFIG.PLAYER.STALL_FREEZE_TICKS,
       maxReloads: CONFIG.PLAYER.DEFAULT_LIVE_RECONNECT_ATTEMPTS,
     });
+    // Movies, episodes and catch-up show a spinner while they buffer; live
+    // keeps its own reconnect messages.
+    this.buffering = new BufferingIndicator(container, () => {
+      const v = this.videoEl;
+      if (!v || !this.playbackActive || this.livePreviewMode || (!this.vod && !this.catchupInfo)
+          || this.vodFailed || this.vodRetryTimer !== null || this.upNextTimer !== null || v.ended) {
+        return null;
+      }
+      return { currentTime: v.currentTime, paused: v.paused && !this.startupPending, seeking: v.seeking };
+    });
     this.startupWatchdog = new StartupWatchdog({
       probe: (): StartupProbe => {
         const v = this.videoEl;
@@ -370,6 +382,7 @@ export class Player {
       update('playing');
       if (recovered) this.osd.render();
       if (this.vod && this.vodRetryAttempt > 0) this.vodRecovered();
+      this.buffering.playing();
       log.info('playing', this.videoLabel(el), this.mediaState(el));
       if (this.catchupInfo) this.catchupVariantConfirmed = true;
       this.startupWatchdog.stop();
@@ -380,6 +393,7 @@ export class Player {
     });
     onCurrent('waiting', () => {
       update('buffering');
+      this.buffering.expect();
       log.debug('waiting', this.videoLabel(el), this.mediaState(el));
       this.cancelLiveHistoryTimer();
     });
@@ -987,6 +1001,7 @@ export class Player {
     this.startPlaybackGeneration();
     this.clearUpNextTimer();
     this.resetVodRetry();
+    this.buffering.stop();
     this.vodTracksLatePending = false;
     this.picker.hide();
     if (this.vod) this.saveVodResume();
@@ -1137,6 +1152,7 @@ export class Player {
     this.startupPending = true;
     this.startupWatchdog.stop();
     this.pipeline.load(url, extras, opts);
+    this.buffering.expect();
   }
 
   /**
@@ -1525,6 +1541,7 @@ export class Player {
       return;
     }
     v.currentTime = this.pendingSeekTarget;
+    this.buffering.expect();
     if (showControls) {
       if (this.osd.isVisible()) this.osd.resetTimer(); else this.showOSD();
     }

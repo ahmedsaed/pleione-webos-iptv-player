@@ -98,6 +98,8 @@ export const CONFIG = {
     // reopening where it stopped, before the error stays.
     VOD_RETRY_DELAYS: [2000, 4000, 8000],
     VOD_REFUSED_PROBE_TIMEOUT: 5000, // ms the 403 check after the last failure may take
+    BUFFERING_POLL_MS: 250,     // buffering spinner: currentTime poll interval
+    BUFFERING_FROZEN_MS: 1000,  // playing video whose clock stands this long shows the spinner
     STARTUP_POLL_MS: 500,       // startup watchdog: readyState/networkState poll interval
     STARTUP_TIMEOUT: 15000,     // ms a stream may load without a frame before it counts as failed
     DVR_MIN_WINDOW: 10,         // live DVR: a seekable window must exceed this (s) to offer timeshift

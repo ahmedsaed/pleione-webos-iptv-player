@@ -29,6 +29,28 @@
 #video-player::cue(.red) { color: #ff6666; }
 #video-player::cue(.blue) { color: #6666ff; }
 
+/* The buffering spinner of a movie, episode, or catch-up program: the loading
+   ring drawn on the video, centered, under the OSD. A cue, never a target. */
+.player-buffering {
+  position: fixed;
+  top: calc(var(--canvas-height) / 2 - 48px);
+  left: calc(var(--canvas-width) / 2 - 48px);
+  width: 96px;
+  height: 96px;
+  z-index: 3;
+}
+
+#view-player .player-buffering,
+#view-player .player-buffering * {
+  pointer-events: none;
+}
+
+/* On video in every theme, light ones included. */
+#view-player .player-buffering .loading-spinner {
+  border-color: rgba(255, 255, 255, 0.25);
+  border-top-color: var(--accent);
+}
+
 /* ASS/SSA sidecar subtitles (VOD) are drawn by assjs into this overlay, which
    sits over the video plane (z-index 1) and below the OSD/menu (z-index 60).
    It matches the video's fixed 1920x1080 box so assjs aligns cues with the

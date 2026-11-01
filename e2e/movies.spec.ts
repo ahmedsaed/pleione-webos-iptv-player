@@ -475,6 +475,39 @@ test('VOD holding Right speeds the skip up from 10s to 30s to 60s', async ({ pag
   expect(await page.locator('#video-player').evaluate((v: HTMLVideoElement) => v.paused)).toBe(false);
 });
 
+test('VOD shows the buffering spinner through a held seek and hides it once playback moves', async ({ page }) => {
+  await startFakeVod(page);
+  // A clock that runs while playing, held still while `stalled` is set.
+  await page.locator('#video-player').evaluate((video: HTMLVideoElement) => {
+    const w = window as unknown as { stalled: boolean };
+    w.stalled = false;
+    let time = 0;
+    Object.defineProperty(video, 'duration', { configurable: true, get: () => 100_000 });
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true, get: () => time, set: (t: number) => { time = t; w.stalled = true; },
+    });
+    setInterval(() => { if (!w.stalled) time += 0.1; }, 100);
+    video.dispatchEvent(new Event('playing'));
+  });
+  const spinner = page.locator('#view-player .player-buffering');
+  await expect(spinner).toBeHidden();
+  const started = Date.now();
+  while (Date.now() - started < 1500) {
+    await page.keyboard.down('ArrowRight');
+    await page.waitForTimeout(40);
+  }
+  await expect(spinner).toBeVisible();
+  await page.keyboard.up('ArrowRight');
+  // Still waiting on the seek; no ring, and the keys stay with the player.
+  await page.waitForTimeout(500);
+  await expect(spinner).toBeVisible();
+  expect(await spinner.evaluate(el => getComputedStyle(el).pointerEvents)).toBe('none');
+  await expect(page.locator('#view-player .player-buffering .focused, #view-player .player-buffering[data-focusable]'))
+    .toHaveCount(0);
+  await page.evaluate(() => { (window as unknown as { stalled: boolean }).stalled = false; });
+  await expect(spinner).toBeHidden();
+});
+
 test('VOD controls answer the pointer: a click on Play/Pause pauses', async ({ page }) => {
   await startFakeVod(page);
   const button = page.locator('#player-osd [data-dock-action="playpause"]');
