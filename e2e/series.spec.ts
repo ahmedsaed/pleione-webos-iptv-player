@@ -324,6 +324,39 @@ test('Previous restarts the episode, or within its first minute plays the one be
   await expect(previous).toBeDisabled();
 });
 
+for (const { size, locale } of [
+  { size: '100', locale: 'en' }, { size: '130', locale: 'en' }, { size: '100', locale: 'ar' },
+]) {
+  test(`centers Previous, Play/Pause and Next in the controls (${size}%, ${locale})`, async ({ page }) => {
+    await page.addInitScript(({ s, l }) => {
+      localStorage.setItem('iptv_interface_size', JSON.stringify(s));
+      localStorage.setItem('iptv_locale', JSON.stringify(l));
+    }, { s: size, l: locale });
+    await startEpisode(page, 11);
+    const osd = page.locator('#player-osd');
+    const box = async (action: string) => (await osd.locator(`[data-dock-action="${action}"]`).boundingBox())!;
+    const panel = (await osd.locator('.osd-controls').boundingBox())!;
+    const [previous, playpause, next] = [await box('previous'), await box('playpause'), await box('next')];
+    const middle = (b: { x: number; width: number }) => b.x + b.width / 2;
+    expect(Math.abs(middle(playpause) - middle(panel))).toBeLessThanOrEqual(1);
+    expect(Math.abs(middle(playpause) - 960)).toBeLessThanOrEqual(1);
+    expect(previous.x + previous.width).toBeLessThanOrEqual(playpause.x);
+    expect(playpause.x + playpause.width).toBeLessThanOrEqual(next.x);
+    expect(Math.abs(previous.y - next.y)).toBeLessThanOrEqual(1);
+
+    // Left and Right walk the buttons in their on-screen order.
+    await page.keyboard.press('ArrowDown');
+    await expect(osd.locator('[data-dock-action="playpause"]')).toHaveClass(/focused/);
+    await page.keyboard.press('ArrowLeft');
+    await expect(osd.locator('[data-dock-action="previous"]')).toHaveClass(/focused/);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await expect(osd.locator('[data-dock-action="next"]')).toHaveClass(/focused/);
+    // The focused button's name never moves the buttons.
+    expect(Math.abs(middle(await box('playpause')) - middle(playpause))).toBeLessThanOrEqual(1);
+  });
+}
+
 test('Next plays the next episode at once and is disabled on the last', async ({ page }) => {
   await startEpisode(page, 10);
   const previous = page.locator('#player-osd [data-dock-action="previous"]');

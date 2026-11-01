@@ -327,12 +327,24 @@
   opacity: 0.85;
 }
 
-/* The controls: playback on the left, then the focused control's name, then
-   the stream's track choices on the right. */
+/* The controls: the transport centered between two equal sides, the
+   channel's controls on the left and the stream's track choices on the right,
+   with the focused control's name beside its group. */
 .osd-controls {
   display: flex;
   align-items: center;
   margin-top: 4px;
+}
+
+.osd-controls-side {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  min-width: 0;
+}
+
+.osd-controls-side--end {
+  justify-content: flex-end;
 }
 
 .osd-controls-group {
@@ -399,7 +411,8 @@
   text-align: left;
 }
 
-.osd-control-caption--end {
+.osd-control-caption--end,
+.osd-control-caption--center {
   text-align: right;
 }
 
