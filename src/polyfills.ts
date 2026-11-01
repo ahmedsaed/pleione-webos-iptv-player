@@ -61,12 +61,16 @@ export function scrollIntoViewFallback(
       ancestor.scrollWidth > ancestor.clientWidth
       && (style.overflowX === 'auto' || style.overflowX === 'scroll')
     ) {
+      // A relative step scrolls right in either RTL scrollLeft model, but a
+      // right-to-left row starts at its right edge.
+      const inline = options.inline ?? 'nearest';
+      const rtl = style.direction === 'rtl';
       ancestor.scrollLeft += scrollAxisOffset(
         item.left,
         item.right,
         viewport.left,
         viewport.right,
-        options.inline ?? 'nearest',
+        rtl && inline === 'start' ? 'end' : rtl && inline === 'end' ? 'start' : inline,
       );
     }
   }

@@ -1,5 +1,6 @@
 import type { Action, PlaylistEntry, SeriesCategory, SeriesItem, SeriesInfo, Episode, ResumeEntry, ResumeKind, VodQueueItem, WatchlistEntry } from '../types';
 import { html, Safe } from '../utils/dom';
+import { inlineStart, scrollStart } from '../utils/direction';
 import { morph } from '../utils/morph';
 import { StorageService } from '../services/storage-service';
 import { loadSeriesCategories, loadSeries, loadSeriesInfo } from '../services/xtream-catalog';
@@ -541,7 +542,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
           const index = range.start + offset;
           return html`
             <div class="episode-cell" data-key="episode-cell:${ep.id}" data-episode-index="${index}"
-                 style="left:${this.episodeVirtualizer.getItemOffset(index)}px">
+                 style="${inlineStart()}:${this.episodeVirtualizer.getItemOffset(index)}px">
               ${this.episodeCard(accountId, ep)}
             </div>
           `;
@@ -583,7 +584,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     if (!series || !a) return;
     const info = this.currentInfo;
     const track = this.episodeTrack();
-    if (restoreFocus && track) this.episodeVirtualizer.setScrollOffset(track.scrollLeft);
+    if (restoreFocus && track) this.episodeVirtualizer.setScrollOffset(scrollStart(track));
     const year = info?.year || series.year || 0;
     const seasons = info?.seasons.length ?? 0;
     const watchlisted = StorageService.isWatchlisted(a.id, 'series', series.seriesId);

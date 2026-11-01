@@ -557,10 +557,12 @@ test('an Arabic query finds a title written with another alef form', async ({ pa
   await expect(tiles).toHaveCount(1);
   await expect(tiles.first()).toHaveAttribute('data-stream-id', '71');
   await expect(tiles.first().locator('.search-match')).toHaveText('أحمد');
-  // Arabic UI: the box stays centered and the rails keep the 80px gutter.
+  // Arabic UI: the box stays centered and the mirrored rails keep the 80px
+  // gutter on the right.
   const box = (await page.locator('.search-box').boundingBox())!;
   expect(Math.abs(box.x + box.width / 2 - 960)).toBeLessThanOrEqual(1);
-  expect(Math.round((await tiles.first().boundingBox())!.x)).toBe(80);
+  const tile = (await tiles.first().boundingBox())!;
+  expect(Math.round(tile.x + tile.width)).toBe(1920 - 80);
   await page.locator('.search-box-input').press('ArrowDown');
   await expect(tiles.first()).toHaveClass(/\bfocused\b/);
   await expect(page.locator('.focused:visible')).toHaveCount(1);

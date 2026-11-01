@@ -256,6 +256,29 @@ describe('scrollIntoView options polyfill', () => {
     expect(scroller.scrollTop).toBe(170);
   });
 
+  it('aligns inline start to a right-to-left row\'s right edge', () => {
+    const scroller = document.createElement('div');
+    const item = document.createElement('button');
+    scroller.appendChild(item);
+    document.body.appendChild(scroller);
+    scroller.style.overflowX = 'auto';
+    scroller.style.direction = 'rtl';
+    // The old engine model: an offset from the left edge, any value accepted.
+    let left = 300;
+    Object.defineProperties(scroller, {
+      clientWidth: { value: 200 },
+      scrollWidth: { value: 800 },
+      scrollLeft: { get: () => left, set: (value: number) => { left = value; } },
+    });
+    scroller.getBoundingClientRect = vi.fn(() => rect(0, 100, 0, 200));
+    item.getBoundingClientRect = vi.fn(() => rect(0, 100, -150, -50));
+
+    scrollIntoViewFallback(item, { block: 'nearest', inline: 'start' });
+
+    // The item's right edge (-50) meets the viewport's (200): 250px left.
+    expect(left).toBe(50);
+  });
+
   it('uses the fallback for options but preserves legacy boolean calls', async () => {
     const nativeScrollIntoView = vi.fn();
     Object.defineProperty(Element.prototype, 'scrollIntoView', {

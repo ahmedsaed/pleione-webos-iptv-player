@@ -1965,19 +1965,25 @@ test.describe('Settings form keys', () => {
   for (const locale of ['en', 'ar']) {
     // The account's Check button sits below and close beside its name, so a
     // geometric guess once took Right there instead of to the server URL.
-    test(`Right from a source name reaches its URL on the same row (${locale})`, async ({ page }) => {
+    // Arabic mirrors the row: the URL sits left of the name, and Left
+    // reaches it.
+    const toEnd = locale === 'ar' ? 'ArrowLeft' : 'ArrowRight';
+    test(`the key toward a row's end takes a source name to its URL (${locale})`, async ({ page }) => {
       await openSources(page, locale);
       await ringOn(page, page.locator('.xtream-name'));
-      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press(toEnd);
       await expect(page.locator('.xtream-url')).toHaveClass(/focused/);
+      const name = (await page.locator('.xtream-name').boundingBox())!;
+      const url = (await page.locator('.xtream-url').boundingBox())!;
+      expect(locale === 'ar' ? url.x + url.width <= name.x : name.x + name.width <= url.x).toBe(true);
 
       await ringOn(page, page.locator('.playlist-name'));
-      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press(toEnd);
       await expect(page.locator('.playlist-url')).toHaveClass(/focused/);
 
-      // Right at the end of a row stays on it.
+      // The same key at the end of a row stays on it.
       await ringOn(page, page.locator('.remove-playlist'));
-      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press(toEnd);
       await expect(page.locator('.remove-playlist')).toHaveClass(/focused/);
     });
   }

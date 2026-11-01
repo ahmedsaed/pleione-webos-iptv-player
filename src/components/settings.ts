@@ -2,7 +2,7 @@ import type { Action, ChannelCycleMode, EpgSource, ManualEpgSource, NavDirection
 import { $, $$, html, raw, withInstantScroll, type Safe } from '../utils/dom';
 import { TMDB_LOGO, TMDB_NOTICE } from './tmdb-attribution';
 import { morph } from '../utils/morph';
-import { screenSide } from '../utils/direction';
+import { screenSide, scrollFromLeft, setScrollFromLeft } from '../utils/direction';
 import { SpatialNav, isFocusMove } from '../navigation/spatial-nav';
 import { caretAtEdge, caretSideOf } from '../navigation/caret-edge';
 import { Focus, type FocusScope, type Via } from '../navigation/focus-scope';
@@ -2107,18 +2107,18 @@ export class Settings {
     if (!rail || !rail.classList.contains('theme-swatch-rail')) return false;
     const gutter = parseFloat(getComputedStyle(rail).paddingLeft) || 0;
     const start = el.getBoundingClientRect().left - rail.getBoundingClientRect().left
-      - rail.clientLeft + rail.scrollLeft;
+      - rail.clientLeft + scrollFromLeft(rail);
     const end = start + el.offsetWidth;
-    const current = rail.scrollLeft;
+    const current = scrollFromLeft(rail);
     let target = current;
     if (start - gutter < current) target = Math.max(0, start - gutter);
     else if (end + gutter > current + rail.clientWidth) target = end + gutter - rail.clientWidth;
     if (Math.abs(target - current) < 1) return false;
     // A swatch already in view only needs an instant nudge.
     if (instant || (start >= current && end <= current + rail.clientWidth)) {
-      withInstantScroll([rail], () => { rail.scrollLeft = target; });
+      withInstantScroll([rail], () => { setScrollFromLeft(rail, target); });
     } else {
-      rail.scrollLeft = target;
+      setScrollFromLeft(rail, target);
     }
     const pane = rail.closest<HTMLElement>('.settings-scroll');
     if (pane) {
