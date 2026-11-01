@@ -1,5 +1,7 @@
 import { seedXtream } from './fixtures/xtream';
-import { test, expect, enterTab, routePlaylist, seedPlaylist, type Page } from './helpers';
+import {
+  test, expect, enterTab, openGuide, routeLiveManifest, routePlaylist, seedPlaylist, type Page,
+} from './helpers';
 
 // The mirrored layout of a right-to-left locale (docs/rtl-layout.md).
 
@@ -156,4 +158,124 @@ test.describe('catalog rails', () => {
       await expect.poll(async () => Math.abs((await cell(0)).x - start), { timeout: 10_000 })
         .toBeLessThan(2);
     });
+});
+
+// Four channels in two groups with a guide around 12:00 UTC, in Arabic.
+const LIVE_PLAYLIST = 'http://host/rtl.m3u';
+const LIVE_GUIDE = 'http://host/rtl.xml';
+async function seedArabicLive(page: Page): Promise<void> {
+  await page.clock.setFixedTime(new Date('2026-09-15T12:00:00Z'));
+  const m3u = ['#EXTM3U', ...[1, 2, 3, 4].flatMap((n) => [
+    `#EXTINF:-1 tvg-id="ch${n}" group-title="Group ${n < 3 ? 1 : 2}",ch${n}`, `http://host/ch${n}.m3u8`])];
+  const program = (n: number, start: string, stop: string, title: string): string =>
+    `<programme channel="ch${n}" start="20260915${start}00 +0000" stop="20260915${stop}00 +0000">`
+    + `<title>${title}</title></programme>`;
+  const epg = `<tv>${[1, 2, 3, 4].map((n) => program(n, '1100', '1230', `Program ${n}A`)
+    + program(n, '1230', '1400', `Program ${n}B`)).join('')}</tv>`;
+  await routeLiveManifest(page);
+  await page.route(LIVE_PLAYLIST, (route) => route.fulfill({ body: m3u.join('\n') }));
+  await page.route(LIVE_GUIDE, (route) => route.fulfill({ contentType: 'application/xml', body: epg }));
+  await page.addInitScript(({ playlist, guide }) => {
+    localStorage.setItem('iptv_playlists', JSON.stringify([{ id: 'p1', name: 'P1', url: playlist }]));
+    localStorage.setItem('iptv_manual_epg_sources', JSON.stringify([{ url: guide, playlistIds: [] }]));
+    localStorage.setItem('iptv_tz_mode', JSON.stringify('device'));
+    localStorage.setItem('iptv_locale', JSON.stringify('ar'));
+  }, { playlist: LIVE_PLAYLIST, guide: LIVE_GUIDE });
+}
+
+const rightOf = (a: { x: number }, b: { x: number; width: number }): boolean => a.x >= b.x + b.width - 1;
+
+test.describe('Home', () => {
+  test.use({ startOn: 'home', timezoneId: 'UTC' });
+
+  test('the cards and header mirror, and Left and Right move on screen', async ({ page }) => {
+    await seedXtream(page);
+    await page.addInitScript(() => localStorage.setItem('iptv_locale', JSON.stringify('ar')));
+    await page.goto('/');
+    const home = page.locator('#view-home');
+    const card = (section: string) => home.locator(`[data-key="section:${section}"]`);
+    await expect(card('live')).toHaveClass(/\bfocused\b/);
+    const live = (await card('live').boundingBox())!;
+    const movies = (await card('movies').boundingBox())!;
+    const series = (await card('series').boundingBox())!;
+    // Live, the lead card, sits at the right; the rest run leftward.
+    expect(rightOf(live, movies)).toBe(true);
+    expect(rightOf(movies, series)).toBe(true);
+    expect(live.x + live.width).toBeGreaterThan(1600);
+    const brand = (await home.locator('.home-brand').boundingBox())!;
+    const clock = (await home.locator('.home-clock').boundingBox())!;
+    expect(rightOf(brand, clock)).toBe(true);
+
+    await page.keyboard.press('ArrowLeft');
+    await expect(card('movies')).toHaveClass(/\bfocused\b/);
+    await page.keyboard.press('ArrowLeft');
+    await expect(card('series')).toHaveClass(/\bfocused\b/);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await expect(card('live')).toHaveClass(/\bfocused\b/);
+  });
+});
+
+test.describe('Live and Guide', () => {
+  test.use({ startOn: 'live', timezoneId: 'UTC' });
+
+  test('Live puts the groups at the right and the preview at the left', async ({ page }) => {
+    await seedArabicLive(page);
+    await page.goto('/');
+    const view = page.locator('#view-channels');
+    const row = view.locator('.channel-main .channel-item').first();
+    await expect(row).toContainText('Program 1A');
+    const groups = (await view.locator('.group-item').first().boundingBox())!;
+    const rowBox = (await row.boundingBox())!;
+    expect(rightOf(groups, rowBox)).toBe(true);
+    // Within a row the number comes first, from the right.
+    const number = (await row.locator('.channel-number').boundingBox())!;
+    const info = (await row.locator('.channel-info').boundingBox())!;
+    expect(rightOf(number, info)).toBe(true);
+    await expect(view.locator('#live-preview')).toBeVisible();
+    const preview = (await view.locator('#live-preview').boundingBox())!;
+    expect(rightOf(rowBox, preview)).toBe(true);
+    // The video, placed by its left edge, still lands in the preview's slot.
+    const slot = (await view.locator('.live-preview-slot').boundingBox())!;
+    await expect.poll(async () => Math.round((await page.locator('#video-player').boundingBox())?.x ?? -1))
+      .toBe(Math.round(slot.x));
+
+    // Right reaches the groups, Left comes back to the list.
+    await expect(row).toHaveClass(/\bfocused\b/);
+    await page.keyboard.press('ArrowRight');
+    await expect(view.locator('.group-item.focused')).toHaveCount(1);
+    await page.keyboard.press('ArrowLeft');
+    await expect(view.locator('.channel-main .channel-item.focused')).toHaveCount(1);
+  });
+
+  test('the Guide runs time from right to left, and Left moves later', async ({ page }) => {
+    await seedArabicLive(page);
+    await page.goto('/');
+    await expect(page.locator('#view-channels .channel-main .channel-item').first())
+      .toContainText('Program 1A');
+    await openGuide(page);
+    const guide = page.locator('#live-guide');
+    const cell = (title: string) => guide.locator('.guide-cell', { hasText: title }).first();
+    const earlier = (await cell('Program 1A').boundingBox())!;
+    const later = (await cell('Program 1B').boundingBox())!;
+    expect(rightOf(earlier, later)).toBe(true);
+    // The ruler runs the same way, and the now line sits inside the live cell.
+    const time = (text: string) => guide.locator('.guide-time', { hasText: text }).first();
+    expect(rightOf((await time('12:00').boundingBox())!, (await time('13:00').boundingBox())!)).toBe(true);
+    const now = (await guide.locator('.guide-now-line i').boundingBox())!;
+    expect(now.x).toBeGreaterThan(earlier.x);
+    expect(now.x).toBeLessThan(earlier.x + earlier.width);
+    // The live cell's progress fills from its right edge.
+    const progress = (await cell('Program 1A').locator('.guide-cell-progress').boundingBox())!;
+    expect(Math.abs(progress.x + progress.width - (earlier.x + earlier.width))).toBeLessThanOrEqual(3);
+    // The channel column sits right of the grid.
+    const channel = (await guide.locator('.guide-channel').first().boundingBox())!;
+    expect(rightOf(channel, earlier)).toBe(true);
+
+    await expect(cell('Program 1A')).toHaveClass(/\bfocused\b/);
+    await page.keyboard.press('ArrowLeft');
+    await expect(cell('Program 1B')).toHaveClass(/\bfocused\b/);
+    await page.keyboard.press('ArrowRight');
+    await expect(cell('Program 1A')).toHaveClass(/\bfocused\b/);
+  });
 });
