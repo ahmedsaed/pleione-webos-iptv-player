@@ -687,17 +687,20 @@ describe('Series detail', () => {
       row.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
       view.handleAction('select');
       expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
-        title: 'Series One — س1ح6 — الحلقة 6',
+        title: 'Series One — م1ح6 — الحلقة 6',
       }));
     } finally {
       setLocale('en');
     }
   });
 
-  it('finds the series and episode in a resume label saved in Arabic', async () => {
+  it.each([
+    ['the season letter', 'م'],
+    ['the season letter saved before it was corrected', 'س'],
+  ])('finds the series and episode in an Arabic resume label with %s', async (_case, letter) => {
     catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
     storageMock.getResumeList.mockReturnValue([
-      { accountId: 'x1', kind: 'episode', itemId: 'e9', name: 'Series One — س2ح1 — الحلقة 1', poster: '', ext: 'mkv', position: 300, duration: 1600, updatedAt: 1, watchlistOwner: { kind: 'series', itemId: 's1' } },
+      { accountId: 'x1', kind: 'episode', itemId: 'e9', name: `Series One — ${letter}2ح1 — الحلقة 1`, poster: '', ext: 'mkv', position: 300, duration: 1600, updatedAt: 1, watchlistOwner: { kind: 'series', itemId: 's1' } },
     ]);
     const { view } = await openWith();
     await openDetail(view);

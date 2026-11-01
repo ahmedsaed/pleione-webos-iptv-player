@@ -178,7 +178,7 @@ export const AR_MESSAGES = {
   'catalog.season': 'الموسم {number}',
   'catalog.minutes': '{count} د',
   'catalog.episodes': 'الحلقات',
-  'catalog.episodeCode': 'س{season}ح{episode}',
+  'catalog.episodeCode': 'م{season}ح{episode}',
   'catalog.episodeShort': 'ح{episode}',
   'catalog.episodeNumber': 'الحلقة {episode}',
   'catalog.moreLikeThis': 'عناوين مشابهة',
