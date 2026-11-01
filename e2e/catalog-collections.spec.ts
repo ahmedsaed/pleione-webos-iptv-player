@@ -32,6 +32,7 @@ async function seedCollections(page: Page, count = 30): Promise<void> {
           resume[`${accountId}|${kind}|${itemId}`] = {
             accountId, kind, itemId, name: `Title ${i}`, poster: `http://host/poster/${i}`, ext: 'mp4',
             categoryId: kind === 'vod' ? '1' : '2', position: 100, duration: 600, updatedAt: n - i,
+            ...(kind === 'episode' ? { watchlistOwner: { kind: 'series' as const, itemId: '20' } } : {}),
           };
         }
       }
@@ -86,33 +87,36 @@ for (const section of ['movies', 'series'] as const) {
     const tile = grid.locator('.catalog-tile').nth(1);
     const key = await tile.getAttribute('data-key');
     await tile.click();
-    if (section === 'movies') await page.locator('#view-movies [data-action="resume"]').click();
+    await page.locator(`#view-${section} [data-action="resume"]`).click();
     await expect(page.locator('#view-player')).toBeVisible();
     await page.locator('#video-player').evaluate(video => {
       Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
       Object.defineProperty(video, 'currentTime', { configurable: true, get: () => 200 });
     });
     await leaveVod(page);
-    if (section === 'movies') await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
     await expect(grid.locator('.catalog-tile').first()).toHaveAttribute('data-key', key!);
     await expect(grid.locator('.catalog-tile.focused')).toHaveAttribute('data-key', key!);
   });
 }
 
-test('returns to a neighboring browse episode after completing direct playback', async ({ page }) => {
+test('opens the series page from a Continue Watching episode, and Back returns to the episode', async ({ page }) => {
   await seedCollections(page, 4);
   await page.goto('/');
   await enterTab(page, 'series');
   const rail = page.locator('#view-series [data-rail-key="continue"]');
-  await rail.locator('[data-resume-episode="episode2"]').click();
-  await expect(page.locator('#view-player')).toBeVisible();
-  await page.locator('#video-player').evaluate(video => {
-    Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
-    Object.defineProperty(video, 'currentTime', { configurable: true, get: () => 599 });
-  });
-  await leaveVod(page);
-  await expect(rail.locator('[data-resume-episode="episode2"]')).toHaveCount(0);
-  await expect(rail.locator('.focused')).toHaveAttribute('data-key', 'r:episode3');
+  const episode = rail.locator('[data-resume-episode="episode2"]');
+  await episode.hover();
+  await page.keyboard.press('Enter');
+  const detail = page.locator('#view-series .catalog-layer-detail');
+  await expect(detail).not.toHaveClass(/catalog-layer-hidden/);
+  await expect(detail.locator('.detail-title')).toHaveText('Series One');
+  await expect(detail.locator('[data-action="resume"]')).toBeVisible();
+  await expect(page.locator('#view-player')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#view-series .catalog-layer-browse')).not.toHaveClass(/catalog-layer-hidden/);
+  await expect(episode).toHaveClass(/focused/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
 
 test('leaves the Watchlist rail after removing its final movie from detail', async ({ page }) => {
@@ -130,17 +134,19 @@ test('leaves the Watchlist rail after removing its final movie from detail', asy
   await expect(page.locator('#view-movies .catalog-layer-browse .focused')).toHaveCount(1);
 });
 
-test('leaves the Continue rail after completing its final episode', async ({ page }) => {
+test('leaves the Continue rail after completing its final episode from the series page', async ({ page }) => {
   await seedCollections(page, 1);
   await page.goto('/');
   await enterTab(page, 'series');
   await page.locator('#view-series [data-rail-key="continue"] .catalog-tile').click();
+  await page.locator('#view-series [data-action="resume"]').click();
   await expect(page.locator('#view-player')).toBeVisible();
   await page.locator('#video-player').evaluate(video => {
     Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
     Object.defineProperty(video, 'currentTime', { configurable: true, get: () => 599 });
   });
   await leaveVod(page);
+  await page.keyboard.press('Escape');
   await expect(page.locator('#view-series [data-rail-key="continue"]')).toHaveCount(0);
   await expect(page.locator('#view-series .catalog-layer-browse .focused')).toHaveCount(1);
 });
