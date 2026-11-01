@@ -29,6 +29,8 @@
   --catalog-control: #23262f;
   --catalog-focus: #5b8cff;
   --catalog-focus-rgb: 91 140 255;
+  --card-radius: 22px;
+  --card-ring: #fff;
   --catalog-hero-scrim-rgb: 10 10 15;
   --catalog-sort-selected-bg: #007e9e;
   --focus-ring: var(--accent);
