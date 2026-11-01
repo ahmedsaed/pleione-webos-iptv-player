@@ -76,7 +76,8 @@ async function openWith(cats = [{ id: '1', name: 'Cat A' }], items = [series('s1
 }
 
 describe('Series browse + grid', () => {
-  it('returns to the neighboring episode after direct browse playback completes', async () => {
+  // An entry saved before resume points named their series.
+  it('plays an episode saved without its series directly, returning to its neighbor once it completes', async () => {
     const entries = ['e1', 'e2', 'e3', 'e4'].map((itemId, i) => ({
       accountId: 'x1', kind: 'episode', itemId, name: `Title ${i}`, poster: '', ext: 'mp4',
       position: 100, duration: 600, updatedAt: 4 - i,
@@ -92,43 +93,79 @@ describe('Series browse + grid', () => {
     expect(container.querySelector('.catalog-layer-browse .focused')?.getAttribute('data-key')).toBe('r:e4');
   });
 
-  it('leaves the collection when playback completes its final episode', async () => {
-    storageMock.getResumeList.mockReturnValue([{
-      accountId: 'x1', kind: 'episode', itemId: 'e1', name: 'Title 1', poster: '', ext: 'mp4',
-      position: 100, duration: 600, updatedAt: 1,
-    }]);
-    const { view } = await openWith();
-    container.querySelector<HTMLElement>('[data-collection-manage="continue"]')!.click();
-    view.handleAction('back');
-    const episode = container.querySelector<HTMLElement>('.catalog-layer-grid [data-resume-episode]')!;
-    episode.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+  // Two episodes of one series, the older one picked.
+  const owned = () => ['e2', 'e1'].map((itemId, i) => ({
+    accountId: 'x1', kind: 'episode', itemId, ext: 'mp4', poster: '',
+    name: itemId === 'e2' ? 'Series One — S2E1 — Episode Two' : 'Series One — S1E1 — Episode One',
+    position: 300, duration: 1500, updatedAt: 2 - i, categoryId: '1',
+    watchlistOwner: { kind: 'series', itemId: 's1' },
+  }));
+  function useResume(entries: ReturnType<typeof owned>): void {
+    storageMock.getResumeList.mockReturnValue(entries);
+    (storageMock.getResume as ReturnType<typeof vi.fn>).mockImplementation(
+      (_account: string, _kind: string, id: string) => entries.find(entry => entry.itemId === id) ?? null);
+  }
+  const browseFocus = () => container.querySelector('.catalog-layer-browse .focused')?.getAttribute('data-key');
+
+  it('opens the series page from a Continue Watching episode, with Resume on that episode', async () => {
+    const entries = owned();
+    useResume(entries);
+    catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+    const { view, handlers } = await openWith();
+    container.querySelector<HTMLElement>('[data-rail-key="continue"] [data-resume-episode="e1"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
-    storageMock.getResumeList.mockReturnValue([]);
+    await Promise.resolve(); await Promise.resolve();
+    expect(handlers.onPlayVod).not.toHaveBeenCalled();
+    expect(catalogMock.loadSeriesInfo).toHaveBeenCalledWith(account, 's1', expect.anything());
+    expect(container.querySelector('.catalog-layer-detail .detail-title')?.textContent).toBe('Series One');
+    const resume = container.querySelector<HTMLElement>('[data-action="resume"]')!;
+    expect(resume.textContent).toContain('Resume S1 · E1');
+    resume.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e1', resumeSecs: 300 }));
+
+    // Playback moved the episode to the front; Back lands on it in the rail.
+    useResume([{ ...entries[1], updatedAt: 3 }, entries[0]]);
     view.refreshPlaybackState();
-    expect(container.querySelector('.catalog-layer-grid')?.textContent).toBe('');
-    expect(container.querySelector('[data-rail-key="continue"]')).toBeNull();
-    expect(container.querySelector('.catalog-layer-browse .focused')).not.toBeNull();
+    view.handleAction('back');
+    expect(container.querySelector('.catalog-layer-browse')?.classList.contains('catalog-layer-hidden')).toBe(false);
+    expect(container.querySelector('[data-rail-key="continue"] .catalog-tile')?.getAttribute('data-key')).toBe('r:e1');
+    expect(browseFocus()).toBe('r:e1');
   });
 
-  it('keeps the resumed episode focused when playback moves it to the front of the collection', async () => {
-    const entries = ['e1', 'e2', 'e3'].map((itemId, i) => ({
-      accountId: 'x1', kind: 'episode', itemId, name: `Title ${i}`, poster: '', ext: 'mp4',
-      position: 100, duration: 600, updatedAt: 3 - i,
-    }));
-    storageMock.getResumeList.mockReturnValue(entries);
-    const { view, handlers } = await openWith();
-    const manage = container.querySelector<HTMLElement>('[data-collection-manage="continue"]')!;
-    manage.click();
-    view.handleAction('back');
-    const episode = container.querySelector<HTMLElement>('.catalog-layer-grid [data-resume-episode="e2"]')!;
-    episode.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+  it('names a series missing from the loaded rails from its episode', async () => {
+    useResume(owned());
+    catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+    const { view } = await openWith([], []);
+    container.querySelector<HTMLElement>('[data-resume-episode="e2"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
-    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e2' }));
-    storageMock.getResumeList.mockReturnValue([entries[1], entries[0], entries[2]]);
+    await Promise.resolve(); await Promise.resolve();
+    expect(catalogMock.loadSeriesInfo).toHaveBeenCalledWith(account, 's1', expect.anything());
+    expect(container.querySelector('.catalog-layer-detail .detail-title')?.textContent).toBe('Series One');
+    expect(container.querySelector('[data-action="resume"]')?.textContent).toContain('Resume S2 · E1');
+    view.handleAction('back');
+    expect(browseFocus()).toBe('r:e2');
+  });
+
+  it('leaves the Continue rail when its only episode completes from the series page', async () => {
+    useResume(owned().slice(1));
+    catalogMock.loadSeriesInfo.mockResolvedValue(SERIES_INFO);
+    const { view, handlers } = await openWith();
+    container.querySelector<HTMLElement>('[data-resume-episode="e1"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    await Promise.resolve(); await Promise.resolve();
+    container.querySelector<HTMLElement>('[data-action="resume"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'e1' }));
+    useResume([]);
     view.refreshPlaybackState();
-    expect(container.querySelector('.catalog-layer-grid .focused')?.getAttribute('data-key')).toBe('r:e2');
-    expect(container.querySelector('.catalog-layer-grid .focused')?.closest('[data-grid-index]')
-      ?.getAttribute('data-grid-index')).toBe('0');
+    view.handleAction('back');
+    expect(container.querySelector('[data-rail-key="continue"]')).toBeNull();
+    expect(container.querySelector('.catalog-layer-browse .focused')).not.toBeNull();
   });
 
   // Past RAIL_CATEGORIES, so All categories opens a category page, where sorting lives.
@@ -802,9 +839,16 @@ describe('Series detail', () => {
         watchlistOwner: { kind: 'series', itemId: 's1' },
       },
     ]);
+    // The episodes failed to load, so Resume plays the saved entry as stored.
+    catalogMock.loadSeriesInfo.mockResolvedValue(null);
     const { view, handlers } = await openWith();
     const tile = container.querySelector('.catalog-tile[data-resume-episode="e1"]') as HTMLElement;
     tile.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
+    view.handleAction('select');
+    await Promise.resolve(); await Promise.resolve();
+    expect(handlers.onPlayVod).not.toHaveBeenCalled();
+    container.querySelector<HTMLElement>('[data-action="resume"]')!
+      .dispatchEvent(new CustomEvent('nav:hover', { bubbles: true }));
     view.handleAction('select');
     expect(handlers.onPlayVod).toHaveBeenCalledWith(expect.objectContaining({
       episodeQueue: [next],

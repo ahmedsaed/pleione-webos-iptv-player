@@ -1,5 +1,5 @@
 import type { Action, PlaylistEntry, SeriesCategory, SeriesItem, SeriesInfo, Episode, ResumeEntry, ResumeKind, VodQueueItem, WatchlistEntry } from '../types';
-import { html, raw, Safe } from '../utils/dom';
+import { html, Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { StorageService } from '../services/storage-service';
 import { loadSeriesCategories, loadSeries, loadSeriesInfo } from '../services/xtream-catalog';
@@ -37,6 +37,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
 
   private currentSeries: SeriesItem | null = null;
   private currentInfo: SeriesInfo | null = null;
+  private pinnedResume: string | null = null;
   private selectedSeason = 0;
   private detailLoading = false;
   private detailController: AbortController | null = null;
@@ -77,6 +78,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     this.detailController?.abort();
     this.detailController = null;
     this.currentSeries = null;
+    this.pinnedResume = null;
   }
   protected onRequestSessionReset(): void {
     this.detailController?.abort();
@@ -87,15 +89,14 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     if (kind === 'continue') {
       return this.resume.map(entry => ({
         id: entry.itemId, key: `r:${entry.itemId}`,
-        tile: managing => this.resumeTile(entry, managing),
+        tile: () => this.resumeTile(entry),
       }));
     }
     return this.visibleWatchlist('series').map(entry => {
       const series = this.watchlistEntryToSeries(entry);
-      const key = `i:${series.categoryId}:${series.seriesId}`;
       return {
-        id: entry.itemId, key,
-        tile: managing => this.tile(series, this.removeMark(managing, key), managing),
+        id: entry.itemId, key: `i:${series.categoryId}:${series.seriesId}`,
+        tile: () => this.tile(series),
       };
     });
   }
@@ -134,10 +135,28 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     if (el.dataset.action === 'resume') { this.resumeSeries(); return true; }
     if (el.dataset.action === 'play') { this.playFirstEpisode(); return true; }
     if (el.dataset.action === 'restart') { this.restartSeries(); return true; }
-    if (el.dataset.resumeEpisode !== undefined) { this.playResume(el.dataset.resumeEpisode); return true; }
+    if (el.dataset.resumeEpisode !== undefined) { this.openResumed(el.dataset.resumeEpisode); return true; }
     if (el.dataset.season !== undefined) { this.selectSeason(Number(el.dataset.season)); return true; }
     if (el.dataset.episodeId !== undefined) { this.playEpisode(el.dataset.episodeId); return true; }
     return false;
+  }
+
+  // A Continue Watching episode opens its series' page, whose Resume plays
+  // that episode. An entry saved without its series still plays directly.
+  private openResumed(episodeId: string): void {
+    const entry = this.resume.find((e) => e.itemId === episodeId);
+    const seriesId = entry?.watchlistOwner?.itemId;
+    if (!entry || !seriesId) {
+      this.playResume(episodeId);
+      return;
+    }
+    const code = RESUME_CODE.exec(entry.name);
+    const name = code ? entry.name.slice(0, code.index).replace(/[\s—–-]+$/, '') : '';
+    const series = this.findItem(entry.categoryId ?? '', seriesId) ?? {
+      accountId: entry.accountId, seriesId, name: name || entry.name, poster: entry.poster,
+      rating: '', categoryId: entry.categoryId ?? '',
+    };
+    void this.openDetail(series, episodeId);
   }
 
   private toggleWatchlist(): void {
@@ -159,13 +178,16 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     this.renderDetail();
   }
 
-  protected async openDetail(series: SeriesItem): Promise<void> {
+  // `resumeEpisodeId`: the episode Resume plays while it has a resume point,
+  // instead of the series' latest one.
+  protected async openDetail(series: SeriesItem, resumeEpisodeId: string | null = null): Promise<void> {
     const account = this.account;
     if (!account || !this.requestSignal) return;
     this.detailController?.abort();
     this.detailController = new AbortController();
     const signal = this.detailController.signal;
     this.currentSeries = series;
+    this.pinnedResume = resumeEpisodeId;
     this.enterDetail();
     this.currentInfo = null;
     this.selectedSeason = 0;
@@ -248,6 +270,7 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
       if (entry.kind !== 'episode') continue;
       const episode = this.findEpisode(entry.itemId);
       if (!episode && entry.watchlistOwner?.itemId !== series.seriesId) continue;
+      if (entry.itemId === this.pinnedResume) return { entry, episode };
       if (!best || entry.updatedAt > best.entry.updatedAt) best = { entry, episode };
     }
     return best;
@@ -377,12 +400,12 @@ export class Series extends CatalogView<SeriesCategory, SeriesItem> {
     });
   }
 
-  private resumeTile(r: ResumeEntry, managing = false): Safe {
+  private resumeTile(r: ResumeEntry): Safe {
     return html`
-      <div class="catalog-tile" ${raw(managing ? '' : 'data-focusable')} data-key="r:${r.itemId}" data-resume-episode="${r.itemId}">
+      <div class="catalog-tile" data-focusable data-key="r:${r.itemId}" data-resume-episode="${r.itemId}">
         <div class="catalog-poster-wrap">${this.posterCell(r.name, r.poster)}${
           this.itemLockBadge(r.categoryId ?? '', r.watchlistOwner?.itemId ?? r.itemId)}${
-          this.progressBar(r.position, r.duration)}${this.removeMark(managing, `r:${r.itemId}`)}</div>
+          this.progressBar(r.position, r.duration)}</div>
         <div class="catalog-tile-name">${r.name}</div>
       </div>
     `;

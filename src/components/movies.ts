@@ -1,5 +1,5 @@
 import type { PlaylistEntry, VodCategory, VodItem, VodInfo, ResumeKind, WatchlistEntry, VodQueueItem } from '../types';
-import { html, raw, Safe } from '../utils/dom';
+import { html, Safe } from '../utils/dom';
 import { morph } from '../utils/morph';
 import { StorageService } from '../services/storage-service';
 import { loadVodCategories, loadVodStreams, loadVodInfo } from '../services/xtream-catalog';
@@ -118,29 +118,26 @@ export class Movies extends CatalogView<VodCategory, VodItem> {
     if (kind === 'continue') {
       return this.resume.map(entry => {
         const vod = this.resumeToVod(entry.itemId)!;
-        const key = `i:${vod.categoryId}:${vod.streamId}`;
         return {
-          id: entry.itemId, key,
-          tile: managing => this.tile(vod, html`
-            ${this.progressBar(entry.position, entry.duration)}${this.removeMark(managing, key)}
-          `, managing),
+          id: entry.itemId, key: `i:${vod.categoryId}:${vod.streamId}`,
+          tile: () => this.tile(vod, this.progressBar(entry.position, entry.duration)),
         };
       });
     }
     return this.visibleWatchlist('vod').map(entry => ({
       id: entry.itemId, key: `w:${entry.itemId}`,
-      tile: managing => this.watchlistTile(entry, managing),
+      tile: () => this.watchlistTile(entry),
     }));
   }
 
-  private watchlistTile(entry: WatchlistEntry, managing = false): Safe {
+  private watchlistTile(entry: WatchlistEntry): Safe {
     const vod = this.watchlistEntryToVod(entry);
     return html`
-      <div class="catalog-tile" ${raw(managing ? '' : 'data-focusable')} data-key="w:${vod.streamId}"
+      <div class="catalog-tile" data-focusable data-key="w:${vod.streamId}"
            data-item-id="${vod.streamId}" data-category-id="${vod.categoryId}"
            data-watchlist-item="${vod.streamId}">
         <div class="catalog-poster-wrap">${this.posterCell(vod.name, vod.poster)}${
-          this.itemLockBadge(vod.categoryId, vod.streamId)}${this.removeMark(managing, `w:${vod.streamId}`)}</div>
+          this.itemLockBadge(vod.categoryId, vod.streamId)}</div>
         <div class="catalog-tile-name">${vod.name}</div>
       </div>
     `;

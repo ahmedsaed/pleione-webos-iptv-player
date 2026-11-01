@@ -130,8 +130,6 @@ html.q-no-flex-gap .catalog-rail-head.detail-rail-head > * + * { margin-left: 28
 html.q-no-flex-gap .detail-rail .catalog-rail-track > * + * { margin-left: 28px; }
 html.q-no-flex-gap .series-seasons > * + * { margin-left: 10px; }
 html.q-no-flex-gap .catalog-rail-head > * + * { margin-left: 24px; }
-html.q-no-flex-gap .catalog-collection-actions > * + * { margin-left: 16px; }
-html.q-no-flex-gap .btn.catalog-collection-button > * + * { margin-left: 12px; }
 html.q-no-flex-gap .account-menu-item > * + * { margin-left: 16px; }
 html.q-no-flex-gap .parental-header > * + * { margin-left: 32px; }
 html.q-no-flex-gap .parental-heading > * + * { margin-left: 32px; }

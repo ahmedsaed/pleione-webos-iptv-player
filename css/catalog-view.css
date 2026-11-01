@@ -491,45 +491,6 @@ html[data-animation="reduced"] .detail-btn { transition: transform var(--transit
 
 .catalog-rail-head { display: flex; align-items: center; gap: 24px; margin-bottom: 12px; }
 .catalog-rail-head .catalog-rail-title { margin: 0; }
-.catalog-collection-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
-}
-.btn.catalog-collection-button {
-  box-sizing: border-box;
-  gap: 12px;
-  font-weight: 500;
-}
-.catalog-action-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 auto;
-}
-.catalog-action-icon svg { width: 100%; height: 100%; }
-.btn.catalog-collection-manage,
-.btn.catalog-collection-clear {
-  background: transparent;
-  border-color: transparent;
-  color: var(--text-secondary);
-}
-.btn.catalog-collection-manage.focused,
-.btn.catalog-collection-clear.focused {
-  background: var(--bg-tertiary);
-  border-color: var(--focus-ring);
-  color: var(--text-primary);
-}
-.catalog-collection-manage .catalog-action-icon { color: var(--text-muted); }
-.catalog-collection-manage.focused .catalog-action-icon { color: var(--accent); }
-/* Align the label with the posters while retaining the button's hit padding. */
-.btn.catalog-collection-clear { margin-left: auto; margin-right: -26px; }
-.catalog-collection-clear .catalog-action-icon { color: var(--danger); }
-.catalog-grid.catalog-managing { height: calc(100% - var(--legend-height)); }
-.edit-hints.catalog-manage-hints { left: 0; height: var(--legend-height); box-sizing: border-box; padding: 0 80px; }
 .catalog-progress {
   position: absolute;
   right: 0;
@@ -539,28 +500,3 @@ html[data-animation="reduced"] .detail-btn { transition: transform var(--transit
   background: var(--bg-tertiary);
 }
 .catalog-progress-fill { height: 100%; background: var(--accent); }
-.catalog-remove-mark {
-  position: absolute;
-  top: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* The 28px mark in a full-size pointer target. */
-  width: var(--control-height);
-  height: var(--control-height);
-  padding: 22px;
-  box-sizing: border-box;
-  background: transparent;
-  border: 2px solid transparent;
-  border-radius: var(--radius);
-  color: var(--danger);
-}
-.catalog-managing .catalog-tile { cursor: default; }
-.catalog-remove-mark.focused { border-color: transparent !important; box-shadow: none; }
-.catalog-remove-mark.focused circle { fill: var(--danger); }
-.catalog-remove-mark.focused path { stroke: #fff; }
-.catalog-poster-wrap .lock-badge ~ .catalog-remove-mark { right: 42px; }
-/* The lock sits on the remove mark's midline while both show. */
-.catalog-managing .catalog-poster-wrap .lock-badge { top: 18px; }
-.catalog-remove-mark svg { width: 100%; height: 100%; }

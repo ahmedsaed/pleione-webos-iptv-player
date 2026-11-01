@@ -135,13 +135,6 @@ test('Movies grids, Continue Watching, and the space around artwork sit on the s
   await page.keyboard.press('Escape');
   await expect(page.locator('#view-movies .catalog-layer-browse')).not.toHaveClass(/catalog-layer-hidden/);
 
-  await page.locator('#view-movies [data-collection-manage="continue"]').click();
-  await expect(page.locator('#view-movies [data-collection-action="remove"]').first()).toBeVisible();
-  await expectBackdrop(page, '#view-movies', 'movies', ['.catalog-layer-grid .catalog-view']);
-  await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#view-movies .catalog-layer-browse')).not.toHaveClass(/catalog-layer-hidden/);
-
   await page.locator('#view-movies .catalog-tile[data-item-id="10"]').first().click();
   await expectBackdrop(page, '#view-movies', 'movies', ['.catalog-detail']);
 });

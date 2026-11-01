@@ -611,26 +611,27 @@ export class PlayerOsd {
     `;
   }
 
-  // The dock's buttons: playback on the left (with the focused control's name
-  // beside it), stream choices on the right.
+  // The dock's buttons: the transport (previous, play/pause, next) centered,
+  // the channel's own controls on the left, stream choices on the right.
   private controlsRow(state: PlayerOsdSnapshot): Safe {
     const c = state.controls;
     const paused = state.playback?.paused ?? false;
     const start: Safe[] = [];
-    if (c.episodes) {
-      start.push(this.control('previous', PREVIOUS_ICON, t('player.previousEpisode'), !c.episodes.previous));
-    }
-    if (c.pausable) {
-      start.push(this.control('playpause', paused ? PLAY_ICON : PAUSE_ICON,
-        t(paused ? 'player.play' : 'player.pause')));
-    }
-    if (c.episodes) {
-      start.push(this.control('next', NEXT_ICON, t('player.nextEpisode'), !c.episodes.next));
-    }
     if (c.favorite !== null) {
       start.push(this.control('favorite', favoriteIcon(c.favorite), t('player.toggleFavorite'), false,
         c.favorite));
       start.push(this.control('info', INFO_ICON, t('player.channelInfo'), false, this.expanded));
+    }
+    const center: Safe[] = [];
+    if (c.episodes) {
+      center.push(this.control('previous', PREVIOUS_ICON, t('player.previousEpisode'), !c.episodes.previous));
+    }
+    if (c.pausable) {
+      center.push(this.control('playpause', paused ? PLAY_ICON : PAUSE_ICON,
+        t(paused ? 'player.play' : 'player.pause')));
+    }
+    if (c.episodes) {
+      center.push(this.control('next', NEXT_ICON, t('player.nextEpisode'), !c.episodes.next));
     }
     const end: Safe[] = [];
     if (c.audio) end.push(this.control('audio', AUDIO_ICON, t('player.audioTrack')));
@@ -646,12 +647,25 @@ export class PlayerOsd {
     };
     const named = this.active ? this.focusKey : this.hoverKey;
     const caption = named ? labels[named] ?? '' : '';
+    // The name sits beside its group: after the left one, before the right
+    // one, and just left of the centered transport.
     const endFocused = named === 'audio' || named === 'subtitles';
+    const centerFocused = named === 'previous' || named === 'playpause' || named === 'next';
+    const label = html`
+      <div class="osd-control-caption ${endFocused ? 'osd-control-caption--end' : ''}${
+        centerFocused ? 'osd-control-caption--center' : ''}">${caption}</div>
+    `;
     return html`
       <div class="osd-controls" data-dock-row>
-        <div class="osd-controls-group">${start}</div>
-        <div class="osd-control-caption ${endFocused ? 'osd-control-caption--end' : ''}">${caption}</div>
-        <div class="osd-controls-group">${end}</div>
+        <div class="osd-controls-side">
+          <div class="osd-controls-group">${start}</div>
+          ${endFocused ? '' : label}
+        </div>
+        <div class="osd-controls-group osd-controls-center">${center}</div>
+        <div class="osd-controls-side osd-controls-side--end">
+          ${endFocused ? label : ''}
+          <div class="osd-controls-group">${end}</div>
+        </div>
       </div>
     `;
   }

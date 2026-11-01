@@ -1,6 +1,5 @@
 import { test, expect, enterTab, leaveVod, readUserDataStore, type Page } from './helpers';
 import { seedXtream } from './fixtures/xtream';
-import { THEMES } from '../src/config/themes';
 import type { ResumeEntry, WatchlistEntry } from '../src/types';
 
 // Opened from Home's Live card after every load (see `startOn`).
@@ -33,6 +32,7 @@ async function seedCollections(page: Page, count = 30): Promise<void> {
           resume[`${accountId}|${kind}|${itemId}`] = {
             accountId, kind, itemId, name: `Title ${i}`, poster: `http://host/poster/${i}`, ext: 'mp4',
             categoryId: kind === 'vod' ? '1' : '2', position: 100, duration: 600, updatedAt: n - i,
+            ...(kind === 'episode' ? { watchlistOwner: { kind: 'series' as const, itemId: '20' } } : {}),
           };
         }
       }
@@ -47,83 +47,35 @@ const layer = (page: Page, section = 'movies') =>
 
 for (const section of ['movies', 'series'] as const) {
   for (const collection of ['continue', 'watchlist'] as const) {
-    test(`${section} ${collection}: counted preview, independent removal, and remote navigation`, async ({ page }) => {
+    test(`${section} ${collection}: counted preview, a See all grid without editing, and remote navigation`, async ({ page }) => {
       await seedCollections(page);
       await page.goto('/');
       await enterTab(page, section);
       const rail = page.locator(`#view-${section} [data-rail-key="${collection}"]`);
       await expect(rail.locator('.catalog-tile:not(.catalog-see-all)')).toHaveCount(10);
       await expect(rail.locator('.catalog-see-all-count')).toContainText('30');
-      await rail.locator('[data-collection-see-all]').click();
+      await expect(rail.locator('button')).toHaveCount(0);
+      const seeAll = rail.locator('[data-collection-see-all]');
+      await seeAll.click();
       const grid = layer(page, section);
       await expect(grid.locator('.catalog-grid-title')).toContainText('30');
       if (section === 'series' && collection === 'continue') {
         await expect(grid.locator('.catalog-grid-count')).toHaveText('30 episodes');
       }
       await expect(grid.locator('.catalog-sort')).toHaveCount(0);
-      await grid.locator('[data-collection-action="manage"]').click();
-      await expect(grid.locator('.catalog-tile[data-focusable]')).toHaveCount(0);
-      const removes = grid.locator('[data-collection-action="remove"]');
-      await removes.first().hover();
-      await expect(removes.first()).toHaveClass(/focused/);
-      await grid.locator('.catalog-poster').first().click({ position: { x: 50, y: 180 } });
-      await expect(grid.locator('.catalog-grid-count')).toContainText('30');
-      await expect(removes).toHaveCount(30);
-      await removes.first().click();
-      await expect(grid.locator('.catalog-grid-count')).toContainText('29');
-      await removes.first().hover();
+      await expect(grid.locator('button')).toHaveCount(0);
+      await expect(page.locator(`#view-${section} .edit-hints`)).toHaveCount(0);
+      const tiles = grid.locator('.catalog-tile[data-focusable]');
+      await tiles.first().hover();
+      await expect(tiles.first()).toHaveClass(/focused/);
       await page.keyboard.press('ArrowRight');
-      await expect(removes.nth(1)).toHaveClass(/focused/);
-      await page.keyboard.press('Enter');
-      await expect(grid.locator('.catalog-grid-count')).toContainText('28');
-      await expect(removes.nth(1)).toHaveClass(/focused/);
+      await expect(tiles.nth(1)).toHaveClass(/focused/);
       await page.keyboard.press('Escape');
-      await expect(removes).toHaveCount(0);
-      await expect(grid.locator('[data-collection-action="manage"]')).toHaveClass(/focused/);
-      await page.keyboard.press('Escape');
-      await expect(rail.locator('[data-collection-manage]')).toBeVisible();
-      const store = collection === 'continue' ? 'playback-progress' : 'watchlist';
-      const kind = section === 'movies' ? 'vod' : collection === 'continue' ? 'episode' : 'series';
-      await expect.poll(async () => (await readUserDataStore<ResumeEntry | WatchlistEntry>(page, store))
-        .filter(row => row.value.accountId === 'x1' && row.value.kind === kind).length).toBe(28);
-      await page.reload();
-      await enterTab(page, section);
-      await expect(rail.locator('.catalog-see-all-count')).toContainText('28');
+      await expect(page.locator(`#view-${section} .catalog-layer-browse`)).not.toHaveClass(/catalog-layer-hidden/);
+      await expect(seeAll).toHaveClass(/focused/);
     });
   }
 }
-
-test('clears only the visible account and kind, preserves the other collection, and cancels safely', async ({ page }) => {
-  await seedCollections(page);
-  await page.goto('/');
-  await enterTab(page, 'movies');
-  await page.locator('#view-movies [data-collection-manage="watchlist"]').click();
-  const grid = layer(page);
-  await grid.locator('[data-collection-action="clear"]').click();
-  const prompt = page.locator('.confirmation-prompt:not(.hidden)');
-  await expect(prompt).toContainText('X Account');
-  await expect(prompt).toContainText('(Movies)');
-  await expect(prompt.locator('[data-confirm-action="cancel"]')).toHaveClass(/focused/);
-  await expect(grid.locator('.focused')).toHaveCount(0);
-  await page.mouse.move(200, 300);
-  await expect(grid.locator('.focused')).toHaveCount(0);
-  await page.keyboard.press('Escape');
-  await expect(grid.locator('.catalog-grid-count')).toContainText('30');
-  await expect(grid.locator('[data-collection-action="clear"]')).toHaveClass(/focused/);
-  await grid.locator('[data-collection-action="clear"]').click();
-  await prompt.locator('[data-confirm-action="confirm"]').click();
-  await expect(page.locator('#view-movies [data-rail-key="watchlist"]')).toHaveCount(0);
-  await expect.poll(async () => {
-    const rows = await readUserDataStore<WatchlistEntry>(page, 'watchlist');
-    return rows.filter(row => row.value.accountId === 'x1' && row.value.kind === 'vod').length;
-  }).toBe(0);
-  const rows = await readUserDataStore<WatchlistEntry>(page, 'watchlist');
-  expect(rows.filter(row => row.value.accountId === 'x1' && row.value.kind === 'series')).toHaveLength(30);
-  expect(rows.filter(row => row.value.accountId === 'x2')).toHaveLength(2);
-  expect(await readUserDataStore(page, 'playback-progress')).toHaveLength(62);
-  // RAIL_ITEMS titles and the See all tile.
-  await expect(page.locator('#view-movies [data-rail-key="continue"] .catalog-tile')).toHaveCount(11);
-});
 
 for (const section of ['movies', 'series'] as const) {
   test(`${section}: returns to the same collection title after playback changes its order`, async ({ page }) => {
@@ -135,71 +87,66 @@ for (const section of ['movies', 'series'] as const) {
     const tile = grid.locator('.catalog-tile').nth(1);
     const key = await tile.getAttribute('data-key');
     await tile.click();
-    if (section === 'movies') await page.locator('#view-movies [data-action="resume"]').click();
+    await page.locator(`#view-${section} [data-action="resume"]`).click();
     await expect(page.locator('#view-player')).toBeVisible();
     await page.locator('#video-player').evaluate(video => {
       Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
       Object.defineProperty(video, 'currentTime', { configurable: true, get: () => 200 });
     });
     await leaveVod(page);
-    if (section === 'movies') await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
     await expect(grid.locator('.catalog-tile').first()).toHaveAttribute('data-key', key!);
     await expect(grid.locator('.catalog-tile.focused')).toHaveAttribute('data-key', key!);
   });
 }
 
-test('returns to a neighboring browse episode after completing direct playback', async ({ page }) => {
+test('opens the series page from a Continue Watching episode, and Back returns to the episode', async ({ page }) => {
   await seedCollections(page, 4);
   await page.goto('/');
   await enterTab(page, 'series');
   const rail = page.locator('#view-series [data-rail-key="continue"]');
-  await rail.locator('[data-resume-episode="episode2"]').click();
-  await expect(page.locator('#view-player')).toBeVisible();
-  await page.locator('#video-player').evaluate(video => {
-    Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
-    Object.defineProperty(video, 'currentTime', { configurable: true, get: () => 599 });
-  });
-  await leaveVod(page);
-  await expect(rail.locator('[data-resume-episode="episode2"]')).toHaveCount(0);
-  await expect(rail.locator('.focused')).toHaveAttribute('data-key', 'r:episode3');
+  const episode = rail.locator('[data-resume-episode="episode2"]');
+  await episode.hover();
+  await page.keyboard.press('Enter');
+  const detail = page.locator('#view-series .catalog-layer-detail');
+  await expect(detail).not.toHaveClass(/catalog-layer-hidden/);
+  await expect(detail.locator('.detail-title')).toHaveText('Series One');
+  await expect(detail.locator('[data-action="resume"]')).toBeVisible();
+  await expect(page.locator('#view-player')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#view-series .catalog-layer-browse')).not.toHaveClass(/catalog-layer-hidden/);
+  await expect(episode).toHaveClass(/focused/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
 
-for (const collection of ['watchlist'] as const) {
-  test(`leaves an emptied ${collection} grid after removing its final movie from detail`, async ({ page }) => {
-    await seedCollections(page, 1);
-    await page.goto('/');
-    await enterTab(page, 'movies');
-    await page.locator(`#view-movies [data-collection-manage="${collection}"]`).click();
-    await page.keyboard.press('Escape');
-    const grid = layer(page);
-    await grid.locator('.catalog-tile').click();
-    const action = page.locator('#view-movies [data-action="watchlist"]');
-    await action.click();
-    await expect(action).toHaveAttribute('aria-pressed', 'false');
-    await page.keyboard.press('Escape');
-    await expect(grid).toBeEmpty();
-    await expect(page.locator(`#view-movies [data-rail-key="${collection}"]`)).toHaveCount(0);
-    await expect(page.locator('#view-movies .catalog-layer-browse .focused')).toHaveCount(1);
-    await page.keyboard.press('ArrowRight');
-    await expect(page.locator('#view-movies .catalog-layer-browse .focused')).toHaveCount(1);
-  });
-}
+test('leaves the Watchlist rail after removing its final movie from detail', async ({ page }) => {
+  await seedCollections(page, 1);
+  await page.goto('/');
+  await enterTab(page, 'movies');
+  await page.locator('#view-movies [data-rail-key="watchlist"] .catalog-tile').click();
+  const action = page.locator('#view-movies [data-action="watchlist"]');
+  await action.click();
+  await expect(action).toHaveAttribute('aria-pressed', 'false');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#view-movies [data-rail-key="watchlist"]')).toHaveCount(0);
+  await expect(page.locator('#view-movies .catalog-layer-browse .focused')).toHaveCount(1);
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#view-movies .catalog-layer-browse .focused')).toHaveCount(1);
+});
 
-test('leaves an emptied collection after completing its final episode', async ({ page }) => {
+test('leaves the Continue rail after completing its final episode from the series page', async ({ page }) => {
   await seedCollections(page, 1);
   await page.goto('/');
   await enterTab(page, 'series');
-  await page.locator('#view-series [data-collection-manage="continue"]').click();
-  await page.keyboard.press('Escape');
-  const grid = layer(page, 'series');
-  await grid.locator('.catalog-tile').click();
+  await page.locator('#view-series [data-rail-key="continue"] .catalog-tile').click();
+  await page.locator('#view-series [data-action="resume"]').click();
   await expect(page.locator('#view-player')).toBeVisible();
   await page.locator('#video-player').evaluate(video => {
     Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
     Object.defineProperty(video, 'currentTime', { configurable: true, get: () => 599 });
   });
   await leaveVod(page);
-  await expect(grid).toBeEmpty();
+  await page.keyboard.press('Escape');
   await expect(page.locator('#view-series [data-rail-key="continue"]')).toHaveCount(0);
   await expect(page.locator('#view-series .catalog-layer-browse .focused')).toHaveCount(1);
 });
@@ -245,32 +192,32 @@ test('refreshes concealed collection counts when the unlock session expires with
   await expect(page.locator('#view-settings .focused')).toHaveCount(1);
 });
 
-test('keeps one ring through virtualized deletion and management exit', async ({ page }) => {
+test('keeps one ring through a virtualized collection grid and back to its rail', async ({ page }) => {
   await seedCollections(page, 200);
   await page.goto('/');
   await enterTab(page, 'movies');
-  await page.locator('#view-movies [data-collection-manage="watchlist"]').click();
+  const seeAll = page.locator('#view-movies [data-rail-key="watchlist"] [data-collection-see-all]');
+  await seeAll.click();
   const grid = layer(page);
-  await grid.locator('[data-collection-action="remove"]').first().hover();
+  await grid.locator('.catalog-tile[data-focusable]').first().hover();
   for (let i = 0; i < 32; i++) await page.keyboard.press('ArrowDown');
-  await expect(grid.locator('.catalog-remove-mark.focused')).toHaveAttribute('data-key', 'w:vod196');
+  await expect(grid.locator('.catalog-tile.focused')).toHaveAttribute('data-key', 'w:vod196');
   for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
-  await expect(grid.locator('.catalog-remove-mark.focused')).toHaveAttribute('data-key', 'w:vod199');
-  expect(await grid.locator('.catalog-remove-mark').count()).toBeLessThan(50);
-  await page.keyboard.press('Enter');
-  await expect(grid.locator('.catalog-remove-mark.focused')).toHaveAttribute('data-key', 'w:vod198');
+  await expect(grid.locator('.catalog-tile.focused')).toHaveAttribute('data-key', 'w:vod199');
+  expect(await grid.locator('.catalog-tile').count()).toBeLessThan(50);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
   await page.keyboard.press('Escape');
-  await expect(grid.locator('[data-collection-action="manage"]')).toHaveClass(/focused/);
+  await expect(seeAll).toHaveClass(/focused/);
   await expect(page.locator('.focused:visible')).toHaveCount(1);
 });
 
-test('leaves a managed collection where each spaced wheel step stops it', async ({ page }) => {
+test('leaves a collection grid where each spaced wheel step stops it', async ({ page }) => {
   await seedCollections(page, 35);
   await page.goto('/');
   await enterTab(page, 'series');
-  await page.locator('#view-series [data-collection-manage="continue"]').click();
+  await page.locator('#view-series [data-rail-key="continue"] [data-collection-see-all]').click();
   const grid = layer(page, 'series');
-  const view = grid.locator('.catalog-grid.catalog-managing');
+  const view = grid.locator('.catalog-grid');
   await expect(view).toBeVisible();
   await page.mouse.move(700, 600);
   // Only the wheel may move the grid while the pointer rests.
@@ -319,65 +266,3 @@ test('rejects a full Watchlist without replacing saved titles and shows an actio
   expect(rows.some(row => row.value.itemId === '10')).toBe(false);
 });
 
-test('offers management for a single title and returns to browse after its removal', async ({ page }) => {
-  await seedCollections(page, 1);
-  await page.goto('/');
-  await enterTab(page, 'series');
-  const rail = page.locator('#view-series [data-rail-key="continue"]');
-  await expect(rail.locator('.catalog-see-all')).toHaveCount(0);
-  await rail.locator('[data-collection-manage]').click();
-  await layer(page, 'series').locator('[data-collection-action="remove"]').click();
-  await expect(rail).toHaveCount(0);
-  await expect(page.locator('#view-series .catalog-layer-browse')).toBeVisible();
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator('#view-series .catalog-layer-browse .focused')).toHaveCount(1);
-});
-
-test('keeps the independent red-and-white remove icon aligned in every theme and text size', async ({ page }, testInfo) => {
-  await seedCollections(page);
-  await page.goto('/?pseudo=1');
-  await enterTab(page, 'movies');
-  await page.locator('#view-movies [data-collection-manage="continue"]').click();
-  const grid = layer(page);
-  await expect(page.locator('.toast.visible')).toHaveCount(0);
-  for (const theme of THEMES) {
-    for (const size of ['80', '100', '150']) {
-      await page.evaluate(({ theme, size }) => {
-        document.documentElement.dataset.theme = theme;
-        document.documentElement.dataset.textSize = size;
-      }, { theme: theme.id, size });
-      const remove = grid.locator('[data-collection-action="remove"]').first();
-      await remove.hover();
-      const style = await remove.evaluate(button => {
-        const rect = button.getBoundingClientRect();
-        const clear = document.querySelector<HTMLElement>('.catalog-layer-grid:not(.catalog-layer-hidden) [data-collection-action="clear"]')!;
-        const label = clear.querySelector('span:last-child')!;
-        const range = document.createRange();
-        range.selectNodeContents(label);
-        const posters = button.closest('.catalog-grid')!.querySelectorAll('.catalog-grid-cell');
-        const posterRight = posters[6].getBoundingClientRect().right;
-        return {
-          width: rect.width, height: rect.height,
-          fill: getComputedStyle(button.querySelector('circle')!).fill,
-          stroke: getComputedStyle(button.querySelector('path')!).stroke,
-          danger: getComputedStyle(clear.querySelector('.catalog-action-icon')!).color,
-          background: getComputedStyle(button).backgroundColor,
-          shadow: getComputedStyle(button).boxShadow,
-          alignment: range.getBoundingClientRect().right - posterRight,
-          clipping: clear.scrollWidth - clear.clientWidth,
-        };
-      });
-      expect(style.width).toBe(76);
-      expect(style.height).toBe(76);
-      expect(style.fill).toBe(style.danger);
-      expect(style.stroke).toBe('rgb(255, 255, 255)');
-      expect(style.background).toBe('rgba(0, 0, 0, 0)');
-      expect(style.shadow).toBe('none');
-      expect(Math.abs(style.alignment)).toBeLessThanOrEqual(1);
-      expect(style.clipping).toBeLessThanOrEqual(1);
-      await page.screenshot({ path: testInfo.outputPath(`${theme.id}-${size}-collection-management.png`) });
-      await page.mouse.move(1900, 500);
-      await expect(remove).not.toHaveClass(/focused/);
-    }
-  }
-});

@@ -475,14 +475,93 @@ test('VOD holding Right speeds the skip up from 10s to 30s to 60s', async ({ pag
   expect(await page.locator('#video-player').evaluate((v: HTMLVideoElement) => v.paused)).toBe(false);
 });
 
+test('VOD shows the buffering spinner through a held seek and hides it once playback moves', async ({ page }) => {
+  await startFakeVod(page);
+  // A clock that runs while playing, held still while `stalled` is set.
+  await page.locator('#video-player').evaluate((video: HTMLVideoElement) => {
+    const w = window as unknown as { stalled: boolean };
+    w.stalled = false;
+    let time = 0;
+    Object.defineProperty(video, 'duration', { configurable: true, get: () => 100_000 });
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true, get: () => time, set: (t: number) => { time = t; w.stalled = true; },
+    });
+    setInterval(() => { if (!w.stalled) time += 0.1; }, 100);
+    video.dispatchEvent(new Event('playing'));
+  });
+  const spinner = page.locator('#view-player .player-buffering');
+  await expect(spinner).toBeHidden();
+  const started = Date.now();
+  while (Date.now() - started < 1500) {
+    await page.keyboard.down('ArrowRight');
+    await page.waitForTimeout(40);
+  }
+  await expect(spinner).toBeVisible();
+  await page.keyboard.up('ArrowRight');
+  // Still waiting on the seek; no ring, and the keys stay with the player.
+  await page.waitForTimeout(500);
+  await expect(spinner).toBeVisible();
+  expect(await spinner.evaluate(el => getComputedStyle(el).pointerEvents)).toBe('none');
+  await expect(page.locator('#view-player .player-buffering .focused, #view-player .player-buffering[data-focusable]'))
+    .toHaveCount(0);
+  await page.evaluate(() => { (window as unknown as { stalled: boolean }).stalled = false; });
+  await expect(spinner).toBeHidden();
+});
+
 test('VOD controls answer the pointer: a click on Play/Pause pauses', async ({ page }) => {
   await startFakeVod(page);
-  await page.keyboard.press('ArrowUp');
   const button = page.locator('#player-osd [data-dock-action="playpause"]');
   await button.hover();
   await expect(button).toHaveClass(/focused/);
   await button.click();
   expect(await page.locator('#video-player').evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
+});
+
+// Fail the element playing now, once the player has swapped in a fresh one.
+async function failCurrentVideo(page: Page): Promise<void> {
+  const video = page.locator('#video-player:not([data-failed])');
+  await expect(video).toHaveCount(1, { timeout: 10_000 });
+  await video.evaluate((el: HTMLVideoElement) => {
+    el.dataset.failed = '';
+    el.dispatchEvent(new Event('error'));
+  });
+}
+
+test('retries a failed movie and recovers once it plays again', async ({ page }) => {
+  await startFakeVod(page);
+  const osd = page.locator('#player-osd');
+  await failCurrentVideo(page);
+  await expect(osd.locator('.osd-message')).toHaveText('Reconnecting…');
+  const fresh = page.locator('#video-player:not([data-failed])');
+  await expect(fresh).toHaveCount(1, { timeout: 5000 });
+  await fresh.evaluate((el: HTMLVideoElement) => el.dispatchEvent(new Event('playing')));
+  await expect(osd.locator('.osd-message')).toHaveCount(0);
+  await expect(osd.locator('.osd-channel-name')).toHaveText('Movie One');
+  await expect(page.locator('#view-player')).toBeVisible();
+});
+
+test('keeps the error up after the third retry fails, naming a refused stream', async ({ page }) => {
+  test.setTimeout(60_000);
+  // The ranged check is cross-origin in the preview.
+  const cors = {
+    'access-control-allow-origin': '*',
+    'access-control-allow-headers': 'range',
+  };
+  await startFakeVod(page);
+  await page.route('**/movie/**', route => route.fulfill(route.request().method() === 'OPTIONS'
+    ? { status: 204, headers: cors }
+    : { status: 403, headers: cors, body: '' }));
+  for (let i = 0; i < 4; i++) await failCurrentVideo(page);
+  const message = page.locator('#player-osd .osd-message');
+  await expect(message).toHaveText(
+    'The provider refused this video. Your account may allow only one stream at a time.');
+  // Past the controls' auto-hide, and through other keys, the error stays.
+  await page.waitForTimeout(6000);
+  await page.keyboard.press('ArrowDown');
+  await expect(message).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#view-player')).toBeHidden();
+  await expect(page.locator('#view-movies')).toBeVisible();
 });
 
 test('a VOD sidecar subtitle creates its application track when selected', async ({ page }) => {
