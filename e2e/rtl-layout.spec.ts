@@ -1,6 +1,7 @@
 import { seedXtream } from './fixtures/xtream';
 import {
-  test, expect, enterTab, openGuide, routeLiveManifest, routePlaylist, seedPlaylist, type Page,
+  test, expect, enterTab, openGuide, pressKeys, routeLiveManifest, routePlaylist, seedPlaylist,
+  type Page,
 } from './helpers';
 
 // The mirrored layout of a right-to-left locale (docs/rtl-layout.md).
@@ -365,6 +366,45 @@ test.describe('Settings', () => {
     });
 });
 
+test.describe('overlays', () => {
+  test.use({ startOn: 'home' });
+
+  test('a prompt puts its confirm button at the right, and Left and Right move on screen',
+    async ({ page }) => {
+      await routePlaylist(page);
+      await seedPlaylist(page);
+      await page.addInitScript(() => localStorage.setItem('iptv_locale', JSON.stringify('ar')));
+      await page.goto('/');
+      await enterTab(page, 'settings');
+      await page.locator('[data-settings-target="data"]').click();
+      await page.locator('#clear-cache').click();
+      const prompt = page.locator('.confirmation-prompt:not(.hidden)');
+      await expect(prompt).toBeVisible();
+      const buttons = prompt.locator('.confirmation-btn');
+      await expect(buttons).toHaveCount(2);
+      const [first, second] = [(await buttons.nth(0).boundingBox())!, (await buttons.nth(1).boundingBox())!];
+      expect(rightOf(first, second)).toBe(true);
+      await page.keyboard.press('ArrowLeft');
+      await expect(buttons.nth(1)).toHaveClass(/\bfocused\b/);
+      await page.keyboard.press('ArrowRight');
+      await expect(buttons.nth(0)).toHaveClass(/\bfocused\b/);
+      await page.keyboard.press('Escape');
+      await expect(prompt).toHaveCount(0);
+    });
+
+  test('a typed channel number reads left to right', async ({ page }) => {
+    // Twelve channels, so a number takes two digits.
+    await seedArabicLive(page, 8);
+    await page.goto('/');
+    await enterTab(page, 'live');
+    await expect(page.locator('#view-channels .channel-main .channel-item').first()).toBeVisible();
+    await pressKeys(page, 49, 50);
+    const digits = page.locator('.number-entry.visible .number-entry-digit');
+    await expect(digits).toHaveCount(2);
+    expect(rightOf((await digits.nth(1).boundingBox())!, (await digits.nth(0).boundingBox())!)).toBe(true);
+  });
+});
+
 test.describe('player', () => {
   test.use({ startOn: 'home' });
 
@@ -471,12 +511,14 @@ test.describe('player', () => {
   });
 });
 
-// Four channels in two groups with a guide around 12:00 UTC, in Arabic.
+// Four channels (plus `extra`) in two groups with a guide around 12:00 UTC,
+// in Arabic.
 const LIVE_PLAYLIST = 'http://host/rtl.m3u';
 const LIVE_GUIDE = 'http://host/rtl.xml';
-async function seedArabicLive(page: Page): Promise<void> {
+async function seedArabicLive(page: Page, extra = 0): Promise<void> {
   await page.clock.setFixedTime(new Date('2026-09-15T12:00:00Z'));
-  const m3u = ['#EXTM3U', ...[1, 2, 3, 4].flatMap((n) => [
+  const numbers = Array.from({ length: 4 + extra }, (_, i) => i + 1);
+  const m3u = ['#EXTM3U', ...numbers.flatMap((n) => [
     `#EXTINF:-1 tvg-id="ch${n}" group-title="Group ${n < 3 ? 1 : 2}",ch${n}`, `http://host/ch${n}.m3u8`])];
   const program = (n: number, start: string, stop: string, title: string): string =>
     `<programme channel="ch${n}" start="20260915${start}00 +0000" stop="20260915${stop}00 +0000">`

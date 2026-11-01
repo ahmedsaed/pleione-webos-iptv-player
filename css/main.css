@@ -437,8 +437,10 @@ button:not(:disabled):not(.account-avatar):not(.toggle-option):not(.source-toggl
   transform: translateY(0) scale(1);
 }
 
+/* One tile per digit: a channel number reads left to right in every locale. */
 .number-entry-digits {
   display: block;
+  direction: ltr;
   white-space: nowrap;
 }
 

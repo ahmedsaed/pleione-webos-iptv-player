@@ -7,9 +7,10 @@
 <title>Set up IPTV</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  /* Arabic keeps the LTR layout; each text block reads in its own direction. */
-  html[lang="ar"] body * { unicode-bidi: plaintext; }
-  html[lang="ar"] input { direction: rtl; }
+  /* A right-to-left language mirrors the page (RTL_LOCALES). Each text block
+     still reads in its own direction, aligned to the right. */
+  html[dir="rtl"] body * { unicode-bidi: plaintext; }
+  html[dir="rtl"] body, html[dir="rtl"] input { text-align: right; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     background: linear-gradient(180deg, #f6f7fb 0%, #eef0f7 100%);
@@ -556,6 +557,19 @@
     font-weight: 400;
     vertical-align: -1px;
   }
+
+  /* The few physical sides above, mirrored; flex rows mirror on their own. */
+  html[dir="rtl"] .language-picker { right: auto; left: 16px; }
+  html[dir="rtl"] .language-menu { right: auto; left: 0; }
+  html[dir="rtl"] .language-option { text-align: right; }
+  html[dir="rtl"] .source-switch::after { left: auto; right: 3px; transition: right 0.16s ease; }
+  html[dir="rtl"] .source-switch.on::after { left: auto; right: 21px; }
+  html[dir="rtl"] .config-group summary::after { margin-left: 0; margin-right: auto; }
+  html[dir="rtl"] .epg-scope-label { margin-right: 0; margin-left: 2px; }
+  html[dir="rtl"] .epg-add::before { margin-right: 0; margin-left: 7px; }
+  html[dir="rtl"] .item .size { margin-left: 0; margin-right: 4px; }
+  /* The TV shows the code left to right, in every language. */
+  html[dir="rtl"] .pair-input { direction: ltr; }
 
   .section { font-size: 14px; font-weight: 600; color: #1a2138; margin: 28px 0 8px; }
   ul { list-style: none; padding: 0; margin: 0; }
@@ -1677,6 +1691,8 @@
     uk: "Українська",
     "zh-CN": "简体中文",
   };
+  // Locales laid out right to left, as the app's i18n marks them.
+  var RTL_LOCALES = { ar: true };
   var LOCALE_CODES = {
     en: "EN",
     ar: "AR",
@@ -1773,6 +1789,7 @@
 
   function setStaticMessages() {
     document.documentElement.lang = locale;
+    document.documentElement.dir = RTL_LOCALES[locale] ? "rtl" : "ltr";
     renderLanguageMenu();
     document.title = tr("title");
     document.querySelector('meta[name="description"]').setAttribute("content", tr("subtitle"));
