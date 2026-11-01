@@ -205,8 +205,8 @@ the actions are `get_live_categories`, `get_live_streams`,
 `get_short_epg`, and `get_simple_data_table` (also the legacy
 `get_simple_date_table` spelling). The list actions accept
 `category_id`. `get.php` (`type=m3u_plus` or `m3u`, `output=ts` or
-`m3u8`) lists live channels, then movies and episodes; `xmltv.php`
-serves the guide. Wrong credentials get `{"user_info":{"auth":0}}` from
+`m3u8`) lists live channels, then movies and episodes; the app reads it
+only when `get_live_streams` fails. `xmltv.php` serves the guide. Wrong credentials get `{"user_info":{"auth":0}}` from
 the Player API and `401` elsewhere.
 
 ## Known gaps

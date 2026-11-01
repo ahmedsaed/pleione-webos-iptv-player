@@ -4,7 +4,11 @@ import {
   fetchTextTransientFailure,
 } from '../utils/fetch-helper';
 import { finalTimeout, retryTransient } from '../utils/retry';
-import { xtreamPlayerApi, type XtreamCredentials } from '../utils/xtream-url';
+import {
+  normalizeXtreamBaseUrl,
+  xtreamPlayerApi,
+  type XtreamCredentials,
+} from '../utils/xtream-url';
 import { createLogger } from '../utils/logger';
 import type { VodCategory, VodItem, VodInfo, SeriesCategory, SeriesItem, SeriesInfo, Episode, SidecarSubtitle } from '../types';
 import { CONFIG } from '../config';
@@ -47,10 +51,14 @@ export interface XtreamAccountInfo {
   maxConnections: number;
   activeConnections: number;
   allowedOutputFormats: string[];
+  /** The panel's own `scheme://host[:port]` from `server_info`, or ''. */
+  serverOrigin: string;
 }
 
 export interface XtreamLiveStream {
   streamId: string;
+  /** The provider's channel number; 0 when it sends none. */
+  num: number;
   name: string;
   icon: string;
   epgChannelId: string;
@@ -222,6 +230,41 @@ export interface XtreamRequestOptions {
   retryTimeouts?: boolean;
 }
 
+export interface XtreamSignInOptions extends XtreamRequestOptions {
+  /** Ask the panel again instead of reusing this session's sign-in. */
+  fresh?: boolean;
+}
+
+type AccountResponse = { user_info?: unknown; server_info?: unknown } | null;
+
+// One sign-in per account per session: Home's connection check, the channel
+// load, and catch-up's server clock all read the same player_api.php answer.
+// Keyed by the credentials, so editing an account signs in again; only an
+// accepted sign-in is kept, so a failed check is asked again.
+interface SignIn {
+  at: number;
+  response: Promise<AccountResponse>;
+  /** The accepted answer once it arrives. */
+  data?: AccountResponse;
+}
+
+const signIns = new Map<string, SignIn>();
+
+export function resetXtreamSignIns(): void {
+  signIns.clear();
+}
+
+function signInKey(creds: XtreamCredentials): string {
+  return `${normalizeXtreamBaseUrl(creds.baseUrl)}\n${creds.username}\n${creds.password}`;
+}
+
+function signedIn(data: AccountResponse): boolean {
+  const user = data && typeof data.user_info === 'object' && data.user_info
+    ? data.user_info as Record<string, unknown>
+    : null;
+  return !!user && (user.auth === 1 || user.auth === '1' || user.auth === true);
+}
+
 async function fetchJsonStrict(
   url: string,
   timeout: number,
@@ -316,6 +359,7 @@ function parseLiveStreams(value: unknown): XtreamLiveStream[] {
   return asArray(value)
     .map((stream) => ({
       streamId: toStr(stream.stream_id),
+      num: Math.max(0, toNumber(stream.num)),
       name: toStr(stream.name),
       icon: toStr(stream.stream_icon),
       epgChannelId: toStr(stream.epg_channel_id),
@@ -343,6 +387,41 @@ function parseSubtitles(v: unknown): SidecarSubtitle[] {
     .filter((s) => /^https?:\/\//i.test(s.url));
 }
 
+function serverOrigin(server: Record<string, unknown>): string {
+  const host = toStr(server.url).trim();
+  if (!host || /[/?#@\s]/.test(host)) return '';
+  const https = toStr(server.server_protocol).toLowerCase() === 'https';
+  const port = toStr(https ? server.https_port : server.port).trim();
+  const defaultPort = https ? '443' : '80';
+  const suffix = /^\d+$/.test(port) && port !== defaultPort ? `:${port}` : '';
+  return `${https ? 'https' : 'http'}://${host}${suffix}`;
+}
+
+function serverInfoOf(data: AccountResponse): Record<string, unknown> | null {
+  const server = data && data.server_info;
+  return server && typeof server === 'object' ? server as Record<string, unknown> : null;
+}
+
+function accountInfoOf(data: AccountResponse): XtreamAccountInfo | null {
+  const u = data && typeof data.user_info === 'object' && data.user_info
+    ? data.user_info as Record<string, unknown>
+    : null;
+  if (!u) return null;
+  const server = serverInfoOf(data);
+  const exp = u.exp_date;
+  return {
+    auth: u.auth === 1 || u.auth === '1' || u.auth === true,
+    status: typeof u.status === 'string' ? u.status : '',
+    expiresAt: exp === null || exp === undefined || exp === '' ? null : toNumber(exp) || null,
+    maxConnections: toNumber(u.max_connections),
+    activeConnections: toNumber(u.active_cons),
+    allowedOutputFormats: Array.isArray(u.allowed_output_formats)
+      ? u.allowed_output_formats.filter((format): format is string => typeof format === 'string')
+      : [],
+    serverOrigin: server ? serverOrigin(server) : '',
+  };
+}
+
 function parseServerOffset(server: Record<string, unknown>): number | null {
   const timestamp = toNumber(server.timestamp_now);
   const timeNow = toStr(server.time_now);
@@ -362,32 +441,50 @@ function parseServerOffset(server: Record<string, unknown>): number | null {
 /** A per-account handle over the Xtream `player_api.php` JSON endpoint. Flat
  *  composition (no inheritance); catalog methods grow on the same factory. */
 export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
+  const accountResponse = (
+    signal?: AbortSignal,
+    options: XtreamSignInOptions = {},
+  ): Promise<AccountResponse> => {
+    const request = (): Promise<AccountResponse> => fetchJson(
+      xtreamPlayerApi(creds),
+      ACCOUNT_INFO_TIMEOUT,
+      CONFIG.XTREAM.ACCOUNT_MAX_BYTES,
+      signal,
+      { retryTimeouts: options.retryTimeouts },
+    ) as Promise<AccountResponse>;
+    // A cancellable request is its caller's own; sharing it could cancel others.
+    if (signal) return request();
+    const key = signInKey(creds);
+    const cached = signIns.get(key);
+    if (!options.fresh && cached && Date.now() - cached.at < CONFIG.XTREAM.SIGN_IN_TTL_MS) {
+      return cached.response;
+    }
+    const entry: SignIn = { at: Date.now(), response: request() };
+    signIns.set(key, entry);
+    const drop = (): void => {
+      if (signIns.get(key) === entry) signIns.delete(key);
+    };
+    entry.response.then(data => {
+      if (signedIn(data)) entry.data = data;
+      else drop();
+    }, drop);
+    return entry.response;
+  };
+
   return {
-    /** Account status, or null when the panel is unreachable / returns non-JSON. */
+    /** Account status, or null when the panel is unreachable / returns non-JSON.
+     *  Reuses this session's sign-in unless `fresh` asks the panel again. */
     async getAccountInfo(
       signal?: AbortSignal,
-      options?: XtreamRequestOptions,
+      options?: XtreamSignInOptions,
     ): Promise<XtreamAccountInfo | null> {
-      const data = await fetchJson(
-        xtreamPlayerApi(creds),
-        ACCOUNT_INFO_TIMEOUT,
-        CONFIG.XTREAM.ACCOUNT_MAX_BYTES,
-        signal,
-        options,
-      ) as { user_info?: Record<string, unknown> } | null;
-      const u = data?.user_info;
-      if (!u) return null;
-      const exp = u.exp_date;
-      return {
-        auth: u.auth === 1 || u.auth === '1' || u.auth === true,
-        status: typeof u.status === 'string' ? u.status : '',
-        expiresAt: exp === null || exp === undefined || exp === '' ? null : toNumber(exp) || null,
-        maxConnections: toNumber(u.max_connections),
-        activeConnections: toNumber(u.active_cons),
-        allowedOutputFormats: Array.isArray(u.allowed_output_formats)
-          ? u.allowed_output_formats.filter((format): format is string => typeof format === 'string')
-          : [],
-      };
+      return accountInfoOf(await accountResponse(signal, options));
+    },
+
+    /** This session's accepted sign-in, if one has already arrived. */
+    signedInInfo(): XtreamAccountInfo | null {
+      const cached = signIns.get(signInKey(creds));
+      return cached?.data ? accountInfoOf(cached.data) : null;
     },
 
     async getLiveStreams(signal?: AbortSignal): Promise<XtreamLiveStream[]> {
@@ -437,16 +534,8 @@ export function createXtreamClient(creds: XtreamCredentials, accountId = '') {
     },
 
     async getServerClock(signal?: AbortSignal): Promise<XtreamServerClock | null> {
-      const data = await fetchJson(
-        xtreamPlayerApi(creds),
-        ACCOUNT_INFO_TIMEOUT,
-        CONFIG.XTREAM.ACCOUNT_MAX_BYTES,
-        signal,
-      );
-      if (!data || typeof data !== 'object') return null;
-      const server = (data as { server_info?: unknown }).server_info;
-      if (!server || typeof server !== 'object') return null;
-      const record = server as Record<string, unknown>;
+      const record = serverInfoOf(await accountResponse(signal));
+      if (!record) return null;
       return {
         timeZone: toStr(record.timezone),
         offsetMinutes: parseServerOffset(record),

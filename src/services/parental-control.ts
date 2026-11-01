@@ -423,6 +423,35 @@ class ParentalControlServiceImpl {
     this.persist('sources-relocked', `changes=${changes.join(',')}`);
   }
 
+  // The channel keys of live-channel rules.
+  liveChannelKeys(): string[] {
+    const prefix = 'live-channel|';
+    return Object.keys(this.config.itemRules)
+      .filter(key => key.indexOf(prefix) === 0)
+      .map(key => decodeURIComponent(key.slice(prefix.length)));
+  }
+
+  // A channel whose key changed keeps its rule, unless the new key has one.
+  renameChannelKeys(aliases: ReadonlyMap<string, string>): number {
+    const itemRules = { ...this.config.itemRules };
+    let moved = 0;
+    for (const channelKey of this.liveChannelKeys()) {
+      const target = aliases.get(channelKey);
+      if (!target) continue;
+      const from = parentalTargetKey({ kind: 'live-channel', channelKey });
+      const to = parentalTargetKey({ kind: 'live-channel', channelKey: target });
+      if (itemRules[to]) continue;
+      itemRules[to] = itemRules[from];
+      delete itemRules[from];
+      moved++;
+    }
+    if (moved) {
+      this.config = { ...this.config, itemRules };
+      this.persist('channel-keys-moved', `rules=${moved}`);
+    }
+    return moved;
+  }
+
   private withApproved(key: string): string[] {
     const current = currentSourceKeys();
     const approved = this.config.approvedSources.filter(item => current.indexOf(item) >= 0);

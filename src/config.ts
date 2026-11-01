@@ -132,6 +132,7 @@ export const CONFIG = {
     CATALOG_LOAD_BUDGET_MS: 60 * 1000,
     CATALOG_LOAD_CONCURRENCY: 2,
     ACCOUNT_MAX_BYTES: 1024 * 1024,      // account/server metadata response budget
+    SIGN_IN_TTL_MS: 60 * 60 * 1000,      // how long a successful sign-in answer is reused
     CATEGORY_MAX_BYTES: 2 * 1024 * 1024, // category-list response budget
     CATALOG_MAX_BYTES: 32 * 1024 * 1024, // full or per-category stream-list budget
     DETAIL_MAX_BYTES: 8 * 1024 * 1024,   // VOD/series detail and episode response budget

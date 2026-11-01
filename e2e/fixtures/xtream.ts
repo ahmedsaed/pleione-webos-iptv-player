@@ -1,4 +1,17 @@
-import { SAMPLE_M3U, neuterVideo, type Page } from '../helpers';
+import { neuterVideo, type Page } from '../helpers';
+
+// The Player API Live catalog for SAMPLE_M3U's channels. Their direct
+// sources keep SAMPLE_M3U's stream URLs, so channel keys match it too.
+export const SAMPLE_LIVE_CATEGORIES = [
+  { category_id: '1', category_name: 'News' },
+  { category_id: '2', category_name: 'Movies' },
+];
+export const SAMPLE_LIVE_STREAMS = [
+  { num: 1, stream_id: 1, name: 'Channel One', stream_icon: '', epg_channel_id: 'one',
+    category_id: '1', direct_source: 'http://streams.example.com/one.m3u8', tv_archive: 0 },
+  { num: 2, stream_id: 2, name: 'Channel Two', stream_icon: '', epg_channel_id: 'two',
+    category_id: '2', direct_source: 'http://streams.example.com/two.m3u8', tv_archive: 0 },
+];
 
 const MOVIE_ONE = { stream_id: 10, name: 'Movie One', stream_icon: '', container_extension: 'mp4', category_id: '1' };
 
@@ -18,8 +31,9 @@ const PIXEL = Buffer.from(
   'base64');
 
 /**
- * A one-account Xtream portal: one movie, one series with one episode, a
- * playable VOD stream and a stubbed online-subtitle provider. Enough to reach
+ * A one-account Xtream portal: SAMPLE_M3U's two Live channels from the
+ * Player API, one movie, one series with one episode, a playable VOD
+ * stream and a stubbed online-subtitle provider. Enough to reach
  * every catalog and VOD-player screen. `catalog: 'large'` adds more movie
  * categories and titles around Movie One. `posters` gives every title a
  * poster that decodes. Call before `page.goto`.
@@ -36,11 +50,8 @@ export async function seedXtream(
     await page.route(`${POSTER_HOST}**`, route =>
       route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL }));
   }
-  await page.route('**/get.php*', (r) => r.fulfill({
-    status: 200,
-    contentType: 'application/x-mpegurl',
-    body: SAMPLE_M3U,
-  }));
+  // Live comes from the Player API; get.php is only a fallback.
+  await page.route('**/get.php*', (r) => r.fulfill({ status: 404, body: '' }));
   await page.route('**/xmltv.php*', (r) =>
     r.fulfill({ status: 200, contentType: 'application/xml', body: '<tv></tv>' }));
   await page.route('**/player_api.php*', (route) => {
@@ -48,6 +59,8 @@ export async function seedXtream(
     const json = (body: unknown) => route.fulfill({
       status: 200, contentType: 'application/json', body: JSON.stringify(body),
     });
+    if (url.includes('get_live_categories')) return json(SAMPLE_LIVE_CATEGORIES);
+    if (url.includes('get_live_streams')) return json(SAMPLE_LIVE_STREAMS);
     if (url.includes('get_vod_categories')) {
       return json(large ? LARGE_CATEGORIES : [{ category_id: '1', category_name: 'Cat A' }]);
     }

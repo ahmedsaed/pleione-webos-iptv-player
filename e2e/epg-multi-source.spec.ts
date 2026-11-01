@@ -48,10 +48,15 @@ async function setup(page: Page): Promise<void> {
     const body = action === 'get_live_streams'
       ? [{
           stream_id: second ? 102 : 101,
+          name: second ? 'Charlie' : 'Bravo',
+          epg_channel_id: 'shared',
+          category_id: '1',
           direct_source: second ? 'http://host/c.m3u8' : 'http://host/b.m3u8',
           tv_archive: 0,
         }]
-      : {};
+      : action === 'get_live_categories'
+        ? [{ category_id: '1', category_name: second ? 'Sports' : 'News' }]
+        : {};
     return route.fulfill({
       status: 200,
       contentType: 'application/json',

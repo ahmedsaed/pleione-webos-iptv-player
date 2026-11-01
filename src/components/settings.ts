@@ -2764,9 +2764,10 @@ export class Settings {
     }
 
     this.setXtreamStatus(id, html`${t('settings.checking')}`, '');
-    // A sign-in check reports a timing-out portal after one timeout.
+    // A sign-in check reports a timing-out portal after one timeout, and
+    // always asks the panel rather than reusing this session's sign-in.
     const info = await createXtreamClient({ baseUrl: url, username, password })
-      .getAccountInfo(undefined, { retryTimeouts: false });
+      .getAccountInfo(undefined, { retryTimeouts: false, fresh: true });
     if (!info) {
       log.warn(
         'Xtream verify failed — server unreachable or non-JSON',

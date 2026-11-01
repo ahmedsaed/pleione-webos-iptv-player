@@ -2533,7 +2533,7 @@ describe('Settings Xtream section', () => {
     expect(status.textContent).toMatch(/expires \d{4}-\d{2}-\d{2}/);
     expect(status.textContent).toContain('1/2');
     // An interactive check must report a timing-out portal after one timeout.
-    expect(xtreamMock.getAccountInfo).toHaveBeenCalledWith(undefined, { retryTimeouts: false });
+    expect(xtreamMock.getAccountInfo).toHaveBeenCalledWith(undefined, { retryTimeouts: false, fresh: true });
   });
 
   it('Check reports a login failure for auth:0', async () => {

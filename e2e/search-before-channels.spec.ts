@@ -1,4 +1,5 @@
-import { test, expect, enterTab, SAMPLE_M3U, type Page } from './helpers';
+import { test, expect, enterTab, type Page } from './helpers';
+import { SAMPLE_LIVE_CATEGORIES, SAMPLE_LIVE_STREAMS } from './fixtures/xtream';
 
 // Search opened from Home before the channels load works at once: the
 // catalog answers the query while the channel and program results wait in
@@ -8,19 +9,24 @@ function xmltvDate(date: Date): string {
   return date.toISOString().replace(/[-:T]/g, '').slice(0, 14) + ' +0000';
 }
 
-// The account's playlist answers only when released; `fail` answers 404,
-// which fails at once where a 5xx would retry.
+// The account's Live catalog answers only when released; `fail` answers
+// 404, which fails at once where a 5xx would retry, and so does get.php.
 function holdPlaylist(page: Page): { release: () => void; fail: boolean; requests: number } {
   const gate = { release: () => {}, fail: false, requests: 0 };
   let held = new Promise<void>((resolve) => { gate.release = resolve; });
-  void page.route('**/get.php*', async (route) => {
+  void page.route('**/get.php*', route =>
+    route.fulfill({ status: 404, contentType: 'text/plain', body: 'not found' }));
+  void page.route('**/player_api.php*', async (route) => {
+    if (!route.request().url().includes('get_live_streams')) return route.fallback();
     gate.requests++;
     await held;
     held = new Promise<void>((resolve) => { gate.release = resolve; });
     if (gate.fail) {
       await route.fulfill({ status: 404, contentType: 'text/plain', body: 'not found' });
     } else {
-      await route.fulfill({ status: 200, contentType: 'application/x-mpegurl', body: SAMPLE_M3U });
+      await route.fulfill({
+        status: 200, contentType: 'application/json', body: JSON.stringify(SAMPLE_LIVE_STREAMS),
+      });
     }
   });
   return gate;
@@ -43,6 +49,9 @@ async function seedAccount(page: Page): Promise<void> {
     const url = route.request().url();
     const json = (body: unknown) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    // holdPlaylist answers the Live catalog.
+    if (url.includes('get_live_streams')) return route.fallback();
+    if (url.includes('get_live_categories')) return json(SAMPLE_LIVE_CATEGORIES);
     if (url.includes('get_vod_streams')) {
       return json([{ stream_id: 10, name: 'Movie One', stream_icon: '', container_extension: 'mp4', category_id: '1' }]);
     }

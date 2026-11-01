@@ -66,5 +66,10 @@ export function legacyChannelKey(ch: Channel): string {
 
 /** Stable per-stream identity used by all channel-scoped data. */
 export function channelKey(ch: Channel): string {
-  return fnv1a(stableStreamUrl(ch.url || ''));
+  return streamUrlKey(ch.url || '');
+}
+
+/** The `channelKey` of a channel playing `url`. */
+export function streamUrlKey(url: string): string {
+  return fnv1a(stableStreamUrl(url));
 }

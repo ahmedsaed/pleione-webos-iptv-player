@@ -4,6 +4,7 @@ import {
   type ChannelGroupId,
   type EpgSource,
   type ParsedPlaylist,
+  type PlaylistEntry,
   type PlaylistTab,
 } from '../types';
 import { fetchAndParseM3U } from '../parsers/m3u-loader';
@@ -13,6 +14,8 @@ import {
   xtreamEpgUrl,
   xtreamCatchupSource,
   xtreamLiveUrl,
+  normalizeXtreamBaseUrl,
+  normalizeXtreamLiveOutputPreference,
   resolveXtreamLiveOutput,
   type XtreamCredentials,
   type XtreamLiveOutput,
@@ -34,9 +37,12 @@ import { StorageService } from './storage-service';
 import { ChannelCustomizationService, groupKeyOf } from './channel-customization';
 import {
   createXtreamClient,
+  type XtreamAccountInfo,
+  type XtreamClient,
   type XtreamLiveCategory,
   type XtreamLiveStream,
 } from './xtream-client';
+import { migrateXtreamChannelKeys, type XtreamApiSource } from './xtream-key-migration';
 import {
   cacheRecordRef,
   getCachedPlaylist,
@@ -84,6 +90,18 @@ function usableDirectSource(value: string): string {
   }
 }
 
+// The provider's channel order: by `num` when every stream has one (as
+// get.php lists them), else as the Player API listed them.
+function inProviderOrder(streams: XtreamLiveStream[]): XtreamLiveStream[] {
+  if (!streams.every(stream => stream.num > 0)) return streams;
+  return streams
+    .map((stream, index) => ({ stream, index }))
+    .sort((a, b) => a.stream.num - b.stream.num || a.index - b.index)
+    .map(entry => entry.stream);
+}
+
+// The Live channels an m3u_plus get.php line would give, built from the
+// Player API: same name, logo, group, tvg-id, and stream URL.
 function xtreamLivePlaylist(
   credentials: XtreamCredentials,
   output: XtreamLiveOutput,
@@ -91,20 +109,24 @@ function xtreamLivePlaylist(
   streams: XtreamLiveStream[],
 ): ParsedPlaylist {
   const categoryNames = new Map(categories.map(category => [category.id, category.name]));
-  const channels: Channel[] = streams.map(stream => ({
-    id: stream.epgChannelId || stream.streamId,
-    name: stream.name || stream.streamId,
-    logo: stream.icon,
-    group: categoryNames.get(stream.categoryId) || UNCATEGORIZED_GROUP,
-    url: usableDirectSource(stream.directSource)
-      || xtreamLiveUrl(credentials, stream.streamId, output),
-    extras: null,
-    playlistIds: [],
-    catchup: '',
-    catchupSource: '',
-    catchupDays: 0,
-    catchupStreamId: stream.streamId,
-  }));
+  const channels: Channel[] = inProviderOrder(streams).map((stream) => {
+    const channel: Channel = {
+      id: stream.epgChannelId,
+      name: stream.name || stream.streamId,
+      logo: stream.icon,
+      group: categoryNames.get(stream.categoryId) || UNCATEGORIZED_GROUP,
+      url: usableDirectSource(stream.directSource)
+        || xtreamLiveUrl(credentials, stream.streamId, output),
+      extras: null,
+      playlistIds: [],
+      catchup: '',
+      catchupSource: '',
+      catchupDays: 0,
+      catchupStreamId: stream.streamId,
+    };
+    if (stream.num > 0) channel.channelNumber = stream.num;
+    return channel;
+  });
   const groups = Array.from(new Set(channels.map(channel => channel.group)));
   return {
     channels,
@@ -115,6 +137,14 @@ function xtreamLivePlaylist(
     format: 'unknown',
     issues: [],
   };
+}
+
+interface XtreamLiveLoad {
+  parsed: ParsedPlaylist;
+  /** The Player API Live catalog; empty when it did not load. */
+  streams: XtreamLiveStream[];
+  output: XtreamLiveOutput;
+  fromApi: boolean;
 }
 
 export interface ChannelCacheSource {
@@ -332,6 +362,7 @@ class PlaylistServiceImpl {
     }
 
     const allChannels: Channel[] = [];
+    const xtreamSources: XtreamApiSource[] = [];
     const byUrl = new Map<string, Channel>();
     const epgSources: EpgSource[] = [];
     let failedPlaylists = 0;
@@ -365,162 +396,34 @@ class PlaylistServiceImpl {
       // two playlists sharing a name/URL stay distinct and deleting/reordering
       // one never re-points another's channels.
       const plKey = pl.id;
-      // Use the Player API catalog to identify Live entries, but keep get.php as
-      // the channel source so provider ordering, headers, URLs, and metadata survive.
-      let fetchUrl = pl.url;
-      let xtreamCredentials: XtreamCredentials | null = null;
-      let xtreamOutput: XtreamLiveOutput = 'ts';
-      let xtreamStreams: XtreamLiveStream[] | undefined;
-      let xtreamReferences: XtreamLiveStream[] | undefined;
-      let xtreamCatalogAvailable = false;
-      let xtreamGroupFilter: XtreamGroupNameFilter | undefined;
-      const categoryFilter = pl.source === 'xtream'
-        ? normalizeLiveCategoryFilter(pl.xtream?.liveCategories)
-        : undefined;
-      if (pl.source === 'xtream' && pl.xtream) {
-        const credentials = { baseUrl: pl.url, ...pl.xtream };
-        xtreamCredentials = credentials;
-        const client = createXtreamClient(credentials);
-        let allowedOutputFormats: string[] = [];
-        if (pl.xtream.liveOutput === 'auto') {
-          allowedOutputFormats =
-            (await client.getAccountInfo())?.allowedOutputFormats ?? [];
-        }
-        xtreamOutput = resolveXtreamLiveOutput(pl.xtream.liveOutput, allowedOutputFormats);
-        const catalogStarted = Date.now();
-        log.info(
-          'Xtream Live catalog load started',
-          'event=xtream.live_catalog.started',
-          `load=${String(load)}`,
-          'endpoint=get_live_streams',
-        );
-        const liveCatalog = await client.getLiveStreamsResult();
-        xtreamCatalogAvailable = liveCatalog.available;
-        xtreamStreams = liveCatalog.streams;
-        log[liveCatalog.available ? 'info' : 'warn'](
-          'Xtream Live catalog load completed',
-          'event=xtream.live_catalog.completed',
-          `load=${String(load)}`,
-          `available=${liveCatalog.available ? '1' : '0'}`,
-          `items=${String(liveCatalog.streams.length)}`,
-          `elapsedMs=${String(Date.now() - catalogStarted)}`,
-        );
-        xtreamReferences = filterLiveStreams(categoryFilter, xtreamStreams);
-        if (categoryFilter && liveCatalog.available) {
-          log.info(
-            'Xtream Live category filter applied',
-            'event=xtream.category_filter.applied',
-            `load=${String(load)}`,
-            `mode=${categoryFilter.mode}`,
-            `categories=${String(categoryFilter.ids.length)}`,
-            `kept=${String(xtreamReferences.length)}`,
-            `total=${String(xtreamStreams.length)}`,
-          );
-        } else if (categoryFilter) {
-          const categories = await client.getLiveCategories();
-          xtreamGroupFilter = liveCategoryGroupFilter(categoryFilter, categories) ?? undefined;
-          log.warn(
-            xtreamGroupFilter
-              ? 'Xtream Live catalog unavailable; filtering by category name'
-              : 'Xtream Live categories unavailable; loading unfiltered',
-            xtreamGroupFilter
-              ? 'event=xtream.category_filter.name_match'
-              : 'event=xtream.category_filter.unavailable',
-            `load=${String(load)}`,
-          );
-          if (xtreamGroupFilter) {
-            this.recordLiveCategories(pl, categoryFilter, categories.map(category => category.id));
-          }
-        }
-        if (liveCatalog.available) {
-          const counts = liveCategoryCounts(xtreamStreams);
-          this.recordLiveCategories(pl, categoryFilter, Object.keys(counts), counts);
-        }
-        fetchUrl = xtreamPlaylistUrl(
-          credentials,
-          xtreamOutput,
-        );
-      }
       const plDone = log.time(`fetch '${pl.name || pl.url}'`);
+      const report = (progress: M3ULoadProgress): void => {
+        sourceProcessed = Math.max(sourceProcessed, progress.channelsProcessed);
+        sourceKept = Math.max(sourceKept, progress.channelsKept);
+        onProgress?.({
+          sourceNumber: load,
+          sourceCount: playlists.length,
+          inputBytes: progress.inputBytes,
+          channelsProcessed: completedProcessed + sourceProcessed,
+          channelsKept: completedKept + sourceKept,
+        });
+      };
       try {
-        let parsed: ParsedPlaylist | null = null;
-        let playlistError: unknown;
-        try {
-          const loaded = await fetchAndParseM3U(
-            fetchUrl,
-            60000,
-            xtreamCatalogAvailable ? xtreamReferences : undefined,
-            xtreamCredentials?.baseUrl,
-            (progress: M3ULoadProgress) => {
-              sourceProcessed = Math.max(sourceProcessed, progress.channelsProcessed);
-              sourceKept = Math.max(sourceKept, progress.channelsKept);
-              onProgress?.({
-                sourceNumber: load,
-                sourceCount: playlists.length,
-                inputBytes: progress.inputBytes,
-                channelsProcessed: completedProcessed + sourceProcessed,
-                channelsKept: completedKept + sourceKept,
-              });
-            },
-            xtreamGroupFilter,
-          );
-          parsed = loaded.data;
-        } catch (err) {
-          playlistError = err;
-          if (!xtreamCredentials) throw err;
-          log.warn(
-            'Xtream playlist failed; trying the Player API live catalog',
-            'event=xtream.live_fallback.used',
-            `load=${String(load)}`,
-            'reason=request_failed',
-          );
-        }
-
-        let fallbackStreams: XtreamLiveStream[] | undefined;
-        if (xtreamCredentials && (!parsed || !parsed.channels.length)) {
-          if (parsed) {
-            log.warn(
-              'Xtream playlist contained no channels; trying the Player API live catalog',
-              'event=xtream.live_fallback.used',
-              `load=${String(load)}`,
-              'reason=no_channels',
-            );
-          }
-          const client = createXtreamClient(xtreamCredentials);
-          const categories = await client.getLiveCategories();
-          const allStreams = xtreamCatalogAvailable
-            ? xtreamStreams ?? []
-            : await client.getLiveStreams();
-          fallbackStreams = allStreams;
-          const streams = filterLiveStreams(categoryFilter, allStreams);
-          log.info(
-            'Xtream Player API live catalog completed',
-            'event=xtream.live_api.completed',
-            `load=${String(load)}`,
-            `categories=${String(categories.length)}`,
-            `streams=${String(streams.length)}`,
-          );
-          if (streams.length) {
-            parsed = xtreamLivePlaylist(
-              xtreamCredentials,
-              xtreamOutput,
-              categories,
-              streams,
-            );
-          } else if (!parsed && playlistError) {
-            throw playlistError;
-          }
-        }
-        if (!parsed) throw new Error('Xtream source returned no playlist or live catalog');
-
-        if (xtreamCredentials) {
+        let parsed: ParsedPlaylist;
+        if (pl.source === 'xtream' && pl.xtream) {
+          const credentials = { baseUrl: pl.url, ...pl.xtream };
+          const xtream = await this.loadXtreamLive(pl, credentials, load, report);
+          parsed = xtream.parsed;
           await this.applyXtreamCatchup(
             parsed.channels,
-            xtreamCredentials,
+            credentials,
             plKey,
-            xtreamOutput,
-            fallbackStreams ?? xtreamStreams,
+            xtream.output,
+            xtream.streams,
           );
+          if (xtream.fromApi) xtreamSources.push({ credentials, channels: parsed.channels });
+        } else {
+          parsed = (await fetchAndParseM3U(pl.url, 60000, undefined, undefined, report)).data;
         }
         if (parsed.issues.length) {
           log.warn('Playlist diagnostics:',
@@ -615,6 +518,7 @@ class PlaylistServiceImpl {
       return this.channels;
     }
     const refreshTimestamp = Date.now();
+    if (xtreamSources.length) migrateXtreamChannelKeys(xtreamSources, allChannels);
     this.allChannels = allChannels;
     this.epgSources = epgSources;
     // Customization preserves source names/groups on each channel, so cached
@@ -662,6 +566,130 @@ class PlaylistServiceImpl {
       `sources=${sources}`,
       `failed=${failed}`,
     );
+  }
+
+  // Auto picks HLS when the account allows it. The formats come from the
+  // sign-in Home's check already made (or its request in flight); a cold
+  // start reuses the ones remembered from the last sign-in instead of
+  // waiting, and a changed answer applies from the next load.
+  private async xtreamOutput(
+    pl: PlaylistEntry,
+    credentials: XtreamCredentials,
+    client: XtreamClient,
+  ): Promise<XtreamLiveOutput> {
+    const preference = pl.xtream?.liveOutput;
+    if (normalizeXtreamLiveOutputPreference(preference) !== 'auto') {
+      return resolveXtreamLiveOutput(preference, []);
+    }
+    const account = `${normalizeXtreamBaseUrl(credentials.baseUrl)}|${credentials.username}`;
+    const remember = (info: XtreamAccountInfo | null): string[] | null => {
+      if (!info?.auth) return null;
+      StorageService.setXtreamOutputFormats(pl.id, account, info.allowedOutputFormats);
+      return info.allowedOutputFormats;
+    };
+    const signIn = client.getAccountInfo().then(remember);
+    const remembered = StorageService.getXtreamOutputFormats(pl.id, account);
+    const formats = remembered ?? await signIn ?? [];
+    return resolveXtreamLiveOutput(preference, formats);
+  }
+
+  // Live channels come from the Player API: get_live_streams in the
+  // provider's order, named by get_live_categories. get.php, an M3U that
+  // also lists every movie and episode, is read only when the panel has no
+  // usable Live catalog; an empty catalog means the account has no Live.
+  private async loadXtreamLive(
+    pl: PlaylistEntry,
+    credentials: XtreamCredentials,
+    load: number,
+    report: (progress: M3ULoadProgress) => void,
+  ): Promise<XtreamLiveLoad> {
+    const client = createXtreamClient(credentials, pl.id);
+    const categoryFilter = normalizeLiveCategoryFilter(pl.xtream?.liveCategories);
+    const outputPromise = this.xtreamOutput(pl, credentials, client);
+    const catalogStarted = Date.now();
+    log.info(
+      'Xtream Live catalog load started',
+      'event=xtream.live_catalog.started',
+      `load=${String(load)}`,
+      'endpoint=get_live_streams',
+    );
+    const [liveCatalog, categories] = await Promise.all([
+      client.getLiveStreamsResult(),
+      client.getLiveCategories(),
+    ]);
+    const streams = liveCatalog.streams;
+    log[liveCatalog.available ? 'info' : 'warn'](
+      'Xtream Live catalog load completed',
+      'event=xtream.live_catalog.completed',
+      `load=${String(load)}`,
+      `available=${liveCatalog.available ? '1' : '0'}`,
+      `items=${String(streams.length)}`,
+      `categories=${String(categories.length)}`,
+      `elapsedMs=${String(Date.now() - catalogStarted)}`,
+    );
+    const output = await outputPromise;
+
+    if (liveCatalog.available) {
+      const counts = liveCategoryCounts(streams);
+      this.recordLiveCategories(pl, categoryFilter, Object.keys(counts), counts);
+      const kept = filterLiveStreams(categoryFilter, streams);
+      if (categoryFilter) {
+        log.info(
+          'Xtream Live category filter applied',
+          'event=xtream.category_filter.applied',
+          `load=${String(load)}`,
+          `mode=${categoryFilter.mode}`,
+          `categories=${String(categoryFilter.ids.length)}`,
+          `kept=${String(kept.length)}`,
+          `total=${String(streams.length)}`,
+        );
+      }
+      report({
+        inputBytes: 0,
+        chunks: 0,
+        channelsProcessed: streams.length,
+        channelsKept: kept.length,
+        channelsDropped: streams.length - kept.length,
+      });
+      return {
+        parsed: xtreamLivePlaylist(credentials, output, categories, kept),
+        streams,
+        output,
+        fromApi: true,
+      };
+    }
+
+    log.warn(
+      'Xtream Live catalog unavailable; loading get.php',
+      'event=xtream.live_fallback.used',
+      `load=${String(load)}`,
+      'reason=catalog_unavailable',
+    );
+    let groupFilter: XtreamGroupNameFilter | undefined;
+    if (categoryFilter) {
+      groupFilter = liveCategoryGroupFilter(categoryFilter, categories) ?? undefined;
+      log.warn(
+        groupFilter
+          ? 'Xtream Live catalog unavailable; filtering by category name'
+          : 'Xtream Live categories unavailable; loading unfiltered',
+        groupFilter
+          ? 'event=xtream.category_filter.name_match'
+          : 'event=xtream.category_filter.unavailable',
+        `load=${String(load)}`,
+      );
+      if (groupFilter) {
+        this.recordLiveCategories(pl, categoryFilter, categories.map(category => category.id));
+      }
+    }
+    const loaded = await fetchAndParseM3U(
+      xtreamPlaylistUrl(credentials, output),
+      60000,
+      undefined,
+      credentials.baseUrl,
+      report,
+      groupFilter,
+    );
+    return { parsed: loaded.data, streams, output, fromApi: false };
   }
 
   private async applyXtreamCatchup(

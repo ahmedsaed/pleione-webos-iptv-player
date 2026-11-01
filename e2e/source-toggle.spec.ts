@@ -8,6 +8,7 @@ import {
   seedPlaylist,
   test,
 } from './helpers';
+import { SAMPLE_LIVE_CATEGORIES, SAMPLE_LIVE_STREAMS } from './fixtures/xtream';
 
 // Opened from Home's Live card after every load (see `startOn`).
 test.use({ startOn: 'live' });
@@ -88,21 +89,18 @@ test('disabling every M3U source hides channels until the source is enabled agai
 test('disabling the only Xtream account hides its sections until re-enabled', async ({
   page,
 }) => {
-  await page.route('**/get.php*', route => route.fulfill({
-    status: 200,
-    contentType: 'application/x-mpegurl',
-    body: SAMPLE_M3U,
-  }));
+  await page.route('**/get.php*', route => route.fulfill({ status: 404, body: '' }));
   await page.route('**/xmltv.php*', route => route.fulfill({
     status: 200,
     contentType: 'application/xml',
     body: '<tv></tv>',
   }));
-  await page.route('**/player_api.php*', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: '{}',
-  }));
+  await page.route('**/player_api.php*', (route) => {
+    const url = route.request().url();
+    const body = url.includes('get_live_streams') ? SAMPLE_LIVE_STREAMS
+      : url.includes('get_live_categories') ? SAMPLE_LIVE_CATEGORIES : {};
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
   await routeLiveManifest(page);
   await page.addInitScript(() => {
     localStorage.setItem('iptv_playlists', JSON.stringify([{

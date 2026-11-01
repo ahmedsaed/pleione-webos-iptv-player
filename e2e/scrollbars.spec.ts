@@ -9,17 +9,23 @@ test.use({ startOn: 'live' });
 // Headless Chromium hides scrollbars by default, which would hide a regression.
 test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } });
 
-const LONG_M3U = ['#EXTM3U', ...Array.from({ length: 80 }, (_, i) => [
-  `#EXTINF:-1 tvg-id="ch${String(i)}" group-title="Group ${String(i % 30)}",Channel ${String(i)}`,
-  `http://host/${String(i)}`,
-]).reduce<string[]>((all, pair) => all.concat(pair), [])].join('\n');
+const LONG_CATEGORIES = Array.from({ length: 30 }, (_, i) =>
+  ({ category_id: String(i), category_name: `Group ${String(i)}` }));
+const LONG_STREAMS = Array.from({ length: 80 }, (_, i) => ({
+  num: i + 1, stream_id: i + 1, name: `Channel ${String(i)}`, epg_channel_id: `ch${String(i)}`,
+  category_id: String(i % 30), direct_source: `http://host/${String(i)}`, tv_archive: 0,
+}));
 
 async function seedLongXtream(page: Page): Promise<void> {
   await seedXtream(page, { catalog: 'large' });
-  // Registered last, so it wins over the fixture's short live playlist.
-  await page.route('**/get.php*', (r) => r.fulfill({
-    status: 200, contentType: 'application/x-mpegurl', body: LONG_M3U,
-  }));
+  // Registered last, so it wins over the fixture's short Live catalog.
+  await page.route('**/player_api.php*', (route) => {
+    const url = route.request().url();
+    const body = url.includes('get_live_streams') ? LONG_STREAMS
+      : url.includes('get_live_categories') ? LONG_CATEGORIES : null;
+    if (!body) return route.fallback();
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
 }
 
 // Every box that clips its overflow, and the viewport, must give no width or

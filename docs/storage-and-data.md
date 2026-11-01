@@ -86,6 +86,7 @@ This is the complete active key inventory:
 | `iptv_playlists` | `PlaylistEntry[]` | Stable id, display name, source URL/type, uploaded channel count, and Xtream username, password, and live-output preference | Configuration |
 | `iptv_manual_epg_sources` | `ManualEpgSource[]` | Manually added XMLTV URLs, in priority order, each applied to all playlists or to the listed playlist ids | Configuration |
 | `iptv_selectedXtream` | `string \| null` | Account id used by Movies, Series, and Search | Navigation state |
+| `iptv_xtream_output_formats` | `Record<string, {account, formats}>` | Per account id, the output formats its last accepted sign-in allowed, and the `<base URL>\|<username>` they came from; read by the Auto live output | Small derived state |
 | `iptv_catalog_sort_vod`, `iptv_catalog_sort_series` | `{by, direction}` | Movies and Series sort field (`default`, `name`, `added`, `rating`, `year`) and direction | Preference |
 | `iptv_show_hidden_channels` | `boolean` | Whether normal lists reveal hidden channels in a dimmed state | Preference |
 | `iptv_channel_cycle_mode` | `global \| active` | Whether Channel Up/Down cycles the whole list or stays in the group, Favorites, or playlist a channel was tuned from; default `active` | Preference |
@@ -257,6 +258,39 @@ response, and are discarded if the catalog cache is cleared while they are
 queued or in flight. A channel-list refresh records the source configuration
 and cache state it started with; if either changes before it finishes, its
 result is not written to the cache.
+
+An Xtream account's Live channels come from the Player API, not from its
+`get.php` M3U, which also lists every movie and episode and can be tens of
+thousands of lines for the TV to parse. The load asks `get_live_streams` and
+`get_live_categories` together and builds each channel as an `m3u_plus` line
+would: the provider's `num` order, name, logo, category as the group,
+`epg_channel_id` as `tvg-id`, and the stream URL
+`<base>/live/<user>/<password>/<id>.<ts|m3u8>` (or a usable
+`direct_source`), with catch-up from `tv_archive`. A catalog that loads
+empty means the account has no Live channels. Only when `get_live_streams`
+fails or is not a list does the load fall back to `get.php`, filtered by
+category name. The API path has no per-channel `#EXTVLCOPT`/`#EXTHTTP`
+headers, `tvg-shift`, `url-tvg` guide, or other provider-specific M3U
+attributes; the guide comes from the account's `xmltv.php`.
+
+Per-channel personal data is keyed by stream URL, and a standard panel's
+`get.php` URL is the one the API path builds, so favorites, hidden and renamed
+channels, history, playback choices, and parental channel locks carry over.
+A panel whose `get.php` spells the URL another way (its own host from
+`server_info`, no `/live/` or extension, or raw credentials) has that data
+moved to the new key once, by matching every such spelling of each loaded
+stream against keys no loaded channel uses (`xtream.channel_keys.migrated`).
+Reminders and catch-up progress, which lapse within days, are not moved.
+
+The sign-in (`player_api.php` with no action) is asked once per account per
+session: Home's check, the channel load's Auto output, and catch-up's server
+clock share its answer, or its request while in flight. An accepted answer
+is kept in memory for an hour under the account's URL and credentials, so
+editing an account signs in again; a failed or rejected one is not kept, so
+Try again asks the panel. **Check** in Settings always asks the panel. The
+formats an accepted sign-in allows are remembered in
+`iptv_xtream_output_formats`, so a cold start resolves Auto without waiting
+for the sign-in; a changed answer applies from the next load.
 
 Every request to the provider (a channel-list or guide download, or an Xtream
 API call) retries a transient failure up to three times, after 1, 2, then 4

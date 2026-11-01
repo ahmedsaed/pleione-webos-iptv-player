@@ -1248,16 +1248,11 @@ test.describe('Settings Xtream live output', () => {
     }
   });
 
-  test('saving HLS reloads the account with output=m3u8', async ({ page }) => {
-    await page.route('**/get.php*', (route) => {
-      const output = new URL(route.request().url()).searchParams.get('output');
-      const channel = output === 'm3u8' ? 'HLS Channel' : 'TS Channel';
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/x-mpegurl',
-        body: `#EXTM3U\n#EXTINF:-1,${channel}\nhttp://streams.example.com/live`,
-      });
-    });
+  test('saving HLS reloads the account with HLS stream URLs', async ({ page }) => {
+    const requests: string[] = [];
+    page.on('request', request => requests.push(request.url()));
+    await page.route('**/get.php*', route => route.fulfill({ status: 404, body: '' }));
+    await page.route('**/live/**', route => route.fulfill({ status: 404, body: '' }));
     await page.route('**/xmltv.php*', route =>
       route.fulfill({ status: 200, contentType: 'application/xml', body: '<tv></tv>' }));
     await page.route('**/player_api.php*', (route) => {
@@ -1266,11 +1261,7 @@ test.describe('Settings Xtream live output', () => {
         status: 200,
         contentType: 'application/json',
         body: action === 'get_live_streams'
-          ? JSON.stringify([{
-              stream_id: 101,
-              direct_source: 'http://streams.example.com/live',
-              tv_archive: 0,
-            }])
+          ? JSON.stringify([{ stream_id: 101, name: 'Live Channel', tv_archive: 0 }])
           : '{}',
       });
     });
@@ -1285,21 +1276,21 @@ test.describe('Settings Xtream live output', () => {
     });
 
     await page.goto('/');
-    await expect(page.locator('.channel-main .channel-item')).toContainText('TS Channel');
+    await expect(page.locator('.channel-main .channel-item')).toContainText('Live Channel');
+    await expect.poll(() => requests.some(url => url.endsWith('/live/u1/p1/101.ts'))).toBe(true);
     await enterTab(page, 'settings');
     await page.locator('[data-settings-target="sources"]').click();
     await page.locator('#xtream-output-x1 .dropdown-trigger').click();
     await page.locator('#xtream-output-x1 [data-dropdown-value="m3u8"]').click();
 
-    const hlsRequest = page.waitForRequest((request) => {
-      const url = new URL(request.url());
-      return url.pathname.endsWith('/get.php') && url.searchParams.get('output') === 'm3u8';
-    });
+    const hlsRequest = page.waitForRequest(request =>
+      request.url().endsWith('/live/u1/p1/101.m3u8'));
     await page.locator('#save-settings').click();
     // The save returns Home, which loads no channels; Live loads them anew.
     await liveAfterSave(page);
     await hlsRequest;
-    await expect(page.locator('.channel-main .channel-item')).toContainText('HLS Channel');
+    await expect(page.locator('.channel-main .channel-item')).toContainText('Live Channel');
+    expect(requests.some(url => url.includes('/get.php'))).toBe(false);
     await expect.poll(() => page.evaluate(() => {
       const playlists = JSON.parse(localStorage.getItem('iptv_playlists') || '[]');
       return playlists[0]?.xtream?.liveOutput;
@@ -1320,13 +1311,7 @@ test.describe('Settings Xtream live categories', () => {
   ];
 
   async function routeAccount(page: Page, categoryCount: () => number): Promise<void> {
-    await page.route('**/get.php*', route => route.fulfill({
-      status: 200,
-      contentType: 'application/x-mpegurl',
-      body: '#EXTM3U\n' + STREAMS.slice(0, categoryCount()).map(s =>
-        `#EXTINF:-1 group-title="Group ${s.stream_id - 100}",${s.name}\n` +
-        `http://host.example.com:8080/live/u1/p1/${s.stream_id}.ts`).join('\n'),
-    }));
+    await page.route('**/get.php*', route => route.fulfill({ status: 404, body: '' }));
     await page.route('**/xmltv.php*', route =>
       route.fulfill({ status: 200, contentType: 'application/xml', body: '<tv></tv>' }));
     await page.route('**/player_api.php*', (route) => {
@@ -1424,7 +1409,8 @@ test.describe('Settings Xtream live categories', () => {
       }))));
     });
     await page.goto('/');
-    await expect(channels(page)).toHaveCount(3);
+    // Each account's streams play from its own URLs.
+    await expect(channels(page)).toHaveCount(6);
     await enterTab(page, 'settings');
     await page.locator('[data-settings-target="sources"]').click();
     await page.locator('.xtream-card[data-id="x1"] .xtream-live-categories').click();
@@ -1466,7 +1452,8 @@ test.describe('Settings Xtream live categories', () => {
       }))));
     });
     await page.goto('/');
-    await expect(channels(page)).toHaveCount(3);
+    // Each account's streams play from its own URLs.
+    await expect(channels(page)).toHaveCount(6);
     await enterTab(page, 'settings');
     await page.locator('[data-settings-target="sources"]').click();
     await page.locator('.xtream-card[data-id="x1"] .xtream-live-categories').click();

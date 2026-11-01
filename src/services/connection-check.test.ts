@@ -9,6 +9,7 @@ vi.mock('../utils/fetch-helper', async (importOriginal) => ({
 
 import { FetchTextError } from '../utils/fetch-helper';
 import { checkConnections, StartupConnection, type ConnectionIssue } from './connection-check';
+import { createXtreamClient, resetXtreamSignIns } from './xtream-client';
 
 const xtream = (id: string, extra: Partial<PlaylistEntry> = {}): PlaylistEntry => ({
   id, name: id, url: `http://host/${id}`, source: 'xtream',
@@ -16,7 +17,10 @@ const xtream = (id: string, extra: Partial<PlaylistEntry> = {}): PlaylistEntry =
 });
 const m3u: PlaylistEntry = { id: 'm1', name: 'm1', url: 'http://host/a.m3u' };
 
-beforeEach(() => fetchTextMock.mockReset());
+beforeEach(() => {
+  fetchTextMock.mockReset();
+  resetXtreamSignIns();
+});
 
 describe('checkConnections', () => {
   it('makes exactly one sign-in request per Xtream account and none for M3U', async () => {
@@ -24,6 +28,19 @@ describe('checkConnections', () => {
     expect(await checkConnections([m3u, xtream('x1')])).toBeNull();
     expect(fetchTextMock).toHaveBeenCalledTimes(1);
     expect(fetchTextMock.mock.calls[0][0]).toBe('http://host/x1/player_api.php?username=u1&password=p1');
+  });
+
+  it('leaves its passed sign-in for the channel load, and asks again after a failure', async () => {
+    fetchTextMock.mockResolvedValueOnce(JSON.stringify({ user_info: { auth: 0 } }));
+    expect(await checkConnections([xtream('x1')]))
+      .toEqual({ state: 'rejected', accountId: 'x1', accountName: 'x1' });
+    fetchTextMock.mockResolvedValue(JSON.stringify({ user_info: { auth: 1 } }));
+    expect(await checkConnections([xtream('x1')])).toBeNull();
+    expect(fetchTextMock).toHaveBeenCalledTimes(2);
+
+    const load = createXtreamClient({ baseUrl: 'http://host/x1', username: 'u1', password: 'p1' });
+    expect(await load.getAccountInfo()).toMatchObject({ auth: true });
+    expect(fetchTextMock).toHaveBeenCalledTimes(2);
   });
 
   it('reports a timed-out server without retrying the timeout', async () => {

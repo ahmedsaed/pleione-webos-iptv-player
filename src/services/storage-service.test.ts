@@ -1270,6 +1270,65 @@ describe('StorageService channel customization store', () => {
   });
 });
 
+describe('StorageService remembered Xtream output formats', () => {
+  const xtream = (id: string) => ({
+    id, name: id, url: 'http://host/a', source: 'xtream' as const,
+    xtream: { username: 'u1', password: 'p1' },
+  });
+
+  beforeEach(() => {
+    localStorage.clear();
+    StorageService.setPlaylists([xtream('x1'), xtream('x2')]);
+  });
+
+  it('keeps the formats per account and forgets them for another server or user', () => {
+    expect(StorageService.getXtreamOutputFormats('x1', 'http://host/a|u1')).toBeNull();
+    StorageService.setXtreamOutputFormats('x1', 'http://host/a|u1', ['ts', 'm3u8']);
+    StorageService.setXtreamOutputFormats('x2', 'http://host/a|u1', []);
+    expect(StorageService.getXtreamOutputFormats('x1', 'http://host/a|u1')).toEqual(['ts', 'm3u8']);
+    expect(StorageService.getXtreamOutputFormats('x2', 'http://host/a|u1')).toEqual([]);
+    expect(StorageService.getXtreamOutputFormats('x1', 'http://host/a|u2')).toBeNull();
+    expect(JSON.parse(localStorage.getItem('iptv_xtream_output_formats')!)).toEqual({
+      x1: { account: 'http://host/a|u1', formats: ['ts', 'm3u8'] },
+      x2: { account: 'http://host/a|u1', formats: [] },
+    });
+  });
+
+  it('drops a removed account on the next write', () => {
+    StorageService.setXtreamOutputFormats('x2', 'http://host/a|u1', ['ts']);
+    StorageService.setPlaylists([xtream('x1')]);
+    StorageService.setXtreamOutputFormats('x1', 'http://host/a|u1', ['m3u8']);
+    expect(Object.keys(JSON.parse(localStorage.getItem('iptv_xtream_output_formats')!)))
+      .toEqual(['x1']);
+  });
+});
+
+describe('StorageService channel key renames without IndexedDB', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('moves favorites, customization, history, and playback choices', () => {
+    StorageService.setFavorites(['old']);
+    StorageService.setChannelCustomization({
+      version: CONFIG.CHANNEL_CUSTOMIZATION_VERSION,
+      overrides: { old: { hidden: true } }, order: ['old'],
+      groupOrder: [], groupOverrides: {}, customGroups: [],
+    });
+    StorageService.touchRecentlyWatchedLive('old', 1000);
+    StorageService.setAudioPref('old', { name: 'Track 1', lang: 'l1' });
+
+    expect(StorageService.renameChannelKeys(new Map([['old', 'new']]))).toBe(4);
+
+    expect(StorageService.getFavorites()).toEqual(['new']);
+    expect(StorageService.getChannelCustomization()).toMatchObject({
+      overrides: { new: { hidden: true } }, order: ['new'],
+    });
+    expect(StorageService.getRecentlyWatchedLive()).toEqual([{ channelKey: 'new', updatedAt: 1000 }]);
+    expect(StorageService.getAudioPref('new')).toEqual({ name: 'Track 1', lang: 'l1' });
+    expect(StorageService.getAudioPref('old')).toBeNull();
+    expect(Array.from(StorageService.channelDataKeys())).toEqual(['new']);
+  });
+});
+
 describe('StorageService Live category snapshots without IndexedDB', () => {
   const snap = { knownIds: ['c1', 'c2'], announcedIds: ['c2'], counts: { c1: 3, c2: 1 } };
   const xtream = (id: string) => ({

@@ -275,6 +275,25 @@ describe('ParentalControlService', () => {
     });
   });
 
+  it('keeps a live channel rule when the channel key is renamed', () => {
+    const channel = (key: string) => ({ kind: 'live-channel', channelKey: key }) as const;
+    ParentalControlService.setItemRule(channel('old|1'), 'protect');
+    ParentalControlService.setItemRule(channel('old2'), 'allow');
+    ParentalControlService.setItemRule(channel('new2'), 'protect');
+    expect(ParentalControlService.liveChannelKeys().sort()).toEqual(['new2', 'old2', 'old|1']);
+
+    expect(ParentalControlService.renameChannelKeys(new Map([
+      ['old|1', 'new1'], ['old2', 'new2'],
+    ]))).toBe(1);
+
+    expect(ParentalControlService.itemRule(channel('new1'))).toBe('protect');
+    expect(ParentalControlService.itemRule(channel('old|1'))).toBeNull();
+    // new2 already had its own rule.
+    expect(ParentalControlService.itemRule(channel('new2'))).toBe('protect');
+    expect(ParentalControlService.itemRule(channel('old2'))).toBe('allow');
+    expect(storage.config?.itemRules[parentalTargetKey(channel('new1'))]).toBe('protect');
+  });
+
   it('locks groups and clears one group of exceptions in single writes', () => {
     const g1 = { kind: 'vod-category', accountId: 'a1', categoryId: 'c1' } as const;
     const g2 = { kind: 'vod-category', accountId: 'a1', categoryId: 'c2' } as const;

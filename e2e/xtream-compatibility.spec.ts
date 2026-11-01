@@ -47,6 +47,8 @@ function key(page: Page, keyCode: number): Promise<void> {
 
 async function openEarlierProgramme(page: Page): Promise<void> {
   await openGuide(page);
+  // The guide has loaded, so Left lands on a program rather than a gap.
+  await expect(page.locator('#live-guide .guide-cell.focused')).toContainText('Live Show');
   await key(page, 37);
   await expect(page.locator('#live-guide .guide-cell.focused')).toContainText('Earlier Show');
   await key(page, 13);
@@ -56,7 +58,7 @@ test.afterEach(async () => {
   await Promise.all(servers.splice(0).map(server => server.stop()));
 });
 
-test('loads live channels from Player API when get.php is unavailable', async ({ page }) => {
+test('loads live channels from the Player API with one sign-in and no get.php', async ({ page }) => {
   const server = await startServer('player-api-only');
   await seedAccount(page, server);
 
@@ -71,12 +73,37 @@ test('loads live channels from Player API when get.php is unavailable', async ({
     'get_live_categories',
     'get_live_streams',
   ]));
+  // Home's sign-in check and the channel load share one account_info call.
+  expect(server.actions().filter(action => action === 'account_info')).toEqual(['account_info']);
+  expect(server.paths()).not.toContain('/get.php');
 
   const directRequest = server.waitForRequest(
     request => request.pathname === '/direct/201.m3u8',
   );
   await channels.nth(0).click();
   await directRequest;
+});
+
+test('falls back to get.php and its XC catch-up when the Player API lists no Live', async ({ page }) => {
+  const server = await startServer('m3u-only');
+  await seedAccount(page, server);
+  await page.clock.setFixedTime(NOW);
+
+  await page.goto('/');
+
+  const channel = page.locator('.channel-main .channel-item');
+  await expect(channel).toHaveCount(1);
+  await expect(channel.first()).toContainText('Alpha');
+  expect(server.paths()).toContain('/get.php');
+
+  const catchupRequest = server.waitForRequest(
+    request => request.pathname.indexOf('/timeshift/') === 0,
+  );
+  await openEarlierProgramme(page);
+  // Without the Player API catalog the M3U's own catch-up applies, in UTC.
+  expect((await catchupRequest).pathname).toBe(
+    '/timeshift/u1/p1/60/2024-03-09:10-00/101.ts',
+  );
 });
 
 test('constructs an HLS live URL when categories are unsupported', async ({ page }) => {
@@ -94,7 +121,7 @@ test('constructs an HLS live URL when categories are unsupported', async ({ page
   await liveRequest;
 });
 
-test('supports XC M3U catch-up and the legacy action spelling', async ({ page }) => {
+test('supports Player API catch-up and the legacy action spelling', async ({ page }) => {
   const server = await startServer('legacy-xc');
   await seedAccount(page, server, 'm3u8');
   await page.clock.setFixedTime(NOW);

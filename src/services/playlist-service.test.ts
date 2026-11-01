@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { Channel, ChannelCustomization } from '../types';
+import type { Channel, ChannelCustomization, PlaylistEntry } from '../types';
 import { UNCATEGORIZED_GROUP } from '../types';
 
 const { storageMock, cacheMock, fetchTextMock } = vi.hoisted(() => ({
@@ -17,6 +17,14 @@ const { storageMock, cacheMock, fetchTextMock } = vi.hoisted(() => ({
     }),
     setLiveCategorySnapshot: vi.fn((id: string, snapshot: unknown) => {
       storageMock.liveCategorySnapshots.set(id, snapshot);
+    }),
+    getXtreamOutputFormats: vi.fn((): string[] | null => null),
+    setXtreamOutputFormats: vi.fn(),
+    channelDataKeys: vi.fn(() => new Set<string>(storageMock.getFavorites())),
+    renameChannelKeys: vi.fn((aliases: Map<string, string>) => {
+      const favorites = storageMock.getFavorites();
+      storageMock.getFavorites.mockReturnValue(favorites.map(key => aliases.get(key) ?? key));
+      return favorites.filter(key => aliases.has(key)).length;
     }),
   },
   cacheMock: {
@@ -99,6 +107,9 @@ import {
 import { ChannelCustomizationService } from './channel-customization';
 import { ParentalControlService } from './parental-control';
 import { CONFIG } from '../config';
+import { parseM3U } from '../parsers/m3u-parser';
+import { checkConnections } from './connection-check';
+import { createXtreamClient, resetXtreamSignIns } from './xtream-client';
 
 function channel(over: Partial<Channel>): Channel {
   return {
@@ -121,7 +132,10 @@ http://stream/u3`;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.restoreAllMocks();
+  resetXtreamSignIns();
   storageMock.getFavorites.mockReturnValue([]);
+  storageMock.getXtreamOutputFormats.mockReturnValue(null);
   cacheMock.getCachedPlaylist.mockResolvedValue(null);
   PlaylistService.allChannels = [];
   PlaylistService.channels = [];
@@ -460,352 +474,89 @@ describe('PlaylistService.refresh', () => {
 });
 
 describe('PlaylistService.refresh (xtream source)', () => {
+  // What an m3u_plus get.php lists for the same account: the live lines,
+  // then a movie the Player API path never sees.
   const XT = `#EXTM3U
-#EXTINF:-1 tvg-id="a" group-title="News",Alpha
+#EXTINF:-1 tvg-id="epg-a" tvg-name="Alpha" tvg-logo="http://host/a.png" group-title="News",Alpha
 http://host:8080/live/u1/p1/101.ts
-#EXTINF:-1 tvg-id="b",Bravo
-http://host:8080/live/u1/p1/102.ts`;
+#EXTINF:-1 tvg-id="" tvg-name="Bravo" tvg-logo="" group-title="Sports",Bravo
+http://host:8080/live/u1/p1/102.ts
+#EXTINF:-1 tvg-id="" tvg-name="Movie" tvg-logo="" group-title="Films",Movie
+http://host:8080/movie/u1/p1/301.mp4`;
+  const CATEGORIES = [
+    { category_id: '1', category_name: 'News' },
+    { category_id: '2', category_name: 'Sports' },
+  ];
+  let liveStreams: Array<Record<string, unknown>>;
+  let liveStreamsBody: string | null;
+  let accountBody: string;
+  let playlistBody: string | Error;
+
+  const requests = (match: RegExp): string[] =>
+    fetchTextMock.mock.calls.map(([url]) => url as string).filter(url => match.test(url));
+  const SIGN_IN = /\/player_api\.php\?username=u1&password=p1$/;
+  const GET_PHP = /\/get\.php\?/;
+
+  function account(xtream: Record<string, unknown> = {}) {
+    storageMock.getPlaylists.mockReturnValue([
+      { id: 'x', name: 'Acct', url: 'http://host:8080', source: 'xtream',
+        xtream: { username: 'u1', password: 'p1', ...xtream } },
+    ]);
+  }
 
   beforeEach(() => {
-    storageMock.getPlaylists.mockReturnValue([
-      { id: 'x', name: 'Acct', url: 'http://host:8080', source: 'xtream',
-        xtream: { username: 'u1', password: 'p1' } },
-    ]);
+    account();
+    liveStreams = [
+      { num: 1, stream_id: 101, name: 'Alpha', stream_icon: 'http://host/a.png',
+        epg_channel_id: 'epg-a', category_id: '1', tv_archive: 1, tv_archive_duration: '7' },
+      { num: 2, stream_id: 102, name: 'Bravo', stream_icon: '', epg_channel_id: null,
+        category_id: '2', tv_archive: 0, tv_archive_duration: 0 },
+    ];
+    liveStreamsBody = null;
+    accountBody = JSON.stringify({
+      user_info: { auth: 1, allowed_output_formats: ['ts', 'm3u8'] },
+      server_info: { url: 'host', port: '8080', timezone: 'Etc/GMT-2',
+        timestamp_now: 1784665800, time_now: '2026-07-21 22:30:00' },
+    });
+    playlistBody = XT;
     fetchTextMock.mockImplementation((url: string) => {
       if (url.includes('action=get_live_streams')) {
-        return Promise.resolve(JSON.stringify([
-          { stream_id: 101, tv_archive: 0 },
-          { stream_id: 102, tv_archive: 0 },
-        ]));
+        return Promise.resolve(liveStreamsBody ?? JSON.stringify(liveStreams));
       }
-      if (url.includes('player_api.php')) return Promise.resolve(JSON.stringify({
-        server_info: { timezone: 'UTC', timestamp_now: 1784662200, time_now: '2026-07-21 20:30:00' },
-      }));
-      return Promise.resolve(XT);
+      if (url.includes('action=get_live_categories')) return Promise.resolve(JSON.stringify(CATEGORIES));
+      if (url.includes('player_api.php')) return Promise.resolve(accountBody);
+      if (playlistBody instanceof Error) return Promise.reject(playlistBody);
+      return Promise.resolve(playlistBody);
     });
   });
 
-  it('fetches the derived get.php playlist URL, not the bare base', async () => {
-    await PlaylistService.refresh();
-    expect(fetchTextMock).toHaveBeenCalledWith(
-      'http://host:8080/get.php?username=u1&password=p1&type=m3u_plus&output=ts',
-      expect.any(Number),
-    );
-  });
-
-  it('requests HLS for an explicit m3u8 preference', async () => {
-    storageMock.getPlaylists.mockReturnValue([
-      { id: 'x', name: 'Acct', url: 'http://host:8080', source: 'xtream',
-        xtream: { username: 'u1', password: 'p1', liveOutput: 'm3u8' } },
-    ]);
-    await PlaylistService.refresh();
-    const call = fetchTextMock.mock.calls.find(([url]) => url.includes('/get.php?'));
-    expect(new URL(call![0]).searchParams.get('output')).toBe('m3u8');
-  });
-
-  it('auto-prefers HLS when the account advertises it', async () => {
-    storageMock.getPlaylists.mockReturnValue([
-      { id: 'x', name: 'Acct', url: 'http://host:8080', source: 'xtream',
-        xtream: { username: 'u1', password: 'p1', liveOutput: 'auto' } },
-    ]);
-    fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_streams')) return Promise.resolve('[]');
-      if (url.includes('player_api.php')) return Promise.resolve(JSON.stringify({
-        user_info: { auth: 1, allowed_output_formats: ['ts', 'm3u8'] },
-        server_info: { timezone: 'UTC' },
-      }));
-      return Promise.resolve(XT);
-    });
-    await PlaylistService.refresh();
-    const call = fetchTextMock.mock.calls.find(([url]) => url.includes('/get.php?'));
-    expect(new URL(call![0]).searchParams.get('output')).toBe('m3u8');
-  });
-
-  it('parses the channels out of the derived playlist', async () => {
+  it('builds Live from the Player API without requesting get.php', async () => {
     const channels = await PlaylistService.refresh();
+
     expect(channels.map(c => c.name)).toEqual(['Alpha', 'Bravo']);
-    // Live URLs come straight from the M3U on the native /live/USER/PASS/ID.ts form.
-    expect(channels.every(c => /\/live\/u1\/p1\/\d+\.ts$/.test(c.url))).toBe(true);
-  });
-
-  it('does not refetch an unavailable Live catalog when the M3U is usable', async () => {
-    fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_streams')) return Promise.resolve('<html>nope</html>');
-      if (url.includes('player_api.php')) return Promise.resolve('{}');
-      return Promise.resolve(XT);
-    });
-
-    await PlaylistService.refresh();
-    expect(fetchTextMock.mock.calls.filter(([url]) =>
-      url.includes('action=get_live_streams'))).toHaveLength(1);
-  });
-
-  it('does not guess content type when the Player API Live catalog is unavailable', async () => {
-    const mixed = `#EXTM3U
-#EXTINF:-1,Alpha
-http://host:8080/live/u1/p1/101.ts
-#EXTINF:-1,Bravo
-http://host:8080/movie/u1/p1/201.mp4
-#EXTINF:-1,Charlie
-http://host:8080/SeRiEs/u1/p1/301.mkv
-#EXTINF:-1,Delta
-http://host:8080/movies/u1/p1/401.ts
-#EXTINF:-1,Echo
-http://host:8080/play?path=/series/u1/p1/501.mkv
-#EXTINF:-1,Foxtrot
-not-a-url`;
-    fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_streams')) return Promise.resolve('<html>nope</html>');
-      if (url.includes('player_api.php')) return Promise.resolve('{}');
-      return Promise.resolve(mixed);
-    });
-
-    const channels = await PlaylistService.refresh();
-
-    expect(channels.map(channel => channel.name)).toEqual([
-      'Alpha',
-      'Bravo',
-      'Charlie',
-      'Delta',
-      'Echo',
-      'Foxtrot',
+    expect(channels.map(c => c.url)).toEqual([
+      'http://host:8080/live/u1/p1/101.ts',
+      'http://host:8080/live/u1/p1/102.ts',
     ]);
+    expect(requests(GET_PHP)).toEqual([]);
+    expect(vi.mocked(fetchAndParseM3U)).not.toHaveBeenCalled();
   });
 
-  it('cross-checks alternate routes against the Player API Live catalog', async () => {
-    const mixed = `#EXTM3U
-#EXTINF:-1,Alpha
-http://host:8080/live/u1/p1/101.ts
-#EXTINF:-1,Movie
-http://host:8080/vod/u1/p1/101.mkv
-#EXTINF:-1,Series
-http://host:8080/series/u1/p1/201
-#EXTINF:-1,Bravo
-http://host:8080/play?stream_id=102
-#EXTINF:-1,Movie Query
-http://host:8080/movie/u1/p1/301.mp4?stream_id=102
-#EXTINF:-1,Charlie
-https://host/token/abc?token=new&x=1`;
-    fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_streams')) {
-        return Promise.resolve(JSON.stringify([
-          { stream_id: 101, tv_archive: 0 },
-          { stream_id: 102, tv_archive: 0 },
-          {
-            stream_id: 103,
-            direct_source: 'https://host/token/abc?x=1&token=old',
-            tv_archive: 0,
-          },
-        ]));
-      }
-      if (url.includes('player_api.php')) return Promise.resolve('{}');
-      return Promise.resolve(mixed);
-    });
+  it('gives the channels get.php would, with the same keys', async () => {
+    const fromApi = await PlaylistService.refresh();
+    const apiChannels = PlaylistService.allChannels.slice();
+    liveStreamsBody = '<html>nope</html>';
+    const fromPlaylist = await PlaylistService.refresh();
 
-    const channels = await PlaylistService.refresh();
-
-    expect(channels.map(channel => channel.name)).toEqual([
-      'Alpha',
-      'Bravo',
-      'Charlie',
-    ]);
-    expect(channels.map(channel => channel.catchupStreamId))
-      .toEqual(['101', '102', '103']);
-  });
-
-  it('keeps M3U metadata for a path-prefixed Xtream portal', async () => {
-    storageMock.getPlaylists.mockReturnValue([
-      { id: 'x', name: 'Acct', url: 'http://host:8080/panel', source: 'xtream',
-        xtream: { username: 'u1', password: 'p1' } },
-    ]);
-    fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_streams')) {
-        return Promise.resolve(JSON.stringify([
-          { stream_id: 101, tv_archive: 0 },
-        ]));
-      }
-      if (url.includes('player_api.php')) return Promise.resolve('{}');
-      return Promise.resolve(`#EXTM3U
-#EXTINF:-1 custom-field="kept",Alpha
-http://host:8080/panel/live/u1/p1/101.ts`);
-    });
-
-    const channels = await PlaylistService.refresh();
-
-    expect(channels).toHaveLength(1);
-    expect(channels[0]).toMatchObject({
-      name: 'Alpha',
-      sourceAttributes: { 'custom-field': 'kept' },
-      catchupStreamId: '101',
-    });
-  });
-
-  it('treats a successful empty Live catalog as authoritative', async () => {
-    fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_streams')) return Promise.resolve('[]');
-      if (url.includes('action=get_live_categories')) return Promise.resolve('[]');
-      if (url.includes('player_api.php')) return Promise.resolve('{}');
-      return Promise.resolve(`#EXTM3U
-#EXTINF:-1,Movie
-http://host:8080/movie/u1/p1/201.mp4`);
-    });
-
-    expect(await PlaylistService.refresh()).toEqual([]);
-    expect(fetchTextMock.mock.calls.filter(([url]) =>
-      url.includes('action=get_live_streams'))).toHaveLength(1);
-  });
-
-  it('does not filter movie and series paths from an ordinary M3U', async () => {
-    storageMock.getPlaylists.mockReturnValue([
-      { id: 'm', name: 'M3U', url: 'http://host/list.m3u', source: 'url' },
-    ]);
-    fetchTextMock.mockResolvedValue(`#EXTM3U
-#EXTINF:-1,Alpha
-http://host/movie/u1/p1/201.mp4
-#EXTINF:-1,Bravo
-http://host/series/u1/p1/301.mkv`);
-
-    const channels = await PlaylistService.refresh();
-
-    expect(channels.map(channel => channel.name)).toEqual(['Alpha', 'Bravo']);
-  });
-
-  it('does not request live categories when get.php returns channels', async () => {
-    await PlaylistService.refresh();
-    expect(fetchTextMock.mock.calls.some(([url]) =>
-      url.includes('action=get_live_categories'))).toBe(false);
-  });
-
-  it.each([
-    ['fails', 'reject'],
-    ['contains no channels', 'empty'],
-    ['contains only standard VOD entries', 'vod'],
-  ])('uses the Player API live catalog when get.php %s', async (_label, mode) => {
-    fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_categories')) {
-        return Promise.resolve(JSON.stringify([
-          { category_id: '1', category_name: 'Alpha' },
-        ]));
-      }
-      if (url.includes('action=get_live_streams')) {
-        return Promise.resolve(JSON.stringify([
-          {
-            stream_id: 201,
-            name: 'Bravo',
-            stream_icon: 'http://host/b.png',
-            epg_channel_id: 'epg-b',
-            category_id: '1',
-            direct_source: 'https://host/direct/201',
-            tv_archive: 1,
-            tv_archive_duration: 3,
-          },
-          {
-            stream_id: 202,
-            name: 'Charlie',
-            category_id: '9',
-            direct_source: 'file:///tmp/not-allowed',
-            tv_archive: 0,
-          },
-        ]));
-      }
-      if (url.includes('player_api.php')) {
-        return Promise.resolve(JSON.stringify({
-          server_info: { timezone: 'UTC' },
-        }));
-      }
-      if (mode === 'reject') return Promise.reject(new Error('get.php unavailable'));
-      if (mode === 'vod') {
-        return Promise.resolve('#EXTM3U\n#EXTINF:-1,Delta\n'
-          + 'http://host:8080/movie/u1/p1/301.mp4');
-      }
-      return Promise.resolve('#EXTM3U');
-    });
-
-    const channels = await PlaylistService.refresh();
-
-    expect(channels).toHaveLength(2);
-    expect(channels[0]).toMatchObject({
-      id: 'epg-b',
-      name: 'Bravo',
-      logo: 'http://host/b.png',
-      group: 'Alpha',
-      url: 'https://host/direct/201',
-      catchup: 'xtream',
-      catchupStreamId: '201',
-      catchupDays: 3,
-    });
-    expect(channels[1]).toMatchObject({
-      name: 'Charlie',
-      group: UNCATEGORIZED_GROUP,
-      url: 'http://host:8080/live/u1/p1/202.ts',
-      catchupSource: '',
-    });
-  });
-
-  it('uses the selected HLS output for Player API fallback URLs', async () => {
-    storageMock.getPlaylists.mockReturnValue([
-      { id: 'x', name: 'Acct', url: 'http://host:8080', source: 'xtream',
-        xtream: { username: 'u1', password: 'p1', liveOutput: 'm3u8' } },
-    ]);
-    fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_categories')) return Promise.resolve('[]');
-      if (url.includes('action=get_live_streams')) {
-        return Promise.resolve(JSON.stringify([
-          { stream_id: 201, name: 'Alpha', category_id: '1', tv_archive: 0 },
-        ]));
-      }
-      if (url.includes('player_api.php')) return Promise.resolve('{}');
-      return Promise.resolve('#EXTM3U');
-    });
-
-    const channels = await PlaylistService.refresh();
-    expect(channels[0].url).toBe('http://host:8080/live/u1/p1/201.m3u8');
-  });
-
-  it('loads uncategorized live streams when live categories are unsupported', async () => {
-    fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_categories')) {
-        return Promise.resolve('<html>unsupported</html>');
-      }
-      if (url.includes('action=get_live_streams')) {
-        return Promise.resolve(JSON.stringify([
-          { stream_id: 201, name: 'Alpha', category_id: '1', tv_archive: 0 },
-        ]));
-      }
-      if (url.includes('player_api.php')) return Promise.resolve('{}');
-      return Promise.resolve('#EXTM3U');
-    });
-
-    const channels = await PlaylistService.refresh();
-    expect(channels).toHaveLength(1);
-    expect(channels[0].group).toBe(UNCATEGORIZED_GROUP);
-  });
-
-  it('pushes the derived xmltv.php EPG URL', async () => {
-    await PlaylistService.refresh();
-    expect(PlaylistService.epgSources.map((source) => source.url)).toContain(
-      'http://host:8080/xmltv.php?username=u1&password=p1',
-    );
-  });
-
-  it('enables catch-up only for streams archived by the account', async () => {
-    fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_streams')) {
-        return Promise.resolve(JSON.stringify([
-          { stream_id: 101, tv_archive: 1, tv_archive_duration: '7' },
-          { stream_id: 102, tv_archive: 0, tv_archive_duration: '0' },
-        ]));
-      }
-      if (url.includes('player_api.php')) {
-        return Promise.resolve(JSON.stringify({
-          server_info: { timezone: 'Etc/GMT-2', timestamp_now: 1784665800, time_now: '2026-07-21 22:30:00' },
-        }));
-      }
-      return Promise.resolve(XT);
-    });
-
-    const channels = await PlaylistService.refresh();
-    expect(channels[0]).toMatchObject({
+    expect(requests(GET_PHP)).toHaveLength(1);
+    const shape = (channels: Channel[]) => channels.map(c => ({
+      id: c.id, name: c.name, logo: c.logo, group: c.group, url: c.url,
+      key: channelKey(c), legacyKey: legacyChannelKey(c),
+    }));
+    // get.php also listed a movie; the fallback has no catalog to drop it by.
+    expect(shape(fromApi)).toEqual(shape(fromPlaylist.slice(0, 2)));
+    expect(PlaylistService.groups.slice(0, 2)).toEqual(['News', 'Sports']);
+    expect(apiChannels[0]).toMatchObject({
       catchup: 'xtream',
       catchupDays: 7,
       catchupSource: 'http://host:8080/timeshift/u1/p1/{duration}/{start}/101.ts',
@@ -814,75 +565,184 @@ http://host/series/u1/p1/301.mkv`);
       catchupTimeZone: 'Etc/GMT-2',
       catchupTimeOffsetMinutes: 120,
     });
-    expect(channels[0].catchupSources).toBeUndefined();
-    expect(channels[1].catchupSource).toBe('');
+    expect(apiChannels[1].catchupSource).toBe('');
   });
 
-  it('links query-based and direct-source live URLs to archive stream ids', async () => {
-    const nonstandard = `#EXTM3U
-#EXTINF:-1,Alpha
-http://host/play?stream_id=301
-#EXTINF:-1,Bravo
-https://host/token/abc?token=new&x=1`;
+  it('keeps favorites and hidden channels saved against get.php channels', async () => {
+    const saved = parseM3U(XT, 'http://host:8080/get.php').channels;
+    storageMock.getFavorites.mockReturnValue([channelKey(saved[0])]);
+    storageMock.getChannelCustomization.mockReturnValue({
+      version: CONFIG.CHANNEL_CUSTOMIZATION_VERSION,
+      overrides: { [channelKey(saved[1])]: { hidden: true } },
+      order: [], groupOrder: [], groupOverrides: {}, customGroups: [],
+    });
+    ChannelCustomizationService.reload();
+    try {
+      await PlaylistService.refresh();
+      expect(PlaylistService.channels.map(c => c.name)).toEqual(['Alpha']);
+      expect(PlaylistService.getByGroup('builtin:favorites').map(c => c.name)).toEqual(['Alpha']);
+      expect(storageMock.renameChannelKeys).not.toHaveBeenCalled();
+    } finally {
+      storageMock.getChannelCustomization.mockReturnValue(null);
+      ChannelCustomizationService.reload();
+    }
+  });
+
+  it('moves data saved under a differently spelled get.php URL', async () => {
+    // A panel whose get.php names its own host and drops /live/ and the extension.
+    accountBody = JSON.stringify({
+      user_info: { auth: 1 },
+      server_info: { url: 'panel', port: '25461', timezone: 'UTC' },
+    });
+    const oldKey = channelKey(channel({ url: 'http://panel:25461/u1/p1/102' }));
+    storageMock.getFavorites.mockReturnValue([oldKey, 'gone']);
+    await createXtreamClient({ baseUrl: 'http://host:8080', username: 'u1', password: 'p1' })
+      .getAccountInfo();
+
+    await PlaylistService.refresh();
+
+    expect(storageMock.renameChannelKeys).toHaveBeenCalledWith(new Map([
+      [oldKey, channelKey(PlaylistService.allChannels[1])],
+    ]));
+    expect(PlaylistService.getByGroup('builtin:favorites').map(c => c.name)).toEqual(['Bravo']);
+  });
+
+  it('lists channels in the provider order and keeps its numbers', async () => {
+    liveStreams = [
+      { num: 3, stream_id: 103, name: 'Charlie', category_id: '2' },
+      { num: 1, stream_id: 101, name: 'Alpha', category_id: '1' },
+      { num: 2, stream_id: 102, name: 'Bravo', category_id: '2' },
+    ];
+    const channels = await PlaylistService.refresh();
+    expect(channels.map(c => [c.name, c.channelNumber])).toEqual([
+      ['Alpha', 1], ['Bravo', 2], ['Charlie', 3],
+    ]);
+
+    liveStreams = [
+      { stream_id: 103, name: 'Charlie', category_id: '2' },
+      { num: 1, stream_id: 101, name: 'Alpha', category_id: '1' },
+    ];
+    expect((await PlaylistService.refresh()).map(c => c.name)).toEqual(['Charlie', 'Alpha']);
+  });
+
+  it('builds HLS URLs for an explicit m3u8 preference without signing in', async () => {
+    account({ liveOutput: 'm3u8' });
+    liveStreams[0].tv_archive = 0;
+    const channels = await PlaylistService.refresh();
+    expect(channels[0].url).toBe('http://host:8080/live/u1/p1/101.m3u8');
+    expect(requests(SIGN_IN)).toEqual([]);
+  });
+
+  it('auto-prefers HLS when the account advertises it, and remembers that', async () => {
+    account({ liveOutput: 'auto' });
+    const channels = await PlaylistService.refresh();
+    expect(channels[0].url).toBe('http://host:8080/live/u1/p1/101.m3u8');
+    expect(storageMock.setXtreamOutputFormats)
+      .toHaveBeenCalledWith('x', 'http://host:8080|u1', ['ts', 'm3u8']);
+  });
+
+  it('loads with the remembered formats before the sign-in answers', async () => {
+    account({ liveOutput: 'auto' });
+    liveStreams[0].tv_archive = 0;
+    storageMock.getXtreamOutputFormats.mockReturnValue(['m3u8']);
     fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_streams')) {
-        return Promise.resolve(JSON.stringify([
-          { stream_id: 301, tv_archive: 1, tv_archive_duration: 3 },
-          {
-            stream_id: 302,
-            direct_source: 'https://host/token/abc?x=1&token=old',
-            tv_archive: 1,
-            tv_archive_duration: 4,
-          },
-        ]));
-      }
-      if (url.includes('player_api.php')) {
-        return Promise.resolve(JSON.stringify({ server_info: { timezone: 'UTC' } }));
-      }
-      return Promise.resolve(nonstandard);
+      if (url.includes('action=get_live_streams')) return Promise.resolve(JSON.stringify(liveStreams));
+      if (url.includes('action=get_live_categories')) return Promise.resolve('[]');
+      return new Promise<string>(() => {});
     });
 
     const channels = await PlaylistService.refresh();
 
-    expect(channels.map(channel => channel.catchupStreamId)).toEqual(['301', '302']);
-    expect(channels.map(channel => channel.catchupDays)).toEqual([3, 4]);
-    expect(channels.every(channel => channel.catchup === 'xtream')).toBe(true);
+    expect(channels[0].url).toBe('http://host:8080/live/u1/p1/101.m3u8');
+    expect(storageMock.getXtreamOutputFormats).toHaveBeenCalledWith('x', 'http://host:8080|u1');
   });
 
-  it('drops M3U entries absent from the Live catalog without logging their URLs', async () => {
-    fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_streams')) {
-        return Promise.resolve(JSON.stringify([
-          { stream_id: 101, tv_archive: 0, tv_archive_duration: 0 },
-          { stream_id: 999, tv_archive: 1, tv_archive_duration: 3 },
-        ]));
-      }
-      if (url.includes('player_api.php')) return Promise.resolve('{}');
-      return Promise.resolve(XT);
-    });
+  it("signs in once across Home's check and the channel load", async () => {
+    account({ liveOutput: 'auto' });
+    const playlists = storageMock.getPlaylists() as PlaylistEntry[];
+
+    const check = checkConnections(playlists);
+    const channels = await PlaylistService.refresh();
+
+    expect(await check).toBeNull();
+    expect(channels[0]).toMatchObject({ catchup: 'xtream', catchupTimeZone: 'Etc/GMT-2' });
+    expect(requests(SIGN_IN)).toHaveLength(1);
+    expect(requests(GET_PHP)).toEqual([]);
+    expect(requests(/player_api\.php/)).toHaveLength(3);
+  });
+
+  it('treats a successful empty Live catalog as authoritative', async () => {
+    liveStreams = [];
+    expect(await PlaylistService.refresh()).toEqual([]);
+    expect(requests(GET_PHP)).toEqual([]);
+  });
+
+  it('loads get.php when the Live catalog is unavailable', async () => {
+    liveStreamsBody = '<html>nope</html>';
+    account({ liveOutput: 'auto' });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const channels = await PlaylistService.refresh();
 
-    expect(channels.map(channel => channel.name)).toEqual(['Alpha']);
-    expect(warn.mock.calls.map(args => args.join(' ')).join('\n')).not.toContain('/live/u1/p1/');
-    warn.mockRestore();
+    expect(requests(GET_PHP)).toEqual([
+      'http://host:8080/get.php?username=u1&password=p1&type=m3u_plus&output=m3u8',
+    ]);
+    // With no catalog to tell Live from VOD, nothing is guessed from the URL.
+    expect(channels.map(c => c.name)).toEqual(['Alpha', 'Bravo', 'Movie']);
+    expect(requests(/action=get_live_streams/)).toHaveLength(1);
+    expect(warn).toHaveBeenCalledWith('[Playlist]', expect.any(String),
+      'event=xtream.live_fallback.used', 'load=1', 'reason=catalog_unavailable');
   });
 
-  it('keeps provider-supplied M3U catch-up metadata', async () => {
-    const withCatchup = XT.replace(
-      'tvg-id="a"',
-      'tvg-id="a" catchup="default" catchup-days="3" catchup-source="http://host/archive/{utc}"',
-    );
+  it('fails the source when neither the catalog nor get.php loads', async () => {
+    liveStreamsBody = '<html>nope</html>';
+    playlistBody = new Error('get.php unavailable');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(await PlaylistService.refresh()).toEqual([]);
+    expect(PlaylistService.loadFailed).toBe(true);
+    expect(PlaylistService.playlistTabs).toEqual([{ id: 'x', name: 'Acct' }]);
+  });
+
+  it('uses a usable direct source and drops an unsafe one', async () => {
+    liveStreams[0].direct_source = 'https://host/direct/101';
+    liveStreams[1].direct_source = 'file:///tmp/not-allowed';
+    const channels = await PlaylistService.refresh();
+    expect(channels.map(c => c.url)).toEqual([
+      'https://host/direct/101',
+      'http://host:8080/live/u1/p1/102.ts',
+    ]);
+    expect(channels[0]).toMatchObject({ catchup: 'xtream', catchupStreamId: '101' });
+  });
+
+  it('loads uncategorized live streams when live categories are unsupported', async () => {
     fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_streams')) {
-        return Promise.resolve(JSON.stringify([
-          { stream_id: 101, tv_archive: 1, tv_archive_duration: 7 },
-        ]));
+      if (url.includes('action=get_live_categories')) {
+        return Promise.resolve('<html>unsupported</html>');
       }
-      if (url.includes('player_api.php')) return Promise.resolve('{}');
-      return Promise.resolve(withCatchup);
+      if (url.includes('action=get_live_streams')) return Promise.resolve(JSON.stringify(liveStreams));
+      if (url.includes('player_api.php')) return Promise.resolve(accountBody);
+      return Promise.resolve('#EXTM3U');
     });
+
+    const channels = await PlaylistService.refresh();
+    expect(channels.map(c => c.group)).toEqual([UNCATEGORIZED_GROUP, UNCATEGORIZED_GROUP]);
+  });
+
+  it('pushes the derived xmltv.php EPG URL', async () => {
+    await PlaylistService.refresh();
+    expect(PlaylistService.epgSources.map((source) => source.url)).toEqual([
+      'http://host:8080/xmltv.php?username=u1&password=p1',
+    ]);
+  });
+
+  it('keeps provider-supplied catch-up metadata from a get.php fallback', async () => {
+    liveStreamsBody = '<html>nope</html>';
+    playlistBody = XT.replace(
+      'tvg-id="epg-a"',
+      'tvg-id="epg-a" catchup="default" catchup-days="3" catchup-source="http://host/archive/{utc}"',
+    );
     const channels = await PlaylistService.refresh();
     expect(channels[0]).toMatchObject({
       catchup: 'default',
@@ -893,6 +753,8 @@ https://host/token/abc?token=new&x=1`;
 
   it('keeps one tab for the account even when its feed is unreachable', async () => {
     fetchTextMock.mockRejectedValue(new Error('down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     await PlaylistService.refresh();
     expect(PlaylistService.playlistTabs).toEqual([{ id: 'x', name: 'Acct' }]);
   });
@@ -915,17 +777,12 @@ http://host:8080/live/u1/p1/102.ts`;
     ]);
   }
 
-  function referencesPassed(): string[] | undefined {
-    const streams = vi.mocked(fetchAndParseM3U).mock.calls[0][2];
-    return streams?.map(stream => stream.streamId);
-  }
-
   beforeEach(() => {
     storageMock.liveCategorySnapshots.clear();
     PlaylistService.takeLiveCategoryNotices();
     liveStreams = [
-      { stream_id: 101, category_id: 'c1', tv_archive: 1, tv_archive_duration: 2 },
-      { stream_id: 102, category_id: 'c2', tv_archive: 1, tv_archive_duration: 3 },
+      { stream_id: 101, name: 'Alpha', category_id: 'c1', tv_archive: 1, tv_archive_duration: 2 },
+      { stream_id: 102, name: 'Bravo', category_id: 'c2', tv_archive: 1, tv_archive_duration: 3 },
     ];
     liveStreamsBody = null;
     categoriesBody = JSON.stringify([
@@ -948,35 +805,31 @@ http://host:8080/live/u1/p1/102.ts`;
   it('loads every Live channel without a filter', async () => {
     const channels = await PlaylistService.refresh();
     expect(channels.map(channel => channel.name)).toEqual(['Alpha', 'Bravo']);
-    expect(referencesPassed()).toEqual(['101', '102']);
-    expect(vi.mocked(fetchAndParseM3U).mock.calls[0][5]).toBeUndefined();
+    expect(vi.mocked(fetchAndParseM3U)).not.toHaveBeenCalled();
   });
 
-  it('narrows the Live references to included categories and keeps catch-up', async () => {
+  it('keeps only included categories and their catch-up', async () => {
     account({ mode: 'include', ids: ['c1'] });
 
     const channels = await PlaylistService.refresh();
 
-    expect(referencesPassed()).toEqual(['101']);
     expect(channels.map(channel => channel.name)).toEqual(['Alpha']);
     expect(channels[0]).toMatchObject({
+      group: '  NEWS ',
       catchup: 'xtream',
       catchupStreamId: '101',
       catchupDays: 2,
     });
-    expect(fetchTextMock.mock.calls.some(([url]) =>
-      url.includes('action=get_live_categories'))).toBe(false);
   });
 
   it('drops excluded categories but keeps a stream listed in another category', async () => {
     liveStreams[0].category_ids = ['c1', 'c3'];
-    liveStreams.push({ stream_id: 103, category_id: 'c2', tv_archive: 0 });
+    liveStreams.push({ stream_id: 103, name: 'Charlie', category_id: 'c2', tv_archive: 0 });
     account({ mode: 'exclude', ids: ['c2', 'c1'] });
 
     const channels = await PlaylistService.refresh();
 
     // 101 sits in c3 too, so it survives excluding c1 and c2.
-    expect(referencesPassed()).toEqual(['101']);
     expect(channels.map(channel => channel.name)).toEqual(['Alpha']);
   });
 
@@ -986,7 +839,7 @@ http://host:8080/live/u1/p1/102.ts`;
     expect(channels.map(channel => channel.name)).toEqual(['Alpha', 'Bravo']);
   });
 
-  it('filters by category name when the Live catalog is unavailable', async () => {
+  it('filters get.php by category name when the Live catalog is unavailable', async () => {
     liveStreamsBody = '<html>nope</html>';
     account({ mode: 'include', ids: ['c1'] });
 
@@ -1055,26 +908,6 @@ http://host:8080/live/u1/p1/102.ts`;
       announcedIds: ['c3'],
       counts: { c1: 1, c2: 1 },
     });
-  });
-
-  it('applies the filter to the Player API fallback playlist', async () => {
-    account({ mode: 'include', ids: ['c2'] });
-    fetchTextMock.mockImplementation((url: string) => {
-      if (url.includes('action=get_live_streams')) {
-        return Promise.resolve(JSON.stringify([
-          { stream_id: 201, name: 'Alpha', category_id: 'c1', tv_archive: 0 },
-          { stream_id: 202, name: 'Bravo', category_id: 'c2', tv_archive: 0 },
-        ]));
-      }
-      if (url.includes('action=get_live_categories')) return Promise.resolve(categoriesBody);
-      if (url.includes('player_api.php')) return Promise.resolve('{}');
-      return Promise.resolve('#EXTM3U');
-    });
-
-    const channels = await PlaylistService.refresh();
-
-    expect(channels.map(channel => channel.name)).toEqual(['Bravo']);
-    expect(channels[0].group).toBe('Sports');
   });
 
   it('seeds a snapshot on first load and announces each new category set once', async () => {
@@ -1203,7 +1036,6 @@ http://host:8080/live/u1/p1/102.ts`;
     expect(storageMock.setLiveCategorySnapshot).not.toHaveBeenCalled();
   });
 });
-
 describe('PlaylistService.load', () => {
   it('uses the cached playlist without hitting the network', async () => {
     const cached = [channel({ id: 'a', name: 'Alpha', group: 'News', playlistIds: ['P1'] })];
