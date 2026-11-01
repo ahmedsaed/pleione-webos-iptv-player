@@ -227,6 +227,58 @@ test.describe('catalog detail', () => {
   });
 });
 
+test.describe('Search', () => {
+  test.use({ startOn: 'home' });
+
+  test('results and recent searches start at the right, and Left walks a virtual rail',
+    async ({ page }) => {
+      await seedXtream(page, { catalog: 'large' });
+      await page.addInitScript(() => {
+        localStorage.setItem('iptv_locale', JSON.stringify('ar'));
+        localStorage.setItem('iptv_search_history', JSON.stringify(['one', 'two']));
+      });
+      await page.goto('/');
+      await enterTab(page, 'search');
+      const view = page.locator('#view-search');
+      const chips = view.locator('.search-recent-chip');
+      await expect(chips).toHaveCount(2);
+      expect(rightOf((await chips.nth(0).boundingBox())!, (await chips.nth(1).boundingBox())!)).toBe(true);
+      // The clear button ends the row, on the left.
+      expect(rightOf((await chips.nth(1).boundingBox())!,
+        (await view.locator('[data-history-clear]').boundingBox())!)).toBe(true);
+
+      await view.locator('.search-box-input').fill('Movie 1');
+      const cell = (index: number) =>
+        view.locator(`.search-rail-cell[data-search-section="movies"][data-search-index="${String(index)}"]`);
+      await expect(cell(1)).toBeVisible();
+      const first = (await cell(0).boundingBox())!;
+      expect(rightOf(first, (await cell(1).boundingBox())!)).toBe(true);
+      expect(Math.round(first.x + first.width)).toBe(1920 - 80);
+
+      const focused = async () => JSON.parse(await view.evaluate((el) => {
+        const tile = el.querySelector('.search-rail-cell .focused');
+        const cellEl = tile?.closest('[data-search-index]');
+        const rail = tile?.closest('[data-search-virtual]')?.getBoundingClientRect();
+        const r = tile?.getBoundingClientRect();
+        return JSON.stringify({
+          index: cellEl ? Number(cellEl.getAttribute('data-search-index')) : -1,
+          inside: !!r && !!rail && r.left >= rail.left - 1 && r.right <= rail.right + 1,
+        });
+      })) as { index: number; inside: boolean };
+      await view.locator('.search-box-input').press('ArrowDown');
+      await expect.poll(focused).toEqual({ index: 0, inside: true });
+      for (let i = 1; i <= 12; i++) {
+        await page.keyboard.press('ArrowLeft');
+        await expect.poll(focused).toEqual({ index: i, inside: true });
+      }
+      for (let i = 11; i >= 0; i--) {
+        await page.keyboard.press('ArrowRight');
+        await expect.poll(focused).toEqual({ index: i, inside: true });
+      }
+      expect(Math.round((await cell(0).boundingBox())!.x)).toBe(Math.round(first.x));
+    });
+});
+
 // Four channels in two groups with a guide around 12:00 UTC, in Arabic.
 const LIVE_PLAYLIST = 'http://host/rtl.m3u';
 const LIVE_GUIDE = 'http://host/rtl.xml';
