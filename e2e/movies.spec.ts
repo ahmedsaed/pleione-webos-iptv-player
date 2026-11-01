@@ -446,6 +446,43 @@ test('VOD keys: Left/Right skip 10s shown or hidden, Up/Down show the controls, 
   expect((await dockState(page)).rings).toBe(1);
 });
 
+test('VOD Restart sits left of Play/Pause, centered under the bar, and plays from the start', async ({ page }) => {
+  await startFakeVod(page);
+  // Skip ahead and pause, then step down onto the buttons and Left to Restart.
+  await pressStepsAndReadPlayer(page, [[RIGHT, RIGHT, RIGHT], [ENTER], [DOWN]]);
+  await expect.poll(async () => (await dockState(page)).focused).toBe('dock:playpause');
+  const geometry = await page.evaluate(() => {
+    const box = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+    const row = box('#player-osd .osd-controls');
+    const restart = box('#player-osd [data-dock-action="restart"]');
+    const play = box('#player-osd [data-dock-action="playpause"]');
+    return {
+      rowCenter: (row.left + row.right) / 2,
+      pairCenter: (restart.left + play.right) / 2,
+      restartRight: restart.right, playLeft: play.left,
+      restartSize: [restart.width, restart.height], playSize: [play.width, play.height],
+      midlines: [(restart.top + restart.bottom) / 2, (play.top + play.bottom) / 2],
+    };
+  });
+  expect(Math.abs(geometry.pairCenter - geometry.rowCenter)).toBeLessThanOrEqual(1);
+  expect(geometry.restartRight).toBeLessThan(geometry.playLeft);
+  expect(geometry.restartSize).toEqual(geometry.playSize);
+  expect(geometry.restartSize[0]).toBeGreaterThanOrEqual(76);
+  expect(geometry.midlines[0]).toBeCloseTo(geometry.midlines[1], 0);
+
+  const [moved] = await pressStepsAndReadPlayer(page, [[LEFT]]);
+  expect(moved.paused).toBe(true);
+  expect(moved.currentTime).toBeGreaterThan(0);
+  await expect.poll(() => dockState(page)).toMatchObject({ focused: 'dock:restart', rings: 1 });
+  const [restarted] = await pressStepsAndReadPlayer(page, [[ENTER]]);
+  expect(restarted).toMatchObject({ osd: true, paused: false, currentTime: 0 });
+  // Left stops at Restart; Up from the buttons goes back to the bar.
+  await pressStepsAndReadPlayer(page, [[LEFT]]);
+  await expect.poll(async () => (await dockState(page)).focused).toBe('dock:restart');
+  await pressStepsAndReadPlayer(page, [[UP]]);
+  await expect.poll(async () => (await dockState(page)).focused).toBe('dock:seek');
+});
+
 for (const [label, setting] of [
   ['Interface size 100', null],
   ['Interface size 130', ['iptv_interface_size', '130']],

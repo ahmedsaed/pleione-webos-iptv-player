@@ -673,6 +673,7 @@ describe('Player catch-up completion', () => {
     await flush();
     expect(container.querySelector('video')!.src).toContain('/catchup/');
     expect(player.canSeek()).toBe(true);
+    expect(container.querySelector('[data-dock-action="restart"]')).not.toBeNull();
 
     container.querySelector('video')!.dispatchEvent(new Event('ended'));
     await flush();
@@ -2587,15 +2588,15 @@ describe('Player controls', () => {
       });
 
     it('offers Audio and Subtitles only for a real choice', () => {
-      expect(controls()).toEqual(['playpause']);
+      expect(controls()).toEqual(['restart', 'playpause']);
       internals().tracks.getAudioTracks = () => [{ index: 0 }, { index: 1 }];
       internals().tracks.getSubtitleTracks = () => [{ index: 0 }];
       player.showOSD();
-      expect(controls()).toEqual(['playpause', 'audio', 'subtitles']);
+      expect(controls()).toEqual(['restart', 'playpause', 'audio', 'subtitles']);
       internals().tracks.getAudioTracks = () => [{ index: 0 }];
       internals().tracks.getSubtitleTracks = () => [];
       player.showOSD();
-      expect(controls()).toEqual(['playpause']);
+      expect(controls()).toEqual(['restart', 'playpause']);
     });
   });
 
@@ -2712,13 +2713,25 @@ describe('Player controls', () => {
     const playing = () => (player as unknown as { vod: { itemId: string; previousEpisodes?: QueueItem[];
       episodeQueue?: QueueItem[] } | null }).vod;
 
-    it('disables Previous on the first episode and Next on the last; movies have neither', () => {
+    it('disables Previous on the first episode and Next on the last; movies get Restart instead', () => {
       play(0);
       expect(controls()).toEqual(['previous:disabled', 'playpause', 'next']);
       play(2);
       expect(controls()).toEqual(['previous', 'playpause', 'next:disabled']);
       player.playVod(movie());
-      expect(controls()).toEqual(['playpause']);
+      expect(controls()).toEqual(['restart', 'playpause']);
+    });
+
+    it('restarts a paused movie from the beginning and plays it', () => {
+      video = realVideo();
+      player.init(video);
+      player.playVod(movie({ resumeSecs: 600 }));
+      video.currentTime = 600;
+      Object.defineProperty(video, 'paused', { value: true, configurable: true });
+      (player as unknown as { onDockControl(c: string): void }).onDockControl('restart');
+      expect(video.currentTime).toBe(0);
+      expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
+      expect((player as unknown as { userPaused: boolean }).userPaused).toBe(false);
     });
 
     it('plays the previous episode within the first minute, keeping the queue in order', () => {

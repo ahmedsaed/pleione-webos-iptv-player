@@ -40,6 +40,7 @@ function playback(duration: number, position = 0, paused = false) {
 
 const NO_CONTROLS: PlayerOsdControls = {
   episodes: null,
+  restart: false,
   favorite: null,
   pausable: false,
   audio: false,
@@ -368,6 +369,31 @@ describe('PlayerOsd', () => {
       state = VOD();
       osd.render();
       expect(controls()).toEqual(['playpause']);
+    });
+
+    it('puts Restart before Play/Pause for a movie, in Left/Right order', () => {
+      activeWhenShown = true;
+      state = VOD({ restart: true, audio: true });
+      osd.show();
+      expect(controls()).toEqual(['restart', 'playpause', 'audio']);
+      const center = container.querySelector('.osd-controls-center')!;
+      expect(Array.from(center.querySelectorAll('[data-dock-action]'))
+        .map(el => el.getAttribute('data-dock-action'))).toEqual(['restart', 'playpause']);
+      expect(container.querySelector('[data-dock-action="restart"]')!.getAttribute('aria-label'))
+        .toBe('Play from start');
+
+      expect(osd.move('down')).toBe(true);
+      expect(osd.focused()).toBe('playpause');
+      expect(osd.move('left')).toBe(true);
+      expect(osd.focused()).toBe('restart');
+      expect(osd.move('left')).toBe(false);
+      osd.activateFocused();
+      expect(callbacks.onControl).toHaveBeenCalledWith('restart');
+      expect(osd.move('right')).toBe(true);
+      expect(osd.move('right')).toBe(true);
+      expect(osd.focused()).toBe('audio');
+      expect(osd.move('up')).toBe(true);
+      expect(osd.focused()).toBe('seek');
     });
 
     it('offers Favorite and Channel info on live, with the favorite state pressed', () => {
