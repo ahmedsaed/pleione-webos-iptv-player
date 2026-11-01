@@ -1,6 +1,7 @@
 import type { CatchupInfo, Channel, Programme } from '../types';
 import { StorageService } from '../services/storage-service';
 import { $, hide, html, inShownView, raw, type Safe, show } from '../utils/dom';
+import { inlineStart, isRtl } from '../utils/direction';
 import { type DvrState } from '../utils/dvr';
 import { morph } from '../utils/morph';
 import { formatDuration, formatPosition, formatTime, getProgress } from '../utils/time';
@@ -433,7 +434,8 @@ export class PlayerOsd {
     const hit = rect.width > 0 && x >= rect.left && x <= rect.right &&
       y >= rect.top && y <= rect.bottom;
     if (!hit) return false;
-    this.callbacks.onSeekFraction((x - rect.left) / rect.width);
+    // The bar fills from the row's start: its right edge in right to left.
+    this.callbacks.onSeekFraction((isRtl() ? rect.right - x : x - rect.left) / rect.width);
     return true;
   }
 
@@ -574,7 +576,7 @@ export class PlayerOsd {
       <div class="osd-progress" data-seekbar data-focusable data-key="${KEY_PREFIX}seek">
         <div class="osd-progress-bar" style="width: ${percent}%"></div>
         ${seek ? html`
-          <div class="osd-seek-bubble" style="left: ${percent}%">
+          <div class="osd-seek-bubble" style="${inlineStart()}: ${percent}%">
             <span class="osd-seek-time">${time}</span>
             ${delta ? html`<span class="osd-seek-delta">${delta}</span>` : ''}
           </div>
@@ -680,7 +682,7 @@ export class PlayerOsd {
     const bar = $('.osd-progress-bar', this.container) as HTMLElement | null;
     if (bar) bar.style.width = percent;
     const bubble = $('.osd-seek-bubble', this.container) as HTMLElement | null;
-    if (bubble) bubble.style.left = percent;
+    if (bubble) bubble.style.setProperty(inlineStart(), percent);
     if (position === null) return;
     const current = $('.osd-time-current', this.container);
     if (current) current.textContent = formatPosition(position);

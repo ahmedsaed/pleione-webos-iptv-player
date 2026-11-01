@@ -126,7 +126,9 @@ test.describe('catalog rails', () => {
         await page.keyboard.press('ArrowRight');
         await expect.poll(() => railFocus(page, track)).toEqual({ index: i, inside: true });
       }
-      await expect.poll(async () => (await tiles.nth(0).boundingBox())!.x).toBeCloseTo(first.x, 0);
+      // Back at the start: the unfocused second tile where it began.
+      await expect.poll(async () => Math.abs((await tiles.nth(1).boundingBox())!.x - second.x))
+        .toBeLessThan(1);
     });
 
   test('the virtual All Categories rail starts at the right and scrolls left under the pointer',
@@ -363,6 +365,112 @@ test.describe('Settings', () => {
     });
 });
 
+test.describe('player', () => {
+  test.use({ startOn: 'home' });
+
+  // An Arabic series episode playing in a 1500-second stand-in stream.
+  async function playEpisode(page: Page): Promise<void> {
+    await seedXtream(page);
+    await page.route('**/player_api.php*', (route) => {
+      if (!route.request().url().includes('get_series_info')) return route.fallback();
+      const episode = (id: string, n: number) => ({ id, title: `Episode ${String(n)}`, season: 1,
+        episode_num: n, container_extension: 'mp4', info: { duration_secs: 1500 } });
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+        info: { name: 'Series One' }, episodes: { 1: [episode('11', 1), episode('12', 2), episode('13', 3)] },
+      }) });
+    });
+    await page.addInitScript(() => {
+      localStorage.setItem('iptv_locale', JSON.stringify('ar'));
+      localStorage.setItem('iptv_player_osd_timeout_ms', '12000');
+      const P = HTMLMediaElement.prototype;
+      const times = new WeakMap<HTMLMediaElement, number>();
+      Object.defineProperty(P, 'duration', { configurable: true, get: () => 1500 });
+      Object.defineProperty(P, 'paused', { configurable: true, get: () => false });
+      Object.defineProperty(P, 'currentTime', {
+        configurable: true,
+        get(this: HTMLMediaElement) { return times.get(this) ?? 0; },
+        set(this: HTMLMediaElement, t: number) { times.set(this, t); },
+      });
+    });
+    await page.goto('/');
+    await enterTab(page, 'series');
+    await page.locator('#view-series .catalog-tile[data-item-id="20"]')
+      .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+    await page.keyboard.press('Enter');
+    await page.locator('.episode-card[data-episode-id="12"]')
+      .evaluate((el) => el.dispatchEvent(new CustomEvent('nav:hover', { bubbles: true })));
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#player-osd [data-seekbar]')).toBeVisible();
+  }
+
+  const position = (page: Page) =>
+    page.locator('#video-player').evaluate((v: HTMLVideoElement) => v.currentTime);
+
+  test('the seek bar fills from the right, Left seeks forward, and the controls mirror',
+    async ({ page }) => {
+      await playEpisode(page);
+      const osd = page.locator('#player-osd');
+      await page.locator('#video-player').evaluate((v: HTMLVideoElement) => {
+        v.currentTime = 300;
+        v.dispatchEvent(new Event('timeupdate'));
+      });
+      const bar = (await osd.locator('[data-seekbar]').boundingBox())!;
+      const track = (await osd.locator('.osd-progress-bar').locator('..').boundingBox())!;
+      await expect.poll(async () => {
+        const fill = (await osd.locator('.osd-progress-bar').boundingBox())!;
+        return [Math.abs(fill.x + fill.width - (track.x + track.width)) <= 1,
+          Math.abs(fill.width / track.width - 0.2) < 0.02];
+      }).toEqual([true, true]);
+      // The elapsed time on the right, the duration on the left.
+      expect(rightOf((await osd.locator('.osd-time-current').boundingBox())!, bar)).toBe(true);
+      expect(rightOf(bar, (await osd.locator('.osd-time-end').boundingBox())!)).toBe(true);
+
+      // Left is forward along the mirrored bar, Right back.
+      await page.keyboard.press('ArrowLeft');
+      await expect.poll(() => position(page), { timeout: 5000 }).toBeGreaterThan(300);
+      const forward = await position(page);
+      await page.keyboard.press('ArrowRight');
+      await expect.poll(() => position(page), { timeout: 5000 }).toBeLessThan(forward);
+
+      // A click near the bar's right end seeks near the start.
+      await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+      await page.mouse.click(bar.x + bar.width * 0.9, bar.y + bar.height / 2);
+      await expect.poll(() => position(page), { timeout: 5000 }).toBeLessThan(1500 * 0.2);
+
+      // Previous on the right, Next on the left, Play/Pause centered between.
+      const box = async (action: string) => (await osd.locator(`[data-dock-action="${action}"]`).boundingBox())!;
+      expect(rightOf(await box('previous'), await box('playpause'))).toBe(true);
+      expect(rightOf(await box('playpause'), await box('next'))).toBe(true);
+      // Previous and Next point along the mirrored row; Play does not turn.
+      const flipped = (action: string) => osd.locator(`[data-dock-action="${action}"] svg`).first()
+        .evaluate((svg) => getComputedStyle(svg).transform);
+      expect(await flipped('previous')).toBe('matrix(-1, 0, 0, 1, 0, 0)');
+      expect(await flipped('next')).toBe('matrix(-1, 0, 0, 1, 0, 0)');
+      expect(await flipped('playpause')).toBe('none');
+    });
+
+  test('the track menu opens with Left and sits over the left end of the controls', async ({ page }) => {
+    await playEpisode(page);
+    const osd = page.locator('#player-osd');
+    await page.keyboard.press('ArrowDown');
+    await expect(osd.locator('[data-dock-action="playpause"]')).toHaveClass(/\bfocused\b/);
+    // Left walks the row to its end, the subtitles control on the left.
+    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowLeft');
+    const focused = osd.locator('.focused');
+    await expect(focused).toHaveCount(1);
+    const control = (await focused.boundingBox())!;
+    expect(control.x).toBeLessThan(400);
+    await page.keyboard.press('Enter');
+    const menu = page.locator('#player-menu');
+    await expect(menu).toHaveClass(/visible/);
+    const menuBox = (await menu.boundingBox())!;
+    const dock = (await osd.boundingBox())!;
+    expect(menuBox.x).toBeGreaterThanOrEqual(dock.x - 1);
+    expect(menuBox.x).toBeLessThanOrEqual(control.x + 1);
+    expect(menuBox.x + menuBox.width).toBeLessThan(960);
+  });
+});
+
 // Four channels in two groups with a guide around 12:00 UTC, in Arabic.
 const LIVE_PLAYLIST = 'http://host/rtl.m3u';
 const LIVE_GUIDE = 'http://host/rtl.xml';
@@ -449,6 +557,27 @@ test.describe('Live and Guide', () => {
     await expect(view.locator('.group-item.focused')).toHaveCount(1);
     await page.keyboard.press('ArrowLeft');
     await expect(view.locator('.channel-main .channel-item.focused')).toHaveCount(1);
+  });
+
+  test('in full-screen Live, Right opens the channel list from the right edge', async ({ page }) => {
+    await seedArabicLive(page);
+    await page.goto('/');
+    await expect(page.locator('#view-channels .channel-main .channel-item').first())
+      .toContainText('Program 1A');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#view-player')).toBeVisible();
+    await page.keyboard.press('ArrowRight');
+    const sidebar = page.locator('#player-sidebar');
+    await expect(sidebar).toHaveClass(/\bvisible\b/);
+    // The channel panel shows at the right edge; the groups wait off screen.
+    await expect.poll(async () => {
+      const box = (await sidebar.locator('.sidebar-channel-panel').boundingBox())!;
+      return Math.abs(box.x + box.width - 1920) <= 1;
+    }).toBe(true);
+    await expect(sidebar.locator('.focused')).toHaveCount(1);
+    // Left closes it again: back toward the video.
+    await page.keyboard.press('ArrowLeft');
+    await expect(sidebar).not.toHaveClass(/\bvisible\b/);
   });
 
   test('the Guide runs time from right to left, and Left moves later', async ({ page }) => {

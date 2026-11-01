@@ -514,6 +514,30 @@ describe('Sidebar', () => {
       expect(texts[0].style.getPropertyValue('--scroll-dist')).toBe('');
     });
 
+    it('scrolls a right-to-left name that overflows to the left back to the right', () => {
+      document.documentElement.dir = 'rtl';
+      try {
+        sidebar.show();
+        sidebar.refresh();
+        const name = el.querySelector<HTMLElement>('.ch-name')!;
+        const text = name.querySelector<HTMLElement>('.ch-name-text')!;
+        // Mirrored rows read each name in its own direction.
+        expect(name.getAttribute('dir')).toBe('auto');
+        Object.defineProperty(name, 'offsetWidth', { value: 100, configurable: true });
+        Object.defineProperty(text, 'offsetWidth', { value: 160, configurable: true });
+        Object.defineProperty(name, 'offsetLeft', { value: 200, configurable: true });
+        Object.defineProperty(text, 'offsetLeft', { value: 140, configurable: true });
+
+        (sidebar as unknown as { measureMarquees: () => void }).measureMarquees();
+        vi.advanceTimersByTime(20);
+
+        expect(text.classList.contains('scrolling')).toBe(true);
+        expect(text.style.getPropertyValue('--scroll-dist')).toBe('60px');
+      } finally {
+        document.documentElement.removeAttribute('dir');
+      }
+    });
+
     it('keeps the existing program-name marquee behavior', () => {
       epgMock.nowPlaying = { title: 'Program Alpha' };
       sidebar.refresh();

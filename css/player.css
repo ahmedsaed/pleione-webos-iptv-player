@@ -975,6 +975,7 @@
   font-weight: 700;
 }
 
+/* rtl:ignore -- sidebar.ts signs --scroll-dist for the side the text overflows */
 @keyframes marquee-bounce {
   0%, 15% { transform: translateX(0); }
   45%, 55% { transform: translateX(var(--scroll-dist)); }
