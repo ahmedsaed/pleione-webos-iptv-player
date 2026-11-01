@@ -269,3 +269,165 @@ test('rejects a full Watchlist without replacing saved titles and shows an actio
   expect(rows.some(row => row.value.itemId === '10')).toBe(false);
 });
 
+
+// Hold OK the way a TV remote does: a keydown, auto-repeats, then the keyup.
+async function holdOk(page: Page, ms = 900): Promise<void> {
+  const started = Date.now();
+  await page.keyboard.down('Enter');
+  while (Date.now() - started < ms) {
+    await page.waitForTimeout(80);
+    await page.keyboard.down('Enter');
+  }
+  await page.keyboard.up('Enter');
+}
+
+const continueTiles = (page: Page, section: string) =>
+  page.locator(`#view-${section} [data-rail-key="continue"] .catalog-tile:not(.catalog-see-all)`);
+const menu = (page: Page) => page.locator('.title-menu:not(.hidden)');
+
+// Focus a Continue Watching tile with the keys: the pointer lights the one
+// after it, and Left hands focus to the D-pad.
+async function focusContinueTile(page: Page, section: string, index: number): Promise<void> {
+  const tiles = continueTiles(page, section);
+  await tiles.nth(index + 1).hover();
+  await page.keyboard.press('ArrowLeft');
+  await expect(tiles.nth(index)).toHaveClass(/focused/);
+}
+
+for (const section of ['movies', 'series'] as const) {
+  test(`${section}: a short OK on a Continue Watching tile still opens its title`, async ({ page }) => {
+    await seedCollections(page, 4);
+    await page.goto('/');
+    await enterTab(page, section);
+    await focusContinueTile(page, section, 1);
+    await page.keyboard.press('Enter');
+    await expect(page.locator(`#view-${section} .catalog-layer-detail`)).not.toHaveClass(/catalog-layer-hidden/);
+    await expect(menu(page)).toHaveCount(0);
+  });
+
+  test(`${section}: holding OK on a Continue Watching tile opens its menu and removes the title`, async ({ page }) => {
+    await seedCollections(page, 4);
+    await page.goto('/');
+    await enterTab(page, section);
+    const tiles = continueTiles(page, section);
+    await focusContinueTile(page, section, 1);
+    const neighbor = await tiles.nth(2).getAttribute('data-key');
+
+    await holdOk(page);
+    await expect(menu(page)).toBeVisible();
+    await expect(page.locator(`#view-${section} .catalog-layer-detail`)).toHaveClass(/catalog-layer-hidden/);
+    await expect(menu(page).locator('.focused')).toHaveText('Remove from Continue Watching');
+    await expect(page.locator('.focused:visible')).toHaveCount(1);
+    // The release after the menu opened selects nothing either.
+    await page.waitForTimeout(200);
+    await expect(menu(page)).toBeVisible();
+
+    await page.keyboard.press('Enter');
+    await expect(menu(page)).toHaveCount(0);
+    await expect(page.locator('.toast.visible')).toHaveText('Removed from Continue Watching');
+    await expect(tiles).toHaveCount(3);
+    await expect(tiles.nth(1)).toHaveAttribute('data-key', neighbor!);
+    await expect(tiles.nth(1)).toHaveClass(/focused/);
+    await expect(page.locator('.focused:visible')).toHaveCount(1);
+    await expect(page.locator(`#view-${section} .catalog-layer-detail`)).toHaveClass(/catalog-layer-hidden/);
+  });
+
+  test(`${section}: Back cancels the Continue Watching menu`, async ({ page }) => {
+    await seedCollections(page, 4);
+    await page.goto('/');
+    await enterTab(page, section);
+    const tiles = continueTiles(page, section);
+    await focusContinueTile(page, section, 0);
+    await holdOk(page);
+    await expect(menu(page)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(menu(page)).toHaveCount(0);
+    await expect(tiles).toHaveCount(4);
+    await expect(tiles.first()).toHaveClass(/focused/);
+    await expect(page.locator(`#view-${section} .catalog-layer-detail`)).toHaveClass(/catalog-layer-hidden/);
+    // Cancel on the menu does the same.
+    await holdOk(page);
+    await expect(menu(page)).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await expect(menu(page).locator('.focused')).toHaveText('Cancel');
+    await page.keyboard.press('Enter');
+    await expect(menu(page)).toHaveCount(0);
+    await expect(tiles).toHaveCount(4);
+    await expect(tiles.first()).toHaveClass(/focused/);
+  });
+}
+
+test('removes a title from the Continue Watching See all grid, focusing its neighbor', async ({ page }) => {
+  await seedCollections(page, 12);
+  await page.goto('/');
+  await enterTab(page, 'movies');
+  await page.locator('#view-movies [data-rail-key="continue"] [data-collection-see-all]').click();
+  const tiles = layer(page).locator('.catalog-tile[data-focusable]');
+  await expect(tiles).toHaveCount(12);
+  await tiles.nth(1).hover();
+  await page.keyboard.press('ArrowRight');
+  await expect(tiles.nth(2)).toHaveClass(/focused/);
+  const neighbor = await tiles.nth(3).getAttribute('data-key');
+  await holdOk(page);
+  await expect(menu(page)).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(tiles).toHaveCount(11);
+  await expect(tiles.nth(2)).toHaveAttribute('data-key', neighbor!);
+  await expect(tiles.nth(2)).toHaveClass(/focused/);
+  await expect(page.locator('.focused:visible')).toHaveCount(1);
+});
+
+test('a Magic Remote press held on a Continue Watching tile opens its menu, not the title', async ({ page }) => {
+  await seedCollections(page, 4);
+  await page.goto('/');
+  await enterTab(page, 'movies');
+  const tile = continueTiles(page, 'movies').first();
+  await tile.hover();
+  await page.mouse.down();
+  await page.waitForTimeout(900);
+  await page.mouse.up();
+  await expect(menu(page)).toBeVisible();
+  await page.waitForTimeout(200);
+  await expect(page.locator('#view-movies .catalog-layer-detail')).toHaveClass(/catalog-layer-hidden/);
+  await menu(page).locator('[data-menu-action="remove"]').click();
+  await expect(continueTiles(page, 'movies')).toHaveCount(3);
+  // A plain click still opens a title.
+  await continueTiles(page, 'movies').first().click();
+  await expect(page.locator('#view-movies .catalog-layer-detail')).not.toHaveClass(/catalog-layer-hidden/);
+});
+
+test('a series removed from Continue Watching stays gone after a reload until one of its episodes plays', async ({ page }) => {
+  await seedCollections(page, 4);
+  await page.goto('/');
+  await enterTab(page, 'series');
+  const rail = page.locator('#view-series [data-rail-key="continue"]');
+  const series = rail.locator('[data-resume-episode="episode2"]');
+  await expect(series).toBeVisible();
+  await focusContinueTile(page, 'series', 2);
+  await expect(series).toHaveClass(/focused/);
+  await holdOk(page);
+  await page.keyboard.press('Enter');
+  await expect(series).toHaveCount(0);
+  await expect(continueTiles(page, 'series')).toHaveCount(3);
+  // Persisted, so the reload reads the store without it.
+  await expect.poll(async () => (await readUserDataStore<ResumeEntry>(page, 'playback-progress'))
+    .some(row => row.key === 'resume:x1|episode|episode2')).toBe(false);
+
+  await page.reload();
+  await enterTab(page, 'series');
+  await expect(continueTiles(page, 'series')).toHaveCount(3);
+  await expect(series).toHaveCount(0);
+
+  // Playing an episode of the series brings it back.
+  await page.locator('#view-series [data-rail-key="cat:2"] .catalog-tile[data-item-id="20"]').click();
+  await page.locator('#view-series .episode-card[data-episode-id="11"]').click();
+  await expect(page.locator('#view-player')).toBeVisible();
+  await page.locator('#video-player').evaluate(video => {
+    Object.defineProperty(video, 'duration', { configurable: true, get: () => 600 });
+    Object.defineProperty(video, 'currentTime', { configurable: true, get: () => 200 });
+  });
+  await leaveVod(page);
+  await page.keyboard.press('Escape');
+  await expect(rail.locator('[data-resume-episode="11"]')).toBeVisible();
+  await expect(continueTiles(page, 'series')).toHaveCount(4);
+});

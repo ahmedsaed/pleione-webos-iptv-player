@@ -298,7 +298,8 @@ Open with the **Blue** key or the **Settings** card on Home. Sections:
 Movies, Series, Search, Settings, and Reminder Manager use standard D-pad
 navigation. **Back** always goes up one level: from a detail page to its
 browse page, from a Settings sub-page to Settings, from a section to Home, and
-from Home it closes the app.
+from Home it closes the app. Hold **OK** on a Continue Watching title to
+remove it from the list.
 
 ## Docs
 

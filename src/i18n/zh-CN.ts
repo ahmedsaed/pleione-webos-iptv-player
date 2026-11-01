@@ -144,6 +144,8 @@ export const ZH_CN_MESSAGES = {
   'catalog.playFromStart': '从头播放',
   'catalog.watchlistAdded': '已加入稍后观看',
   'catalog.watchlistRemoved': '已从稍后观看中移除',
+  'catalog.removeFromContinueWatching': '从继续观看中移除',
+  'catalog.continueWatchingRemoved': '已从继续观看中移除',
   'catalog.continueWatchingEmpty': '暂无可继续观看的内容。',
   'catalog.watchlistEmpty': '稍后观看中暂无内容。',
   'catalog.clearContinueWatchingTitle': '清除继续观看？',

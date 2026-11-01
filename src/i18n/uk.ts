@@ -156,6 +156,8 @@ export const UK_MESSAGES = {
   'catalog.playFromStart': 'Дивитися спочатку',
   'catalog.watchlistAdded': 'Додано до «Переглянути пізніше»',
   'catalog.watchlistRemoved': 'Видалено з «Переглянути пізніше»',
+  'catalog.removeFromContinueWatching': 'Видалити з «Продовжити перегляд»',
+  'catalog.continueWatchingRemoved': 'Видалено з «Продовжити перегляд»',
   'catalog.continueWatchingEmpty': 'Немає розпочатих переглядів.',
   'catalog.watchlistEmpty': 'Список «Переглянути пізніше» порожній.',
   'catalog.clearContinueWatchingTitle': 'Очистити «Продовжити перегляд»?',

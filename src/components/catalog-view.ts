@@ -16,6 +16,8 @@ import { html, raw, Safe, withInstantScroll } from '../utils/dom';
 import { categoryLockBadge, lockBadge } from './parental-badge';
 import { SORT_ASCENDING_ICON, SORT_DESCENDING_ICON, SEE_ALL_ICON, CHECK_ICON, PLUS_ICON, STAR_ICON } from './icons';
 import { DetailTextOverlay } from './detail-text-overlay';
+import { TitleMenu } from './title-menu';
+import { showToast } from './toast';
 import { castGradient, castInitials, type CastMember } from '../utils/cast';
 import { genreSet, rankMoreLikeThis } from '../utils/more-like-this';
 import { tmdbProfileUrl, type TmdbPerson } from '../services/tmdb';
@@ -248,6 +250,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
   private lastRevealAt = 0;
   private lastRevealInstant = false;
   private readonly plotOverlay: DetailTextOverlay;
+  private readonly continueMenu: TitleMenu;
   private detailText: { title: string; text: string } | null = null;
   // The action Down left the actions row from, per detail page.
   private lastDetailAction: { detail: string; key: string } | null = null;
@@ -264,6 +267,7 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     this.nav = new SpatialNav(container, (el) => this.onFocusChanged(el), { follow: false });
     this.nav.setRestrict(this.layers.browse);
     this.plotOverlay = new DetailTextOverlay(`prompt.${this.scopeName()}.plot`);
+    this.continueMenu = new TitleMenu(`prompt.${this.scopeName()}.continue`);
     this.focusScope = Focus.register({
       id: `${this.scopeName()}.catalog`,
       root: container,
@@ -298,6 +302,11 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
       const menu = this.openSortMenu();
       if (menu && !menu.contains(e.target as Node)) this.dismissSort(null);
     }, true);
+    // Holding OK (or the pointer) on a Continue Watching tile opens its menu.
+    this.container.addEventListener('nav:longpress', (e: Event) => {
+      const target = (e.target as HTMLElement).closest<HTMLElement>('[data-long-press]');
+      if (target && this.layers[this.mode].contains(target)) this.openContinueMenu(target);
+    });
     // A ring the pointer left stays off; the next key only shows it again.
     this.container.addEventListener('nav:unhover', (e: Event) => {
       if (e.target === this.current()) this.focusScope.conceal();
@@ -1101,6 +1110,36 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     return true;
   }
 
+  private continueEntryOf(el: HTMLElement): ResumeEntry | null {
+    const id = el.dataset.resumeEpisode ?? el.dataset.itemId;
+    return this.resume.filter(entry => entry.itemId === id)[0] ?? null;
+  }
+
+  private openContinueMenu(el: HTMLElement): void {
+    const entry = this.continueEntryOf(el);
+    if (!entry) return;
+    this.place(el, null);
+    this.continueMenu.show({
+      title: this.resumeName(entry),
+      actions: [{ key: 'remove', label: t('catalog.removeFromContinueWatching') }],
+      onAction: () => this.removeFromContinue(entry, el),
+    });
+  }
+
+  // Off the list at once, with focus on the tile that takes its place.
+  private removeFromContinue(entry: ResumeEntry, el: HTMLElement): void {
+    if (!this.account) return;
+    if (this.mode === 'browse') {
+      const rail = el.closest<HTMLElement>('[data-rail-key]');
+      const tiles = rail ? Array.from(rail.querySelectorAll<HTMLElement>('[data-focusable]')) : [];
+      this.browseReturn = { el, railKey: rail?.dataset.railKey ?? '', index: Math.max(0, tiles.indexOf(el)) };
+    }
+    StorageService.removeFromContinueWatching(entry);
+    if (this.mode === 'grid') this.renderGrid();
+    else this.renderBrowse();
+    showToast(t('catalog.continueWatchingRemoved'));
+  }
+
   private leaveCollection(): void {
     this.collection = null;
     this.renderBrowse();
@@ -1864,12 +1903,13 @@ export abstract class CatalogView<C extends { id: string; name: string }, I exte
     else if (this.mode === 'grid') this.renderGrid(false);
   }
 
-  protected tile(item: I, overlay: Safe | '' = ''): Safe {
+  // `longPress`: a Continue Watching tile, whose held OK opens its menu.
+  protected tile(item: I, overlay: Safe | '' = '', longPress = false): Safe {
     const id = this.itemId(item);
     const cat = this.itemCategoryId(item);
     return html`
       <div class="catalog-tile" data-focusable data-key="i:${cat}:${id}"
-           data-item-id="${id}" data-category-id="${cat}">
+           data-item-id="${id}" data-category-id="${cat}" ${raw(longPress ? 'data-long-press' : '')}>
         <div class="catalog-poster-wrap">${this.posterCell(this.itemName(item), this.itemPoster(item))}${
           this.itemLockBadge(cat, id)}${overlay}</div>
         <div class="catalog-tile-name">${this.itemName(item)}</div>

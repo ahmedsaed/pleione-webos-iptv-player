@@ -148,6 +148,8 @@ export const ES_MESSAGES = {
   'catalog.playFromStart': 'Reproducir desde el inicio',
   'catalog.watchlistAdded': 'Agregado a Mi lista',
   'catalog.watchlistRemoved': 'Eliminado de Mi lista',
+  'catalog.removeFromContinueWatching': 'Eliminar de Seguir viendo',
+  'catalog.continueWatchingRemoved': 'Eliminado de Seguir viendo',
   'catalog.continueWatchingEmpty': 'No hay títulos para seguir viendo.',
   'catalog.watchlistEmpty': 'Mi lista está vacía.',
   'catalog.clearContinueWatchingTitle': '¿Borrar Seguir viendo?',

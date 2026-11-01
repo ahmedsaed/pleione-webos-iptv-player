@@ -22,6 +22,8 @@ const log = createLogger('Key');
 const K = CONFIG.KEYS;
 const WHEEL_SCROLL_WINDOW_MS = 1000;
 const HOVER_SYNC_DELAY_MS = 60;
+// How far a held pointer may drift (Magic Remote jitter) and still press.
+const LONG_PRESS_SLOP_PX = 24;
 
 const ACTION_MAP: Record<number, Action> = {
   [K.UP]: 'up',
@@ -63,6 +65,43 @@ let channelCount: (() => number) | null = null;
 let wheelWarmedUp = true;
 let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
 let dispatchingWheel = false;
+
+// OK on a `data-long-press` target waits for its release: a short press
+// selects, and one held LONG_PRESS_MS fires `nav:longpress` on it instead.
+// A held OK repeats its keydown on webOS, which only continues the press.
+interface Hold {
+  target: HTMLElement;
+  startedAt: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  fired: boolean;
+}
+let hold: Hold | null = null;
+
+function longPressTarget(): HTMLElement | null {
+  const owner = Focus.owner();
+  if (!owner || owner.concealed || owner.focusKey === null) return null;
+  const el = owner.element(owner.focusKey);
+  return el && el.hasAttribute('data-long-press') ? el : null;
+}
+
+function fireLongPress(): void {
+  if (!hold || hold.fired) return;
+  if (hold.timer) clearTimeout(hold.timer);
+  hold.timer = null;
+  hold.fired = true;
+  if (hold.target.isConnected) {
+    hold.target.dispatchEvent(new CustomEvent('nav:longpress', { bubbles: true }));
+  }
+}
+
+// The press ended: on release before the threshold, it was a plain OK.
+function endHold(released: boolean): void {
+  const ended = hold;
+  hold = null;
+  if (!ended) return;
+  if (ended.timer) clearTimeout(ended.timer);
+  if (released && !ended.fired && activeHandler) activeHandler('select');
+}
 
 function hasScrollableAncestor(el: Element | null): boolean {
   for (let node: Element | null = el; node && node !== document.body; node = node.parentElement) {
@@ -167,6 +206,24 @@ export const KeyHandler = {
 
       const action = ACTION_MAP[keyCode];
       cancelNumber();
+      if (keyCode === K.ENTER) {
+        if (hold) {
+          e.preventDefault();
+          if (Date.now() - hold.startedAt >= CONFIG.NAVIGATION.LONG_PRESS_MS) fireLongPress();
+          return;
+        }
+        const target = e.repeat ? null : longPressTarget();
+        if (target) {
+          e.preventDefault();
+          hold = {
+            target, startedAt: Date.now(), fired: false,
+            timer: setTimeout(fireLongPress, CONFIG.NAVIGATION.LONG_PRESS_MS),
+          };
+          return;
+        }
+      } else if (hold) {
+        endHold(false);
+      }
       if (action) {
         e.preventDefault();
         setKeyRepeat(e.repeat);
@@ -177,6 +234,49 @@ export const KeyHandler = {
         }
       }
     });
+
+    document.addEventListener('keyup', (e: KeyboardEvent) => {
+      if (e.keyCode !== K.ENTER || !hold) return;
+      e.preventDefault();
+      endHold(true);
+    });
+    window.addEventListener('blur', () => endHold(false));
+
+    // The pointer's own long press: held still on the target, it fires
+    // `nav:longpress` and the click of its release is dropped.
+    let pointerHold: { timer: ReturnType<typeof setTimeout>; x: number; y: number } | null = null;
+    let dropClick = false;
+    const cancelPointerHold = (): void => {
+      if (pointerHold) clearTimeout(pointerHold.timer);
+      pointerHold = null;
+    };
+    document.addEventListener('mousedown', (e: MouseEvent) => {
+      cancelPointerHold();
+      dropClick = false;
+      const target = e.button === 0 && e.target instanceof Element
+        ? e.target.closest<HTMLElement>('[data-long-press]') : null;
+      if (!target) return;
+      pointerHold = {
+        x: e.clientX,
+        y: e.clientY,
+        timer: setTimeout(() => {
+          pointerHold = null;
+          dropClick = true;
+          if (target.isConnected) target.dispatchEvent(new CustomEvent('nav:longpress', { bubbles: true }));
+        }, CONFIG.NAVIGATION.LONG_PRESS_MS),
+      };
+    }, true);
+    document.addEventListener('mousemove', (e: MouseEvent) => {
+      if (pointerHold && Math.abs(e.clientX - pointerHold.x) + Math.abs(e.clientY - pointerHold.y)
+          > LONG_PRESS_SLOP_PX) cancelPointerHold();
+    }, true);
+    document.addEventListener('mouseup', cancelPointerHold, true);
+    document.addEventListener('click', (e: MouseEvent) => {
+      if (!dropClick) return;
+      dropClick = false;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }, true);
 
     // `:hover` outlives a switch to the D-pad while the pointer sits still, so
     // CSS scopes pointer-hover looks to `html:not(.keyboard-nav)`. Compare

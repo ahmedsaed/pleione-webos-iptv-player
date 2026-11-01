@@ -148,6 +148,8 @@ export const PT_BR_MESSAGES = {
   'catalog.playFromStart': 'Assistir do início',
   'catalog.watchlistAdded': 'Adicionado à Minha lista',
   'catalog.watchlistRemoved': 'Removido da Minha lista',
+  'catalog.removeFromContinueWatching': 'Remover de Continuar assistindo',
+  'catalog.continueWatchingRemoved': 'Removido de Continuar assistindo',
   'catalog.continueWatchingEmpty': 'Nenhum título para continuar.',
   'catalog.watchlistEmpty': 'Minha lista está vazia.',
   'catalog.clearContinueWatchingTitle': 'Limpar Continuar assistindo?',

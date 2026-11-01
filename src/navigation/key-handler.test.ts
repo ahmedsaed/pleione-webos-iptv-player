@@ -1147,4 +1147,121 @@ describe('KeyHandler', () => {
       expect(row('b').classList.contains('focused')).toBe(false);
     });
   });
+
+  describe('long press', () => {
+    let tile: HTMLElement;
+    let plain: HTMLElement;
+    let focusKey: string;
+    let onLongPress: ReturnType<typeof vi.fn>;
+    const down = (repeat = false) => document.dispatchEvent(new KeyboardEvent('keydown', {
+      keyCode: K.ENTER, repeat, bubbles: true, cancelable: true,
+    } as KeyboardEventInit));
+    const up = () => document.dispatchEvent(new KeyboardEvent('keyup', {
+      keyCode: K.ENTER, bubbles: true, cancelable: true,
+    } as KeyboardEventInit));
+    const selects = () => handler.mock.calls.filter(call => call[0] === 'select').length;
+
+    beforeEach(() => {
+      const root = document.createElement('div');
+      root.innerHTML = '<div data-focusable data-key="cw" data-long-press></div>'
+        + '<div data-focusable data-key="plain"></div>';
+      document.body.appendChild(root);
+      tile = root.querySelector<HTMLElement>('[data-key="cw"]')!;
+      plain = root.querySelector<HTMLElement>('[data-key="plain"]')!;
+      focusKey = 'cw';
+      const scope = Focus.register({ id: 'long-press', root, defaultKey: () => focusKey });
+      Focus.setBase(() => scope);
+      scope.focus(focusKey, 'key');
+      Focus.flush();
+      onLongPress = vi.fn();
+      root.addEventListener('nav:longpress', onLongPress);
+      Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => null });
+    });
+
+    afterEach(() => {
+      Focus.uninstall();
+      Reflect.deleteProperty(document, 'elementFromPoint');
+    });
+
+    it('selects a long-press target on release, not on press', () => {
+      down();
+      expect(selects()).toBe(0);
+      vi.advanceTimersByTime(CONFIG.NAVIGATION.LONG_PRESS_MS - 100);
+      up();
+      expect(selects()).toBe(1);
+      vi.advanceTimersByTime(CONFIG.NAVIGATION.LONG_PRESS_MS);
+      expect(onLongPress).not.toHaveBeenCalled();
+    });
+
+    it('fires nav:longpress once for a held OK, and no select on its repeats or release', () => {
+      down();
+      for (let i = 0; i < 5; i++) {
+        vi.advanceTimersByTime(100);
+        down(true);
+      }
+      expect(onLongPress).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(CONFIG.NAVIGATION.LONG_PRESS_MS);
+      expect(onLongPress).toHaveBeenCalledTimes(1);
+      expect(onLongPress.mock.calls[0][0].target).toBe(tile);
+      down(true);
+      up();
+      expect(onLongPress).toHaveBeenCalledTimes(1);
+      expect(selects()).toBe(0);
+    });
+
+    it('counts a repeat past the threshold as a long press even before the timer', () => {
+      const now = Date.now();
+      down();
+      vi.setSystemTime(now + CONFIG.NAVIGATION.LONG_PRESS_MS);
+      down(true);
+      expect(onLongPress).toHaveBeenCalledTimes(1);
+      up();
+      expect(selects()).toBe(0);
+    });
+
+    it('selects any other target on press, as before', () => {
+      focusKey = 'plain';
+      Focus.base()!.focus('plain', 'key');
+      Focus.flush();
+      down();
+      expect(selects()).toBe(1);
+      up();
+      expect(selects()).toBe(1);
+      expect(plain.isConnected).toBe(true);
+    });
+
+    it('drops a held OK that another key interrupts', () => {
+      down();
+      press(K.DOWN);
+      vi.advanceTimersByTime(CONFIG.NAVIGATION.LONG_PRESS_MS);
+      up();
+      expect(onLongPress).not.toHaveBeenCalled();
+      expect(selects()).toBe(0);
+      expect(handler).toHaveBeenCalledWith('down');
+    });
+
+    it('fires nav:longpress for a held pointer press and drops the click of its release', () => {
+      tile.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }));
+      vi.advanceTimersByTime(CONFIG.NAVIGATION.LONG_PRESS_MS);
+      expect(onLongPress).toHaveBeenCalledTimes(1);
+      tile.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+      tile.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      vi.runAllTimers();
+      expect(selects()).toBe(0);
+    });
+
+    it('keeps a short pointer press a click, and a press that moves away no long press', () => {
+      tile.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }));
+      tile.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+      tile.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      vi.runAllTimers();
+      expect(onLongPress).not.toHaveBeenCalled();
+      expect(selects()).toBe(1);
+
+      tile.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }));
+      tile.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 200, clientY: 10 }));
+      vi.advanceTimersByTime(CONFIG.NAVIGATION.LONG_PRESS_MS);
+      expect(onLongPress).not.toHaveBeenCalled();
+    });
+  });
 });

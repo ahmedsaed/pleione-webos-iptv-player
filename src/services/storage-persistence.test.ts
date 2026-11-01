@@ -426,6 +426,30 @@ describe('StorageService IndexedDB migration', () => {
     await Stored.clearUserData();
   });
 
+  it('persists a title removed from Continue Watching, a series with all its episodes', async () => {
+    localStorage.clear();
+    vi.resetModules();
+    const { StorageService: Stored } = await import('./storage-service');
+    await Stored.init();
+    await Stored.clearUserData();
+    await Stored.init();
+    const owner = { kind: 'series' as const, itemId: 's1' };
+    Stored.setResume(resumeEntry({ itemId: 'm1' }));
+    Stored.setResume(resumeEntry({ itemId: 'm2' }));
+    Stored.setResume(resumeEntry({ kind: 'episode', itemId: 'e1', watchlistOwner: owner }));
+    Stored.setResume(resumeEntry({ kind: 'episode', itemId: 'e2', watchlistOwner: owner }));
+    Stored.removeFromContinueWatching({ accountId: 'x1', kind: 'vod', itemId: 'm1' });
+    Stored.removeFromContinueWatching({ accountId: 'x1', kind: 'episode', itemId: 'e2', watchlistOwner: owner });
+    await Stored.flush();
+    expect(await resumeKeys()).toEqual(['resume:x1|vod|m2']);
+
+    vi.resetModules();
+    const { StorageService: Relaunched } = await import('./storage-service');
+    await Relaunched.init();
+    expect(Relaunched.getResumeList('x1').map(entry => entry.itemId)).toEqual(['m2']);
+    await Relaunched.clearUserData();
+  });
+
   it('keeps a watched flag in user data across a relaunch, and caps how many it keeps', async () => {
     localStorage.clear();
     vi.resetModules();

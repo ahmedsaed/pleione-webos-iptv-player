@@ -148,6 +148,8 @@ export const DE_MESSAGES = {
   'catalog.playFromStart': 'Von Anfang an abspielen',
   'catalog.watchlistAdded': 'Zur Merkliste hinzugefügt',
   'catalog.watchlistRemoved': 'Von der Merkliste entfernt',
+  'catalog.removeFromContinueWatching': 'Aus „Weiterschauen“ entfernen',
+  'catalog.continueWatchingRemoved': 'Aus „Weiterschauen“ entfernt',
   'catalog.continueWatchingEmpty': 'Keine Titel zum Weiterschauen.',
   'catalog.watchlistEmpty': 'Ihre Merkliste ist leer.',
   'catalog.clearContinueWatchingTitle': '„Weiterschauen“ leeren?',

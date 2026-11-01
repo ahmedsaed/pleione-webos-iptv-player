@@ -183,6 +183,24 @@ describe('StorageService when IndexedDB refuses every write', () => {
     expect(app.storage.isWatched('x1', 'vod', '1499')).toBe(false);
   });
 
+  it('keeps a title removed from Continue Watching gone across a relaunch', async () => {
+    const owner = { kind: 'series' as const, itemId: 's1' };
+    let app = await relaunch();
+    app.storage.setResume(resume);
+    app.storage.setResume({ ...resume, kind: 'episode', itemId: 'e1', watchlistOwner: owner, updatedAt: 900 });
+    app.storage.setResume({ ...resume, kind: 'episode', itemId: 'e2', watchlistOwner: owner, updatedAt: 950 });
+    await app.storage.flush();
+
+    origin = fillOrigin([]);
+    app = await relaunch();
+    app.storage.removeFromContinueWatching(resume);
+    app.storage.removeFromContinueWatching({ accountId: 'x1', kind: 'episode', itemId: 'e2', watchlistOwner: owner });
+    await app.storage.flush();
+
+    app = await relaunch();
+    expect(app.storage.getResumeList('x1')).toEqual([]);
+  });
+
   it('reports a record the fallback cannot hold as a save failure', async () => {
     origin = fillOrigin([]);
     let app = await relaunch();
