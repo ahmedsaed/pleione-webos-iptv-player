@@ -216,7 +216,7 @@ test('a click on the Live card shows the loading state, and the first key shows 
 // Live, rather than waiting behind Home with the load out of sight.
 
 const search = (page: Page) => page.locator('#view-search');
-const searchLoading = (page: Page) => search(page).locator('[data-search-busy="channels"]');
+const searchLoading = (page: Page) => search(page).locator('[data-search-channels="loading"]');
 const settings = (page: Page) => page.locator('#view-settings');
 
 test('Search opens at once while the channels load, and searches them once they do', async ({ page }) => {
@@ -226,10 +226,13 @@ test('Search opens at once while the channels load, and searches them once they 
 
   await expect(search(page)).toBeVisible();
   await expect(page.locator('#view-loading')).toBeHidden();
-  await expect(searchLoading(page)).toHaveText('Loading channels…');
   await expect(page.locator('.search-box-input')).toBeFocused();
+  // Nothing typed yet: no status stands in for results.
+  await expect(searchLoading(page)).toHaveCount(0);
   await page.locator('.search-box-input').fill('two');
-  await expect(searchLoading(page)).toBeVisible();
+  // With no catalog to search, the channels' status is all that shows.
+  await expect(searchLoading(page)).toHaveText('Loading channels…');
+  await expect(search(page).locator('.search-hint')).toHaveCount(0);
 
   gate.release();
   await expect(searchLoading(page)).toHaveCount(0);
@@ -240,6 +243,7 @@ test('Back while Search loads goes Home, and the load does not pull Search back'
   const gate = holdPlaylist(page);
   await openHome(page);
   await enterTab(page, 'search');
+  await page.locator('.search-box-input').fill('two');
   await expect(searchLoading(page)).toBeVisible();
 
   await pressKeys(page, 461);
