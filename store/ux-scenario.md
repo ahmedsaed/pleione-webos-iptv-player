@@ -95,10 +95,12 @@ Instead of typing on the TV, the account can be added from a phone (section 8).
 ### Live
 
 1. Play channel **Alpha**. Press **OK** (or **Yellow**): the controls appear with the channel's
-   name and number, the **NOW** and **NEXT** programs and a progress bar, and the buttons
-   **Play/Pause**, **Toggle Favorite**, **Channel Info**, **Audio Track** and **Subtitles**.
+   name and number, the **NOW** and **NEXT** programs and a progress bar, and a row of buttons:
+   **Toggle Favorite** and **Channel Info** on the left, **Play/Pause** in the middle, and
+   **Audio Track** and **Subtitles** on the right. Small boxes beside the channel name show the
+   stream's resolution, codecs, audio track and subtitles.
 2. Use **Left** / **Right** to move between the buttons and **OK** to press one. **Channel Info**
-   shows the stream's details (resolution, frame rate, codecs, audio track).
+   shows the channel's program details. **Up** hides the controls.
 3. Open **Audio Track** and choose **Track 2**: the tone changes. Open **Subtitles** and choose
    **Track 3**: a caption with the time appears; choose **Off** to remove it.
 4. **Back** hides the controls; **Back** again stops playback and returns to Live.
@@ -108,8 +110,11 @@ Instead of typing on the TV, the account can be added from a phone (section 8).
 1. Play **Movie A** (section 5). **Left** / **Right** skip back and forward (also with the
    controls hidden); **OK** pauses and resumes; **⏪** / **⏩** also skip.
 2. Press **Up** or **Down** to show the controls without pausing: the seek bar is selected, and
-   **Left** / **Right** move along it. Press **Down** to reach the buttons: **Play/Pause**,
-   **Audio Track** and **Subtitles** (and **Previous episode** / **Next episode** for a series).
+   **Left** / **Right** move along it. Press **Down** to reach the buttons: **Play from start**
+   and **Play/Pause** in the middle (for a series, **Previous episode**, **Play/Pause** and
+   **Next episode**), with **Audio Track** and **Subtitles** on the right. **Play from start**
+   restarts the movie. **Up** from the buttons returns to the seek bar, and **Up** again hides
+   the controls. While a movie loads or after a skip, a spinner shows until it plays.
 3. **Audio Track**: choose **Track 2**. **Subtitles**: choose **Track 3** or **Sidecar SRT**, then
    **Off**. **Subtitle Sync** in the same menu shifts the subtitles with **Left** / **Right**.
 4. **Back** hides the controls if they are showing; **Back** again stops playback and returns to
@@ -128,12 +133,18 @@ Instead of typing on the TV, the account can be added from a phone (section 8).
 5. Select **Play**. After a minute, press **Back** (twice if the controls show). The detail page
    now offers **Resume** with the position, and **Play from start**. Select **Resume**: playback
    continues where it stopped. Back on the Movies page, the title is in **Continue Watching**.
-6. On the detail page, press **Down** to **More like this** and **OK** on a title: its detail page
+   **OK** on it there opens its detail page.
+6. To take a title out of **Continue Watching**, **hold OK** on it for about a second: a small
+   menu offers **Remove from Continue Watching** and **Cancel**. Select **Remove from Continue
+   Watching**: the title leaves the row and "Removed from Continue Watching" appears. **Back**
+   closes the menu without removing anything.
+7. On the detail page, press **Down** to **More like this** and **OK** on a title: its detail page
    opens. **Back** returns to the previous page, then to Movies.
-7. From Home, select **Series**, then **OK** on **Series A**. The detail page shows **Play**, the
+8. From Home, select **Series**, then **OK** on **Series A**. The detail page shows **Play**, the
    **Season 1**, **Season 2** … buttons and the **Episodes** row. Choose a season, then **OK** on
-   an episode to play it. After **Back**, the detail page offers **Resume S1 · E1** and **Play
-   from start**.
+   an episode to play it. After **Back**, the detail page offers **Resume S1E1** and **Play from
+   start**. In **Continue Watching**, a series shows once, at the episode watched last; **OK**
+   opens the series' detail page with **Resume** on that episode.
 
 ## 6. Search
 
@@ -152,7 +163,9 @@ Open **Settings** from Home. The pages are listed on the left; press **Right** t
 and **Left** to return to the list. Changes apply with **Save Changes**; **Cancel** discards
 them. **Back** closes an open list first, then goes Home.
 
-1. **General**: **Language** (System, or one of the app's 12 languages); **Set up with your phone
+1. **General**: **Language** (System, or one of the app's 12 languages; in **العربية**
+   (Arabic) the whole interface is laid out right to left, while the player's seek bar and
+   playback buttons keep their usual left-to-right order); **Set up with your phone
    or computer** with the QR code, address and pairing code; **Parental controls** (section 7a).
 2. **Sources**: **Xtream Accounts** (with **Check**), **Playlists**, **Uploaded Playlists**, and
    **Channels** with **Edit Channel List**, **Show hidden channels**, **Reset Customization**
@@ -236,5 +249,6 @@ picture shows its resolution.
    (compatible)** it plays only the 360p variant.
 3. Network loss: unplug the network while a channel plays. The player shows "Reconnecting…" and
    retries; when the network returns, playback resumes or the channel can be played again from
-   Live. A server that cannot be reached at launch shows "Can’t connect to Test" on Home with
+   Live. A movie or episode that stops does the same: "Reconnecting…" shows and it resumes where
+   it stopped, or after three tries an error stays on screen until **Back**. A server that cannot be reached at launch shows "Can’t connect to Test" on Home with
    **Try again** and **Edit account**.
